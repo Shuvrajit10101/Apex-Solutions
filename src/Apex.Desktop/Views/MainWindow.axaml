@@ -26,6 +26,9 @@
         <conv:BoolToWeightConverter x:Key="BoolWeight"/>
         <conv:DrCrLabelConverter x:Key="DrCrLabel"/>
         <conv:BalancedToBrushConverter x:Key="BalancedBrush"/>
+        <conv:UpperConverter x:Key="Upper"/>
+        <conv:SubIndentConverter x:Key="SubIndent"/>
+        <conv:IndentToThicknessConverter x:Key="Indent"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -106,17 +109,29 @@
                             <ItemsControl ItemsSource="{Binding Menu}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:MenuItemViewModel">
-                                        <Border Classes="menuRow"
-                                                Background="{Binding IsSelected, Converter={StaticResource SelBrush}}">
-                                            <Grid ColumnDefinitions="*,Auto">
-                                                <TextBlock Grid.Column="0" Text="{Binding Label}"
-                                                           FontSize="14"
-                                                           Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Hint}"
-                                                           FontSize="11" Foreground="#6A6A6A"
-                                                           VerticalAlignment="Center" Margin="16,0,0,0"/>
-                                            </Grid>
-                                        </Border>
+                                        <Panel>
+                                            <!-- Section header: dim, uppercase, non-selectable -->
+                                            <Border Classes="menuRow" IsVisible="{Binding IsHeader}"
+                                                    Margin="0,7,0,1">
+                                                <TextBlock Text="{Binding Label, Converter={StaticResource Upper}}"
+                                                           FontSize="11" FontWeight="Bold"
+                                                           Foreground="#9098A8"
+                                                           LetterSpacing="1.5"/>
+                                            </Border>
+                                            <!-- Selectable item -->
+                                            <Border Classes="menuRow" IsVisible="{Binding IsSelectable}"
+                                                    Background="{Binding IsSelected, Converter={StaticResource SelBrush}}">
+                                                <Grid ColumnDefinitions="*,Auto"
+                                                      Margin="{Binding IsSubItem, Converter={StaticResource SubIndent}}">
+                                                    <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                                               FontSize="14"
+                                                               Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Hint}"
+                                                               FontSize="11" Foreground="#6A6A6A"
+                                                               VerticalAlignment="Center" Margin="16,0,0,0"/>
+                                                </Grid>
+                                            </Border>
+                                        </Panel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -412,6 +427,55 @@
                                         <TextBlock Grid.Column="2" Text="{Binding Opening}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
                                                    VerticalAlignment="Center" FontSize="12"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- SCREEN: Chart of Accounts (read-only group/ledger tree) -->
+                    <ContentControl IsVisible="{Binding ChartOfAccounts, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ChartOfAccounts}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ChartOfAccountsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,160">
+                                <TextBlock Grid.Column="0" Text="Group / Ledger" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Nature / Opening" Classes="colHdr"
+                                           TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ChartRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,160" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="{Binding Indent, Converter={StaticResource Indent}}"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="12.5"
+                                                   FontWeight="{Binding IsGroup, Converter={StaticResource BoolWeight}}"
+                                                   Foreground="{Binding IsGroup, Converter={StaticResource SelFore}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Detail}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11"
+                                                   Foreground="#6A6A6A"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>

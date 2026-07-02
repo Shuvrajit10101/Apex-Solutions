@@ -1,11 +1,59 @@
 using System;
 using System.Globalization;
+using Avalonia;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Apex.Ledger;
 using Apex.Desktop.ViewModels;
 
 namespace Apex.Desktop.Converters;
+
+/// <summary>Uppercases a string for dim section headers (MASTERS / TRANSACTIONS / REPORTS).</summary>
+public sealed class UpperConverter : IValueConverter
+{
+    public static readonly UpperConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => (value as string)?.ToUpperInvariant() ?? string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>Maps a bool (IsSubItem) to a left-indent margin so submenu children sit under the header.</summary>
+public sealed class SubIndentConverter : IValueConverter
+{
+    public static readonly SubIndentConverter Instance = new();
+
+    private static readonly Thickness Indented = new(18, 0, 0, 0);
+    private static readonly Thickness Flush = new(0);
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Indented : Flush;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>Maps a numeric depth/indent to a left-margin <see cref="Thickness"/> for the account tree.</summary>
+public sealed class IndentToThicknessConverter : IValueConverter
+{
+    public static readonly IndentToThicknessConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var left = value switch
+        {
+            double d => d,
+            int i => i,
+            _ => 0.0,
+        };
+        return new Thickness(left, 0, 0, 0);
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
 
 /// <summary>Maps a <see cref="DrCr"/> value to its short label ("Dr" / "Cr") for combo display.</summary>
 public sealed class DrCrLabelConverter : IValueConverter

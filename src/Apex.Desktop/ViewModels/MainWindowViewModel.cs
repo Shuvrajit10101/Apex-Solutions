@@ -17,6 +17,18 @@ public enum Screen
     Report,
     VoucherEntry,
     LedgerMaster,
+    ChartOfAccounts,
+}
+
+/// <summary>
+/// Which menu the Gateway state machine is currently showing. The Gateway is the root; the
+/// <c>Vouchers</c> and <c>Create</c> submenus push on top of it (Esc pops back to the Gateway).
+/// </summary>
+public enum GatewayMenu
+{
+    Root,
+    Vouchers,
+    Create,
 }
 
 /// <summary>
@@ -51,12 +63,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The ledger-master view model, non-null only while that screen is showing.</summary>
     [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
 
+    /// <summary>The chart-of-accounts tree view model, non-null only while that screen is showing.</summary>
+    [ObservableProperty] private ChartOfAccountsViewModel? _chartOfAccounts;
+
     /// <summary>True on the menu-driven screens (company select, gateway, create company).</summary>
-    public bool IsMenuScreen => Reports is null && VoucherEntry is null && LedgerMaster is null;
+    public bool IsMenuScreen =>
+        Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+
+    /// <summary>Which Gateway menu is showing (Root / Vouchers / Create) — for Esc step-back.</summary>
+    public GatewayMenu CurrentGatewayMenu { get; private set; } = GatewayMenu.Root;
 
     /// <summary>The currently open company (null before one is selected/created).</summary>
     public Company? Company { get; private set; }
@@ -165,36 +185,95 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ShowGateway();
     }
 
-    /// <summary>Shows the Gateway of Apex Solutions menu for the open company.</summary>
+    /// <summary>
+    /// Shows the root Gateway of Apex Solutions menu for the open company — organised into three
+    /// non-selectable section headers (MASTERS / TRANSACTIONS / REPORTS) with the selectable items
+    /// nested under each. "Vouchers" and "Create" open their own submenus; the rest jump straight
+    /// to a screen. Arrow keys skip the headers; Enter only fires on the items.
+    /// </summary>
     public void ShowGateway()
     {
         if (Company is null) { ShowCompanySelect(); return; }
 
         CurrentScreen = Screen.Gateway;
+        CurrentGatewayMenu = GatewayMenu.Root;
         ScreenTitle = "Gateway of Apex Solutions";
         Message = null;
         ClearSubScreens();
         Menu.Clear();
 
-        // Vouchers — the F4–F9 accounting voucher-entry screens.
-        Menu.Add(new MenuItemViewModel("Vouchers — Contra", () => OpenVoucher(VoucherBaseType.Contra), "F4"));
-        Menu.Add(new MenuItemViewModel("Vouchers — Payment", () => OpenVoucher(VoucherBaseType.Payment), "F5"));
-        Menu.Add(new MenuItemViewModel("Vouchers — Receipt", () => OpenVoucher(VoucherBaseType.Receipt), "F6"));
-        Menu.Add(new MenuItemViewModel("Vouchers — Journal", () => OpenVoucher(VoucherBaseType.Journal), "F7"));
-        Menu.Add(new MenuItemViewModel("Vouchers — Sales", () => OpenVoucher(VoucherBaseType.Sales), "F8"));
-        Menu.Add(new MenuItemViewModel("Vouchers — Purchase", () => OpenVoucher(VoucherBaseType.Purchase), "F9"));
+        // ---- MASTERS ----
+        Menu.Add(MenuItemViewModel.Header("Masters"));
+        Menu.Add(new MenuItemViewModel("Create", ShowCreateMenu, "▸", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Chart of Accounts", ShowChartOfAccounts, "", isSubItem: true));
 
-        // Create — masters.
-        Menu.Add(new MenuItemViewModel("Create — Ledger", ShowLedgerMaster, "Alt+C"));
+        // ---- TRANSACTIONS ----
+        Menu.Add(MenuItemViewModel.Header("Transactions"));
+        Menu.Add(new MenuItemViewModel("Vouchers", ShowVouchersMenu, "F4–F9  ▸", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Day Book", () => OpenReport(ReportKind.DayBook), "", isSubItem: true));
 
-        // Reports.
-        Menu.Add(new MenuItemViewModel("Balance Sheet", () => OpenReport(ReportKind.BalanceSheet)));
-        Menu.Add(new MenuItemViewModel("Profit & Loss A/c", () => OpenReport(ReportKind.ProfitAndLoss)));
-        Menu.Add(new MenuItemViewModel("Trial Balance", () => OpenReport(ReportKind.TrialBalance)));
-        Menu.Add(new MenuItemViewModel("Day Book", () => OpenReport(ReportKind.DayBook)));
-        Menu.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect));
+        // ---- REPORTS ----
+        Menu.Add(MenuItemViewModel.Header("Reports"));
+        Menu.Add(new MenuItemViewModel("Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), "", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Profit & Loss A/c", () => OpenReport(ReportKind.ProfitAndLoss), "", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Trial Balance", () => OpenReport(ReportKind.TrialBalance), "", isSubItem: true));
 
-        SetSelected(0);
+        // ---- top-level action: change company ----
+        Menu.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3"));
+
+        SelectFirstSelectable();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// The "Vouchers" submenu (Transactions → Vouchers): the six accounting voucher types, each
+    /// under its F-key. Selecting one opens the VoucherEntry screen for that base type. Esc pops
+    /// back to the root Gateway.
+    /// </summary>
+    public void ShowVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+
+        CurrentScreen = Screen.Gateway;
+        CurrentGatewayMenu = GatewayMenu.Vouchers;
+        ScreenTitle = "Gateway of Apex Solutions — Vouchers";
+        Message = null;
+        ClearSubScreens();
+        Menu.Clear();
+
+        Menu.Add(MenuItemViewModel.Header("Vouchers"));
+        Menu.Add(new MenuItemViewModel("Contra", () => OpenVoucher(VoucherBaseType.Contra), "F4", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Payment", () => OpenVoucher(VoucherBaseType.Payment), "F5", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Receipt", () => OpenVoucher(VoucherBaseType.Receipt), "F6", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Journal", () => OpenVoucher(VoucherBaseType.Journal), "F7", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Sales", () => OpenVoucher(VoucherBaseType.Sales), "F8", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Purchase", () => OpenVoucher(VoucherBaseType.Purchase), "F9", isSubItem: true));
+
+        SelectFirstSelectable();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// The "Create" submenu (Masters → Create): the master-creation entries. Ledger opens the
+    /// Ledger-creation master; Group is offered for parity but reuses the same master screen
+    /// (a lightweight, read-only chart tree already shows the group hierarchy). Esc pops back.
+    /// </summary>
+    public void ShowCreateMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+
+        CurrentScreen = Screen.Gateway;
+        CurrentGatewayMenu = GatewayMenu.Create;
+        ScreenTitle = "Gateway of Apex Solutions — Create";
+        Message = null;
+        ClearSubScreens();
+        Menu.Clear();
+
+        Menu.Add(MenuItemViewModel.Header("Create"));
+        Menu.Add(new MenuItemViewModel("Ledger", ShowLedgerMaster, "Alt+C", isSubItem: true));
+        Menu.Add(new MenuItemViewModel("Group", ShowLedgerMaster, "", isSubItem: true));
+
+        SelectFirstSelectable();
         BuildButtonBar();
     }
 
@@ -260,12 +339,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
-    /// <summary>Nulls the report/voucher/ledger sub-screen view models (mutually exclusive screens).</summary>
+    // =============================================================== screen: chart of accounts
+
+    /// <summary>
+    /// Opens the read-only Chart of Accounts (Masters → Chart of Accounts): the group hierarchy with
+    /// sub-groups nested/indented under their primary parent and ledgers under their group.
+    /// </summary>
+    public void ShowChartOfAccounts()
+    {
+        if (Company is null) return;
+
+        CurrentScreen = Screen.ChartOfAccounts;
+        ClearSubScreens();
+        ChartOfAccounts = new ChartOfAccountsViewModel(Company);
+        ScreenTitle = "Chart of Accounts";
+        Menu.Clear();
+        Message = null;
+        BuildButtonBar();
+    }
+
+    /// <summary>Nulls the report/voucher/ledger/chart sub-screen view models (mutually exclusive screens).</summary>
     private void ClearSubScreens()
     {
         Reports = null;
         VoucherEntry = null;
         LedgerMaster = null;
+        ChartOfAccounts = null;
     }
 
     // =============================================================== form key helpers
@@ -298,18 +397,43 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== keyboard navigation
 
-    /// <summary>Moves the highlight up (arrow Up); wraps to the bottom.</summary>
-    public void MoveUp()
+    /// <summary>Moves the highlight up (arrow Up), skipping non-selectable section headers; wraps.</summary>
+    public void MoveUp() => Step(-1);
+
+    /// <summary>Moves the highlight down (arrow Down), skipping non-selectable section headers; wraps.</summary>
+    public void MoveDown() => Step(+1);
+
+    /// <summary>
+    /// Advances the highlight in the given direction, skipping section headers and wrapping around.
+    /// No-op when the menu has no selectable items.
+    /// </summary>
+    private void Step(int direction)
     {
         if (Menu.Count == 0) return;
-        SetSelected((_selectedIndex - 1 + Menu.Count) % Menu.Count);
+        if (!Menu.Any(m => m.IsSelectable)) return;
+
+        var index = _selectedIndex;
+        for (var i = 0; i < Menu.Count; i++)
+        {
+            index = (index + direction + Menu.Count) % Menu.Count;
+            if (Menu[index].IsSelectable)
+            {
+                SetSelected(index);
+                return;
+            }
+        }
     }
 
-    /// <summary>Moves the highlight down (arrow Down); wraps to the top.</summary>
-    public void MoveDown()
+    /// <summary>Highlights the first selectable item (skipping any leading section header).</summary>
+    private void SelectFirstSelectable()
     {
-        if (Menu.Count == 0) return;
-        SetSelected((_selectedIndex + 1) % Menu.Count);
+        for (var i = 0; i < Menu.Count; i++)
+            if (Menu[i].IsSelectable)
+            {
+                SetSelected(i);
+                return;
+            }
+        SetSelected(0);
     }
 
     /// <summary>
@@ -333,10 +457,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         if (Menu.Count == 0) return;
         if (_selectedIndex < 0 || _selectedIndex >= Menu.Count) return;
-        Menu[_selectedIndex].Activate();
+        var item = Menu[_selectedIndex];
+        if (item.IsSelectable) item.Activate(); // never fire on a section header
     }
 
-    /// <summary>Esc: steps back one screen (Report → Gateway → Company Select).</summary>
+    /// <summary>
+    /// Esc: steps back one level. On a sub-screen (Report/Voucher/Ledger/Chart) → Gateway; inside a
+    /// Gateway submenu (Vouchers/Create) → the root Gateway; on the root Gateway → Company Select.
+    /// </summary>
     public void Back()
     {
         switch (CurrentScreen)
@@ -344,13 +472,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.Report:
             case Screen.VoucherEntry:   // Esc / Alt+X cancels the voucher without saving
             case Screen.LedgerMaster:
+            case Screen.ChartOfAccounts:
                 ShowGateway();
                 break;
             case Screen.CreateCompany:
                 ShowCompanySelect();
                 break;
             case Screen.Gateway:
-                ShowCompanySelect();
+                // Inside a submenu, Esc pops back to the root Gateway; on the root, to Company Select.
+                if (CurrentGatewayMenu != GatewayMenu.Root)
+                    ShowGateway();
+                else
+                    ShowCompanySelect();
                 break;
             case Screen.CompanySelect:
             default:
@@ -361,7 +494,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void SetSelected(int index)
     {
         for (var i = 0; i < Menu.Count; i++)
-            Menu[i].IsSelected = i == index;
+            Menu[i].IsSelected = i == index && Menu[i].IsSelectable;
         _selectedIndex = index;
     }
 
