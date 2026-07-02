@@ -19,7 +19,7 @@ public sealed class LedgerListRow
 }
 
 /// <summary>
-/// The Ledger-creation master (Tally "Create → Ledger", Alt+C): pick a name and an under-group
+/// The Ledger-creation master ("Create → Ledger", Alt+C): pick a name and an under-group
 /// from the 28 predefined groups, create the ledger on the current company, and see it appear in
 /// the list. Persists the company to its <c>.db</c> via <see cref="CompanyStorage.Save"/> on create.
 /// Engine/DB logic stays here (no UI types) so it is headlessly testable.
@@ -78,7 +78,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         }
 
         // Opening balance defaults to 0; the natural side follows the group's nature
-        // (Asset/Expense = Debit, Liability/Income = Credit) — matching Tally's default prompt.
+        // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
         var ledger = new DomainLedger(Guid.NewGuid(), name, SelectedGroup.Id, Money.Zero, openingIsDebit);
 

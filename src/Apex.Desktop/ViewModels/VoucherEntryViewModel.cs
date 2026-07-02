@@ -12,7 +12,7 @@ using DomainLedger = Apex.Ledger.Domain.Ledger;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>
-/// The reusable Tally voucher-entry screen — one view model for Contra (F4), Payment (F5),
+/// The reusable voucher-entry screen — one view model for Contra (F4), Payment (F5),
 /// Receipt (F6), Journal (F7), Sales (F8) and Purchase (F9). It owns the header (voucher-type
 /// name, auto voucher number, date), a grid of Dr/Cr particulars lines, a live balance indicator
 /// (Σ Dr vs Σ Cr — accept is blocked while unbalanced), and a narration field.
@@ -104,7 +104,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         VoucherNumber = _service.NextNumber(type.Id);
         Title = $"{type.Name} Voucher";
 
-        // Seed two starter lines: the first Dr, the second Cr (Tally opens with a By/To pair).
+        // Seed two starter lines: the first Dr, the second Cr (opens with a By/To pair).
         AddLine(DrCr.Debit);
         AddLine(DrCr.Credit);
         Recalculate();

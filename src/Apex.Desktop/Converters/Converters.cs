@@ -7,7 +7,7 @@ using Apex.Desktop.ViewModels;
 
 namespace Apex.Desktop.Converters;
 
-/// <summary>Maps a <see cref="DrCr"/> value to its short Tally label ("Dr" / "Cr") for combo display.</summary>
+/// <summary>Maps a <see cref="DrCr"/> value to its short label ("Dr" / "Cr") for combo display.</summary>
 public sealed class DrCrLabelConverter : IValueConverter
 {
     public static readonly DrCrLabelConverter Instance = new();
@@ -69,6 +69,24 @@ public sealed class SelectedToForegroundConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? Ink : Navy;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps a bool (IsBalanced) to the difference-text foreground: ink when balanced, alert-red when
+/// out of balance — so an unbalanced voucher's difference reads clearly as an error.
+/// </summary>
+public sealed class BalancedToBrushConverter : IValueConverter
+{
+    public static readonly BalancedToBrushConverter Instance = new();
+
+    private static readonly IBrush Ink = new SolidColorBrush(Color.Parse("#1A1A1A"));
+    private static readonly IBrush AlertRed = new SolidColorBrush(Color.Parse("#B00020"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Ink : AlertRed;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

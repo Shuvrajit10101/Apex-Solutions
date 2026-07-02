@@ -4,7 +4,7 @@ namespace Apex.Ledger.Domain;
 /// A transactional account — the thing a voucher line actually posts to
 /// (catalog §3; plan.md §4.1). Opening balance is stored as a magnitude plus a
 /// side (<see cref="OpeningIsDebit"/>), mirroring the fixtures'
-/// <c>{openingBalance, openingSide}</c> shape and Tally's "Opening Balance … Dr/Cr".
+/// <c>{openingBalance, openingSide}</c> shape and the "Opening Balance … Dr/Cr" convention.
 /// </summary>
 public sealed class Ledger
 {

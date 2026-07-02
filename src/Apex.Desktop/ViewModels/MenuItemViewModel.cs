@@ -4,7 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>
-/// One selectable line in a Tally menu (Gateway of Tally, company list, report list).
+/// One selectable line in a menu (Gateway of Apex Solutions, company list, report list).
 /// Carries the display label, an optional right-aligned hint (shortcut/detail), the action to
 /// run on Enter, and a <see cref="IsSelected"/> flag the amber highlight binds to.
 /// </summary>

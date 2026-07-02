@@ -20,7 +20,7 @@ public enum Screen
 }
 
 /// <summary>
-/// The single-window shell view model — the Gateway-of-Tally state machine. Owns the current
+/// The single-window shell view model — the Gateway-of-Apex-Solutions state machine. Owns the current
 /// screen, the keyboard-navigable menu, the open company, the reports view model, and the
 /// right-hand F-key button bar. Kept UI-toolkit-free so it is unit-testable headlessly: a test
 /// can drive "Load Robert Demo → Balance Sheet" purely through this class (design §9 spirit).
@@ -165,13 +165,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ShowGateway();
     }
 
-    /// <summary>Shows the Gateway of Tally menu for the open company.</summary>
+    /// <summary>Shows the Gateway of Apex Solutions menu for the open company.</summary>
     public void ShowGateway()
     {
         if (Company is null) { ShowCompanySelect(); return; }
 
         CurrentScreen = Screen.Gateway;
-        ScreenTitle = "Gateway of Tally";
+        ScreenTitle = "Gateway of Apex Solutions";
         Message = null;
         ClearSubScreens();
         Menu.Clear();
@@ -375,7 +375,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Clear();
 
         // The core accounting F-keys. Report/voucher shortcuts are wired where implemented.
-        ButtonBar.Add(new ButtonBarItem("F1", "Help", () => Message = "Apex Solutions — Tally Prime clone (Phase 1)."));
+        ButtonBar.Add(new ButtonBarItem("F1", "Help", () => Message = "Apex Solutions — accounting (Phase 1)."));
         ButtonBar.Add(new ButtonBarItem("F2", "Date", () => Message = StatusDate));
         ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 

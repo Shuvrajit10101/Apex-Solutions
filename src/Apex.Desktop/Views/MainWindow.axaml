@@ -11,9 +11,9 @@
         x:Name="Root"
         Width="1100" Height="700"
         MinWidth="820" MinHeight="560"
-        Background="{StaticResource TallyCream}"
+        Background="{StaticResource Cream}"
         FontFamily="Consolas, Cascadia Mono, Menlo, monospace"
-        Title="Apex Solutions — Tally Prime Clone">
+        Title="Apex Solutions">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
@@ -25,6 +25,7 @@
         <conv:SelectedToForegroundConverter x:Key="SelFore"/>
         <conv:BoolToWeightConverter x:Key="BoolWeight"/>
         <conv:DrCrLabelConverter x:Key="DrCrLabel"/>
+        <conv:BalancedToBrushConverter x:Key="BalancedBrush"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -35,8 +36,8 @@
         </Style>
         <!-- Button-bar button -->
         <Style Selector="Button.barBtn">
-            <Setter Property="Background" Value="{StaticResource TallyPanel}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource TallyPanelBorder}"/>
+            <Setter Property="Background" Value="{StaticResource Panel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}"/>
             <Setter Property="BorderThickness" Value="0,0,0,1"/>
             <Setter Property="Padding" Value="6,3"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
@@ -45,11 +46,11 @@
             <Setter Property="FontSize" Value="11"/>
         </Style>
         <Style Selector="Button.barBtn:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="{StaticResource TallyAmber}"/>
+            <Setter Property="Background" Value="{StaticResource Amber}"/>
         </Style>
         <!-- Report grid header cell -->
         <Style Selector="TextBlock.colHdr">
-            <Setter Property="Foreground" Value="{StaticResource TallyWhite}"/>
+            <Setter Property="Foreground" Value="{StaticResource AppWhite}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="8,4"/>
@@ -59,43 +60,46 @@
     <Grid RowDefinitions="Auto,Auto,*,Auto">
 
         <!-- ============ TOP BAR (navy) ============ -->
-        <Border Grid.Row="0" Background="{StaticResource TallyNavy}">
+        <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
             <Grid ColumnDefinitions="Auto,*,Auto" Height="34">
-                <TextBlock Grid.Column="0" Text="Apex Solutions  •  TallyPrime Clone"
+                <TextBlock Grid.Column="0" Text="Apex Solutions"
                            Foreground="White" FontWeight="Bold" FontSize="14"
                            VerticalAlignment="Center" Margin="12,0"/>
                 <TextBlock Grid.Column="1" Text="{Binding ScreenTitle}"
                            Foreground="#CFE0FF" FontSize="13"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
                 <TextBlock Grid.Column="2" Text="P: Print   E: Export   M: E-Mail   O: Import"
                            Foreground="#9FB8E0" FontSize="11"
-                           VerticalAlignment="Center" Margin="12,0"/>
+                           VerticalAlignment="Center" Margin="12,0"
+                           TextTrimming="CharacterEllipsis"/>
             </Grid>
         </Border>
 
         <!-- ============ MENU ROW (navy dark) ============ -->
-        <Border Grid.Row="1" Background="{StaticResource TallyNavyDark}" Height="24">
-            <TextBlock Text="Gateway of Tally   —   K: Company   Y: Data   Z: Exchange   G: Go To   O: Import   E: Export   M: Share"
-                       Foreground="#8FA9D6" FontSize="11" VerticalAlignment="Center" Margin="12,0"/>
+        <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Height="24">
+            <TextBlock Text="Gateway of Apex Solutions   —   K: Company   Y: Data   Z: Exchange   G: Go To   O: Import   E: Export   M: Share"
+                       Foreground="#8FA9D6" FontSize="11" VerticalAlignment="Center" Margin="12,0"
+                       TextTrimming="CharacterEllipsis"/>
         </Border>
 
         <!-- ============ BODY: work area + right button bar ============ -->
         <Grid Grid.Row="2" ColumnDefinitions="*,168">
 
             <!-- CENTRAL CREAM WORK AREA -->
-            <Border Grid.Column="0" Background="{StaticResource TallyCream}" Margin="6">
+            <Border Grid.Column="0" Background="{StaticResource Cream}" Margin="6">
                 <Panel>
 
                     <!-- SCREEN: Company Select / Gateway / (menu-based screens) -->
                     <Grid IsVisible="{Binding IsMenuScreen}" RowDefinitions="Auto,*,Auto">
                         <TextBlock Grid.Row="0" Text="{Binding ScreenTitle}"
                                    FontSize="16" FontWeight="Bold"
-                                   Foreground="{StaticResource TallyNavy}"
+                                   Foreground="{StaticResource BrandNavy}"
                                    HorizontalAlignment="Center" Margin="0,18,0,10"/>
 
                         <!-- The keyboard-navigable menu (centred vertical list) -->
                         <Border Grid.Row="1"
-                                BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                 Background="White"
                                 HorizontalAlignment="Center" VerticalAlignment="Top"
                                 Margin="0,10" MinWidth="420" Padding="0,8">
@@ -121,25 +125,25 @@
                         <!-- Create-company inline form -->
                         <Border Grid.Row="1"
                                 IsVisible="{Binding CurrentScreen, Converter={StaticResource ScreenEquals}, ConverterParameter=CreateCompany}"
-                                Background="White" BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                 HorizontalAlignment="Center" VerticalAlignment="Top"
                                 Margin="0,10" Width="460" Padding="18">
                             <StackPanel Spacing="10">
-                                <TextBlock Text="Name" FontWeight="SemiBold" Foreground="{StaticResource TallyNavy}"/>
+                                <TextBlock Text="Name" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                 <TextBox x:Name="CompanyNameBox" Text="{Binding NewCompanyName, Mode=TwoWay}"
                                          PlaceholderText="e.g. Acme Traders" FontSize="14"/>
                                 <TextBlock Text="Financial year begins 1-Apr; base currency ₹ INR (Phase 1 defaults)."
                                            FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
                                 <Button Content="Create (Ctrl+A)" HorizontalAlignment="Right"
                                         Click="OnCreateCompanyClick"
-                                        Background="{StaticResource TallyNavy}" Foreground="White" Padding="14,6"/>
+                                        Background="{StaticResource BrandNavy}" Foreground="White" Padding="14,6"/>
                             </StackPanel>
                         </Border>
 
                         <!-- Message / hint line -->
                         <TextBlock Grid.Row="2" Text="{Binding Message}"
                                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                   Foreground="{StaticResource TallyRed}" FontSize="12"
+                                   Foreground="{StaticResource AlertRed}" FontSize="12"
                                    HorizontalAlignment="Center" Margin="0,6,0,14" TextWrapping="Wrap"/>
                     </Grid>
 
@@ -150,14 +154,14 @@
                         <DataTemplate x:DataType="vm:ReportsViewModel">
                         <Grid RowDefinitions="Auto,Auto,Auto,*">
                         <TextBlock Grid.Row="0" Text="{Binding Title}"
-                                   FontSize="16" FontWeight="Bold" Foreground="{StaticResource TallyNavy}"
+                                   FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                    HorizontalAlignment="Center" Margin="0,12,0,2"/>
                         <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                    FontSize="12" Foreground="#555555"
                                    HorizontalAlignment="Center" Margin="0,0,0,10"/>
 
                         <!-- Column header band (navy) -->
-                        <Border Grid.Row="2" Background="{StaticResource TallyNavy}">
+                        <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
                             <Grid ColumnDefinitions="*,150,150">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
                                 <!-- Two-column (Dr/Cr) mode -->
@@ -175,7 +179,7 @@
                             <ItemsControl ItemsSource="{Binding Rows}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:ReportRow">
-                                        <Border BorderBrush="{StaticResource TallyGridLine}" BorderThickness="0,0,0,1"
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Background="Transparent">
                                             <Grid ColumnDefinitions="*,150,150" Height="24">
                                                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
@@ -187,16 +191,21 @@
                                                                FontSize="10.5" Foreground="#8A8A8A"
                                                                VerticalAlignment="Center"/>
                                                 </StackPanel>
+                                                <!-- Two-column (Dr/Cr) mode: Debit + Credit both visible -->
                                                 <TextBlock Grid.Column="1" Text="{Binding Debit}"
                                                            TextAlignment="Right" Margin="0,0,10,0"
+                                                           IsVisible="{Binding IsTwoColumn}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                                 <TextBlock Grid.Column="2" Text="{Binding Credit}"
                                                            TextAlignment="Right" Margin="0,0,10,0"
+                                                           IsVisible="{Binding IsTwoColumn}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
+                                                <!-- Single-amount mode: Amount occupies column 2 alone -->
                                                 <TextBlock Grid.Column="2" Text="{Binding Amount}"
                                                            TextAlignment="Right" Margin="0,0,10,0"
+                                                           IsVisible="{Binding !IsTwoColumn}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                             </Grid>
@@ -218,7 +227,7 @@
                           <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="4">
 
                             <!-- Header: type + auto number + date -->
-                            <Border Grid.Row="0" Background="{StaticResource TallyNavy}" Padding="10,6">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}" Padding="10,6">
                               <Grid ColumnDefinitions="*,Auto,Auto">
                                 <TextBlock Grid.Column="0" Text="{Binding TypeName}"
                                            Foreground="White" FontWeight="Bold" FontSize="15"
@@ -234,7 +243,7 @@
                             </Border>
 
                             <!-- Column header band -->
-                            <Border Grid.Row="1" Background="{StaticResource TallyNavyDark}" Margin="0,6,0,0">
+                            <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
                               <Grid ColumnDefinitions="*,90,160,40">
                                 <TextBlock Grid.Column="0" Text="Particulars (Ledger)" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Dr/Cr" Classes="colHdr"/>
@@ -250,7 +259,7 @@
                               <ItemsControl ItemsSource="{Binding Lines}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:VoucherLineViewModel">
-                                    <Border BorderBrush="{StaticResource TallyGridLine}" BorderThickness="0,0,0,1"
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                             Padding="6,4">
                                       <Grid ColumnDefinitions="*,90,160,40">
                                         <ComboBox Grid.Column="0" MinWidth="200"
@@ -287,12 +296,12 @@
                             <!-- Add-line -->
                             <Button Grid.Row="4" Content="+ Add line" HorizontalAlignment="Left"
                                     Margin="0,6" Padding="10,4"
-                                    Background="{StaticResource TallyPanel}"
+                                    Background="{StaticResource Panel}"
                                     Click="OnAddVoucherLineClick"/>
 
                             <!-- Live balance indicator -->
-                            <Border Grid.Row="5" Background="{StaticResource TallyCream}"
-                                    BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                            <Border Grid.Row="5" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10,6" Margin="0,2">
                               <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                                 <TextBlock Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center">
@@ -300,7 +309,9 @@
                                 </TextBlock>
                                 <TextBlock Grid.Column="1" Text="{Binding DifferenceText}"
                                            VerticalAlignment="Center" Margin="4,0"
-                                           Foreground="{Binding IsBalanced, Converter={StaticResource SelFore}}"/>
+                                           TextTrimming="CharacterEllipsis"
+                                           FontWeight="{Binding !IsBalanced, Converter={StaticResource BoolWeight}}"
+                                           Foreground="{Binding IsBalanced, Converter={StaticResource BalancedBrush}}"/>
                                 <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="12,0" FontSize="12">
                                   <Run Text="Dr "/><Run Text="{Binding TotalDebitText}"/>
                                 </TextBlock>
@@ -317,13 +328,13 @@
                               <Grid ColumnDefinitions="*,Auto,Auto">
                                 <TextBlock Grid.Column="0" Text="{Binding Message}"
                                            IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                           Foreground="{StaticResource TallyRed}" FontSize="12"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12"
                                            VerticalAlignment="Center" TextWrapping="Wrap"/>
                                 <Button Grid.Column="1" Content="Cancel (Esc)" Margin="0,0,8,0" Padding="12,6"
                                         Click="OnCancelVoucherClick"/>
                                 <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
                                         IsEnabled="{Binding CanAccept}"
-                                        Background="{StaticResource TallyNavy}" Foreground="White"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
                                         Click="OnAcceptVoucherClick"/>
                               </Grid>
                             </StackPanel>
@@ -339,23 +350,23 @@
                         <DataTemplate x:DataType="vm:LedgerMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="Ledger Creation"
-                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource TallyNavy}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
                             <!-- Create form -->
                             <Border Grid.Row="1" Background="White"
-                                    BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10">
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource TallyNavy}"/>
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. State Bank of India"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="90,*">
                                   <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource TallyNavy}"/>
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Groups}"
                                             SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
@@ -370,17 +381,17 @@
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Message}"
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                             Foreground="{StaticResource TallyRed}" FontSize="12"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
                                   <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
-                                          Background="{StaticResource TallyNavy}" Foreground="White"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateLedgerClick"/>
                                 </Grid>
                               </StackPanel>
                             </Border>
 
                             <!-- Existing ledgers header -->
-                            <Border Grid.Row="2" Background="{StaticResource TallyNavy}">
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
                               <Grid ColumnDefinitions="*,200,140">
                                 <TextBlock Grid.Column="0" Text="Ledger" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
@@ -392,7 +403,7 @@
                               <ItemsControl ItemsSource="{Binding Existing}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:LedgerListRow">
-                                    <Border BorderBrush="{StaticResource TallyGridLine}" BorderThickness="0,0,0,1">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,200,140" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
@@ -415,8 +426,8 @@
             </Border>
 
             <!-- RIGHT BUTTON BAR -->
-            <Border Grid.Column="1" Background="{StaticResource TallyPanel}"
-                    BorderBrush="{StaticResource TallyPanelBorder}" BorderThickness="1,0,0,0">
+            <Border Grid.Column="1" Background="{StaticResource Panel}"
+                    BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding ButtonBar}">
                         <ItemsControl.ItemTemplate>
@@ -424,10 +435,11 @@
                                 <Button Classes="barBtn" Command="{Binding Invoke}" IsEnabled="{Binding Enabled}">
                                     <Grid ColumnDefinitions="34,*">
                                         <TextBlock Grid.Column="0" Text="{Binding Key}"
-                                                   Foreground="{StaticResource TallyRed}" FontWeight="Bold"
+                                                   Foreground="{StaticResource AlertRed}" FontWeight="Bold"
                                                    FontSize="11"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Caption}"
-                                                   Foreground="{StaticResource TallyInk}" FontSize="11"/>
+                                                   Foreground="{StaticResource Ink}" FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"/>
                                     </Grid>
                                 </Button>
                             </DataTemplate>
@@ -438,9 +450,10 @@
         </Grid>
 
         <!-- ============ STATUS BAR (navy) ============ -->
-        <Border Grid.Row="3" Background="{StaticResource TallyNavy}" Height="26">
+        <Border Grid.Row="3" Background="{StaticResource BrandNavy}" Height="26">
             <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF">
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF"
+                           TextTrimming="CharacterEllipsis">
                     <Run Text="Company: "/><Run Text="{Binding StatusCompany}"/>
                 </TextBlock>
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF">
