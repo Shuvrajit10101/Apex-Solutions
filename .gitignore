@@ -30,12 +30,28 @@ project.lock.json
 dotnet-install.sh
 global.json.bak
 
-# SQLite databases and their WAL/SHM/journal siblings
+# SQLite databases and their WAL/SHM/journal siblings.
+# WARNING: git patterns like `*.sqlite` are slashless, so git matches them
+# against EVERY path component — including directory names. A bare `*.sqlite`
+# therefore ignores the entire `src/Apex.Persistence.Sqlite/` source tree
+# (Schema.cs, SqliteCompanyStore.cs, Paisa.cs, .csproj), silently keeping the
+# persistence project out of the repo. The runtime DB files use the `.db`
+# extension (one .db per company), which `*.db`/`*.db-*` already cover, so the
+# bare `*.sqlite` rule is dropped. The re-include below is a belt-and-braces
+# guard: even if a `*.sqlite`-style rule is reintroduced, the source dir stays
+# tracked. Actual `*.sqlite`/`*.sqlite3` DB files are still ignored elsewhere.
 *.db
 *.db-*
-*.sqlite
 *.sqlite3
 *.sqlite-*
+# Never let a DB-file glob swallow the persistence source directory.
+!src/Apex.Persistence.Sqlite/
+!src/Apex.Persistence.Sqlite/**
+# ...but keep build output and any DB files inside it ignored.
+src/Apex.Persistence.Sqlite/bin/
+src/Apex.Persistence.Sqlite/obj/
+src/Apex.Persistence.Sqlite/**/*.db
+src/Apex.Persistence.Sqlite/**/*.sqlite
 
 # Rider / ReSharper
 _ReSharper*/
