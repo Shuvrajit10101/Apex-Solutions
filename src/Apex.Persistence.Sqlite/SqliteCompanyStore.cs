@@ -159,6 +159,22 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return company;
     }
 
+    /// <summary>
+    /// Reads the ids and names of all companies stored in this database file. In the one-db-per-company
+    /// model this is normally a single row, but the method returns all rows so a UI can list them without
+    /// knowing the company id in advance.
+    /// </summary>
+    public IReadOnlyList<(Guid Id, string Name)> ListCompanies()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT id, name FROM companies ORDER BY rowid;";
+        using var r = cmd.ExecuteReader();
+        var list = new List<(Guid, string)>();
+        while (r.Read())
+            list.Add((Guid.Parse(r.GetString(0)), r.GetString(1)));
+        return list;
+    }
+
     /// <inheritdoc />
     public void Save(Company company)
     {

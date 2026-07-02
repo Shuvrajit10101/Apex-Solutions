@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -8,8 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <!-- Embed the Robert demo dataset so the app never depends on the tests/ folder at runtime. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\robert.json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,5 +30,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Apex.Ledger\Apex.Ledger.csproj" />
+    <ProjectReference Include="..\Apex.Persistence.Sqlite\Apex.Persistence.Sqlite.csproj" />
   </ItemGroup>
 </Project>
