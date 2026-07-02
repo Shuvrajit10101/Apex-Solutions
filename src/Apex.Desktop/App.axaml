@@ -9,29 +9,29 @@
     </Application.DataTemplates>
 
     <Application.Resources>
-        <!-- Tally Prime palette -->
-        <Color x:Key="TallyNavyColor">#1B3A6B</Color>
-        <Color x:Key="TallyNavyDarkColor">#142C52</Color>
-        <Color x:Key="TallyPanelColor">#E8E8E8</Color>
-        <Color x:Key="TallyPanelBorderColor">#B8B8B8</Color>
-        <Color x:Key="TallyCreamColor">#FDFDF5</Color>
-        <Color x:Key="TallyAmberColor">#FFD54F</Color>
-        <Color x:Key="TallyAmberBorderColor">#E0A400</Color>
-        <Color x:Key="TallyInkColor">#1A1A1A</Color>
-        <Color x:Key="TallyGridLineColor">#D2D2C4</Color>
-        <Color x:Key="TallyRedColor">#B00020</Color>
+        <!-- Apex Solutions palette -->
+        <Color x:Key="BrandNavyColor">#1B3A6B</Color>
+        <Color x:Key="BrandNavyDarkColor">#142C52</Color>
+        <Color x:Key="PanelColor">#E8E8E8</Color>
+        <Color x:Key="PanelBorderColor">#B8B8B8</Color>
+        <Color x:Key="CreamColor">#FDFDF5</Color>
+        <Color x:Key="AmberColor">#FFD54F</Color>
+        <Color x:Key="AmberBorderColor">#E0A400</Color>
+        <Color x:Key="InkColor">#1A1A1A</Color>
+        <Color x:Key="GridLineColor">#D2D2C4</Color>
+        <Color x:Key="AlertRedColor">#B00020</Color>
 
-        <SolidColorBrush x:Key="TallyNavy" Color="{StaticResource TallyNavyColor}"/>
-        <SolidColorBrush x:Key="TallyNavyDark" Color="{StaticResource TallyNavyDarkColor}"/>
-        <SolidColorBrush x:Key="TallyPanel" Color="{StaticResource TallyPanelColor}"/>
-        <SolidColorBrush x:Key="TallyPanelBorder" Color="{StaticResource TallyPanelBorderColor}"/>
-        <SolidColorBrush x:Key="TallyCream" Color="{StaticResource TallyCreamColor}"/>
-        <SolidColorBrush x:Key="TallyAmber" Color="{StaticResource TallyAmberColor}"/>
-        <SolidColorBrush x:Key="TallyAmberBorder" Color="{StaticResource TallyAmberBorderColor}"/>
-        <SolidColorBrush x:Key="TallyInk" Color="{StaticResource TallyInkColor}"/>
-        <SolidColorBrush x:Key="TallyGridLine" Color="{StaticResource TallyGridLineColor}"/>
-        <SolidColorBrush x:Key="TallyRed" Color="{StaticResource TallyRedColor}"/>
-        <SolidColorBrush x:Key="TallyWhite" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="BrandNavy" Color="{StaticResource BrandNavyColor}"/>
+        <SolidColorBrush x:Key="BrandNavyDark" Color="{StaticResource BrandNavyDarkColor}"/>
+        <SolidColorBrush x:Key="Panel" Color="{StaticResource PanelColor}"/>
+        <SolidColorBrush x:Key="PanelBorder" Color="{StaticResource PanelBorderColor}"/>
+        <SolidColorBrush x:Key="Cream" Color="{StaticResource CreamColor}"/>
+        <SolidColorBrush x:Key="Amber" Color="{StaticResource AmberColor}"/>
+        <SolidColorBrush x:Key="AmberBorder" Color="{StaticResource AmberBorderColor}"/>
+        <SolidColorBrush x:Key="Ink" Color="{StaticResource InkColor}"/>
+        <SolidColorBrush x:Key="GridLine" Color="{StaticResource GridLineColor}"/>
+        <SolidColorBrush x:Key="AlertRed" Color="{StaticResource AlertRedColor}"/>
+        <SolidColorBrush x:Key="AppWhite" Color="#FFFFFF"/>
     </Application.Resources>
 
     <Application.Styles>

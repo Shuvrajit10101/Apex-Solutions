@@ -10,7 +10,7 @@ namespace Apex.Desktop.ViewModels;
 
 /// <summary>
 /// One Dr/Cr particulars line in the voucher-entry grid: the picked ledger, the side
-/// (Debit/Credit — Tally's Dr/By and Cr/To), and the amount typed as text. Parsing/validation
+/// (Debit/Credit — Dr/By and Cr/To), and the amount typed as text. Parsing/validation
 /// is deferred to the parent <see cref="VoucherEntryViewModel"/>; this class only holds the
 /// editable state and raises change notifications so the live balance updates as the user types.
 /// </summary>

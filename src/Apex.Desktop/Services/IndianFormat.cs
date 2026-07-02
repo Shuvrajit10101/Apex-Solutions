@@ -5,9 +5,9 @@ using Apex.Ledger;
 namespace Apex.Desktop.Services;
 
 /// <summary>
-/// Indian-numbering-system money formatting (lakh/crore grouping) for the Tally-style
+/// Indian-numbering-system money formatting (lakh/crore grouping) for the
 /// right-aligned amount columns, e.g. 105000 → "1,05,000.00". A zero renders blank to
-/// match Tally's empty-cell convention in report grids.
+/// match the empty-cell convention in report grids.
 /// </summary>
 public static class IndianFormat
 {

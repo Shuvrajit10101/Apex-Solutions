@@ -21,7 +21,7 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
-        // Ctrl+A saves/accepts (Tally accept shortcut) — create company, accept voucher, or create ledger.
+        // Ctrl+A saves/accepts (accept shortcut) — create company, accept voucher, or create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             vm.ActivateSelected();
@@ -29,7 +29,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Alt+X cancels the in-progress voucher/ledger without saving (Tally cancel).
+        // Alt+X cancels the in-progress voucher/ledger without saving (cancel shortcut).
         if (e.Key == Key.X && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
             vm.CancelVoucher();

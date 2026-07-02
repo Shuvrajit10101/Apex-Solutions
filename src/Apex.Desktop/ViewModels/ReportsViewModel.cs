@@ -20,7 +20,7 @@ public enum ReportKind
 }
 
 /// <summary>
-/// Builds the Tally-styled report content for the current company, reading the numbers
+/// Builds the report content for the current company, reading the numbers
 /// straight from the <see cref="Apex.Ledger.Reports"/> pure projections. The as-of date is the
 /// last voucher date (or the financial-year end when there are no vouchers), so a freshly loaded
 /// demo shows its full picture. Exposes the row lists the report views bind to.
