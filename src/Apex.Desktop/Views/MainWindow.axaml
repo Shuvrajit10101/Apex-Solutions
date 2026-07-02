@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Apex.Desktop.ViewModels"
         xmlns:conv="using:Apex.Desktop.Converters"
+        xmlns:ledger="using:Apex.Ledger.Domain"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
@@ -23,6 +24,7 @@
         <conv:SelectedToBrushConverter x:Key="SelBrush"/>
         <conv:SelectedToForegroundConverter x:Key="SelFore"/>
         <conv:BoolToWeightConverter x:Key="BoolWeight"/>
+        <conv:DrCrLabelConverter x:Key="DrCrLabel"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -85,7 +87,7 @@
                 <Panel>
 
                     <!-- SCREEN: Company Select / Gateway / (menu-based screens) -->
-                    <Grid IsVisible="{Binding !Reports}" RowDefinitions="Auto,*,Auto">
+                    <Grid IsVisible="{Binding IsMenuScreen}" RowDefinitions="Auto,*,Auto">
                         <TextBlock Grid.Row="0" Text="{Binding ScreenTitle}"
                                    FontSize="16" FontWeight="Bold"
                                    Foreground="{StaticResource TallyNavy}"
@@ -204,6 +206,208 @@
                             </ItemsControl>
                         </ScrollViewer>
                         </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- SCREEN: Voucher entry (Contra/Payment/Receipt/Journal/Sales/Purchase) -->
+                    <ContentControl IsVisible="{Binding VoucherEntry, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding VoucherEntry}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:VoucherEntryViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="4">
+
+                            <!-- Header: type + auto number + date -->
+                            <Border Grid.Row="0" Background="{StaticResource TallyNavy}" Padding="10,6">
+                              <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Text="{Binding TypeName}"
+                                           Foreground="White" FontWeight="Bold" FontSize="15"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
+                                           VerticalAlignment="Center" Margin="0,0,18,0">
+                                  <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                </TextBlock>
+                                <TextBox Grid.Column="2" Width="140"
+                                         Text="{Binding DateText, Mode=TwoWay}"
+                                         FontSize="12" VerticalAlignment="Center"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Column header band -->
+                            <Border Grid.Row="1" Background="{StaticResource TallyNavyDark}" Margin="0,6,0,0">
+                              <Grid ColumnDefinitions="*,90,160,40">
+                                <TextBlock Grid.Column="0" Text="Particulars (Ledger)" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Dr/Cr" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="2" Text="" />
+
+                            <!-- Particulars grid: Dr/Cr lines -->
+                            <ScrollViewer Grid.Row="3" Background="White" VerticalScrollBarVisibility="Auto">
+                              <ItemsControl ItemsSource="{Binding Lines}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:VoucherLineViewModel">
+                                    <Border BorderBrush="{StaticResource TallyGridLine}" BorderThickness="0,0,0,1"
+                                            Padding="6,4">
+                                      <Grid ColumnDefinitions="*,90,160,40">
+                                        <ComboBox Grid.Column="0" MinWidth="200"
+                                                  HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding Ledgers}"
+                                                  SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                  PlaceholderText="Select ledger…">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="ledger:Ledger">
+                                              <TextBlock Text="{Binding Name}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <ComboBox Grid.Column="1" Margin="6,0" Width="80"
+                                                  ItemsSource="{Binding Sides}"
+                                                  SelectedItem="{Binding Side, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                              <TextBlock Text="{Binding Converter={StaticResource DrCrLabel}}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBox Grid.Column="2" Width="150"
+                                                 Text="{Binding AmountText, Mode=TwoWay}"
+                                                 TextAlignment="Right"
+                                                 PlaceholderText="0.00"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- Add-line -->
+                            <Button Grid.Row="4" Content="+ Add line" HorizontalAlignment="Left"
+                                    Margin="0,6" Padding="10,4"
+                                    Background="{StaticResource TallyPanel}"
+                                    Click="OnAddVoucherLineClick"/>
+
+                            <!-- Live balance indicator -->
+                            <Border Grid.Row="5" Background="{StaticResource TallyCream}"
+                                    BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,2">
+                              <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                <TextBlock Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center">
+                                  <Run Text="Difference: "/>
+                                </TextBlock>
+                                <TextBlock Grid.Column="1" Text="{Binding DifferenceText}"
+                                           VerticalAlignment="Center" Margin="4,0"
+                                           Foreground="{Binding IsBalanced, Converter={StaticResource SelFore}}"/>
+                                <TextBlock Grid.Column="2" VerticalAlignment="Center" Margin="12,0" FontSize="12">
+                                  <Run Text="Dr "/><Run Text="{Binding TotalDebitText}"/>
+                                </TextBlock>
+                                <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="12,0" FontSize="12">
+                                  <Run Text="Cr "/><Run Text="{Binding TotalCreditText}"/>
+                                </TextBlock>
+                              </Grid>
+                            </Border>
+
+                            <!-- Narration + accept row + message -->
+                            <StackPanel Grid.Row="6" Spacing="6" Margin="0,4,0,0">
+                              <TextBox Text="{Binding Narration, Mode=TwoWay}"
+                                       PlaceholderText="Narration…" AcceptsReturn="False"/>
+                              <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource TallyRed}" FontSize="12"
+                                           VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                <Button Grid.Column="1" Content="Cancel (Esc)" Margin="0,0,8,0" Padding="12,6"
+                                        Click="OnCancelVoucherClick"/>
+                                <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
+                                        IsEnabled="{Binding CanAccept}"
+                                        Background="{StaticResource TallyNavy}" Foreground="White"
+                                        Click="OnAcceptVoucherClick"/>
+                              </Grid>
+                            </StackPanel>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- SCREEN: Ledger master (create + list) -->
+                    <ContentControl IsVisible="{Binding LedgerMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding LedgerMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:LedgerMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Ledger Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource TallyNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource TallyNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. State Bank of India"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource TallyNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Groups}"
+                                            SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
+                                            PlaceholderText="Select group…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Group">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource TallyRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource TallyNavy}" Foreground="White"
+                                          Click="OnCreateLedgerClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing ledgers header -->
+                            <Border Grid.Row="2" Background="{StaticResource TallyNavy}">
+                              <Grid ColumnDefinitions="*,200,140">
+                                <TextBlock Grid.Column="0" Text="Ledger" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Opening" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:LedgerListRow">
+                                    <Border BorderBrush="{StaticResource TallyGridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200,140" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Opening}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
                     </ContentControl>

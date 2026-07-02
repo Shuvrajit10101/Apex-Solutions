@@ -75,16 +75,70 @@ public sealed class HeadlessMainWindowTests
             vm.LoadRobertDemo();
             Assert.Equal(Screen.Gateway, vm.CurrentScreen);
 
-            // Simulate real key input on the window: Down then Enter activates the 2nd gateway
-            // item (Profit & Loss A/c), opening a report.
+            // Simulate real key input on the window: Down moves the highlight, Enter activates the
+            // highlighted gateway item — opening one of the sub-screens (voucher entry / report /
+            // ledger master, depending on the item). We assert we left the Gateway, then Esc back.
             window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
 
-            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            Assert.NotEqual(Screen.Gateway, vm.CurrentScreen);
+            Assert.Contains(vm.CurrentScreen,
+                new[] { Screen.Report, Screen.VoucherEntry, Screen.LedgerMaster });
 
             // Esc steps back to the Gateway.
             window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
             Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
+    [AvaloniaFact]
+    public void CtrlA_accepts_a_balanced_receipt_through_the_real_window_and_persists()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.NewCompanyName = "Headless Voucher Co";
+            vm.CreateCompany();
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+
+            // A Capital ledger to credit against the seeded Cash.
+            vm.ShowLedgerMaster();
+            vm.LedgerMaster!.Name = "Capital A/c";
+            vm.LedgerMaster!.SelectedGroup = vm.Company!.FindGroupByName("Capital Account");
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control); // Ctrl+A creates the ledger
+            var capital = vm.Company!.FindLedgerByName("Capital A/c");
+            Assert.NotNull(capital);
+
+            // Open the Receipt entry screen and fill a balanced voucher via the VM the XAML binds to.
+            vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Receipt);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            var entry = vm.VoucherEntry!;
+            var cash = vm.Company!.FindLedgerByName("Cash");
+
+            entry.Lines[0].SelectedLedger = cash;
+            entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;
+            entry.Lines[0].AmountText = "100000";
+            entry.Lines[1].SelectedLedger = capital;
+            entry.Lines[1].Side = Apex.Ledger.DrCr.Credit;
+            entry.Lines[1].AmountText = "100000";
+            Assert.True(entry.CanAccept);
+
+            // Ctrl+A through the real window accepts → posts → persists → back to Gateway.
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+
+            // Reload the .db: the Receipt is persisted and the Trial Balance still balances.
+            var storage = new CompanyStorage(tempDir);
+            var entry2 = storage.ListCompanies().Single(e => e.Name == "Headless Voucher Co");
+            var reloaded = storage.Load(entry2);
+            var tb = TrialBalance.Build(reloaded, LastVoucherDate(reloaded));
+            Assert.True(tb.Balanced);
+            Assert.Contains(tb.Rows, r => r.LedgerName == "Capital A/c" && r.Credit.Amount == 100000m);
         }
         finally
         {

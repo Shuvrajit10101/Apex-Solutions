@@ -2,9 +2,22 @@ using System;
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
+using Apex.Ledger;
 using Apex.Desktop.ViewModels;
 
 namespace Apex.Desktop.Converters;
+
+/// <summary>Maps a <see cref="DrCr"/> value to its short Tally label ("Dr" / "Cr") for combo display.</summary>
+public sealed class DrCrLabelConverter : IValueConverter
+{
+    public static readonly DrCrLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is DrCr d ? (d == DrCr.Debit ? "Dr" : "Cr") : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
 
 /// <summary>True when the bound <see cref="Screen"/> equals the converter parameter (screen name).</summary>
 public sealed class ScreenEqualsConverter : IValueConverter
