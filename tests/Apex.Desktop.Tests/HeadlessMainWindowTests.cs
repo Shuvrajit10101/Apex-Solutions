@@ -75,19 +75,26 @@ public sealed class HeadlessMainWindowTests
             vm.LoadRobertDemo();
             Assert.Equal(Screen.Gateway, vm.CurrentScreen);
 
-            // Simulate real key input on the window: Down moves the highlight, Enter activates the
-            // highlighted gateway item — opening one of the sub-screens (voucher entry / report /
-            // ledger master, depending on the item). We assert we left the Gateway, then Esc back.
+            // The root Gateway opens on its first SELECTABLE item — never a section header.
+            Assert.True(vm.Menu[vm.SelectedIndex].IsSelectable);
+
+            // Simulate real key input on the window: Down moves the highlight (skipping the
+            // TRANSACTIONS / REPORTS section headers), Enter activates the highlighted item —
+            // opening one of the sub-screens (chart / report / voucher / ledger, depending on the
+            // item) or a Gateway submenu. We assert we left the root Gateway, then Esc back.
             window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Assert.True(vm.Menu[vm.SelectedIndex].IsSelectable); // arrow never lands on a header
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
 
-            Assert.NotEqual(Screen.Gateway, vm.CurrentScreen);
-            Assert.Contains(vm.CurrentScreen,
-                new[] { Screen.Report, Screen.VoucherEntry, Screen.LedgerMaster });
+            // Either we jumped to a sub-screen, or we pushed into a Gateway submenu.
+            var leftRoot = vm.CurrentScreen != Screen.Gateway
+                           || vm.CurrentGatewayMenu != GatewayMenu.Root;
+            Assert.True(leftRoot);
 
-            // Esc steps back to the Gateway.
+            // Esc steps back to the root Gateway.
             window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
             Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+            Assert.Equal(GatewayMenu.Root, vm.CurrentGatewayMenu);
         }
         finally
         {
