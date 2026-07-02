@@ -15,6 +15,8 @@ public enum Screen
     CreateCompany,
     Gateway,
     Report,
+    VoucherEntry,
+    LedgerMaster,
 }
 
 /// <summary>
@@ -43,6 +45,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The reports view model, non-null only while a report is showing.</summary>
     [ObservableProperty] private ReportsViewModel? _reports;
 
+    /// <summary>The voucher-entry view model, non-null only while a voucher is being entered.</summary>
+    [ObservableProperty] private VoucherEntryViewModel? _voucherEntry;
+
+    /// <summary>The ledger-master view model, non-null only while that screen is showing.</summary>
+    [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
+
+    /// <summary>True on the menu-driven screens (company select, gateway, create company).</summary>
+    public bool IsMenuScreen => Reports is null && VoucherEntry is null && LedgerMaster is null;
+
+    partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+
     /// <summary>The currently open company (null before one is selected/created).</summary>
     public Company? Company { get; private set; }
 
@@ -65,7 +80,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         CurrentScreen = Screen.CompanySelect;
         ScreenTitle = "Company Info — Select Company";
         Message = null;
-        Reports = null;
+        ClearSubScreens();
         Menu.Clear();
 
         foreach (var entry in _storage.ListCompanies())
@@ -158,14 +173,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         CurrentScreen = Screen.Gateway;
         ScreenTitle = "Gateway of Tally";
         Message = null;
-        Reports = null;
+        ClearSubScreens();
         Menu.Clear();
 
+        // Vouchers — the F4–F9 accounting voucher-entry screens.
+        Menu.Add(new MenuItemViewModel("Vouchers — Contra", () => OpenVoucher(VoucherBaseType.Contra), "F4"));
+        Menu.Add(new MenuItemViewModel("Vouchers — Payment", () => OpenVoucher(VoucherBaseType.Payment), "F5"));
+        Menu.Add(new MenuItemViewModel("Vouchers — Receipt", () => OpenVoucher(VoucherBaseType.Receipt), "F6"));
+        Menu.Add(new MenuItemViewModel("Vouchers — Journal", () => OpenVoucher(VoucherBaseType.Journal), "F7"));
+        Menu.Add(new MenuItemViewModel("Vouchers — Sales", () => OpenVoucher(VoucherBaseType.Sales), "F8"));
+        Menu.Add(new MenuItemViewModel("Vouchers — Purchase", () => OpenVoucher(VoucherBaseType.Purchase), "F9"));
+
+        // Create — masters.
+        Menu.Add(new MenuItemViewModel("Create — Ledger", ShowLedgerMaster, "Alt+C"));
+
+        // Reports.
         Menu.Add(new MenuItemViewModel("Balance Sheet", () => OpenReport(ReportKind.BalanceSheet)));
         Menu.Add(new MenuItemViewModel("Profit & Loss A/c", () => OpenReport(ReportKind.ProfitAndLoss)));
         Menu.Add(new MenuItemViewModel("Trial Balance", () => OpenReport(ReportKind.TrialBalance)));
         Menu.Add(new MenuItemViewModel("Day Book", () => OpenReport(ReportKind.DayBook)));
-        Menu.Add(new MenuItemViewModel("Display More Reports", () => OpenReport(ReportKind.TrialBalance)));
         Menu.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect));
 
         SetSelected(0);
@@ -180,11 +206,94 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return;
 
         CurrentScreen = Screen.Report;
+        ClearSubScreens();
         Reports = new ReportsViewModel(Company, kind);
         ScreenTitle = Reports.Title;
         Menu.Clear();
         Message = null;
         BuildButtonBar();
+    }
+
+    // =============================================================== screen: voucher entry
+
+    /// <summary>
+    /// Opens the reusable voucher-entry screen for the given base type (Contra/Payment/Receipt/
+    /// Journal/Sales/Purchase), resolving the seeded voucher type on the current company.
+    /// </summary>
+    public void OpenVoucher(VoucherBaseType baseType)
+    {
+        if (Company is null) return;
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        CurrentScreen = Screen.VoucherEntry;
+        ClearSubScreens();
+        VoucherEntry = new VoucherEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: ShowGateway);
+        ScreenTitle = $"Accounting Voucher Creation — {type.Name}";
+        Menu.Clear();
+        Message = null;
+        BuildButtonBar();
+    }
+
+    // =============================================================== screen: ledger master
+
+    /// <summary>Opens the Ledger-creation master (Create → Ledger / Alt+C).</summary>
+    public void ShowLedgerMaster()
+    {
+        if (Company is null) return;
+
+        CurrentScreen = Screen.LedgerMaster;
+        ClearSubScreens();
+        LedgerMaster = new LedgerMasterViewModel(Company, _storage, onChanged: () => { });
+        ScreenTitle = "Ledger Creation";
+        Menu.Clear();
+        Message = null;
+        BuildButtonBar();
+    }
+
+    /// <summary>Nulls the report/voucher/ledger sub-screen view models (mutually exclusive screens).</summary>
+    private void ClearSubScreens()
+    {
+        Reports = null;
+        VoucherEntry = null;
+        LedgerMaster = null;
+    }
+
+    // =============================================================== form key helpers
+
+    /// <summary>Ctrl+A on a form screen: accept the current voucher / create the current ledger.</summary>
+    public void AcceptCurrent() => ActivateSelected();
+
+    /// <summary>Alt+X: cancel the in-progress voucher (no save) and return to the Gateway.</summary>
+    public void CancelVoucher()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.Cancel();
+        else if (CurrentScreen == Screen.LedgerMaster)
+            ShowGateway();
+    }
+
+    /// <summary>Alt+C: open the Ledger-creation master whenever a company is open.</summary>
+    public void CreateLedgerShortcut()
+    {
+        if (Company is not null && CurrentScreen != Screen.LedgerMaster)
+            ShowLedgerMaster();
+    }
+
+    /// <summary>Adds a fresh blank particulars line to the current voucher (view "Add line" button).</summary>
+    public void AddVoucherLine()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.AddLine();
     }
 
     // =============================================================== keyboard navigation
@@ -203,13 +312,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SetSelected((_selectedIndex + 1) % Menu.Count);
     }
 
-    /// <summary>Enter: activates the highlighted menu item (or creates the company on that screen).</summary>
+    /// <summary>
+    /// Enter / Ctrl+A: activates the highlighted menu item, or performs the screen's accept action
+    /// (create company, accept voucher, create ledger) when on a form screen.
+    /// </summary>
     public void ActivateSelected()
     {
-        if (CurrentScreen == Screen.CreateCompany)
+        switch (CurrentScreen)
         {
-            CreateCompany();
-            return;
+            case Screen.CreateCompany:
+                CreateCompany();
+                return;
+            case Screen.VoucherEntry:
+                VoucherEntry?.Accept();
+                return;
+            case Screen.LedgerMaster:
+                LedgerMaster?.Create();
+                return;
         }
 
         if (Menu.Count == 0) return;
@@ -223,6 +342,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         switch (CurrentScreen)
         {
             case Screen.Report:
+            case Screen.VoucherEntry:   // Esc / Alt+X cancels the voucher without saving
+            case Screen.LedgerMaster:
                 ShowGateway();
                 break;
             case Screen.CreateCompany:
@@ -259,14 +380,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 
         var hasCompany = Company is not null;
-        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenReport(ReportKind.DayBook), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenReport(ReportKind.DayBook), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenReport(ReportKind.DayBook), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenReport(ReportKind.DayBook), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenReport(ReportKind.DayBook), hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenReport(ReportKind.DayBook), hasCompany));
+        // F4–F9 now open the real accounting voucher-entry screens.
+        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucher(VoucherBaseType.Contra), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucher(VoucherBaseType.Payment), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucher(VoucherBaseType.Receipt), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucher(VoucherBaseType.Journal), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucher(VoucherBaseType.Sales), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucher(VoucherBaseType.Purchase), hasCompany));
 
-        // Report quick-jumps (enabled once a company is open).
+        // Create master + report quick-jumps (enabled once a company is open).
+        ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));

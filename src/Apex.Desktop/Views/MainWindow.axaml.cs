@@ -21,10 +21,26 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
-        // Ctrl+A saves/accepts (Tally accept shortcut) — on the create screen, create the company.
+        // Ctrl+A saves/accepts (Tally accept shortcut) — create company, accept voucher, or create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             vm.ActivateSelected();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+X cancels the in-progress voucher/ledger without saving (Tally cancel).
+        if (e.Key == Key.X && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            vm.CancelVoucher();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+C opens the Ledger-creation master whenever a company is open.
+        if (e.Key == Key.C && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            vm.CreateLedgerShortcut();
             e.Handled = true;
             return;
         }
@@ -61,15 +77,20 @@ public partial class MainWindow : Window
             case Key.F11: Fire(vm, "F11"); e.Handled = true; break;
             case Key.F12: Fire(vm, "F12"); e.Handled = true; break;
 
-            // Report quick letters — only when not typing in the name box.
-            case Key.B when !IsTyping(e): Fire(vm, "B"); e.Handled = true; break;
-            case Key.P when !IsTyping(e): Fire(vm, "P"); e.Handled = true; break;
-            case Key.T when !IsTyping(e): Fire(vm, "T"); e.Handled = true; break;
-            case Key.D when !IsTyping(e): Fire(vm, "D"); e.Handled = true; break;
+            // Report quick letters — only on the menu screens (never while entering a voucher /
+            // ledger, where the letter is meant for the field, not a report jump).
+            case Key.B when CanQuickJump(vm, e): Fire(vm, "B"); e.Handled = true; break;
+            case Key.P when CanQuickJump(vm, e): Fire(vm, "P"); e.Handled = true; break;
+            case Key.T when CanQuickJump(vm, e): Fire(vm, "T"); e.Handled = true; break;
+            case Key.D when CanQuickJump(vm, e): Fire(vm, "D"); e.Handled = true; break;
         }
     }
 
     private static bool IsTyping(KeyEventArgs e) => e.Source is TextBox;
+
+    /// <summary>Report quick-letters fire only on menu screens and never while typing in a field.</summary>
+    private static bool CanQuickJump(MainWindowViewModel vm, KeyEventArgs e)
+        => vm.IsMenuScreen && !IsTyping(e);
 
     private static void Fire(MainWindowViewModel vm, string key)
     {
@@ -83,4 +104,16 @@ public partial class MainWindow : Window
 
     private void OnCreateCompanyClick(object? sender, RoutedEventArgs e)
         => Vm?.CreateCompany();
+
+    private void OnAcceptVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherEntry?.Accept();
+
+    private void OnCancelVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.CancelVoucher();
+
+    private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AddVoucherLine();
+
+    private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
+        => Vm?.LedgerMaster?.Create();
 }
