@@ -1,0 +1,503 @@
+{
+  "fixture": "bright",
+  "description": "Bright - trading business. Deterministic ledger-engine regression baseline (R8). Opening balances (self-balancing), trading vouchers, then year-end 10% depreciation on Machinery (6000) and closing stock valued 15000. Amounts in INR; Dr=Cr on every voucher; Cash/Bank never negative; Trial Balance balances; the closing-stock P&L/BS treatment and periodic-inventory gross-profit are finalised by the Phase-3 inventory-integrated engine. DATA only.",
+  "company": {
+    "name": "Bright Traders",
+    "businessType": "Trading (buys and sells goods; inventory-integrated)",
+    "financialYearStart": "2021-04-01",
+    "booksBeginFrom": "2021-04-01",
+    "baseCurrency": "INR"
+  },
+  "masters": {
+    "groups": [
+      {
+        "name": "Capital Account",
+        "primary": true,
+        "nature": "Liabilities"
+      },
+      {
+        "name": "Current Assets",
+        "primary": true,
+        "nature": "Assets"
+      },
+      {
+        "name": "Bank Accounts",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Cash-in-Hand",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Stock-in-Hand",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Sundry Debtors",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Fixed Assets",
+        "primary": true,
+        "nature": "Assets"
+      },
+      {
+        "name": "Current Liabilities",
+        "primary": true,
+        "nature": "Liabilities"
+      },
+      {
+        "name": "Sundry Creditors",
+        "under": "Current Liabilities",
+        "nature": "Liabilities"
+      },
+      {
+        "name": "Sales Accounts",
+        "primary": true,
+        "nature": "Income"
+      },
+      {
+        "name": "Purchase Accounts",
+        "primary": true,
+        "nature": "Expenses"
+      },
+      {
+        "name": "Direct Expenses",
+        "primary": true,
+        "nature": "Expenses"
+      },
+      {
+        "name": "Indirect Expenses",
+        "primary": true,
+        "nature": "Expenses"
+      },
+      {
+        "name": "Direct Incomes",
+        "primary": true,
+        "nature": "Income"
+      }
+    ],
+    "ledgers": [
+      {
+        "name": "Bright's Capital",
+        "under": "Capital Account",
+        "openingBalance": 150000.0,
+        "openingSide": "Credit"
+      },
+      {
+        "name": "Cash",
+        "under": "Cash-in-Hand",
+        "openingBalance": 20000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "HDFC Bank",
+        "under": "Bank Accounts",
+        "openingBalance": 50000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Machinery",
+        "under": "Fixed Assets",
+        "openingBalance": 60000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Opening Stock",
+        "under": "Stock-in-Hand",
+        "openingBalance": 25000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Ram & Co (Debtor)",
+        "under": "Sundry Debtors",
+        "openingBalance": 20000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Shyam Traders (Creditor)",
+        "under": "Sundry Creditors",
+        "openingBalance": 25000.0,
+        "openingSide": "Credit"
+      },
+      {
+        "name": "Sales",
+        "under": "Sales Accounts",
+        "openingBalance": 0.0,
+        "openingSide": "Credit"
+      },
+      {
+        "name": "Purchases",
+        "under": "Purchase Accounts",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Wages",
+        "under": "Direct Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Carriage Inward",
+        "under": "Direct Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Salaries",
+        "under": "Indirect Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Rent",
+        "under": "Indirect Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Depreciation",
+        "under": "Indirect Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Closing Stock",
+        "under": "Stock-in-Hand",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Closing Stock Adjustment (P&L)",
+        "under": "Direct Incomes",
+        "openingBalance": 0.0,
+        "openingSide": "Credit"
+      }
+    ]
+  },
+  "vouchers": [
+    {
+      "no": 1,
+      "date": "2021-04-03",
+      "type": "Purchase",
+      "narration": "Goods purchased on credit from Shyam Traders",
+      "lines": [
+        {
+          "ledger": "Purchases",
+          "drCr": "Debit",
+          "amount": 40000
+        },
+        {
+          "ledger": "Shyam Traders (Creditor)",
+          "drCr": "Credit",
+          "amount": 40000
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "date": "2021-04-06",
+      "type": "Payment",
+      "narration": "Carriage inward on purchases paid in cash",
+      "lines": [
+        {
+          "ledger": "Carriage Inward",
+          "drCr": "Debit",
+          "amount": 2000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 2000
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "date": "2021-04-10",
+      "type": "Sales",
+      "narration": "Goods sold on credit to Ram & Co",
+      "lines": [
+        {
+          "ledger": "Ram & Co (Debtor)",
+          "drCr": "Debit",
+          "amount": 55000
+        },
+        {
+          "ledger": "Sales",
+          "drCr": "Credit",
+          "amount": 55000
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "date": "2021-04-12",
+      "type": "Payment",
+      "narration": "Wages paid in cash",
+      "lines": [
+        {
+          "ledger": "Wages",
+          "drCr": "Debit",
+          "amount": 6000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 6000
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "date": "2021-04-15",
+      "type": "Receipt",
+      "narration": "Cash sales",
+      "lines": [
+        {
+          "ledger": "Cash",
+          "drCr": "Debit",
+          "amount": 18000
+        },
+        {
+          "ledger": "Sales",
+          "drCr": "Credit",
+          "amount": 18000
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "date": "2021-04-18",
+      "type": "Payment",
+      "narration": "Paid Shyam Traders by cheque",
+      "lines": [
+        {
+          "ledger": "Shyam Traders (Creditor)",
+          "drCr": "Debit",
+          "amount": 30000
+        },
+        {
+          "ledger": "HDFC Bank",
+          "drCr": "Credit",
+          "amount": 30000
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "date": "2021-04-22",
+      "type": "Receipt",
+      "narration": "Received from Ram & Co by cheque",
+      "lines": [
+        {
+          "ledger": "HDFC Bank",
+          "drCr": "Debit",
+          "amount": 40000
+        },
+        {
+          "ledger": "Ram & Co (Debtor)",
+          "drCr": "Credit",
+          "amount": 40000
+        }
+      ]
+    },
+    {
+      "no": 8,
+      "date": "2021-04-25",
+      "type": "Payment",
+      "narration": "Salaries paid by cheque",
+      "lines": [
+        {
+          "ledger": "Salaries",
+          "drCr": "Debit",
+          "amount": 7000
+        },
+        {
+          "ledger": "HDFC Bank",
+          "drCr": "Credit",
+          "amount": 7000
+        }
+      ]
+    },
+    {
+      "no": 9,
+      "date": "2021-04-28",
+      "type": "Payment",
+      "narration": "Office rent paid in cash",
+      "lines": [
+        {
+          "ledger": "Rent",
+          "drCr": "Debit",
+          "amount": 3000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 3000
+        }
+      ]
+    },
+    {
+      "no": 10,
+      "date": "2022-03-31",
+      "type": "Journal",
+      "narration": "Depreciation @10% on Machinery (60000 x 10%)",
+      "lines": [
+        {
+          "ledger": "Depreciation",
+          "drCr": "Debit",
+          "amount": 6000
+        },
+        {
+          "ledger": "Machinery",
+          "drCr": "Credit",
+          "amount": 6000
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "date": "2022-03-31",
+      "type": "Journal",
+      "narration": "Closing stock 15000 recognised (Dr asset / Cr trading a/c adjustment)",
+      "lines": [
+        {
+          "ledger": "Closing Stock",
+          "drCr": "Debit",
+          "amount": 15000
+        },
+        {
+          "ledger": "Closing Stock Adjustment (P&L)",
+          "drCr": "Credit",
+          "amount": 15000
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "asOf": "2022-03-31",
+    "note": "Closing balances from opening + vouchers incl. year-end depreciation and closing stock. Trial Balance balances. Trading/P&L uses periodic inventory (opening stock + purchases + direct exp - closing stock). Paisa-exact targets (NFR-3).",
+    "depreciation": {
+      "asset": "Machinery",
+      "rate": "10%",
+      "base": 60000.0,
+      "amount": 6000.0,
+      "machineryAfterDep": 54000.0
+    },
+    "closingStock": {
+      "value": 15000.0,
+      "asset": "Closing Stock"
+    },
+    "ledgerClosing": {
+      "Bright's Capital": {
+        "side": "Credit",
+        "amount": 150000.0
+      },
+      "Cash": {
+        "side": "Debit",
+        "amount": 27000.0
+      },
+      "HDFC Bank": {
+        "side": "Debit",
+        "amount": 53000.0
+      },
+      "Machinery": {
+        "side": "Debit",
+        "amount": 54000.0
+      },
+      "Opening Stock": {
+        "side": "Debit",
+        "amount": 25000.0
+      },
+      "Ram & Co (Debtor)": {
+        "side": "Debit",
+        "amount": 35000.0
+      },
+      "Shyam Traders (Creditor)": {
+        "side": "Credit",
+        "amount": 35000.0
+      },
+      "Sales": {
+        "side": "Credit",
+        "amount": 73000.0
+      },
+      "Purchases": {
+        "side": "Debit",
+        "amount": 40000.0
+      },
+      "Wages": {
+        "side": "Debit",
+        "amount": 6000.0
+      },
+      "Carriage Inward": {
+        "side": "Debit",
+        "amount": 2000.0
+      },
+      "Salaries": {
+        "side": "Debit",
+        "amount": 7000.0
+      },
+      "Rent": {
+        "side": "Debit",
+        "amount": 3000.0
+      },
+      "Depreciation": {
+        "side": "Debit",
+        "amount": 6000.0
+      },
+      "Closing Stock": {
+        "side": "Debit",
+        "amount": 15000.0
+      },
+      "Closing Stock Adjustment (P&L)": {
+        "side": "Credit",
+        "amount": 15000.0
+      }
+    },
+    "trialBalance": {
+      "totalDebit": 273000.0,
+      "totalCredit": 273000.0,
+      "balanced": true
+    },
+    "tradingAndProfitAndLoss": {
+      "sales": 73000.0,
+      "closingStock": 15000.0,
+      "openingStock": 25000,
+      "purchases": 40000.0,
+      "directExpenses": {
+        "Wages": 6000.0,
+        "Carriage Inward": 2000.0
+      },
+      "grossProfit": 15000.0,
+      "indirectExpenses": {
+        "Salaries": 7000.0,
+        "Rent": 3000.0,
+        "Depreciation": 6000.0
+      },
+      "netProfit": -1000.0
+    },
+    "balanceSheet": {
+      "liabilities": {
+        "Bright's Capital": 150000.0,
+        "Net Profit (period)": -1000.0,
+        "Sundry Creditors": 35000.0
+      },
+      "totalLiabilities": 184000.0,
+      "assets": {
+        "Machinery (net of dep)": 54000.0,
+        "Closing Stock": 15000.0,
+        "Cash": 27000.0,
+        "HDFC Bank": 53000.0,
+        "Ram & Co (Debtor)": 35000.0
+      },
+      "totalAssets": 184000.0,
+      "balanced": true
+    }
+  }
+}

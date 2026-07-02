@@ -1,0 +1,57 @@
+# ---------------------------------------------------------------------------
+# Apex Solutions — .gitignore
+# ---------------------------------------------------------------------------
+
+# Build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+out/
+publish/
+artifacts/
+
+# .NET / IDE user & cache files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+.idea/
+*.DotSettings.user
+project.lock.json
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Locally-installed .NET SDK (see README — SDK lives at ~/.dotnet, not committed)
+.dotnet/
+dotnet-install.sh
+global.json.bak
+
+# SQLite databases and their WAL/SHM/journal siblings
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Rider / ReSharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & temp
+*.log
+*.tmp
+
+# ---------------------------------------------------------------------------
+# THIRD-PARTY IP — NEVER COMMIT (CLAUDE.md R4). The entire tally/ folder holds
+# copyrighted Tally Prime study PDFs and must stay out of the repository.
+# ---------------------------------------------------------------------------
+tally/

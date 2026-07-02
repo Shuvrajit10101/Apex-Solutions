@@ -1,0 +1,491 @@
+{
+  "fixture": "robert",
+  "description": "Robert \u2014 transport business, accounts-only. Deterministic ledger-engine regression baseline (R8). 13 vouchers. Opening capital 100000, opening Cash 70000 + SBI Bank 30000. Amounts in INR; Dr=Cr on every voucher; Cash and Bank never go negative; statements reconcile to the paisa (NFR-3). Engine assertions arrive in Phase 1 \u2014 this file is DATA only.",
+  "company": {
+    "name": "Robert Transport Services",
+    "businessType": "Transport (services, accounts-only, no inventory)",
+    "financialYearStart": "2020-04-01",
+    "booksBeginFrom": "2020-04-01",
+    "baseCurrency": "INR"
+  },
+  "masters": {
+    "groups": [
+      {
+        "name": "Capital Account",
+        "primary": true,
+        "nature": "Liabilities"
+      },
+      {
+        "name": "Current Assets",
+        "primary": true,
+        "nature": "Assets"
+      },
+      {
+        "name": "Bank Accounts",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Cash-in-Hand",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Sundry Debtors",
+        "under": "Current Assets",
+        "nature": "Assets"
+      },
+      {
+        "name": "Fixed Assets",
+        "primary": true,
+        "nature": "Assets"
+      },
+      {
+        "name": "Current Liabilities",
+        "primary": true,
+        "nature": "Liabilities"
+      },
+      {
+        "name": "Sundry Creditors",
+        "under": "Current Liabilities",
+        "nature": "Liabilities"
+      },
+      {
+        "name": "Direct Expenses",
+        "primary": true,
+        "nature": "Expenses"
+      },
+      {
+        "name": "Indirect Expenses",
+        "primary": true,
+        "nature": "Expenses"
+      },
+      {
+        "name": "Direct Incomes",
+        "primary": true,
+        "nature": "Income"
+      },
+      {
+        "name": "Indirect Incomes",
+        "primary": true,
+        "nature": "Income"
+      }
+    ],
+    "ledgers": [
+      {
+        "name": "Robert's Capital",
+        "under": "Capital Account",
+        "openingBalance": 100000.0,
+        "openingSide": "Credit"
+      },
+      {
+        "name": "Cash",
+        "under": "Cash-in-Hand",
+        "openingBalance": 70000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "SBI Bank",
+        "under": "Bank Accounts",
+        "openingBalance": 30000.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Truck",
+        "under": "Fixed Assets",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Global Traders",
+        "under": "Sundry Debtors",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "HP Diesel Station",
+        "under": "Sundry Creditors",
+        "openingBalance": 0.0,
+        "openingSide": "Credit"
+      },
+      {
+        "name": "Freight Income",
+        "under": "Direct Incomes",
+        "openingBalance": 0.0,
+        "openingSide": "Credit"
+      },
+      {
+        "name": "Diesel & Fuel",
+        "under": "Direct Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Driver Salary",
+        "under": "Direct Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Vehicle Repairs",
+        "under": "Direct Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Toll & Parking",
+        "under": "Direct Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Office Rent",
+        "under": "Indirect Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      },
+      {
+        "name": "Insurance",
+        "under": "Indirect Expenses",
+        "openingBalance": 0.0,
+        "openingSide": "Debit"
+      }
+    ]
+  },
+  "vouchers": [
+    {
+      "no": 1,
+      "date": "2020-04-02",
+      "type": "Payment",
+      "narration": "Bought a delivery truck: part cash, part cheque",
+      "lines": [
+        {
+          "ledger": "Truck",
+          "drCr": "Debit",
+          "amount": 40000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 25000
+        },
+        {
+          "ledger": "SBI Bank",
+          "drCr": "Credit",
+          "amount": 15000
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "date": "2020-04-05",
+      "type": "Payment",
+      "narration": "Annual vehicle insurance paid in cash",
+      "lines": [
+        {
+          "ledger": "Insurance",
+          "drCr": "Debit",
+          "amount": 6000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 6000
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "date": "2020-04-08",
+      "type": "Payment",
+      "narration": "Diesel purchased in cash",
+      "lines": [
+        {
+          "ledger": "Diesel & Fuel",
+          "drCr": "Debit",
+          "amount": 4000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 4000
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "date": "2020-04-10",
+      "type": "Receipt",
+      "narration": "Freight received in cash for local trip",
+      "lines": [
+        {
+          "ledger": "Cash",
+          "drCr": "Debit",
+          "amount": 12000
+        },
+        {
+          "ledger": "Freight Income",
+          "drCr": "Credit",
+          "amount": 12000
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "date": "2020-04-14",
+      "type": "Purchase",
+      "narration": "Diesel bought on credit from HP Diesel Station",
+      "lines": [
+        {
+          "ledger": "Diesel & Fuel",
+          "drCr": "Debit",
+          "amount": 5000
+        },
+        {
+          "ledger": "HP Diesel Station",
+          "drCr": "Credit",
+          "amount": 5000
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "date": "2020-04-18",
+      "type": "Sales",
+      "narration": "Freight billed to Global Traders on credit",
+      "lines": [
+        {
+          "ledger": "Global Traders",
+          "drCr": "Debit",
+          "amount": 25000
+        },
+        {
+          "ledger": "Freight Income",
+          "drCr": "Credit",
+          "amount": 25000
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "date": "2020-04-20",
+      "type": "Payment",
+      "narration": "Toll and parking charges paid in cash",
+      "lines": [
+        {
+          "ledger": "Toll & Parking",
+          "drCr": "Debit",
+          "amount": 1500
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 1500
+        }
+      ]
+    },
+    {
+      "no": 8,
+      "date": "2020-04-22",
+      "type": "Payment",
+      "narration": "Truck repairs paid by cheque",
+      "lines": [
+        {
+          "ledger": "Vehicle Repairs",
+          "drCr": "Debit",
+          "amount": 3500
+        },
+        {
+          "ledger": "SBI Bank",
+          "drCr": "Credit",
+          "amount": 3500
+        }
+      ]
+    },
+    {
+      "no": 9,
+      "date": "2020-04-25",
+      "type": "Payment",
+      "narration": "Paid HP Diesel Station against credit purchase (v5)",
+      "lines": [
+        {
+          "ledger": "HP Diesel Station",
+          "drCr": "Debit",
+          "amount": 5000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 5000
+        }
+      ]
+    },
+    {
+      "no": 10,
+      "date": "2020-04-27",
+      "type": "Receipt",
+      "narration": "Received part payment from Global Traders by cheque",
+      "lines": [
+        {
+          "ledger": "SBI Bank",
+          "drCr": "Debit",
+          "amount": 15000
+        },
+        {
+          "ledger": "Global Traders",
+          "drCr": "Credit",
+          "amount": 15000
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "date": "2020-04-28",
+      "type": "Payment",
+      "narration": "Driver salary for April paid in cash",
+      "lines": [
+        {
+          "ledger": "Driver Salary",
+          "drCr": "Debit",
+          "amount": 8000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 8000
+        }
+      ]
+    },
+    {
+      "no": 12,
+      "date": "2020-04-29",
+      "type": "Payment",
+      "narration": "Office rent for April paid by cheque",
+      "lines": [
+        {
+          "ledger": "Office Rent",
+          "drCr": "Debit",
+          "amount": 4000
+        },
+        {
+          "ledger": "SBI Bank",
+          "drCr": "Credit",
+          "amount": 4000
+        }
+      ]
+    },
+    {
+      "no": 13,
+      "date": "2020-04-30",
+      "type": "Contra",
+      "narration": "Cash deposited into SBI Bank",
+      "lines": [
+        {
+          "ledger": "SBI Bank",
+          "drCr": "Debit",
+          "amount": 10000
+        },
+        {
+          "ledger": "Cash",
+          "drCr": "Credit",
+          "amount": 10000
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "asOf": "2020-04-30",
+    "note": "Closing balances derived from opening + the 13 vouchers. Trial Balance balances; P&L and Balance Sheet reconcile. Paisa-exact targets for the Phase-1 engine (NFR-3).",
+    "ledgerClosing": {
+      "Robert's Capital": {
+        "side": "Credit",
+        "amount": 100000.0
+      },
+      "Cash": {
+        "side": "Debit",
+        "amount": 22500.0
+      },
+      "SBI Bank": {
+        "side": "Debit",
+        "amount": 32500.0
+      },
+      "Truck": {
+        "side": "Debit",
+        "amount": 40000.0
+      },
+      "Global Traders": {
+        "side": "Debit",
+        "amount": 10000.0
+      },
+      "HP Diesel Station": {
+        "side": "Debit",
+        "amount": 0.0
+      },
+      "Freight Income": {
+        "side": "Credit",
+        "amount": 37000.0
+      },
+      "Diesel & Fuel": {
+        "side": "Debit",
+        "amount": 9000.0
+      },
+      "Driver Salary": {
+        "side": "Debit",
+        "amount": 8000.0
+      },
+      "Vehicle Repairs": {
+        "side": "Debit",
+        "amount": 3500.0
+      },
+      "Toll & Parking": {
+        "side": "Debit",
+        "amount": 1500.0
+      },
+      "Office Rent": {
+        "side": "Debit",
+        "amount": 4000.0
+      },
+      "Insurance": {
+        "side": "Debit",
+        "amount": 6000.0
+      }
+    },
+    "trialBalance": {
+      "totalDebit": 137000.0,
+      "totalCredit": 137000.0,
+      "balanced": true
+    },
+    "profitAndLoss": {
+      "income": {
+        "Freight Income": 37000.0
+      },
+      "totalIncome": 37000.0,
+      "expenses": {
+        "Diesel & Fuel": 9000.0,
+        "Driver Salary": 8000.0,
+        "Vehicle Repairs": 3500.0,
+        "Toll & Parking": 1500.0,
+        "Office Rent": 4000.0,
+        "Insurance": 6000.0
+      },
+      "totalExpenses": 32000.0,
+      "netProfit": 5000.0
+    },
+    "balanceSheet": {
+      "liabilities": {
+        "Robert's Capital": 100000.0,
+        "Net Profit (period)": 5000.0,
+        "Sundry Creditors (HP Diesel Station)": -0.0
+      },
+      "totalLiabilities": 105000.0,
+      "assets": {
+        "Truck": 40000.0,
+        "Cash": 22500.0,
+        "SBI Bank": 32500.0,
+        "Global Traders (Sundry Debtors)": 10000.0
+      },
+      "totalAssets": 105000.0,
+      "balanced": true
+    }
+  }
+}

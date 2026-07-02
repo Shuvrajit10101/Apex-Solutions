@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Apex.Desktop/Apex.Desktop.csproj" />
+    <Project Path="src/Apex.Ledger/Apex.Ledger.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Apex.Ledger.Tests/Apex.Ledger.Tests.csproj" />
+  </Folder>
+</Solution>
