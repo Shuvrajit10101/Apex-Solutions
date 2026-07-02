@@ -1,20 +1,248 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Apex.Desktop.ViewModels"
+        xmlns:conv="using:Apex.Desktop.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="700"
         x:Class="Apex.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
+        x:Name="Root"
+        Width="1100" Height="700"
+        MinWidth="820" MinHeight="560"
+        Background="{StaticResource TallyCream}"
+        FontFamily="Consolas, Cascadia Mono, Menlo, monospace"
         Title="Apex Solutions — Tally Prime Clone">
 
     <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
         <vm:MainWindowViewModel/>
     </Design.DataContext>
 
-    <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <Window.Resources>
+        <conv:ScreenEqualsConverter x:Key="ScreenEquals"/>
+        <conv:SelectedToBrushConverter x:Key="SelBrush"/>
+        <conv:SelectedToForegroundConverter x:Key="SelFore"/>
+        <conv:BoolToWeightConverter x:Key="BoolWeight"/>
+    </Window.Resources>
 
+    <Window.Styles>
+        <!-- Menu item row -->
+        <Style Selector="Border.menuRow">
+            <Setter Property="Padding" Value="14,4"/>
+            <Setter Property="Margin" Value="0,1"/>
+        </Style>
+        <!-- Button-bar button -->
+        <Style Selector="Button.barBtn">
+            <Setter Property="Background" Value="{StaticResource TallyPanel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource TallyPanelBorder}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="6,3"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="FontSize" Value="11"/>
+        </Style>
+        <Style Selector="Button.barBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource TallyAmber}"/>
+        </Style>
+        <!-- Report grid header cell -->
+        <Style Selector="TextBlock.colHdr">
+            <Setter Property="Foreground" Value="{StaticResource TallyWhite}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+        <!-- ============ TOP BAR (navy) ============ -->
+        <Border Grid.Row="0" Background="{StaticResource TallyNavy}">
+            <Grid ColumnDefinitions="Auto,*,Auto" Height="34">
+                <TextBlock Grid.Column="0" Text="Apex Solutions  •  TallyPrime Clone"
+                           Foreground="White" FontWeight="Bold" FontSize="14"
+                           VerticalAlignment="Center" Margin="12,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding ScreenTitle}"
+                           Foreground="#CFE0FF" FontSize="13"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="P: Print   E: Export   M: E-Mail   O: Import"
+                           Foreground="#9FB8E0" FontSize="11"
+                           VerticalAlignment="Center" Margin="12,0"/>
+            </Grid>
+        </Border>
+
+        <!-- ============ MENU ROW (navy dark) ============ -->
+        <Border Grid.Row="1" Background="{StaticResource TallyNavyDark}" Height="24">
+            <TextBlock Text="Gateway of Tally   —   K: Company   Y: Data   Z: Exchange   G: Go To   O: Import   E: Export   M: Share"
+                       Foreground="#8FA9D6" FontSize="11" VerticalAlignment="Center" Margin="12,0"/>
+        </Border>
+
+        <!-- ============ BODY: work area + right button bar ============ -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,168">
+
+            <!-- CENTRAL CREAM WORK AREA -->
+            <Border Grid.Column="0" Background="{StaticResource TallyCream}" Margin="6">
+                <Panel>
+
+                    <!-- SCREEN: Company Select / Gateway / (menu-based screens) -->
+                    <Grid IsVisible="{Binding !Reports}" RowDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Row="0" Text="{Binding ScreenTitle}"
+                                   FontSize="16" FontWeight="Bold"
+                                   Foreground="{StaticResource TallyNavy}"
+                                   HorizontalAlignment="Center" Margin="0,18,0,10"/>
+
+                        <!-- The keyboard-navigable menu (centred vertical list) -->
+                        <Border Grid.Row="1"
+                                BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                Background="White"
+                                HorizontalAlignment="Center" VerticalAlignment="Top"
+                                Margin="0,10" MinWidth="420" Padding="0,8">
+                            <ItemsControl ItemsSource="{Binding Menu}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MenuItemViewModel">
+                                        <Border Classes="menuRow"
+                                                Background="{Binding IsSelected, Converter={StaticResource SelBrush}}">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                                           FontSize="14"
+                                                           Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Hint}"
+                                                           FontSize="11" Foreground="#6A6A6A"
+                                                           VerticalAlignment="Center" Margin="16,0,0,0"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+
+                        <!-- Create-company inline form -->
+                        <Border Grid.Row="1"
+                                IsVisible="{Binding CurrentScreen, Converter={StaticResource ScreenEquals}, ConverterParameter=CreateCompany}"
+                                Background="White" BorderBrush="{StaticResource TallyGridLine}" BorderThickness="1"
+                                HorizontalAlignment="Center" VerticalAlignment="Top"
+                                Margin="0,10" Width="460" Padding="18">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Name" FontWeight="SemiBold" Foreground="{StaticResource TallyNavy}"/>
+                                <TextBox x:Name="CompanyNameBox" Text="{Binding NewCompanyName, Mode=TwoWay}"
+                                         PlaceholderText="e.g. Acme Traders" FontSize="14"/>
+                                <TextBlock Text="Financial year begins 1-Apr; base currency ₹ INR (Phase 1 defaults)."
+                                           FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                <Button Content="Create (Ctrl+A)" HorizontalAlignment="Right"
+                                        Click="OnCreateCompanyClick"
+                                        Background="{StaticResource TallyNavy}" Foreground="White" Padding="14,6"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Message / hint line -->
+                        <TextBlock Grid.Row="2" Text="{Binding Message}"
+                                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   Foreground="{StaticResource TallyRed}" FontSize="12"
+                                   HorizontalAlignment="Center" Margin="0,6,0,14" TextWrapping="Wrap"/>
+                    </Grid>
+
+                    <!-- SCREEN: Report viewer -->
+                    <ContentControl IsVisible="{Binding Reports, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Reports}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ReportsViewModel">
+                        <Grid RowDefinitions="Auto,Auto,Auto,*">
+                        <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                   FontSize="16" FontWeight="Bold" Foreground="{StaticResource TallyNavy}"
+                                   HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                        <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                   FontSize="12" Foreground="#555555"
+                                   HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                        <!-- Column header band (navy) -->
+                        <Border Grid.Row="2" Background="{StaticResource TallyNavy}">
+                            <Grid ColumnDefinitions="*,150,150">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <!-- Two-column (Dr/Cr) mode -->
+                                <TextBlock Grid.Column="1" Text="Debit" Classes="colHdr"
+                                           TextAlignment="Right" IsVisible="{Binding IsTwoColumn}"/>
+                                <TextBlock Grid.Column="2" Text="Credit" Classes="colHdr"
+                                           TextAlignment="Right" IsVisible="{Binding IsTwoColumn}"/>
+                                <!-- Single-amount mode -->
+                                <TextBlock Grid.Column="2" Text="Amount" Classes="colHdr"
+                                           TextAlignment="Right" IsVisible="{Binding !IsTwoColumn}"/>
+                            </Grid>
+                        </Border>
+
+                        <ScrollViewer Grid.Row="3" Background="White">
+                            <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ReportRow">
+                                        <Border BorderBrush="{StaticResource TallyGridLine}" BorderThickness="0,0,0,1"
+                                                Background="Transparent">
+                                            <Grid ColumnDefinitions="*,150,150" Height="24">
+                                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
+                                                            VerticalAlignment="Center" Margin="8,0">
+                                                    <TextBlock Text="{Binding Particulars}"
+                                                               FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
+                                                               FontSize="12.5"/>
+                                                    <TextBlock Text="{Binding Secondary}"
+                                                               FontSize="10.5" Foreground="#8A8A8A"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding Debit}"
+                                                           TextAlignment="Right" Margin="0,0,10,0"
+                                                           FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
+                                                           VerticalAlignment="Center" FontSize="12.5"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Credit}"
+                                                           TextAlignment="Right" Margin="0,0,10,0"
+                                                           FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
+                                                           VerticalAlignment="Center" FontSize="12.5"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Amount}"
+                                                           TextAlignment="Right" Margin="0,0,10,0"
+                                                           FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
+                                                           VerticalAlignment="Center" FontSize="12.5"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </Panel>
+            </Border>
+
+            <!-- RIGHT BUTTON BAR -->
+            <Border Grid.Column="1" Background="{StaticResource TallyPanel}"
+                    BorderBrush="{StaticResource TallyPanelBorder}" BorderThickness="1,0,0,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding ButtonBar}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ButtonBarItem">
+                                <Button Classes="barBtn" Command="{Binding Invoke}" IsEnabled="{Binding Enabled}">
+                                    <Grid ColumnDefinitions="34,*">
+                                        <TextBlock Grid.Column="0" Text="{Binding Key}"
+                                                   Foreground="{StaticResource TallyRed}" FontWeight="Bold"
+                                                   FontSize="11"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Caption}"
+                                                   Foreground="{StaticResource TallyInk}" FontSize="11"/>
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- ============ STATUS BAR (navy) ============ -->
+        <Border Grid.Row="3" Background="{StaticResource TallyNavy}" Height="26">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF">
+                    <Run Text="Company: "/><Run Text="{Binding StatusCompany}"/>
+                </TextBlock>
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF">
+                    <Run Text="Current Date: "/><Run Text="{Binding StatusDate}"/>
+                </TextBlock>
+            </Grid>
+        </Border>
+    </Grid>
 </Window>

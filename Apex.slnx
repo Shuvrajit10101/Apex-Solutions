@@ -5,6 +5,7 @@
     <Project Path="src/Apex.Persistence.Sqlite/Apex.Persistence.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Apex.Desktop.Tests/Apex.Desktop.Tests.csproj" />
     <Project Path="tests/Apex.Ledger.Tests/Apex.Ledger.Tests.csproj" />
     <Project Path="tests/Apex.Persistence.Sqlite.Tests/Apex.Persistence.Sqlite.Tests.csproj" />
   </Folder>
