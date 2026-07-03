@@ -6,12 +6,13 @@ namespace Apex.Persistence.Sqlite;
 /// double-entry math stays exact to the paisa (NFR-3) — never REAL/float. Dates are stored as ISO-8601
 /// <c>yyyy-MM-dd</c> TEXT (a <see cref="System.DateOnly"/>). GUID surrogate keys are stored as TEXT
 /// ("D" format). A <c>schema_version</c> table carries the versioned-migration marker; v1 is the
-/// Phase-1 accounting core.
+/// Phase-1 accounting core, <b>v2</b> adds bill-wise accounting (catalog §5): two bill-by-bill
+/// columns on <c>ledgers</c> and a <c>bill_allocations</c> child table hung off <c>entry_lines</c>.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current (Phase-1) schema version this adapter reads and writes.</summary>
-    public const int CurrentVersion = 1;
+    /// <summary>The current schema version this adapter reads and writes (v2 = bill-wise).</summary>
+    public const int CurrentVersion = 2;
 
     /// <summary>
     /// The v1 DDL. Executed inside a transaction when a database is first created (or opened empty).
@@ -63,7 +64,10 @@ public static class Schema
             opening_balance_paisa INTEGER NOT NULL,  -- magnitude ≥ 0, in paisa
             opening_is_debit     INTEGER NOT NULL,   -- 0/1
             alias                TEXT        NULL,
-            is_predefined        INTEGER NOT NULL
+            is_predefined        INTEGER NOT NULL,
+            -- v2 bill-wise (catalog §5):
+            maintain_bill_by_bill    INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            default_credit_period    INTEGER     NULL              -- days, NULL = none
         );
 
         CREATE TABLE voucher_types (
@@ -100,10 +104,46 @@ public static class Schema
             side         INTEGER NOT NULL    -- DrCr enum ordinal (Debit=0, Credit=1)
         );
 
+        CREATE TABLE bill_allocations (
+            id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id  INTEGER NOT NULL REFERENCES entry_lines(id),
+            alloc_order    INTEGER NOT NULL,   -- preserves order within the line
+            ref_type       INTEGER NOT NULL,   -- BillRefType enum ordinal
+            name           TEXT    NOT NULL,   -- bill reference id ('' for On-Account)
+            amount_paisa   INTEGER NOT NULL,   -- magnitude > 0, in paisa
+            due_date       TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL when derived
+            credit_days    INTEGER     NULL    -- credit period days, or NULL
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
         CREATE INDEX ix_vouchers_company       ON vouchers(company_id);
         CREATE INDEX ix_entry_lines_voucher    ON entry_lines(voucher_id);
+        CREATE INDEX ix_bill_allocations_line  ON bill_allocations(entry_line_id);
+        """;
+
+    /// <summary>
+    /// The v1→v2 migration: adds the two bill-wise columns to <c>ledgers</c> and creates the
+    /// <c>bill_allocations</c> table + index. Idempotent-friendly (ADD COLUMN with defaults, plus a
+    /// fresh table), run inside a transaction that also bumps <c>schema_version</c> to 2. Existing v1
+    /// databases keep all their data — the new columns default to "not bill-wise".
+    /// </summary>
+    public const string MigrateV1ToV2 = """
+        ALTER TABLE ledgers ADD COLUMN maintain_bill_by_bill INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN default_credit_period INTEGER NULL;
+
+        CREATE TABLE bill_allocations (
+            id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id  INTEGER NOT NULL REFERENCES entry_lines(id),
+            alloc_order    INTEGER NOT NULL,
+            ref_type       INTEGER NOT NULL,
+            name           TEXT    NOT NULL,
+            amount_paisa   INTEGER NOT NULL,
+            due_date       TEXT        NULL,
+            credit_days    INTEGER     NULL
+        );
+
+        CREATE INDEX ix_bill_allocations_line ON bill_allocations(entry_line_id);
         """;
 }

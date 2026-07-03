@@ -128,6 +128,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         Recalculate();
     }
 
+    /// <summary>Adds a bill-wise allocation row to a line (the sub-panel "+ Add bill" button).</summary>
+    public void AddBillAllocation(VoucherLineViewModel line)
+    {
+        line.AddBillAllocation();
+        Recalculate();
+    }
+
     /// <summary>Recomputes Σ Dr, Σ Cr, the difference indicator, and whether Accept is allowed.</summary>
     public void Recalculate()
     {
@@ -151,10 +158,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         else
             DifferenceText = $"Credit short/Debit excess by {IndianFormat.AmountAlways(Math.Abs(diff))}";
 
-        // Accept requires: at least two complete lines, no half-filled row, and balanced (>0).
+        // Accept requires: at least two complete lines, no half-filled row, balanced (>0), and — for any
+        // bill-wise line — a valid bill-wise split (allocations sum to the line amount).
         var completeLines = Lines.Count(l => l.IsComplete);
         var hasHalfFilledRow = Lines.Any(l => !l.IsBlank && !l.IsComplete);
-        CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow;
+        var billSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.BillSplitOk);
+        CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow && billSplitsOk;
     }
 
     /// <summary>
@@ -173,9 +182,24 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
+        var badBill = Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk);
+        if (badBill is not null)
+        {
+            Message = $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount " +
+                      $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
+            return false;
+        }
+
         var entryLines = Lines
             .Where(l => l.IsComplete)
-            .Select(l => new EntryLine(l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side))
+            .Select(l =>
+            {
+                var allocs = l.ToBillAllocations();
+                return new EntryLine(
+                    l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side,
+                    allocs.Count > 0 ? allocs : null);
+            })
             .ToList();
 
         if (entryLines.Count < 2)

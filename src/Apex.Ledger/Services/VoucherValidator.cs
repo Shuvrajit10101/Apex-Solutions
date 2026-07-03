@@ -33,13 +33,16 @@ public static class VoucherValidator
         if (v.Lines.Count < 2)
             throw new InvalidVoucherException("A voucher must have at least two entry lines.");
 
-        // §6.3 positive line amounts + §6.5 known ledgers.
+        // §6.3 positive line amounts + §6.5 known ledgers + §5 bill-wise integrity.
         foreach (var line in v.Lines)
         {
             if (line.Amount.Amount <= 0m)
                 throw new InvalidVoucherException("Every entry line amount must be > 0.");
-            if (c.FindLedger(line.LedgerId) is null)
-                throw new InvalidVoucherException($"Entry line references unknown ledger {line.LedgerId}.");
+            var ledger = c.FindLedger(line.LedgerId)
+                ?? throw new InvalidVoucherException($"Entry line references unknown ledger {line.LedgerId}.");
+
+            if (line.HasBillAllocations)
+                EnsureBillAllocationsValid(line, ledger);
         }
 
         // §6.9 date within books.
@@ -50,5 +53,21 @@ public static class VoucherValidator
         // §6.1 the golden invariant: Σ Dr == Σ Cr.
         if (!IsBalanced(v))
             throw new UnbalancedVoucherException(v.TotalDebit, v.TotalCredit);
+    }
+
+    /// <summary>
+    /// §5 bill-wise integrity for one line: allocations are only permitted on a bill-by-bill ledger,
+    /// and their magnitudes must <b>sum exactly to the line amount</b> ("split"). Throws otherwise.
+    /// </summary>
+    public static void EnsureBillAllocationsValid(Domain.EntryLine line, Domain.Ledger ledger)
+    {
+        if (!ledger.MaintainBillByBill)
+            throw new InvalidVoucherException(
+                $"Ledger '{ledger.Name}' does not maintain balances bill-by-bill; it cannot carry bill allocations.");
+
+        if (line.BillAllocationTotal != line.Amount)
+            throw new InvalidVoucherException(
+                $"Bill allocations on the line for '{ledger.Name}' sum to {line.BillAllocationTotal} " +
+                $"but the line amount is {line.Amount}; they must be equal (split).");
     }
 }

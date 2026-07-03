@@ -86,6 +86,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         }
 
         var version = ScalarLong("SELECT version FROM schema_version LIMIT 1;");
+
+        // v1 → v2: apply the bill-wise migration, then bump the marker. Existing v1 data survives.
+        if (version == 1)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV1ToV2;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 2);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 2;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -226,6 +248,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     public void Remove(Guid companyId, Guid voucherId)
     {
         using var tx = _connection.BeginTransaction();
+        using (var delAllocs = _connection.CreateCommand())
+        {
+            delAllocs.Transaction = tx;
+            delAllocs.CommandText = """
+                DELETE FROM bill_allocations WHERE entry_line_id IN (
+                    SELECT id FROM entry_lines WHERE voucher_id = $vid);
+                """;
+            delAllocs.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+            delAllocs.ExecuteNonQuery();
+        }
         using (var delLines = _connection.CreateCommand())
         {
             delLines.Transaction = tx;
@@ -287,7 +319,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined
+            SELECT id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
+                   maintain_bill_by_bill, default_credit_period
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -302,7 +335,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 Paisa.ToMoney(r.GetInt64(3)),
                 openingIsDebit: r.GetInt64(4) != 0,
                 alias: r.IsDBNull(5) ? null : r.GetString(5),
-                isPredefined: r.GetInt64(6) != 0));
+                isPredefined: r.GetInt64(6) != 0,
+                maintainBillByBill: r.GetInt64(7) != 0,
+                defaultCreditPeriodDays: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8)));
         }
         return list;
     }
@@ -379,22 +414,59 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     private List<EntryLine> ReadEntryLines(Guid voucherId)
     {
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT ledger_id, amount_paisa, side
-            FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
-            """;
-        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
-        using var r = cmd.ExecuteReader();
-        var lines = new List<EntryLine>();
-        while (r.Read())
+        // Read the raw line rows first (capturing the id), then load each line's bill allocations.
+        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side)>();
+        using (var cmd = _connection.CreateCommand())
         {
+            cmd.CommandText = """
+                SELECT id, ledger_id, amount_paisa, side
+                FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
+                """;
+            cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                raw.Add((
+                    r.GetInt64(0),
+                    Guid.Parse(r.GetString(1)),
+                    r.GetInt64(2),
+                    (DrCr)(int)r.GetInt64(3)));
+            }
+        }
+
+        var lines = new List<EntryLine>(raw.Count);
+        foreach (var (id, ledgerId, amountPaisa, side) in raw)
+        {
+            var allocs = ReadBillAllocations(id);
             lines.Add(new EntryLine(
-                Guid.Parse(r.GetString(0)),
-                Paisa.ToMoney(r.GetInt64(1)),
-                (DrCr)(int)r.GetInt64(2)));
+                ledgerId,
+                Paisa.ToMoney(amountPaisa),
+                side,
+                allocs.Count > 0 ? allocs : null));
         }
         return lines;
+    }
+
+    private List<BillAllocation> ReadBillAllocations(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT ref_type, name, amount_paisa, due_date, credit_days
+            FROM bill_allocations WHERE entry_line_id = $lid ORDER BY alloc_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        var list = new List<BillAllocation>();
+        while (r.Read())
+        {
+            list.Add(new BillAllocation(
+                (BillRefType)(int)r.GetInt64(0),
+                r.GetString(1),
+                Paisa.ToMoney(r.GetInt64(2)),
+                dueDate: r.IsDBNull(3) ? (DateOnly?)null : ParseDate(r.GetString(3)),
+                creditPeriodDays: r.IsDBNull(4) ? (int?)null : (int)r.GetInt64(4)));
+        }
+        return list;
     }
 
     // ------------------------------------------------------------------ writers
@@ -404,6 +476,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Child-first so foreign keys are satisfied. Break the company→head fk before deleting groups.
         var cid = companyId.ToString("D");
         ExecTx(tx, "UPDATE companies SET profit_and_loss_head_id = NULL WHERE id = $cid;", ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM bill_allocations WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
@@ -489,8 +567,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO ledgers
-                    (id, company_id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined)
-                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre);
+                    (id, company_id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
+                     maintain_bill_by_bill, default_credit_period)
+                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -500,6 +579,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$od", l.OpeningIsDebit ? 1 : 0);
             cmd.Parameters.AddWithValue("$alias", (object?)l.Alias ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$pre", l.IsPredefined ? 1 : 0);
+            cmd.Parameters.AddWithValue("$bbb", l.MaintainBillByBill ? 1 : 0);
+            cmd.Parameters.AddWithValue("$dcp", (object?)l.DefaultCreditPeriodDays ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -560,17 +641,47 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         var order = 0;
         foreach (var line in v.Lines)
         {
+            long lineId;
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                // RETURNING id gives us the AUTOINCREMENT key to hang bill allocations off (SQLite ≥ 3.35).
+                cmd.CommandText = """
+                    INSERT INTO entry_lines (voucher_id, line_order, ledger_id, amount_paisa, side)
+                    VALUES ($vid, $ord, $lid, $amt, $side)
+                    RETURNING id;
+                    """;
+                cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$lid", line.LedgerId.ToString("D"));
+                cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(line.Amount));
+                cmd.Parameters.AddWithValue("$side", (int)line.Side);
+                lineId = Convert.ToInt64(cmd.ExecuteScalar());
+            }
+
+            InsertBillAllocations(tx, lineId, line);
+        }
+    }
+
+    private void InsertBillAllocations(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        var allocOrder = 0;
+        foreach (var a in line.BillAllocations)
+        {
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO entry_lines (voucher_id, line_order, ledger_id, amount_paisa, side)
-                VALUES ($vid, $ord, $lid, $amt, $side);
+                INSERT INTO bill_allocations
+                    (entry_line_id, alloc_order, ref_type, name, amount_paisa, due_date, credit_days)
+                VALUES ($lid, $ord, $rt, $name, $amt, $due, $cd);
                 """;
-            cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
-            cmd.Parameters.AddWithValue("$ord", order++);
-            cmd.Parameters.AddWithValue("$lid", line.LedgerId.ToString("D"));
-            cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(line.Amount));
-            cmd.Parameters.AddWithValue("$side", (int)line.Side);
+            cmd.Parameters.AddWithValue("$lid", entryLineId);
+            cmd.Parameters.AddWithValue("$ord", allocOrder++);
+            cmd.Parameters.AddWithValue("$rt", (int)a.RefType);
+            cmd.Parameters.AddWithValue("$name", a.Name);
+            cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(a.Amount));
+            cmd.Parameters.AddWithValue("$due", (object?)(a.DueDate is { } d ? FormatDate(d) : null) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cd", (object?)a.CreditPeriodDays ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

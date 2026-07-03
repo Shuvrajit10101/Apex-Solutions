@@ -79,6 +79,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+B settles the spacebar-selected bills on the Outstandings page (Bill Settlement).
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            vm.SettleBills();
+            e.Handled = true;
+            return;
+        }
+
+        // Spacebar toggles the highlighted bill's multi-select on the Outstandings page (not while typing).
+        if (e.Key == Key.Space && vm.IsOutstandingsScreen && !IsTyping(e))
+        {
+            vm.ToggleOutstandingSelection();
+            e.Handled = true;
+            return;
+        }
+
         switch (e.Key)
         {
             case Key.Up when !IsTyping(e):
@@ -159,6 +175,15 @@ public partial class MainWindow : Window
 
     private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddVoucherLine();
+
+    private void OnAddBillAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: VoucherLineViewModel line })
+            Vm?.AddBillAllocation(line);
+    }
+
+    private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
+        => Vm?.SettleBills();
 
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
