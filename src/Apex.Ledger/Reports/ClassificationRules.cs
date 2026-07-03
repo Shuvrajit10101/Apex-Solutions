@@ -49,6 +49,14 @@ public static class ClassificationRules
         return IsProfitAndLossGroup(group, company);
     }
 
+    /// <summary>
+    /// The effective "Cost centres applicable" flag for a ledger (catalog §6). Honours an explicit
+    /// override on <see cref="Domain.Ledger.CostCentresApplicable"/> when set; otherwise defaults by
+    /// nature: <c>true</c> for Income/Expense-nature (P&amp;L) ledgers, <c>false</c> otherwise.
+    /// </summary>
+    public static bool CostCentresApplicableFor(Domain.Ledger ledger, Company company)
+        => ledger.CostCentresApplicable ?? IsProfitAndLossLedger(ledger, company);
+
     /// <summary>True iff the ledger sits under (or below) the Stock-in-Hand group.</summary>
     public static bool IsStockInHandLedger(Domain.Ledger ledger, Company company)
     {

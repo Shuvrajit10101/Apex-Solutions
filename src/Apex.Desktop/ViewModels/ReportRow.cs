@@ -22,6 +22,13 @@ public sealed class ReportRow
     public bool IsHeader { get; init; }
 
     /// <summary>
+    /// Left-indent (pixels) for a hierarchical particulars label — 0 for a flat row, deeper for a
+    /// nested one (e.g. a child cost centre under its parent in the Cost Centre Break-up). Bound via the
+    /// account tree's <c>IndentToThicknessConverter</c> so nesting reads visually.
+    /// </summary>
+    public double Indent { get; init; }
+
+    /// <summary>
     /// True for a Dr/Cr row (Debit + Credit cells shown); false for a single-amount row
     /// (only the Amount cell shown). Drives per-cell visibility so the Credit and Amount cells,
     /// which occupy the same grid column, are mutually exclusive.

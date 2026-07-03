@@ -445,6 +445,72 @@
                                             </Grid>
                                           </StackPanel>
                                         </Border>
+
+                                        <!-- Cost Allocation sub-panel (only for a cost-applicable ledger
+                                             when the company has cost centres) -->
+                                        <Border IsVisible="{Binding IsCostApplicable}"
+                                                Background="#F3FBF4"
+                                                BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                                Margin="18,4,4,2" Padding="8,6">
+                                          <StackPanel Spacing="4">
+                                            <TextBlock Text="Cost Allocation"
+                                                       FontWeight="SemiBold" FontSize="11"
+                                                       Foreground="{StaticResource BrandNavy}"/>
+                                            <!-- Allocation column header -->
+                                            <Grid ColumnDefinitions="*,*,120">
+                                              <TextBlock Grid.Column="0" Text="Category" FontSize="10.5"
+                                                         Foreground="#6A6A6A"/>
+                                              <TextBlock Grid.Column="1" Text="Cost Centre" FontSize="10.5"
+                                                         Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                              <TextBlock Grid.Column="2" Text="Amount" FontSize="10.5"
+                                                         Foreground="#6A6A6A" TextAlignment="Right"/>
+                                            </Grid>
+                                            <ItemsControl ItemsSource="{Binding CostAllocations}">
+                                              <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CostAllocationRowViewModel">
+                                                  <Grid ColumnDefinitions="*,*,120" Margin="0,1">
+                                                    <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
+                                                              ItemsSource="{Binding Categories}"
+                                                              SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                                                              FontSize="11" PlaceholderText="Category…">
+                                                      <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="ledger:CostCategory">
+                                                          <TextBlock Text="{Binding Name}"/>
+                                                        </DataTemplate>
+                                                      </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <ComboBox Grid.Column="1" Margin="4,0,0,0"
+                                                              HorizontalAlignment="Stretch"
+                                                              ItemsSource="{Binding Centres}"
+                                                              SelectedItem="{Binding SelectedCentre, Mode=TwoWay}"
+                                                              FontSize="11" PlaceholderText="Centre…">
+                                                      <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="ledger:CostCentre">
+                                                          <TextBlock Text="{Binding Name}"/>
+                                                        </DataTemplate>
+                                                      </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <TextBox Grid.Column="2" Width="114"
+                                                             Text="{Binding AmountText, Mode=TwoWay}"
+                                                             FontSize="11" TextAlignment="Right"
+                                                             PlaceholderText="0.00"/>
+                                                  </Grid>
+                                                </DataTemplate>
+                                              </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Grid ColumnDefinitions="Auto,*">
+                                              <Button Grid.Column="0" Content="+ Add centre"
+                                                      FontSize="10.5" Padding="8,2"
+                                                      Background="{StaticResource Panel}"
+                                                      Click="OnAddCostAllocationClick"
+                                                      CommandParameter="{Binding}"/>
+                                              <TextBlock Grid.Column="1" Text="{Binding CostSummary}"
+                                                         FontSize="10.5" Foreground="#555555"
+                                                         VerticalAlignment="Center" TextAlignment="Right"
+                                                         Margin="8,0,0,0"/>
+                                            </Grid>
+                                          </StackPanel>
+                                        </Border>
                                       </StackPanel>
                                     </Border>
                                   </DataTemplate>
@@ -733,6 +799,217 @@
                                        IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        Foreground="{StaticResource BrandNavy}" FontSize="12"
                                        Margin="2,4,0,0" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Cost Category master (create + list) -->
+                    <ContentControl IsVisible="{Binding CostCategory, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding CostCategory}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:CostCategoryMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Cost Category Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Departments"/>
+                                </Grid>
+                                <CheckBox Content="Allocate Revenue Items"
+                                          IsChecked="{Binding AllocateRevenueItems, Mode=TwoWay}" FontSize="13"/>
+                                <CheckBox Content="Allocate Non-Revenue Items"
+                                          IsChecked="{Binding AllocateNonRevenueItems, Mode=TwoWay}" FontSize="13"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateCostCategoryClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing categories header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,220,120">
+                                <TextBlock Grid.Column="0" Text="Cost Category" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Allocates" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CostCategoryListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,220,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Allocates}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Cost Centre master (create + list) -->
+                    <ContentControl IsVisible="{Binding CostCentre, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding CostCentre}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:CostCentreMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Cost Centre Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Sales Team A"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Category" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Categories}"
+                                            SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                                            PlaceholderText="Select category…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:CostCategory">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Primary…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ParentCentreOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateCostCentreClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing centres header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,180,160">
+                                <TextBlock Grid.Column="0" Text="Cost Centre" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Category" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Under" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CostCentreListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,180,160" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Category}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Under}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Cost report (Category Summary / Cost Centre Break-up) -->
+                    <ContentControl IsVisible="{Binding CostReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding CostReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:CostReportsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,160">
+                                <TextBlock Grid.Column="0" Text="{Binding ParticularsHeader}" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,160" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Particulars}"
+                                                   Margin="{Binding Indent, Converter={StaticResource Indent}}"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
+                                                   Foreground="{Binding IsHeader, Converter={StaticResource SelFore}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Amount}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

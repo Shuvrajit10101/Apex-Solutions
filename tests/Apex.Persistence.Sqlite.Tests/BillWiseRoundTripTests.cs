@@ -92,12 +92,12 @@ public sealed class BillWiseRoundTripTests
             using (var write = new SqliteCompanyStore(dbPath))
             {
                 write.Save(original);
-                // The adapter reports v2.
-                Assert.Equal(2, Schema.CurrentVersion);
+                // The adapter is at or beyond the bill-wise schema (v2); the current version is authoritative.
+                Assert.True(Schema.CurrentVersion >= 2);
             }
 
-            // The persisted marker is 2.
-            Assert.Equal(2L, ReadSchemaVersion(dbPath));
+            // The persisted marker tracks the adapter's current version (a fresh DB is stamped straight to it).
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
 
             Company reloaded;
             using (var read = new SqliteCompanyStore(dbPath))
@@ -179,7 +179,7 @@ public sealed class BillWiseRoundTripTests
 
             Assert.Equal(1L, ReadSchemaVersion(dbPath));
 
-            // Open with the current adapter → auto-migrate to v2.
+            // Open with the current adapter → auto-migrate forward (v1 → v2 → … → current).
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var loaded = store.Load(companyId);
@@ -187,8 +187,9 @@ public sealed class BillWiseRoundTripTests
                 Assert.Equal("Legacy Co", loaded!.Name);
             }
 
-            // The migration bumped the marker and created the new structures.
-            Assert.Equal(2L, ReadSchemaVersion(dbPath));
+            // The migration chain bumped the marker to the adapter's current version and created the
+            // bill-wise structures (added by the v1→v2 step) along the way.
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             Assert.True(TableExists(dbPath, "bill_allocations"), "bill_allocations table was not created.");
             Assert.True(ColumnExists(dbPath, "ledgers", "maintain_bill_by_bill"));
             Assert.True(ColumnExists(dbPath, "ledgers", "default_credit_period"));

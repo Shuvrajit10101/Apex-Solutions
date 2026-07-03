@@ -57,6 +57,15 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Outstandings view model (non-null only for a Receivables/Payables column).</summary>
     public OutstandingsViewModel? Outstanding => Page as OutstandingsViewModel;
 
+    /// <summary>The hosted Cost-Category master (non-null only for the Cost-Category creation column).</summary>
+    public CostCategoryMasterViewModel? CostCategory => Page as CostCategoryMasterViewModel;
+
+    /// <summary>The hosted Cost-Centre master (non-null only for the Cost-Centre creation column).</summary>
+    public CostCentreMasterViewModel? CostCentre => Page as CostCentreMasterViewModel;
+
+    /// <summary>The hosted cost-report view model (non-null only for a Category Summary / Break-up column).</summary>
+    public CostReportsViewModel? CostReport => Page as CostReportsViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

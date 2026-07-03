@@ -8,14 +8,19 @@ namespace Apex.Persistence.Sqlite;
 /// ("D" format). A <c>schema_version</c> table carries the versioned-migration marker; v1 is the
 /// Phase-1 accounting core, <b>v2</b> adds bill-wise accounting (catalog §5): two bill-by-bill
 /// columns on <c>ledgers</c> and a <c>bill_allocations</c> child table hung off <c>entry_lines</c>.
+/// <b>v3</b> adds cost categories and cost centres (catalog §6): <c>cost_categories</c> and
+/// <c>cost_centres</c> master tables, a <c>cost_allocations</c> child table hung off
+/// <c>entry_lines</c>, and a nullable <c>cost_applicable</c> column on <c>ledgers</c> (NULL = auto).
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v2 = bill-wise).</summary>
-    public const int CurrentVersion = 2;
+    /// <summary>The current schema version this adapter reads and writes (v3 = cost centres).</summary>
+    public const int CurrentVersion = 3;
 
     /// <summary>
-    /// The v1 DDL. Executed inside a transaction when a database is first created (or opened empty).
+    /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
+    /// transaction when a database is first created (or opened empty); a fresh DB is stamped straight to
+    /// the current version, so this DDL already includes every column/table added by later migrations.
     /// Foreign keys wire the aggregate together; <c>PRAGMA foreign_keys</c> is enabled per connection.
     /// </summary>
     public const string CreateV1 = """
@@ -67,7 +72,9 @@ public static class Schema
             is_predefined        INTEGER NOT NULL,
             -- v2 bill-wise (catalog §5):
             maintain_bill_by_bill    INTEGER NOT NULL DEFAULT 0,   -- 0/1
-            default_credit_period    INTEGER     NULL              -- days, NULL = none
+            default_credit_period    INTEGER     NULL,             -- days, NULL = none
+            -- v3 cost centres (catalog §6): NULL = auto (by nature), 0/1 = explicit override
+            cost_applicable          INTEGER     NULL
         );
 
         CREATE TABLE voucher_types (
@@ -115,12 +122,42 @@ public static class Schema
             credit_days    INTEGER     NULL    -- credit period days, or NULL
         );
 
+        CREATE TABLE cost_categories (
+            id                      TEXT    NOT NULL PRIMARY KEY,
+            company_id              TEXT    NOT NULL REFERENCES companies(id),
+            name                    TEXT    NOT NULL,
+            allocate_revenue        INTEGER NOT NULL,   -- 0/1
+            allocate_non_revenue    INTEGER NOT NULL,   -- 0/1
+            is_predefined           INTEGER NOT NULL    -- 0/1 (the seeded Primary Cost Category)
+        );
+
+        CREATE TABLE cost_centres (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            name          TEXT    NOT NULL,
+            category_id   TEXT    NOT NULL REFERENCES cost_categories(id),
+            parent_id     TEXT        NULL REFERENCES cost_centres(id),   -- NULL = primary centre
+            alias         TEXT        NULL
+        );
+
+        CREATE TABLE cost_allocations (
+            id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id  INTEGER NOT NULL REFERENCES entry_lines(id),
+            alloc_order    INTEGER NOT NULL,   -- preserves order within the line
+            category_id    TEXT    NOT NULL REFERENCES cost_categories(id),
+            centre_id      TEXT    NOT NULL REFERENCES cost_centres(id),
+            amount_paisa   INTEGER NOT NULL    -- magnitude > 0, in paisa
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
         CREATE INDEX ix_vouchers_company       ON vouchers(company_id);
         CREATE INDEX ix_entry_lines_voucher    ON entry_lines(voucher_id);
         CREATE INDEX ix_bill_allocations_line  ON bill_allocations(entry_line_id);
+        CREATE INDEX ix_cost_categories_company ON cost_categories(company_id);
+        CREATE INDEX ix_cost_centres_company    ON cost_centres(company_id);
+        CREATE INDEX ix_cost_allocations_line   ON cost_allocations(entry_line_id);
         """;
 
     /// <summary>
@@ -145,5 +182,47 @@ public static class Schema
         );
 
         CREATE INDEX ix_bill_allocations_line ON bill_allocations(entry_line_id);
+        """;
+
+    /// <summary>
+    /// The v2→v3 migration (catalog §6): adds the nullable <c>cost_applicable</c> column to
+    /// <c>ledgers</c> and creates the <c>cost_categories</c>, <c>cost_centres</c> and
+    /// <c>cost_allocations</c> tables + indexes. Run inside a transaction that also bumps
+    /// <c>schema_version</c> to 3. Existing v2 databases keep all their data — the new column defaults
+    /// to NULL ("auto by nature") and the new tables start empty.
+    /// </summary>
+    public const string MigrateV2ToV3 = """
+        ALTER TABLE ledgers ADD COLUMN cost_applicable INTEGER NULL;
+
+        CREATE TABLE cost_categories (
+            id                      TEXT    NOT NULL PRIMARY KEY,
+            company_id              TEXT    NOT NULL REFERENCES companies(id),
+            name                    TEXT    NOT NULL,
+            allocate_revenue        INTEGER NOT NULL,
+            allocate_non_revenue    INTEGER NOT NULL,
+            is_predefined           INTEGER NOT NULL
+        );
+
+        CREATE TABLE cost_centres (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            name          TEXT    NOT NULL,
+            category_id   TEXT    NOT NULL REFERENCES cost_categories(id),
+            parent_id     TEXT        NULL REFERENCES cost_centres(id),
+            alias         TEXT        NULL
+        );
+
+        CREATE TABLE cost_allocations (
+            id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id  INTEGER NOT NULL REFERENCES entry_lines(id),
+            alloc_order    INTEGER NOT NULL,
+            category_id    TEXT    NOT NULL REFERENCES cost_categories(id),
+            centre_id      TEXT    NOT NULL REFERENCES cost_centres(id),
+            amount_paisa   INTEGER NOT NULL
+        );
+
+        CREATE INDEX ix_cost_categories_company ON cost_categories(company_id);
+        CREATE INDEX ix_cost_centres_company    ON cost_centres(company_id);
+        CREATE INDEX ix_cost_allocations_line   ON cost_allocations(entry_line_id);
         """;
 }

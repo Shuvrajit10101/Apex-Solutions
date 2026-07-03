@@ -11,6 +11,8 @@ public sealed class Company
     private readonly List<Ledger> _ledgers = new();
     private readonly List<VoucherType> _voucherTypes = new();
     private readonly List<Voucher> _vouchers = new();
+    private readonly List<CostCategory> _costCategories = new();
+    private readonly List<CostCentre> _costCentres = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -59,6 +61,12 @@ public sealed class Company
     public IReadOnlyList<VoucherType> VoucherTypes => _voucherTypes;
     public IReadOnlyList<Voucher> Vouchers => _vouchers;
 
+    /// <summary>Cost categories (catalog §6); includes the seeded "Primary Cost Category".</summary>
+    public IReadOnlyList<CostCategory> CostCategories => _costCategories;
+
+    /// <summary>Cost centres (catalog §6), hierarchical within their category.</summary>
+    public IReadOnlyList<CostCentre> CostCentres => _costCentres;
+
     public Company(Guid id, string name, DateOnly financialYearStart, DateOnly booksBeginFrom)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -78,6 +86,8 @@ public sealed class Company
     public void AddGroup(Group group) => _groups.Add(group);
     public void AddLedger(Ledger ledger) => _ledgers.Add(ledger);
     public void AddVoucherType(VoucherType type) => _voucherTypes.Add(type);
+    public void AddCostCategory(CostCategory category) => _costCategories.Add(category);
+    public void AddCostCentre(CostCentre centre) => _costCentres.Add(centre);
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
@@ -89,6 +99,8 @@ public sealed class Company
     public Ledger? FindLedger(Guid id) => _ledgers.FirstOrDefault(l => l.Id == id);
     public VoucherType? FindVoucherType(Guid id) => _voucherTypes.FirstOrDefault(t => t.Id == id);
     public Voucher? FindVoucher(Guid id) => _vouchers.FirstOrDefault(v => v.Id == id);
+    public CostCategory? FindCostCategory(Guid id) => _costCategories.FirstOrDefault(c => c.Id == id);
+    public CostCentre? FindCostCentre(Guid id) => _costCentres.FirstOrDefault(c => c.Id == id);
 
     public Group? FindGroupByName(string name) =>
         _groups.FirstOrDefault(g =>
@@ -104,4 +116,12 @@ public sealed class Company
         _voucherTypes.FirstOrDefault(t =>
             string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase) ||
             (t.Abbreviation is not null && string.Equals(t.Abbreviation, name, StringComparison.OrdinalIgnoreCase)));
+
+    public CostCategory? FindCostCategoryByName(string name) =>
+        _costCategories.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    public CostCentre? FindCostCentreByName(string name) =>
+        _costCentres.FirstOrDefault(c =>
+            string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (c.Alias is not null && string.Equals(c.Alias, name, StringComparison.OrdinalIgnoreCase)));
 }

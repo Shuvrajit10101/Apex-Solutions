@@ -108,6 +108,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 2;
         }
 
+        // v2 → v3: apply the cost-centre migration, then bump the marker. Existing v2 data survives.
+        if (version == 2)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV2ToV3;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 3);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 3;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -172,6 +193,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var t in ReadVoucherTypes(companyId))
             company.AddVoucherType(t);
 
+        // Cost categories then centres (centres reference categories; both must exist before vouchers
+        // are re-posted, since the validator checks a line's cost allocations against them).
+        foreach (var cat in ReadCostCategories(companyId))
+            company.AddCostCategory(cat);
+        foreach (var centre in ReadCostCentres(companyId))
+            company.AddCostCentre(centre);
+
         // Vouchers: re-post through the engine (real posting path). The stored number is preserved
         // because Post only assigns a number when the voucher's number is unset (≤ 0).
         var service = new LedgerService(company);
@@ -214,6 +242,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         SetProfitAndLossHead(tx, company);
         InsertLedgers(tx, company);
         InsertVoucherTypes(tx, company);
+        // Cost categories before centres (centres FK categories); both before vouchers (cost allocations
+        // FK both).
+        InsertCostCategories(tx, company);
+        InsertCostCentres(tx, company);
         InsertVouchers(tx, company);
 
         tx.Commit();
@@ -257,6 +289,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 """;
             delAllocs.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
             delAllocs.ExecuteNonQuery();
+        }
+        using (var delCostAllocs = _connection.CreateCommand())
+        {
+            delCostAllocs.Transaction = tx;
+            delCostAllocs.CommandText = """
+                DELETE FROM cost_allocations WHERE entry_line_id IN (
+                    SELECT id FROM entry_lines WHERE voucher_id = $vid);
+                """;
+            delCostAllocs.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+            delCostAllocs.ExecuteNonQuery();
         }
         using (var delLines = _connection.CreateCommand())
         {
@@ -320,7 +362,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
-                   maintain_bill_by_bill, default_credit_period
+                   maintain_bill_by_bill, default_credit_period, cost_applicable
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -337,7 +379,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 alias: r.IsDBNull(5) ? null : r.GetString(5),
                 isPredefined: r.GetInt64(6) != 0,
                 maintainBillByBill: r.GetInt64(7) != 0,
-                defaultCreditPeriodDays: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8)));
+                defaultCreditPeriodDays: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8),
+                costCentresApplicable: r.IsDBNull(9) ? (bool?)null : r.GetInt64(9) != 0));
         }
         return list;
     }
@@ -363,6 +406,50 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 abbreviation: r.IsDBNull(5) ? null : r.GetString(5),
                 isActive: r.GetInt64(6) != 0,
                 isPredefined: r.GetInt64(7) != 0));
+        }
+        return list;
+    }
+
+    private IEnumerable<CostCategory> ReadCostCategories(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, allocate_revenue, allocate_non_revenue, is_predefined
+            FROM cost_categories WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<CostCategory>();
+        while (r.Read())
+        {
+            list.Add(new CostCategory(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                allocateRevenueItems: r.GetInt64(2) != 0,
+                allocateNonRevenueItems: r.GetInt64(3) != 0,
+                isPredefined: r.GetInt64(4) != 0));
+        }
+        return list;
+    }
+
+    private IEnumerable<CostCentre> ReadCostCentres(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, category_id, parent_id, alias
+            FROM cost_centres WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<CostCentre>();
+        while (r.Read())
+        {
+            list.Add(new CostCentre(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                Guid.Parse(r.GetString(2)),
+                parentId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                alias: r.IsDBNull(4) ? null : r.GetString(4)));
         }
         return list;
     }
@@ -438,11 +525,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var (id, ledgerId, amountPaisa, side) in raw)
         {
             var allocs = ReadBillAllocations(id);
+            var costAllocs = ReadCostAllocations(id);
             lines.Add(new EntryLine(
                 ledgerId,
                 Paisa.ToMoney(amountPaisa),
                 side,
-                allocs.Count > 0 ? allocs : null));
+                allocs.Count > 0 ? allocs : null,
+                costAllocs.Count > 0 ? costAllocs : null));
         }
         return lines;
     }
@@ -469,6 +558,26 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
+    private List<CostAllocation> ReadCostAllocations(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT category_id, centre_id, amount_paisa
+            FROM cost_allocations WHERE entry_line_id = $lid ORDER BY alloc_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        var list = new List<CostAllocation>();
+        while (r.Read())
+        {
+            list.Add(new CostAllocation(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                Paisa.ToMoney(r.GetInt64(2))));
+        }
+        return list;
+    }
+
     // ------------------------------------------------------------------ writers
 
     private void DeleteCompanyRows(SqliteTransaction tx, Guid companyId)
@@ -482,10 +591,19 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 JOIN vouchers v ON v.id = el.voucher_id
                 WHERE v.company_id = $cid);
             """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM cost_allocations WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
+        // Cost centres reference cost categories → delete centres first.
+        ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM cost_categories WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
@@ -568,8 +686,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO ledgers
                     (id, company_id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
-                     maintain_bill_by_bill, default_credit_period)
-                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp);
+                     maintain_bill_by_bill, default_credit_period, cost_applicable)
+                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -581,6 +699,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$pre", l.IsPredefined ? 1 : 0);
             cmd.Parameters.AddWithValue("$bbb", l.MaintainBillByBill ? 1 : 0);
             cmd.Parameters.AddWithValue("$dcp", (object?)l.DefaultCreditPeriodDays ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cca", l.CostCentresApplicable is { } cca ? (cca ? 1 : 0) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -605,6 +724,47 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$abbr", (object?)t.Abbreviation ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$active", t.IsActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$pre", t.IsPredefined ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertCostCategories(SqliteTransaction tx, Company c)
+    {
+        foreach (var cat in c.CostCategories)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO cost_categories
+                    (id, company_id, name, allocate_revenue, allocate_non_revenue, is_predefined)
+                VALUES ($id, $cid, $name, $rev, $nonrev, $pre);
+                """;
+            cmd.Parameters.AddWithValue("$id", cat.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", cat.Name);
+            cmd.Parameters.AddWithValue("$rev", cat.AllocateRevenueItems ? 1 : 0);
+            cmd.Parameters.AddWithValue("$nonrev", cat.AllocateNonRevenueItems ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pre", cat.IsPredefined ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertCostCentres(SqliteTransaction tx, Company c)
+    {
+        foreach (var centre in c.CostCentres)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO cost_centres (id, company_id, name, category_id, parent_id, alias)
+                VALUES ($id, $cid, $name, $cat, $parent, $alias);
+                """;
+            cmd.Parameters.AddWithValue("$id", centre.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", centre.Name);
+            cmd.Parameters.AddWithValue("$cat", centre.CategoryId.ToString("D"));
+            cmd.Parameters.AddWithValue("$parent", (object?)centre.ParentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$alias", (object?)centre.Alias ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -660,6 +820,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             }
 
             InsertBillAllocations(tx, lineId, line);
+            InsertCostAllocations(tx, lineId, line);
         }
     }
 
@@ -682,6 +843,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(a.Amount));
             cmd.Parameters.AddWithValue("$due", (object?)(a.DueDate is { } d ? FormatDate(d) : null) ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$cd", (object?)a.CreditPeriodDays ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertCostAllocations(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        var allocOrder = 0;
+        foreach (var a in line.CostAllocations)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO cost_allocations
+                    (entry_line_id, alloc_order, category_id, centre_id, amount_paisa)
+                VALUES ($lid, $ord, $cat, $centre, $amt);
+                """;
+            cmd.Parameters.AddWithValue("$lid", entryLineId);
+            cmd.Parameters.AddWithValue("$ord", allocOrder++);
+            cmd.Parameters.AddWithValue("$cat", a.CategoryId.ToString("D"));
+            cmd.Parameters.AddWithValue("$centre", a.CentreId.ToString("D"));
+            cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(a.Amount));
             cmd.ExecuteNonQuery();
         }
     }

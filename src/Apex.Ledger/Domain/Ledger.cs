@@ -41,6 +41,15 @@ public sealed class Ledger
     /// </summary>
     public int? DefaultCreditPeriodDays { get; set; }
 
+    /// <summary>
+    /// "Cost centres applicable = Yes/No" (catalog §6). <c>null</c> ⇒ <b>auto</b>: the effective value
+    /// follows the ledger's nature (true for Income/Expense-nature ledgers, false otherwise). Set a
+    /// non-null value to <b>override</b> that default explicitly. Resolve the effective flag with
+    /// <see cref="Reports.ClassificationRules.CostCentresApplicableFor"/> (which needs the company to
+    /// walk the group's nature).
+    /// </summary>
+    public bool? CostCentresApplicable { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -50,7 +59,8 @@ public sealed class Ledger
         string? alias = null,
         bool isPredefined = false,
         bool maintainBillByBill = false,
-        int? defaultCreditPeriodDays = null)
+        int? defaultCreditPeriodDays = null,
+        bool? costCentresApplicable = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -69,6 +79,7 @@ public sealed class Ledger
         IsPredefined = isPredefined;
         MaintainBillByBill = maintainBillByBill;
         DefaultCreditPeriodDays = defaultCreditPeriodDays;
+        CostCentresApplicable = costCentresApplicable;
     }
 
     /// <summary>Signed opening: positive when debit, negative when credit (Dr = +, Cr = −).</summary>

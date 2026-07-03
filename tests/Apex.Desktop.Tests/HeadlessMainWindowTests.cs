@@ -271,6 +271,82 @@ public sealed class HeadlessMainWindowTests
         }
     }
 
+    [AvaloniaFact]
+    public void Cost_masters_and_reports_render_through_the_real_window()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.NewCompanyName = "Headless Cost Co";
+            vm.CreateCompany();
+
+            // Create a cost category through the real master page (Ctrl+A on the window creates it).
+            vm.ShowCostCategoryMaster();
+            Assert.Equal(Screen.CostCategoryMaster, vm.CurrentScreen);
+            vm.CostCategoryMaster!.Name = "Departments";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var cat = vm.Company!.FindCostCategoryByName("Departments");
+            Assert.NotNull(cat);
+
+            // Create a cost centre under it through the real master page.
+            vm.ShowCostCentreMaster();
+            Assert.Equal(Screen.CostCentreMaster, vm.CurrentScreen);
+            vm.CostCentreMaster!.SelectedCategory =
+                vm.CostCentreMaster!.Categories.Single(c => c.Id == cat!.Id);
+            vm.CostCentreMaster!.Name = "Delhi Branch";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var delhi = vm.Company!.FindCostCentreByName("Delhi Branch");
+            Assert.NotNull(delhi);
+            window.UpdateLayout();
+
+            // The Cost Centre master page rendered the new centre + its category.
+            var centreTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Select(t => t.Text ?? string.Empty).ToList();
+            Assert.Contains(centreTexts, t => t.Contains("Delhi Branch"));
+
+            // A cost-applicable expense ledger.
+            vm.ShowLedgerMaster();
+            vm.LedgerMaster!.Name = "Salaries";
+            vm.LedgerMaster!.SelectedGroup = vm.Company!.FindGroupByName("Indirect Expenses");
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var salaries = vm.Company!.FindLedgerByName("Salaries");
+            var cash = vm.Company!.FindLedgerByName("Cash");
+
+            // Payment: Dr Salaries 30,000 (cost-applicable, allocated to Delhi) / Cr Cash 30,000.
+            vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Payment);
+            var entry = vm.VoucherEntry!;
+            entry.Lines[0].SelectedLedger = salaries;
+            entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;
+            entry.Lines[0].AmountText = "30000";
+            Assert.True(entry.Lines[0].IsCostApplicable);            // the cost sub-panel turned on
+            var alloc = entry.Lines[0].CostAllocations[0];
+            alloc.SelectedCategory = alloc.Categories.Single(c => c.Id == cat!.Id);
+            alloc.SelectedCentre = alloc.Centres.Single(c => c.Id == delhi!.Id);
+            alloc.AmountText = "30000";
+            Assert.True(entry.Lines[0].CostSplitOk);
+            entry.Lines[1].SelectedLedger = cash;
+            entry.Lines[1].Side = Apex.Ledger.DrCr.Credit;
+            entry.Lines[1].AmountText = "30000";
+            Assert.True(entry.CanAccept);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control); // accept
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+
+            // The Cost Centre Break-up report page renders the centre + its total.
+            vm.OpenCostReport(CostReportKind.CostCentreBreakup);
+            Assert.Equal(Screen.CostReport, vm.CurrentScreen);
+            window.UpdateLayout();
+            var reportTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Select(t => t.Text ?? string.Empty).ToList();
+            Assert.Contains(reportTexts, t => t.Contains("Delhi Branch"));
+            Assert.Contains(reportTexts, t => t.Contains("30,000"));
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
     private static DateOnly LastVoucherDate(Apex.Ledger.Domain.Company c)
     {
         DateOnly? last = null;
