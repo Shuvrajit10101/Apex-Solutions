@@ -150,6 +150,43 @@ public sealed class OutstandingRowBrushConverter : IMultiValueConverter
     }
 }
 
+/// <summary>Maps a <see cref="Apex.Ledger.Domain.BudgetType"/> to its human label for the Type picker.</summary>
+public sealed class BudgetTypeLabelConverter : IValueConverter
+{
+    public static readonly BudgetTypeLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is Apex.Ledger.Domain.BudgetType t
+            ? Apex.Desktop.ViewModels.BudgetMasterViewModel.TypeLabel(t)
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Colours a Budget Variance figure by its sign: over budget (IsOver) reads red, under budget (IsUnder)
+/// reads green, and an exactly-on-budget figure reads the neutral ink colour. Bound with two flags
+/// (IsOver, IsUnder) so the variance amount stands out at a glance in the report grid.
+/// </summary>
+public sealed class VarianceToBrushConverter : IMultiValueConverter
+{
+    public static readonly VarianceToBrushConverter Instance = new();
+
+    private static readonly IBrush Over = new SolidColorBrush(Color.Parse("#B00020"));   // over budget → red
+    private static readonly IBrush Under = new SolidColorBrush(Color.Parse("#2E7D32"));  // under budget → green
+    private static readonly IBrush OnTarget = new SolidColorBrush(Color.Parse("#1A1A1A"));
+
+    public object Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var isOver = values.Count > 0 && values[0] is true;
+        var isUnder = values.Count > 1 && values[1] is true;
+        if (isOver) return Over;
+        if (isUnder) return Under;
+        return OnTarget;
+    }
+}
+
 /// <summary>True when the bound <see cref="Screen"/> equals the converter parameter (screen name).</summary>
 public sealed class ScreenEqualsConverter : IValueConverter
 {

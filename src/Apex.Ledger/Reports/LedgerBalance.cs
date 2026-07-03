@@ -54,4 +54,23 @@ public static class LedgerBalances
     /// <summary>Closing balance as a (side, magnitude) pair.</summary>
     public static LedgerBalance Closing(Company company, Domain.Ledger ledger, DateOnly asOf)
         => LedgerBalance.FromSigned(SignedClosing(company, ledger, asOf));
+
+    /// <summary>
+    /// Signed <b>nett transactions</b> for a ledger within <c>[from, to]</c> (§7 budgets, "On Nett
+    /// Transactions"): Σ of signed movements from counted vouchers dated in the window — the opening
+    /// balance is <b>not</b> included. Dr movements are positive, Cr negative.
+    /// </summary>
+    public static decimal SignedMovement(Company company, Domain.Ledger ledger, DateOnly from, DateOnly to)
+    {
+        var signed = 0m;
+        foreach (var v in company.Vouchers)
+        {
+            if (!CountsAsOf(v, to)) continue; // Cancelled/Optional/not-yet-due PostDated + date ≤ to
+            if (v.Date < from) continue;      // window lower bound
+            foreach (var line in v.Lines)
+                if (line.LedgerId == ledger.Id)
+                    signed += line.Signed;
+        }
+        return signed;
+    }
 }

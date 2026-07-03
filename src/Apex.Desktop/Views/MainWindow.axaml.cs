@@ -199,4 +199,10 @@ public partial class MainWindow : Window
 
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
+
+    private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.BudgetMaster?.AddLine();
+
+    private void OnCreateBudgetClick(object? sender, RoutedEventArgs e)
+        => Vm?.BudgetMaster?.Create();
 }

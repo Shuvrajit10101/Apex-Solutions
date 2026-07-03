@@ -11,11 +11,13 @@ namespace Apex.Persistence.Sqlite;
 /// <b>v3</b> adds cost categories and cost centres (catalog §6): <c>cost_categories</c> and
 /// <c>cost_centres</c> master tables, a <c>cost_allocations</c> child table hung off
 /// <c>entry_lines</c>, and a nullable <c>cost_applicable</c> column on <c>ledgers</c> (NULL = auto).
+/// <b>v4</b> adds budgets (catalog §7): a <c>budgets</c> master table and a <c>budget_lines</c> child
+/// table (each line targets a group OR a ledger, with a type and an amount in paisa).
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v3 = cost centres).</summary>
-    public const int CurrentVersion = 3;
+    /// <summary>The current schema version this adapter reads and writes (v4 = budgets).</summary>
+    public const int CurrentVersion = 4;
 
     /// <summary>
     /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
@@ -149,6 +151,25 @@ public static class Schema
             amount_paisa   INTEGER NOT NULL    -- magnitude > 0, in paisa
         );
 
+        CREATE TABLE budgets (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            name          TEXT    NOT NULL,
+            under_id      TEXT        NULL REFERENCES groups(id),   -- optional Primary group; NULL = top-level
+            period_from   TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            period_to     TEXT    NOT NULL    -- ISO yyyy-MM-dd, ≥ period_from
+        );
+
+        CREATE TABLE budget_lines (
+            id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            budget_id     TEXT    NOT NULL REFERENCES budgets(id),
+            line_order    INTEGER NOT NULL,   -- preserves order within the budget
+            group_id      TEXT        NULL REFERENCES groups(id),   -- exactly one of group_id / ledger_id set
+            ledger_id     TEXT        NULL REFERENCES ledgers(id),
+            budget_type   INTEGER NOT NULL,   -- BudgetType enum ordinal (0 = OnClosingBalance, 1 = OnNettTransactions)
+            amount_paisa  INTEGER NOT NULL    -- magnitude ≥ 0, in paisa
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -158,6 +179,8 @@ public static class Schema
         CREATE INDEX ix_cost_categories_company ON cost_categories(company_id);
         CREATE INDEX ix_cost_centres_company    ON cost_centres(company_id);
         CREATE INDEX ix_cost_allocations_line   ON cost_allocations(entry_line_id);
+        CREATE INDEX ix_budgets_company         ON budgets(company_id);
+        CREATE INDEX ix_budget_lines_budget     ON budget_lines(budget_id);
         """;
 
     /// <summary>
@@ -224,5 +247,34 @@ public static class Schema
         CREATE INDEX ix_cost_categories_company ON cost_categories(company_id);
         CREATE INDEX ix_cost_centres_company    ON cost_centres(company_id);
         CREATE INDEX ix_cost_allocations_line   ON cost_allocations(entry_line_id);
+        """;
+
+    /// <summary>
+    /// The v3→v4 migration (catalog §7): creates the <c>budgets</c> master table and the
+    /// <c>budget_lines</c> child table + indexes. Run inside a transaction that also bumps
+    /// <c>schema_version</c> to 4. Existing v3 databases keep all their data — the new tables start empty.
+    /// </summary>
+    public const string MigrateV3ToV4 = """
+        CREATE TABLE budgets (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            name          TEXT    NOT NULL,
+            under_id      TEXT        NULL REFERENCES groups(id),
+            period_from   TEXT    NOT NULL,
+            period_to     TEXT    NOT NULL
+        );
+
+        CREATE TABLE budget_lines (
+            id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            budget_id     TEXT    NOT NULL REFERENCES budgets(id),
+            line_order    INTEGER NOT NULL,
+            group_id      TEXT        NULL REFERENCES groups(id),
+            ledger_id     TEXT        NULL REFERENCES ledgers(id),
+            budget_type   INTEGER NOT NULL,
+            amount_paisa  INTEGER NOT NULL
+        );
+
+        CREATE INDEX ix_budgets_company     ON budgets(company_id);
+        CREATE INDEX ix_budget_lines_budget ON budget_lines(budget_id);
         """;
 }

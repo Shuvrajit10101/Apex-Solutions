@@ -13,6 +13,7 @@ public sealed class Company
     private readonly List<Voucher> _vouchers = new();
     private readonly List<CostCategory> _costCategories = new();
     private readonly List<CostCentre> _costCentres = new();
+    private readonly List<Budget> _budgets = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -67,6 +68,9 @@ public sealed class Company
     /// <summary>Cost centres (catalog §6), hierarchical within their category.</summary>
     public IReadOnlyList<CostCentre> CostCentres => _costCentres;
 
+    /// <summary>Budgets (catalog §7): named budget masters compared against actuals.</summary>
+    public IReadOnlyList<Budget> Budgets => _budgets;
+
     public Company(Guid id, string name, DateOnly financialYearStart, DateOnly booksBeginFrom)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -88,6 +92,7 @@ public sealed class Company
     public void AddVoucherType(VoucherType type) => _voucherTypes.Add(type);
     public void AddCostCategory(CostCategory category) => _costCategories.Add(category);
     public void AddCostCentre(CostCentre centre) => _costCentres.Add(centre);
+    public void AddBudget(Budget budget) => _budgets.Add(budget);
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
@@ -101,6 +106,7 @@ public sealed class Company
     public Voucher? FindVoucher(Guid id) => _vouchers.FirstOrDefault(v => v.Id == id);
     public CostCategory? FindCostCategory(Guid id) => _costCategories.FirstOrDefault(c => c.Id == id);
     public CostCentre? FindCostCentre(Guid id) => _costCentres.FirstOrDefault(c => c.Id == id);
+    public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);
 
     public Group? FindGroupByName(string name) =>
         _groups.FirstOrDefault(g =>
@@ -124,4 +130,7 @@ public sealed class Company
         _costCentres.FirstOrDefault(c =>
             string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase) ||
             (c.Alias is not null && string.Equals(c.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    public Budget? FindBudgetByName(string name) =>
+        _budgets.FirstOrDefault(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase));
 }

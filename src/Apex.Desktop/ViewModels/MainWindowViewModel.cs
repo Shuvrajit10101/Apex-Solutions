@@ -22,6 +22,8 @@ public enum Screen
     CostCategoryMaster,
     CostCentreMaster,
     CostReport,
+    BudgetMaster,
+    BudgetVariance,
 }
 
 /// <summary>
@@ -37,6 +39,7 @@ public enum GatewayMenu
     Outstandings,
     StatementsOfAccounts,
     CostCentres,
+    Budgets,
 }
 
 /// <summary>
@@ -106,6 +109,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The cost-report (Category Summary / Break-up) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private CostReportsViewModel? _costReports;
 
+    /// <summary>The Budget-creation master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private BudgetMasterViewModel? _budgetMaster;
+
+    /// <summary>The Budget Variance report view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private BudgetVarianceViewModel? _budgetVariance;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -113,7 +122,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsMenuScreen => !IsGatewayCascade
         && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
-        && CostReports is null;
+        && CostReports is null && BudgetMaster is null && BudgetVariance is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -123,6 +132,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnCostCategoryMasterChanged(CostCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostCentreMasterChanged(CostCentreMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostReportsChanged(CostReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBudgetMasterChanged(BudgetMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBudgetVarianceChanged(BudgetVarianceViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -324,6 +335,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Cost Masters"));
         col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Cost Centre", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Budgets & Controls"));
+        col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -338,6 +352,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Statements of Accounts"));
         col.Add(new MenuItemViewModel("Outstandings", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         return col;
     }
 
@@ -364,6 +379,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Cost Centres"));
         col.Add(new MenuItemViewModel("Category Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Cost Centre Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Budgets" submenu column (Reports → Statements of Accounts → Budgets): the Budget
+    /// Variance report page (Budget vs Actual vs Variance), a page item under this Budgets group.
+    /// </summary>
+    private GatewayColumn BuildBudgetsColumn()
+    {
+        var col = new GatewayColumn("Budgets");
+        col.Add(MenuItemViewModel.Header("Budgets"));
+        col.Add(new MenuItemViewModel("Budget Variance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -513,6 +540,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Cost Centre Creation", () => CostCentreMaster = master);
     }
 
+    /// <summary>Opens the Budget creation master (Masters → Create → Budget) as a page column.</summary>
+    public void ShowBudgetMaster()
+    {
+        if (Company is null) return;
+
+        var master = new BudgetMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Budget Creation", master), Screen.BudgetMaster,
+            "Budget Creation", () => BudgetMaster = master);
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -525,6 +562,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var vm = new CostReportsViewModel(Company, kind);
         OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.CostReport, vm.Title, () => CostReports = vm);
+    }
+
+    // =============================================================== screen: budget variance
+
+    /// <summary>
+    /// Opens the Budget Variance report (Reports → Statements of Accounts → Budgets → Budget Variance) as a
+    /// page column: for the chosen budget, each target's Budget / Actual / Variance over the budget period.
+    /// </summary>
+    public void OpenBudgetVariance()
+    {
+        if (Company is null) return;
+
+        var vm = new BudgetVarianceViewModel(Company);
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.BudgetVariance, vm.Title,
+            () => BudgetVariance = vm);
+    }
+
+    /// <summary>
+    /// Opens the "Statements of Accounts → Budgets" submenu column directly (the public entry a hotkey/test
+    /// uses). Rebuilds the cascade to [root → Budgets] and focuses the submenu.
+    /// </summary>
+    public void ShowBudgetsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statements of Accounts");
+        OpenSubmenuColumn(BuildBudgetsColumn(), GatewayMenu.Budgets,
+            "Gateway of Apex Solutions — Budgets");
     }
 
     // =============================================================== screen: outstandings
@@ -642,6 +706,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         CostCategoryMaster = null;
         CostCentreMaster = null;
         CostReports = null;
+        BudgetMaster = null;
+        BudgetVariance = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -668,7 +734,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
-        else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster or Screen.CostCentreMaster)
+        else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
+                 or Screen.CostCentreMaster or Screen.BudgetMaster)
             BackFromPage();
     }
 
@@ -788,6 +855,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.CostCentreMaster:
                 CostCentreMaster?.Create();
                 return;
+            case Screen.BudgetMaster:
+                BudgetMaster?.Create();
+                return;
         }
 
         if (IsGatewayCascade)
@@ -846,6 +916,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
                 "Gateway of Apex Solutions — Cost Centres"),
+            "Budgets" => (BuildBudgetsColumn(), GatewayMenu.Budgets,
+                "Gateway of Apex Solutions — Budgets"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
 
@@ -872,10 +944,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Group": ShowLedgerMaster(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
+            case "Budget": ShowBudgetMaster(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
             case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
+            case "Budget Variance": OpenBudgetVariance(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;
@@ -950,6 +1024,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
+                    "Budgets" => GatewayMenu.Budgets,
                     _ => GatewayMenu.Root,
                 };
         return GatewayMenu.Root;

@@ -88,10 +88,12 @@ public sealed class CostCentreRoundTripTests
             using (var write = new SqliteCompanyStore(dbPath))
             {
                 write.Save(original);
-                Assert.Equal(3, Schema.CurrentVersion);
+                // Schema has since advanced past v3 (budgets = v4); a fresh DB is stamped to the current
+                // version. This test still guarantees the v3 cost-centre data survives round-trip.
+                Assert.True(Schema.CurrentVersion >= 3);
             }
 
-            Assert.Equal(3L, ReadSchemaVersion(dbPath));
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
 
             Company reloaded;
             using (var read = new SqliteCompanyStore(dbPath))
@@ -183,7 +185,7 @@ public sealed class CostCentreRoundTripTests
 
             Assert.Equal(2L, ReadSchemaVersion(dbPath));
 
-            // Open with the current adapter → auto-migrate to v3.
+            // Open with the current adapter → auto-migrate (chained v2→v3→…→current).
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var loaded = store.Load(companyId);
@@ -194,8 +196,8 @@ public sealed class CostCentreRoundTripTests
                 Assert.Empty(loaded.CostCentres);
             }
 
-            // The migration bumped the marker and created the new structures.
-            Assert.Equal(3L, ReadSchemaVersion(dbPath));
+            // The chained migration bumped the marker to the current version and created the v3 structures.
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             Assert.True(TableExists(dbPath, "cost_categories"), "cost_categories table was not created.");
             Assert.True(TableExists(dbPath, "cost_centres"), "cost_centres table was not created.");
             Assert.True(TableExists(dbPath, "cost_allocations"), "cost_allocations table was not created.");
@@ -233,9 +235,9 @@ public sealed class CostCentreRoundTripTests
             var from = new DateOnly(2024, 4, 1);
             var to = new DateOnly(2024, 4, 30);
 
-            using (var store = new SqliteCompanyStore(dbPath)) // opens v2 → migrates to v3
+            using (var store = new SqliteCompanyStore(dbPath)) // opens v2 → migrates (chained) to current
             {
-                Assert.Equal(3L, ReadSchemaVersion(dbPath));
+                Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
                 store.Save(original);
             }
 
