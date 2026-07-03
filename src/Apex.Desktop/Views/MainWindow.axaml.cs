@@ -1,20 +1,54 @@
+using System.Collections.Specialized;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Apex.Desktop.ViewModels;
 
 namespace Apex.Desktop.Views;
 
 public partial class MainWindow : Window
 {
+    private INotifyCollectionChanged? _watchedColumns;
+
     public MainWindow()
     {
         InitializeComponent();
         // Handle keys at the tunnelling stage so arrow/Enter/Esc work regardless of focus.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+        DataContextChanged += (_, _) => HookCascadeAutoScroll();
+        HookCascadeAutoScroll();
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    /// <summary>
+    /// Keeps the newly-active (rightmost) cascade column in view: whenever a column is added/removed we
+    /// scroll the horizontal cascade viewport to its far right so the focused column is never left
+    /// clipped behind the viewport edge (macOS-Finder column-view behaviour).
+    /// </summary>
+    private void HookCascadeAutoScroll()
+    {
+        if (_watchedColumns is not null)
+            _watchedColumns.CollectionChanged -= OnColumnsChanged;
+
+        _watchedColumns = Vm?.Columns;
+        if (_watchedColumns is not null)
+            _watchedColumns.CollectionChanged += OnColumnsChanged;
+    }
+
+    private void OnColumnsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        // Defer to the next layout pass so the new column has a measured width to scroll to, then move
+        // the horizontal offset to the far right (the active column is always the rightmost).
+        => Dispatcher.UIThread.Post(ScrollCascadeToActiveColumn, DispatcherPriority.Loaded);
+
+    private void ScrollCascadeToActiveColumn()
+    {
+        var scroller = CascadeScroller;
+        if (scroller is null) return;
+        var maxX = System.Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width);
+        scroller.Offset = new Avalonia.Vector(maxX, scroller.Offset.Y);
+    }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
@@ -47,16 +81,28 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
-            case Key.Up:
+            case Key.Up when !IsTyping(e):
                 vm.MoveUp();
                 e.Handled = true;
                 break;
-            case Key.Down:
+            case Key.Down when !IsTyping(e):
                 vm.MoveDown();
+                e.Handled = true;
+                break;
+            // Right / Enter drills into the highlighted item (adds the column to the right and moves
+            // focus there). Right is a navigation key only when not editing a text field.
+            case Key.Right when !IsTyping(e):
+                vm.DrillIn();
                 e.Handled = true;
                 break;
             case Key.Enter:
                 vm.ActivateSelected();
+                e.Handled = true;
+                break;
+            // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a
+            // navigation key only when not editing a text field (there it moves the caret).
+            case Key.Left when !IsTyping(e):
+                vm.Back();
                 e.Handled = true;
                 break;
             case Key.Escape:
