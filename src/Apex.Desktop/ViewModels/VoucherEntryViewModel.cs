@@ -115,7 +115,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>Adds a blank particulars line (default side supplied); recomputes the balance.</summary>
     public VoucherLineViewModel AddLine(DrCr side = DrCr.Debit)
     {
-        var line = new VoucherLineViewModel(Ledgers, Recalculate, side);
+        var line = new VoucherLineViewModel(Ledgers, Recalculate, _company, side);
         Lines.Add(line);
         return line;
     }
@@ -132,6 +132,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     public void AddBillAllocation(VoucherLineViewModel line)
     {
         line.AddBillAllocation();
+        Recalculate();
+    }
+
+    /// <summary>Adds a cost-allocation row to a line (the sub-panel "+ Add centre" button).</summary>
+    public void AddCostAllocation(VoucherLineViewModel line)
+    {
+        line.AddCostAllocation();
         Recalculate();
     }
 
@@ -159,11 +166,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             DifferenceText = $"Credit short/Debit excess by {IndianFormat.AmountAlways(Math.Abs(diff))}";
 
         // Accept requires: at least two complete lines, no half-filled row, balanced (>0), and — for any
-        // bill-wise line — a valid bill-wise split (allocations sum to the line amount).
+        // bill-wise / cost-applicable line — a valid split (allocations sum to the line amount; cost is
+        // optional but, once touched, must sum exactly).
         var completeLines = Lines.Count(l => l.IsComplete);
         var hasHalfFilledRow = Lines.Any(l => !l.IsBlank && !l.IsComplete);
         var billSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.BillSplitOk);
-        CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow && billSplitsOk;
+        var costSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.CostSplitOk);
+        CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow && billSplitsOk && costSplitsOk;
     }
 
     /// <summary>
@@ -191,14 +200,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // Reject an invalid cost split up front (once touched, allocations must sum to the line amount).
+        var badCost = Lines.FirstOrDefault(l => l.IsComplete && !l.CostSplitOk);
+        if (badCost is not null)
+        {
+            Message = $"Cost allocations for '{badCost.SelectedLedger!.Name}' must sum to the line amount " +
+                      $"({IndianFormat.AmountAlways(badCost.ParsedAmount)}).";
+            return false;
+        }
+
         var entryLines = Lines
             .Where(l => l.IsComplete)
             .Select(l =>
             {
-                var allocs = l.ToBillAllocations();
+                var billAllocs = l.ToBillAllocations();
+                var costAllocs = l.ToCostAllocations();
                 return new EntryLine(
                     l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side,
-                    allocs.Count > 0 ? allocs : null);
+                    billAllocs.Count > 0 ? billAllocs : null,
+                    costAllocs.Count > 0 ? costAllocs : null);
             })
             .ToList();
 

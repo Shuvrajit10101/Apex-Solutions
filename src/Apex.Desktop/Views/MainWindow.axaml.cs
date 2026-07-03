@@ -182,6 +182,18 @@ public partial class MainWindow : Window
             Vm?.AddBillAllocation(line);
     }
 
+    private void OnAddCostAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: VoucherLineViewModel line })
+            Vm?.AddCostAllocation(line);
+    }
+
+    private void OnCreateCostCategoryClick(object? sender, RoutedEventArgs e)
+        => Vm?.CostCategoryMaster?.Create();
+
+    private void OnCreateCostCentreClick(object? sender, RoutedEventArgs e)
+        => Vm?.CostCentreMaster?.Create();
+
     private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
         => Vm?.SettleBills();
 

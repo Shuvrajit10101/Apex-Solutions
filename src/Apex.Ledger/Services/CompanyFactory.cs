@@ -42,6 +42,9 @@ public static class CompanyFactory
         foreach (var t in SeedVoucherTypes.Build())
             company.AddVoucherType(t);
 
+        // Default "Primary Cost Category" (catalog §6).
+        company.AddCostCategory(SeedCostCategories.BuildPrimary(company.PrimaryCostCategoryName));
+
         return company;
     }
 
