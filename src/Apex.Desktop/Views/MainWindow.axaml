@@ -22,6 +22,7 @@
     <Window.Resources>
         <conv:ScreenEqualsConverter x:Key="ScreenEquals"/>
         <conv:SelectedToBrushConverter x:Key="SelBrush"/>
+        <conv:SelectedActiveToBrushConverter x:Key="SelActiveBrush"/>
         <conv:SelectedToForegroundConverter x:Key="SelFore"/>
         <conv:BoolToWeightConverter x:Key="BoolWeight"/>
         <conv:DrCrLabelConverter x:Key="DrCrLabel"/>
@@ -29,6 +30,8 @@
         <conv:UpperConverter x:Key="Upper"/>
         <conv:SubIndentConverter x:Key="SubIndent"/>
         <conv:IndentToThicknessConverter x:Key="Indent"/>
+        <conv:ColumnWidthConverter x:Key="ColWidth"/>
+        <conv:ColumnHeaderBrushConverter x:Key="ColHeaderBrush"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -162,9 +165,85 @@
                                    HorizontalAlignment="Center" Margin="0,6,0,14" TextWrapping="Wrap"/>
                     </Grid>
 
-                    <!-- SCREEN: Report viewer -->
-                    <ContentControl IsVisible="{Binding Reports, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding Reports}">
+                    <!-- ============ CASCADING (MILLER-COLUMNS) GATEWAY ============ -->
+                    <!-- A horizontal row of columns: each drill-in adds a column to the right; earlier
+                         columns stay visible. Menu columns are narrow; a page column is wide. The whole
+                         row scrolls sideways if it overflows; each column has its own up/down scroll so
+                         text is never clipped or overwritten across columns. -->
+                    <ScrollViewer x:Name="CascadeScroller"
+                                  IsVisible="{Binding IsGatewayCascade}"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Disabled">
+                      <ItemsControl x:Name="CascadeColumns" ItemsSource="{Binding Columns}">
+                        <ItemsControl.ItemsPanel>
+                          <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal"/>
+                          </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="vm:GatewayColumn">
+                            <!-- One column: header band + body. Menu columns = 300 wide; page columns = 560. -->
+                            <Border Margin="0,0,6,0"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Background="White"
+                                    Width="{Binding IsMenu, Converter={StaticResource ColWidth}}">
+                              <Grid RowDefinitions="Auto,*">
+
+                                <!-- Column header -->
+                                <Border Grid.Row="0"
+                                        Background="{Binding IsActive, Converter={StaticResource ColHeaderBrush}}"
+                                        Padding="10,6">
+                                  <TextBlock Text="{Binding Title}"
+                                             Foreground="White" FontWeight="SemiBold" FontSize="13"
+                                             TextTrimming="CharacterEllipsis"/>
+                                </Border>
+
+                                <!-- BODY (a) menu column: keyboard-navigable list -->
+                                <ScrollViewer Grid.Row="1" IsVisible="{Binding IsMenu}"
+                                              VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              Padding="0,6">
+                                  <ItemsControl ItemsSource="{Binding Items}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:MenuItemViewModel">
+                                        <Panel>
+                                          <!-- Section header: dim, uppercase, non-selectable -->
+                                          <Border Classes="menuRow" IsVisible="{Binding IsHeader}" Margin="0,7,0,1">
+                                            <TextBlock Text="{Binding Label, Converter={StaticResource Upper}}"
+                                                       FontSize="11" FontWeight="Bold"
+                                                       Foreground="#9098A8" LetterSpacing="1.5"/>
+                                          </Border>
+                                          <!-- Selectable item: bright amber in the active column, dim slate when
+                                               selected in an earlier column, transparent otherwise. -->
+                                          <Border Classes="menuRow" IsVisible="{Binding IsSelectable}">
+                                            <Border.Background>
+                                              <MultiBinding Converter="{x:Static conv:SelectedActiveToBrushConverter.Instance}">
+                                                <Binding Path="IsSelected"/>
+                                                <Binding Path="IsActiveColumn"/>
+                                              </MultiBinding>
+                                            </Border.Background>
+                                            <Grid ColumnDefinitions="*,Auto"
+                                                  Margin="{Binding IsSubItem, Converter={StaticResource SubIndent}}">
+                                              <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                                         FontSize="14" TextTrimming="CharacterEllipsis"
+                                                         Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
+                                              <TextBlock Grid.Column="1" Text="{Binding Hint}"
+                                                         FontSize="11" Foreground="#6A6A6A"
+                                                         VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                            </Grid>
+                                          </Border>
+                                        </Panel>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </ScrollViewer>
+
+                                <!-- BODY (b) page column: exactly one of the four page kinds -->
+                                <Panel Grid.Row="1" IsVisible="{Binding IsPage}">
+
+                    <!-- PAGE: Report viewer -->
+                    <ContentControl IsVisible="{Binding Report, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Report}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ReportsViewModel">
                         <Grid RowDefinitions="Auto,Auto,Auto,*">
@@ -234,9 +313,9 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- SCREEN: Voucher entry (Contra/Payment/Receipt/Journal/Sales/Purchase) -->
-                    <ContentControl IsVisible="{Binding VoucherEntry, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding VoucherEntry}">
+                    <!-- PAGE: Voucher entry (Contra/Payment/Receipt/Journal/Sales/Purchase) -->
+                    <ContentControl IsVisible="{Binding Voucher, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Voucher}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:VoucherEntryViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="4">
@@ -358,9 +437,9 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- SCREEN: Ledger master (create + list) -->
-                    <ContentControl IsVisible="{Binding LedgerMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding LedgerMaster}">
+                    <!-- PAGE: Ledger master (create + list) -->
+                    <ContentControl IsVisible="{Binding Ledger, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Ledger}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:LedgerMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
@@ -438,9 +517,9 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- SCREEN: Chart of Accounts (read-only group/ledger tree) -->
-                    <ContentControl IsVisible="{Binding ChartOfAccounts, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding ChartOfAccounts}">
+                    <!-- PAGE: Chart of Accounts (read-only group/ledger tree) -->
+                    <ContentControl IsVisible="{Binding Chart, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Chart}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ChartOfAccountsViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
@@ -486,6 +565,14 @@
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
                     </ContentControl>
+
+                                </Panel>
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </ScrollViewer>
                 </Panel>
             </Border>
 

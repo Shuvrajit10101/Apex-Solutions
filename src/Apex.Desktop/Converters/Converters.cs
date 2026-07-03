@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Data.Converters;
@@ -30,6 +31,39 @@ public sealed class SubIndentConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? Indented : Flush;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps a column's <c>IsMenu</c> flag to its fixed pixel width: a narrow 300 px for a menu column,
+/// a wider 560 px for a page column (so reports/vouchers/the chart render clean without clipping).
+/// </summary>
+public sealed class ColumnWidthConverter : IValueConverter
+{
+    public static readonly ColumnWidthConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? 300.0 : 640.0;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps a column's <c>IsActive</c> flag to its header band brush: brand navy for the focused column,
+/// a muted slate-navy for an inactive (earlier) column — so the eye reads which column has focus.
+/// </summary>
+public sealed class ColumnHeaderBrushConverter : IValueConverter
+{
+    public static readonly ColumnHeaderBrushConverter Instance = new();
+
+    private static readonly IBrush ActiveNavy = new SolidColorBrush(Color.Parse("#1B3A6B"));
+    private static readonly IBrush InactiveNavy = new SolidColorBrush(Color.Parse("#8494B0"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? ActiveNavy : InactiveNavy;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
@@ -93,6 +127,28 @@ public sealed class SelectedToBrushConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps (IsSelected, IsActiveColumn) → the cascade row's highlight brush: bright amber when the row is
+/// selected in the FOCUSED column, a dim "selected-but-inactive" slate for a selected row in an EARLIER
+/// column, and transparent otherwise. Keeps only the active column visibly bright.
+/// </summary>
+public sealed class SelectedActiveToBrushConverter : IMultiValueConverter
+{
+    public static readonly SelectedActiveToBrushConverter Instance = new();
+
+    private static readonly IBrush Amber = new SolidColorBrush(Color.Parse("#FFD54F"));
+    private static readonly IBrush InactiveSlate = new SolidColorBrush(Color.Parse("#DfE4EC"));
+    private static readonly IBrush None = Brushes.Transparent;
+
+    public object Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var selected = values.Count > 0 && values[0] is true;
+        var active = values.Count > 1 && values[1] is true;
+        if (!selected) return None;
+        return active ? Amber : InactiveSlate;
+    }
 }
 
 /// <summary>Maps a bool (IsTotal/IsHeader) to Bold, else Normal font weight.</summary>

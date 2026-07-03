@@ -21,8 +21,9 @@ public enum Screen
 }
 
 /// <summary>
-/// Which menu the Gateway state machine is currently showing. The Gateway is the root; the
-/// <c>Vouchers</c> and <c>Create</c> submenus push on top of it (Esc pops back to the Gateway).
+/// Which Gateway submenu the RIGHTMOST menu column of the cascade is currently showing. The Gateway
+/// root is always column 1; the <c>Vouchers</c> and <c>Create</c> submenus appear as an extra menu
+/// column to its right. Kept for the step-back semantics the tests assert.
 /// </summary>
 public enum GatewayMenu
 {
@@ -32,10 +33,17 @@ public enum GatewayMenu
 }
 
 /// <summary>
-/// The single-window shell view model — the Gateway-of-Apex-Solutions state machine. Owns the current
-/// screen, the keyboard-navigable menu, the open company, the reports view model, and the
-/// right-hand F-key button bar. Kept UI-toolkit-free so it is unit-testable headlessly: a test
-/// can drive "Load Robert Demo → Balance Sheet" purely through this class (design §9 spirit).
+/// The single-window shell view model — the Gateway-of-Apex-Solutions state machine, now driving a
+/// CASCADING MULTI-COLUMN ("Miller columns") Gateway. Column 1 is the root Gateway menu; drilling into
+/// a group item (Vouchers / Create) adds a submenu column to its right, and drilling into a page item
+/// (a report, a voucher-entry screen, a ledger master, or the chart of accounts) adds a page column to
+/// the right — earlier columns stay visible, showing their selected item in a dim "inactive" style.
+/// Changing the selection in an earlier column discards every column to its right.
+///
+/// <para>The pre-company screens (Company Select / Create Company) keep the classic single centred
+/// <see cref="Menu"/>. On the Gateway, <see cref="Menu"/> and <see cref="SelectedIndex"/> transparently
+/// project the ACTIVE column so the keyboard driver and the existing tests keep working. Kept
+/// UI-toolkit-free so it is unit-testable headlessly.</para>
 /// </summary>
 public sealed partial class MainWindowViewModel : ViewModelBase
 {
@@ -48,41 +56,64 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private string _newCompanyName = string.Empty;
     [ObservableProperty] private string? _message;
 
-    /// <summary>The current menu (company list, gateway, or report list) driven by arrow keys.</summary>
+    /// <summary>
+    /// The classic single centred menu — used only on the pre-company screens (Company Select /
+    /// Create Company). On the Gateway the cascade in <see cref="Columns"/> is shown instead; there,
+    /// this collection mirrors the ACTIVE column so keyboard/tests see the focused list.
+    /// </summary>
     public ObservableCollection<MenuItemViewModel> Menu { get; } = new();
+
+    /// <summary>
+    /// The cascading Gateway columns (left → right). Non-empty only while a company is open and the
+    /// Gateway is showing; the pre-company screens use <see cref="Menu"/> instead.
+    /// </summary>
+    public ObservableCollection<GatewayColumn> Columns { get; } = new();
 
     /// <summary>The right-hand vertical button bar for the current screen.</summary>
     public ObservableCollection<ButtonBarItem> ButtonBar { get; } = new();
 
-    /// <summary>The reports view model, non-null only while a report is showing.</summary>
+    /// <summary>True whenever the cascading Gateway (rather than the centred menu) is showing.</summary>
+    [ObservableProperty] private bool _isGatewayCascade;
+
+    /// <summary>The reports view model, non-null only while a report page column is open (rightmost).</summary>
     [ObservableProperty] private ReportsViewModel? _reports;
 
-    /// <summary>The voucher-entry view model, non-null only while a voucher is being entered.</summary>
+    /// <summary>The voucher-entry view model, non-null only while a voucher page column is open.</summary>
     [ObservableProperty] private VoucherEntryViewModel? _voucherEntry;
 
-    /// <summary>The ledger-master view model, non-null only while that screen is showing.</summary>
+    /// <summary>The ledger-master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
 
-    /// <summary>The chart-of-accounts tree view model, non-null only while that screen is showing.</summary>
+    /// <summary>The chart-of-accounts tree view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private ChartOfAccountsViewModel? _chartOfAccounts;
 
-    /// <summary>True on the menu-driven screens (company select, gateway, create company).</summary>
-    public bool IsMenuScreen =>
-        Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null;
+    /// <summary>
+    /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
+    /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
+    /// </summary>
+    public bool IsMenuScreen => !IsGatewayCascade
+        && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
-    /// <summary>Which Gateway menu is showing (Root / Vouchers / Create) — for Esc step-back.</summary>
+    /// <summary>
+    /// Which Gateway submenu the rightmost MENU column is showing (Root / Vouchers / Create) — for the
+    /// step-back semantics. A page column on top of the root reads as <see cref="GatewayMenu.Root"/>.
+    /// </summary>
     public GatewayMenu CurrentGatewayMenu { get; private set; } = GatewayMenu.Root;
 
     /// <summary>The currently open company (null before one is selected/created).</summary>
     public Company? Company { get; private set; }
 
-    /// <summary>Index of the highlighted menu item.</summary>
-    private int _selectedIndex;
+    /// <summary>Index of the highlighted item in the centred pre-company menu.</summary>
+    private int _menuSelectedIndex;
+
+    /// <summary>Index of the focused (active) column in the cascade.</summary>
+    public int ActiveColumnIndex { get; private set; }
 
     public MainWindowViewModel() : this(new CompanyStorage()) { }
 
@@ -101,6 +132,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = "Company Info — Select Company";
         Message = null;
         ClearSubScreens();
+        LeaveCascade();
         Menu.Clear();
 
         foreach (var entry in _storage.ListCompanies())
@@ -112,7 +144,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Menu.Add(new MenuItemViewModel("Create Company", ShowCreateCompany, "F3"));
         Menu.Add(new MenuItemViewModel("Load Robert Demo", LoadRobertDemo, "Demo"));
 
-        SetSelected(0);
+        SetMenuSelected(0);
         BuildButtonBar();
     }
 
@@ -122,6 +154,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = "Company Creation";
         NewCompanyName = string.Empty;
         Message = "Enter the company name, then press Enter (Ctrl+A) to create.";
+        LeaveCascade();
         Menu.Clear();
         BuildButtonBar();
     }
@@ -175,7 +208,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    // =============================================================== screen: gateway
+    // =============================================================== screen: gateway (cascade)
 
     private void OpenCompany(Company company)
     {
@@ -186,10 +219,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Shows the root Gateway of Apex Solutions menu for the open company — organised into three
-    /// non-selectable section headers (MASTERS / TRANSACTIONS / REPORTS) with the selectable items
-    /// nested under each. "Vouchers" and "Create" open their own submenus; the rest jump straight
-    /// to a screen. Arrow keys skip the headers; Enter only fires on the items.
+    /// Shows the cascading Gateway of Apex Solutions for the open company: column 1 is the root menu
+    /// (MASTERS / TRANSACTIONS / REPORTS sections with their items), reset to a single column with the
+    /// first item highlighted. Drilling in adds columns to the right.
     /// </summary>
     public void ShowGateway()
     {
@@ -200,104 +232,145 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = "Gateway of Apex Solutions";
         Message = null;
         ClearSubScreens();
-        Menu.Clear();
+        EnterCascade();
 
-        // ---- MASTERS ----
-        Menu.Add(MenuItemViewModel.Header("Masters"));
-        Menu.Add(new MenuItemViewModel("Create", ShowCreateMenu, "▸", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Chart of Accounts", ShowChartOfAccounts, "", isSubItem: true));
-
-        // ---- TRANSACTIONS ----
-        Menu.Add(MenuItemViewModel.Header("Transactions"));
-        Menu.Add(new MenuItemViewModel("Vouchers", ShowVouchersMenu, "F4–F9  ▸", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Day Book", () => OpenReport(ReportKind.DayBook), "", isSubItem: true));
-
-        // ---- REPORTS ----
-        Menu.Add(MenuItemViewModel.Header("Reports"));
-        Menu.Add(new MenuItemViewModel("Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), "", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Profit & Loss A/c", () => OpenReport(ReportKind.ProfitAndLoss), "", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Trial Balance", () => OpenReport(ReportKind.TrialBalance), "", isSubItem: true));
-
-        // ---- top-level action: change company ----
-        Menu.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3"));
-
-        SelectFirstSelectable();
+        Columns.Clear();
+        Columns.Add(BuildRootColumn());
+        ActiveColumnIndex = 0;
+        Columns[0].SelectFirstSelectable();
+        SyncActiveColumn();
         BuildButtonBar();
     }
 
+    /// <summary>Builds the root Gateway menu column (the three sections and their items).</summary>
+    private GatewayColumn BuildRootColumn()
+    {
+        var col = new GatewayColumn("Gateway of Apex Solutions");
+
+        // ---- MASTERS ----
+        col.Add(MenuItemViewModel.Header("Masters"));
+        col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // ---- TRANSACTIONS ----
+        col.Add(MenuItemViewModel.Header("Transactions"));
+        col.Add(new MenuItemViewModel("Vouchers", () => { }, "F4–F9  ▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Day Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // ---- REPORTS ----
+        col.Add(MenuItemViewModel.Header("Reports"));
+        col.Add(new MenuItemViewModel("Balance Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Profit & Loss A/c", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // ---- top-level action: change company ----
+        col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
+
+        return col;
+    }
+
     /// <summary>
-    /// The "Vouchers" submenu (Transactions → Vouchers): the six accounting voucher types, each
-    /// under its F-key. Selecting one opens the VoucherEntry screen for that base type. Esc pops
-    /// back to the root Gateway.
+    /// Builds the "Vouchers" submenu column (Transactions → Vouchers): the six accounting voucher
+    /// types, each a page item under its F-key.
+    /// </summary>
+    private GatewayColumn BuildVouchersColumn()
+    {
+        var col = new GatewayColumn("Vouchers");
+        col.Add(MenuItemViewModel.Header("Vouchers"));
+        col.Add(new MenuItemViewModel("Contra", () => { }, "F4", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Payment", () => { }, "F5", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Receipt", () => { }, "F6", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Journal", () => { }, "F7", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "Create" submenu column (Masters → Create): the master-creation entries.</summary>
+    private GatewayColumn BuildCreateColumn()
+    {
+        var col = new GatewayColumn("Create");
+        col.Add(MenuItemViewModel.Header("Create"));
+        col.Add(new MenuItemViewModel("Ledger", () => { }, "Alt+C", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Vouchers" submenu column directly (Transactions → Vouchers). Rebuilds the cascade to
+    /// [root → Vouchers] and focuses the Vouchers column — the public entry the F-keys/tests use.
     /// </summary>
     public void ShowVouchersMenu()
     {
         if (Company is null) { ShowCompanySelect(); return; }
-
-        CurrentScreen = Screen.Gateway;
-        CurrentGatewayMenu = GatewayMenu.Vouchers;
-        ScreenTitle = "Gateway of Apex Solutions — Vouchers";
-        Message = null;
-        ClearSubScreens();
-        Menu.Clear();
-
-        Menu.Add(MenuItemViewModel.Header("Vouchers"));
-        Menu.Add(new MenuItemViewModel("Contra", () => OpenVoucher(VoucherBaseType.Contra), "F4", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Payment", () => OpenVoucher(VoucherBaseType.Payment), "F5", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Receipt", () => OpenVoucher(VoucherBaseType.Receipt), "F6", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Journal", () => OpenVoucher(VoucherBaseType.Journal), "F7", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Sales", () => OpenVoucher(VoucherBaseType.Sales), "F8", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Purchase", () => OpenVoucher(VoucherBaseType.Purchase), "F9", isSubItem: true));
-
-        SelectFirstSelectable();
-        BuildButtonBar();
+        SelectRootItem("Vouchers");
+        OpenSubmenuColumn(BuildVouchersColumn(), GatewayMenu.Vouchers,
+            "Gateway of Apex Solutions — Vouchers");
     }
 
     /// <summary>
-    /// The "Create" submenu (Masters → Create): the master-creation entries. Ledger opens the
-    /// Ledger-creation master; Group is offered for parity but reuses the same master screen
-    /// (a lightweight, read-only chart tree already shows the group hierarchy). Esc pops back.
+    /// Opens the "Create" submenu column directly (Masters → Create). Rebuilds the cascade to
+    /// [root → Create] and focuses the Create column.
     /// </summary>
     public void ShowCreateMenu()
     {
         if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Create");
+        OpenSubmenuColumn(BuildCreateColumn(), GatewayMenu.Create,
+            "Gateway of Apex Solutions — Create");
+    }
 
-        CurrentScreen = Screen.Gateway;
-        CurrentGatewayMenu = GatewayMenu.Create;
-        ScreenTitle = "Gateway of Apex Solutions — Create";
-        Message = null;
+    /// <summary>Highlights the named root item and trims the cascade back to the root column.</summary>
+    private void SelectRootItem(string label)
+    {
+        if (Columns.Count == 0 || !Columns[0].IsMenu) ShowGateway();
+        TrimColumnsAfter(0);
+        var root = Columns[0];
+        for (var i = 0; i < root.Items.Count; i++)
+            if (root.Items[i].IsSelectable && root.Items[i].Label == label)
+            {
+                root.SetSelected(i);
+                break;
+            }
+    }
+
+    /// <summary>
+    /// Pushes a submenu menu column onto the cascade and focuses it. Used by the direct
+    /// <see cref="ShowVouchersMenu"/> / <see cref="ShowCreateMenu"/> entries.
+    /// </summary>
+    private void OpenSubmenuColumn(GatewayColumn column, GatewayMenu menu, string title)
+    {
         ClearSubScreens();
-        Menu.Clear();
-
-        Menu.Add(MenuItemViewModel.Header("Create"));
-        Menu.Add(new MenuItemViewModel("Ledger", ShowLedgerMaster, "Alt+C", isSubItem: true));
-        Menu.Add(new MenuItemViewModel("Group", ShowLedgerMaster, "", isSubItem: true));
-
-        SelectFirstSelectable();
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Gateway;
+        CurrentGatewayMenu = menu;
+        ScreenTitle = title;
+        SyncActiveColumn();
         BuildButtonBar();
     }
 
     // =============================================================== screen: report
 
-    /// <summary>Opens a report for the current company.</summary>
+    /// <summary>
+    /// Opens a report as a page column on the right of the cascade (when a company/Gateway is open) —
+    /// or, when called cold (e.g. from a test/F-key before the cascade exists), as the sole page.
+    /// </summary>
     public void OpenReport(ReportKind kind)
     {
         if (Company is null) return;
 
-        CurrentScreen = Screen.Report;
-        ClearSubScreens();
-        Reports = new ReportsViewModel(Company, kind);
-        ScreenTitle = Reports.Title;
-        Menu.Clear();
-        Message = null;
-        BuildButtonBar();
+        var reports = new ReportsViewModel(Company, kind);
+        OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
+            () => Reports = reports);
     }
 
     // =============================================================== screen: voucher entry
 
     /// <summary>
-    /// Opens the reusable voucher-entry screen for the given base type (Contra/Payment/Receipt/
-    /// Journal/Sales/Purchase), resolving the seeded voucher type on the current company.
+    /// Opens the reusable voucher-entry screen for the given base type as a page column on the right of
+    /// the cascade, resolving the seeded voucher type on the current company.
     /// </summary>
     public void OpenVoucher(VoucherBaseType baseType)
     {
@@ -311,54 +384,81 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        CurrentScreen = Screen.VoucherEntry;
-        ClearSubScreens();
-        VoucherEntry = new VoucherEntryViewModel(
+        var entry = new VoucherEntryViewModel(
             Company, type, _storage,
             onSaved: ShowGateway,
-            onCancelled: ShowGateway);
-        ScreenTitle = $"Accounting Voucher Creation — {type.Name}";
-        Menu.Clear();
-        Message = null;
-        BuildButtonBar();
+            onCancelled: BackFromPage);
+        var title = $"Accounting Voucher Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
+            () => VoucherEntry = entry);
     }
 
     // =============================================================== screen: ledger master
 
-    /// <summary>Opens the Ledger-creation master (Create → Ledger / Alt+C).</summary>
+    /// <summary>Opens the Ledger-creation master (Create → Ledger / Alt+C) as a page column.</summary>
     public void ShowLedgerMaster()
     {
         if (Company is null) return;
 
-        CurrentScreen = Screen.LedgerMaster;
-        ClearSubScreens();
-        LedgerMaster = new LedgerMasterViewModel(Company, _storage, onChanged: () => { });
-        ScreenTitle = "Ledger Creation";
-        Menu.Clear();
-        Message = null;
-        BuildButtonBar();
+        var master = new LedgerMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Ledger Creation", master), Screen.LedgerMaster,
+            "Ledger Creation", () => LedgerMaster = master);
     }
 
     // =============================================================== screen: chart of accounts
 
     /// <summary>
-    /// Opens the read-only Chart of Accounts (Masters → Chart of Accounts): the group hierarchy with
-    /// sub-groups nested/indented under their primary parent and ledgers under their group.
+    /// Opens the read-only Chart of Accounts (Masters → Chart of Accounts) as a page column: the group
+    /// hierarchy with sub-groups nested/indented under their primary parent and ledgers under their group.
     /// </summary>
     public void ShowChartOfAccounts()
     {
         if (Company is null) return;
 
-        CurrentScreen = Screen.ChartOfAccounts;
+        var chart = new ChartOfAccountsViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Chart of Accounts", chart), Screen.ChartOfAccounts,
+            "Chart of Accounts", () => ChartOfAccounts = chart);
+    }
+
+    /// <summary>
+    /// Adds a page column to the right of the cascade (replacing any existing rightmost page/submenu of
+    /// the active column), sets the matching sub-screen property + <see cref="CurrentScreen"/>, and
+    /// leaves the menu columns to its left visible. Falls back to a lone cascade if none exists yet.
+    /// </summary>
+    private void OpenPageColumn(GatewayColumn pageColumn, Screen screen, string title, Action setPage)
+    {
+        EnterCascade();
+
+        // Ensure there is at least a root column to sit the page beside.
+        if (Columns.Count == 0 || Columns.All(c => c.IsPage))
+        {
+            Columns.Clear();
+            var root = BuildRootColumn();
+            Columns.Add(root);
+            root.SelectFirstSelectable();
+            ActiveColumnIndex = 0;
+        }
+
+        // Drop any columns to the right of the currently active menu column, then append the page.
+        TrimColumnsAfter(ActiveColumnIndex);
         ClearSubScreens();
-        ChartOfAccounts = new ChartOfAccountsViewModel(Company);
-        ScreenTitle = "Chart of Accounts";
-        Menu.Clear();
-        Message = null;
+        setPage();
+        Columns.Add(pageColumn);
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = title;
+        SyncActiveColumn();
         BuildButtonBar();
     }
 
-    /// <summary>Nulls the report/voucher/ledger/chart sub-screen view models (mutually exclusive screens).</summary>
+    /// <summary>Removes every column after <paramref name="index"/> (keeps [0..index]).</summary>
+    private void TrimColumnsAfter(int index)
+    {
+        for (var i = Columns.Count - 1; i > index; i--)
+            Columns.RemoveAt(i);
+    }
+
+    /// <summary>Nulls the report/voucher/ledger/chart page view models (mutually exclusive pages).</summary>
     private void ClearSubScreens()
     {
         Reports = null;
@@ -367,18 +467,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ChartOfAccounts = null;
     }
 
+    /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
+    private void EnterCascade()
+    {
+        Menu.Clear();
+        IsGatewayCascade = true;
+    }
+
+    /// <summary>Leaves cascade mode — the centred menu is shown again (pre-company screens).</summary>
+    private void LeaveCascade()
+    {
+        Columns.Clear();
+        IsGatewayCascade = false;
+    }
+
     // =============================================================== form key helpers
 
-    /// <summary>Ctrl+A on a form screen: accept the current voucher / create the current ledger.</summary>
+    /// <summary>Ctrl+A on a form page: accept the current voucher / create the current ledger.</summary>
     public void AcceptCurrent() => ActivateSelected();
 
-    /// <summary>Alt+X: cancel the in-progress voucher (no save) and return to the Gateway.</summary>
+    /// <summary>Alt+X: cancel the in-progress voucher (no save) and pop its page column.</summary>
     public void CancelVoucher()
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
         else if (CurrentScreen == Screen.LedgerMaster)
-            ShowGateway();
+            BackFromPage();
     }
 
     /// <summary>Alt+C: open the Ledger-creation master whenever a company is open.</summary>
@@ -397,48 +511,50 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== keyboard navigation
 
-    /// <summary>Moves the highlight up (arrow Up), skipping non-selectable section headers; wraps.</summary>
-    public void MoveUp() => Step(-1);
+    /// <summary>Moves the highlight up (arrow Up) within the active column, skipping headers; wraps.</summary>
+    public void MoveUp() => StepActive(-1);
 
-    /// <summary>Moves the highlight down (arrow Down), skipping non-selectable section headers; wraps.</summary>
-    public void MoveDown() => Step(+1);
+    /// <summary>Moves the highlight down (arrow Down) within the active column, skipping headers; wraps.</summary>
+    public void MoveDown() => StepActive(+1);
 
     /// <summary>
-    /// Advances the highlight in the given direction, skipping section headers and wrapping around.
-    /// No-op when the menu has no selectable items.
+    /// Steps the highlight in the active list (the cascade's focused menu column on the Gateway, else
+    /// the centred pre-company menu). Changing the selection in an earlier column discards all columns
+    /// to its right (the far-right page/submenu is replaced when the user next drills in).
     /// </summary>
-    private void Step(int direction)
+    private void StepActive(int direction)
     {
-        if (Menu.Count == 0) return;
-        if (!Menu.Any(m => m.IsSelectable)) return;
+        if (IsGatewayCascade)
+        {
+            var col = ActiveColumn;
+            if (col is null || !col.IsMenu) return;
 
-        var index = _selectedIndex;
+            // Moving within an earlier column collapses the columns it had opened to the right.
+            if (ActiveColumnIndex < Columns.Count - 1)
+            {
+                TrimColumnsAfter(ActiveColumnIndex);
+                ClearSubScreens();
+                CurrentScreen = Screen.Gateway;
+            }
+
+            col.Step(direction);
+            SyncActiveColumn();
+            return;
+        }
+
+        // Pre-company centred menu.
+        if (Menu.Count == 0 || !Menu.Any(m => m.IsSelectable)) return;
+        var index = _menuSelectedIndex;
         for (var i = 0; i < Menu.Count; i++)
         {
             index = (index + direction + Menu.Count) % Menu.Count;
-            if (Menu[index].IsSelectable)
-            {
-                SetSelected(index);
-                return;
-            }
+            if (Menu[index].IsSelectable) { SetMenuSelected(index); return; }
         }
     }
 
-    /// <summary>Highlights the first selectable item (skipping any leading section header).</summary>
-    private void SelectFirstSelectable()
-    {
-        for (var i = 0; i < Menu.Count; i++)
-            if (Menu[i].IsSelectable)
-            {
-                SetSelected(i);
-                return;
-            }
-        SetSelected(0);
-    }
-
     /// <summary>
-    /// Enter / Ctrl+A: activates the highlighted menu item, or performs the screen's accept action
-    /// (create company, accept voucher, create ledger) when on a form screen.
+    /// Enter / Right / Ctrl+A: on a form page runs its accept action; on a menu column drills into the
+    /// highlighted item — a Group opens its submenu column, a Page opens its page column, an Action runs.
     /// </summary>
     public void ActivateSelected()
     {
@@ -455,51 +571,190 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
         }
 
+        if (IsGatewayCascade)
+        {
+            DrillIn();
+            return;
+        }
+
+        // Pre-company centred menu.
         if (Menu.Count == 0) return;
-        if (_selectedIndex < 0 || _selectedIndex >= Menu.Count) return;
-        var item = Menu[_selectedIndex];
-        if (item.IsSelectable) item.Activate(); // never fire on a section header
+        if (_menuSelectedIndex < 0 || _menuSelectedIndex >= Menu.Count) return;
+        var item = Menu[_menuSelectedIndex];
+        if (item.IsSelectable) item.Activate();
     }
 
     /// <summary>
-    /// Esc: steps back one level. On a sub-screen (Report/Voucher/Ledger/Chart) → Gateway; inside a
-    /// Gateway submenu (Vouchers/Create) → the root Gateway; on the root Gateway → Company Select.
+    /// Right/Enter on the Gateway cascade: drill into the active column's highlighted item. If it is
+    /// already opened as the next column, just move focus there; otherwise open its submenu/page column.
+    /// </summary>
+    public void DrillIn()
+    {
+        var col = ActiveColumn;
+        var item = col?.Selected;
+        if (col is null || !col.IsMenu || item is null || !item.IsSelectable) return;
+
+        switch (item.Kind)
+        {
+            case MenuItemKind.Group:
+                OpenGroupOf(item);
+                break;
+            case MenuItemKind.Page:
+                OpenPageOf(item);
+                break;
+            case MenuItemKind.Action:
+                item.Activate();
+                break;
+        }
+    }
+
+    /// <summary>Opens (or refocuses) the submenu column for a highlighted Group item.</summary>
+    private void OpenGroupOf(MenuItemViewModel item)
+    {
+        TrimColumnsAfter(ActiveColumnIndex);
+        ClearSubScreens();
+        CurrentScreen = Screen.Gateway;
+
+        var (column, menu, title) = item.Label switch
+        {
+            "Vouchers" => (BuildVouchersColumn(), GatewayMenu.Vouchers,
+                "Gateway of Apex Solutions — Vouchers"),
+            "Create" => (BuildCreateColumn(), GatewayMenu.Create,
+                "Gateway of Apex Solutions — Create"),
+            _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
+        };
+
+        Columns.Add(column);
+        column.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentGatewayMenu = menu;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Opens the page column for a highlighted Page item (report / voucher / ledger / chart).</summary>
+    private void OpenPageOf(MenuItemViewModel item)
+    {
+        switch (item.Label)
+        {
+            case "Chart of Accounts": ShowChartOfAccounts(); break;
+            case "Day Book": OpenReport(ReportKind.DayBook); break;
+            case "Balance Sheet": OpenReport(ReportKind.BalanceSheet); break;
+            case "Profit & Loss A/c": OpenReport(ReportKind.ProfitAndLoss); break;
+            case "Trial Balance": OpenReport(ReportKind.TrialBalance); break;
+            case "Ledger": ShowLedgerMaster(); break;
+            case "Group": ShowLedgerMaster(); break;
+            case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
+            case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
+            case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;
+            case "Journal": OpenVoucher(VoucherBaseType.Journal); break;
+            case "Sales": OpenVoucher(VoucherBaseType.Sales); break;
+            case "Purchase": OpenVoucher(VoucherBaseType.Purchase); break;
+        }
+    }
+
+    /// <summary>
+    /// Esc / Left: steps back one level. On a pre-company screen the classic step-back applies. On the
+    /// Gateway cascade it removes the rightmost column and returns focus to the previous column, with
+    /// its selection intact — collapsing to Company Select once only the root column remains.
     /// </summary>
     public void Back()
     {
         switch (CurrentScreen)
         {
-            case Screen.Report:
-            case Screen.VoucherEntry:   // Esc / Alt+X cancels the voucher without saving
-            case Screen.LedgerMaster:
-            case Screen.ChartOfAccounts:
-                ShowGateway();
-                break;
             case Screen.CreateCompany:
                 ShowCompanySelect();
-                break;
-            case Screen.Gateway:
-                // Inside a submenu, Esc pops back to the root Gateway; on the root, to Company Select.
-                if (CurrentGatewayMenu != GatewayMenu.Root)
-                    ShowGateway();
-                else
-                    ShowCompanySelect();
-                break;
+                return;
             case Screen.CompanySelect:
-            default:
-                break; // top level — nothing above
+                return; // top level — nothing above
         }
+
+        if (IsGatewayCascade)
+        {
+            BackFromPage();
+            return;
+        }
+
+        ShowGateway();
     }
 
-    private void SetSelected(int index)
+    /// <summary>
+    /// Removes the rightmost cascade column and refocuses the previous one (its selection intact). When
+    /// only the root column is left, leaves the Gateway to Company Select.
+    /// </summary>
+    private void BackFromPage()
+    {
+        if (!IsGatewayCascade || Columns.Count == 0)
+        {
+            ShowGateway();
+            return;
+        }
+
+        if (Columns.Count <= 1)
+        {
+            ShowCompanySelect();
+            return;
+        }
+
+        Columns.RemoveAt(Columns.Count - 1);
+        ClearSubScreens();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Gateway;
+        CurrentGatewayMenu = RightmostMenuKind();
+        ScreenTitle = Columns[ActiveColumnIndex].Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>The submenu kind of the rightmost menu column (Root when it is the root Gateway).</summary>
+    private GatewayMenu RightmostMenuKind()
+    {
+        for (var i = Columns.Count - 1; i >= 0; i--)
+            if (Columns[i].IsMenu)
+                return Columns[i].Title switch
+                {
+                    "Vouchers" => GatewayMenu.Vouchers,
+                    "Create" => GatewayMenu.Create,
+                    _ => GatewayMenu.Root,
+                };
+        return GatewayMenu.Root;
+    }
+
+    /// <summary>The currently focused column, or null.</summary>
+    private GatewayColumn? ActiveColumn =>
+        ActiveColumnIndex >= 0 && ActiveColumnIndex < Columns.Count ? Columns[ActiveColumnIndex] : null;
+
+    /// <summary>
+    /// Repaints the cascade after a focus/selection change: marks the active column active (bright
+    /// highlight) and the rest inactive (dim), and mirrors the active menu column into <see cref="Menu"/>
+    /// / <see cref="SelectedIndex"/> so the keyboard driver and headless tests see the focused list.
+    /// </summary>
+    private void SyncActiveColumn()
+    {
+        for (var i = 0; i < Columns.Count; i++)
+            Columns[i].SetActive(i == ActiveColumnIndex);
+
+        Menu.Clear();
+        var col = ActiveColumn;
+        if (col is not null && col.IsMenu)
+            foreach (var item in col.Items)
+                Menu.Add(item);
+        _menuSelectedIndex = col?.SelectedIndex ?? -1;
+    }
+
+    private void SetMenuSelected(int index)
     {
         for (var i = 0; i < Menu.Count; i++)
             Menu[i].IsSelected = i == index && Menu[i].IsSelectable;
-        _selectedIndex = index;
+        _menuSelectedIndex = index;
     }
 
-    /// <summary>Index of the currently highlighted menu item (for tests/keyboard).</summary>
-    public int SelectedIndex => _selectedIndex;
+    /// <summary>
+    /// Index of the currently highlighted item — the active cascade column's selection on the Gateway,
+    /// else the centred pre-company menu's selection.
+    /// </summary>
+    public int SelectedIndex => IsGatewayCascade ? (ActiveColumn?.SelectedIndex ?? -1) : _menuSelectedIndex;
 
     // =============================================================== right button bar
 

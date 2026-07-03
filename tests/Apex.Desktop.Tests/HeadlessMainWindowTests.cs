@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
@@ -146,6 +147,52 @@ public sealed class HeadlessMainWindowTests
             var tb = TrialBalance.Build(reloaded, LastVoucherDate(reloaded));
             Assert.True(tb.Balanced);
             Assert.Contains(tb.Rows, r => r.LedgerName == "Capital A/c" && r.Credit.Amount == 100000m);
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
+    [AvaloniaFact]
+    public void Cascade_drills_root_into_a_balance_sheet_page_column_beside_the_menu()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.LoadRobertDemo();
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+            Assert.True(vm.IsGatewayCascade);
+
+            // Walk the root column to "Balance Sheet" using real Down key presses, then drill in with
+            // the Right key — the cascade must add a page column while keeping the root menu visible.
+            for (var i = 0; i < vm.Menu.Count + 2; i++)
+            {
+                if (vm.Menu[vm.SelectedIndex].Label == "Balance Sheet") break;
+                window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            }
+            Assert.Equal("Balance Sheet", vm.Menu[vm.SelectedIndex].Label);
+
+            window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+
+            // Two columns rendered: the root menu column (still visible) + the Balance Sheet page.
+            Assert.Equal(2, vm.Columns.Count);
+            Assert.True(vm.Columns[0].IsMenu);
+            Assert.True(vm.Columns[1].IsPage);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+
+            // The rendered page column shows the 1,05,000 total (proves the real template bound cleanly).
+            var texts = window.GetVisualDescendants()
+                .OfType<Avalonia.Controls.TextBlock>()
+                .Select(t => t.Text ?? string.Empty)
+                .ToList();
+            Assert.Contains(texts, t => t.Contains("1,05,000"));
+
+            // Left removes the page column, focus returns to the (still-present) root menu column.
+            window.KeyPressQwerty(PhysicalKey.ArrowLeft, RawInputModifiers.None);
+            Assert.Single(vm.Columns);
+            Assert.Equal("Balance Sheet", vm.Menu[vm.SelectedIndex].Label);
         }
         finally
         {
