@@ -439,8 +439,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ActiveColumnIndex = 0;
         }
 
-        // Drop any columns to the right of the currently active menu column, then append the page.
-        TrimColumnsAfter(ActiveColumnIndex);
+        // Trim after the LAST MENU column — this removes any page column that is already open (whether
+        // it is the active column or sits to the right of it), so a page is REPLACED, never stacked.
+        // There is therefore AT MOST ONE page column, always the rightmost.
+        TrimColumnsAfter(LastMenuColumnIndex());
         ClearSubScreens();
         setPage();
         Columns.Add(pageColumn);
@@ -449,6 +451,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Index of the rightmost MENU column (the deepest submenu). Used to trim away any existing page
+    /// column before appending a new one so opening a page always REPLACES the current page.
+    /// </summary>
+    private int LastMenuColumnIndex()
+    {
+        for (var i = Columns.Count - 1; i >= 0; i--)
+            if (Columns[i].IsMenu) return i;
+        return -1;
     }
 
     /// <summary>Removes every column after <paramref name="index"/> (keeps [0..index]).</summary>

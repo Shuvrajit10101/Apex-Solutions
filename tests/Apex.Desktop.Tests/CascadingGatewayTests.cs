@@ -193,6 +193,70 @@ public sealed class CascadingGatewayTests : IDisposable
         Assert.Equal(0, vm.ActiveColumnIndex);
     }
 
+    // ---------------------------------------------------------------- page-open always replaces the page
+
+    [Fact]
+    public void Opening_a_page_via_a_hotkey_while_a_page_is_open_replaces_it_never_stacks()
+    {
+        var vm = NewSeededCompany("No Stack Co");
+
+        // Open Balance Sheet as the right page column → [root(menu), BalanceSheet(page)].
+        SelectRootItem(vm, "Balance Sheet");
+        vm.DrillIn();
+        var menuColumns = vm.Columns.Count(c => c.IsMenu);
+        Assert.Equal(1, menuColumns);                        // just the root menu column
+        Assert.Equal(2, vm.Columns.Count);
+        Assert.Equal(1, vm.Columns.Count(c => c.IsPage));    // exactly one page column
+        Assert.Equal(ReportKind.BalanceSheet, vm.Reports!.Kind);
+
+        // Now, WITH the Balance Sheet page still open, open another page via a hotkey path
+        // (Payment F5). The stale Balance Sheet page must be REPLACED, not stacked beside it.
+        vm.OpenVoucher(VoucherBaseType.Payment);
+
+        Assert.Equal(1, vm.Columns.Count(c => c.IsPage));    // STILL exactly one page column
+        Assert.Equal(menuColumns + 1, vm.Columns.Count);     // menu columns + the single page
+        Assert.Equal(2, vm.Columns.Count);
+        Assert.True(vm.Columns[^1].IsPage);                  // the page is the rightmost column
+        Assert.Null(vm.Reports);                             // old Balance Sheet page is gone
+        Assert.NotNull(vm.VoucherEntry);                     // replaced by the Payment voucher page
+        Assert.Equal(VoucherBaseType.Payment, vm.VoucherEntry!.Type.BaseType);
+        Assert.Same(vm.VoucherEntry, vm.Columns[^1].Voucher);
+        Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+    }
+
+    [Fact]
+    public void Opening_a_report_hotkey_over_an_open_report_replaces_it_never_stacks()
+    {
+        var vm = NewSeededCompany("Report Swap Co");
+
+        // Open Balance Sheet via its hotkey path (the "B" button / OpenReport).
+        vm.OpenReport(ReportKind.BalanceSheet);
+        Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
+        Assert.Equal(ReportKind.BalanceSheet, vm.Reports!.Kind);
+
+        // Open Trial Balance via its hotkey ("T") while Balance Sheet is still open.
+        vm.OpenReport(ReportKind.TrialBalance);
+
+        Assert.Equal(1, vm.Columns.Count(c => c.IsPage));    // still one page column, not two
+        Assert.Equal(2, vm.Columns.Count);                   // root menu + single page
+        Assert.Equal(ReportKind.TrialBalance, vm.Reports!.Kind); // replaced, not stacked
+        Assert.True(vm.Columns[^1].IsPage);
+    }
+
+    [Fact]
+    public void Arrow_drill_still_yields_exactly_one_page_column()
+    {
+        var vm = NewSeededCompany("Arrow Drill Co");
+
+        SelectRootItem(vm, "Balance Sheet");
+        vm.DrillIn();
+
+        Assert.Equal(1, vm.Columns.Count(c => c.IsPage));    // exactly one page column
+        Assert.Equal(2, vm.Columns.Count);                   // root menu + single page
+        Assert.True(vm.Columns[^1].IsPage);
+        Assert.Equal(ReportKind.BalanceSheet, vm.Reports!.Kind);
+    }
+
     // ---------------------------------------------------------------- step-back semantics
 
     [Fact]
