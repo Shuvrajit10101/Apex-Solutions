@@ -57,6 +57,25 @@ public static class ClassificationRules
     public static bool CostCentresApplicableFor(Domain.Ledger ledger, Company company)
         => ledger.CostCentresApplicable ?? IsProfitAndLossLedger(ledger, company);
 
+    /// <summary>
+    /// True iff <paramref name="ledger"/> sits under <paramref name="groupId"/> directly or transitively
+    /// (walks the ledger's group's <c>ParentId</c> chain up to the primary ancestor). Used for group-target
+    /// budget roll-ups (§7): a group budget aggregates every ledger under it, at any depth.
+    /// </summary>
+    public static bool LedgerIsUnderGroup(Domain.Ledger ledger, Guid groupId, Company company)
+    {
+        var group = company.FindGroup(ledger.GroupId);
+        var guard = 0;
+        while (group is not null)
+        {
+            if (group.Id == groupId) return true;
+            group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException($"Cycle detected walking parents of ledger '{ledger.Name}'.");
+        }
+        return false;
+    }
+
     /// <summary>True iff the ledger sits under (or below) the Stock-in-Hand group.</summary>
     public static bool IsStockInHandLedger(Domain.Ledger ledger, Company company)
     {

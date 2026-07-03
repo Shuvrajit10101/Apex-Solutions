@@ -20,6 +20,7 @@
         <Color x:Key="InkColor">#1A1A1A</Color>
         <Color x:Key="GridLineColor">#D2D2C4</Color>
         <Color x:Key="AlertRedColor">#B00020</Color>
+        <Color x:Key="PositiveGreenColor">#2E7D32</Color>
 
         <SolidColorBrush x:Key="BrandNavy" Color="{StaticResource BrandNavyColor}"/>
         <SolidColorBrush x:Key="BrandNavyDark" Color="{StaticResource BrandNavyDarkColor}"/>
@@ -31,6 +32,7 @@
         <SolidColorBrush x:Key="Ink" Color="{StaticResource InkColor}"/>
         <SolidColorBrush x:Key="GridLine" Color="{StaticResource GridLineColor}"/>
         <SolidColorBrush x:Key="AlertRed" Color="{StaticResource AlertRedColor}"/>
+        <SolidColorBrush x:Key="PositiveGreen" Color="{StaticResource PositiveGreenColor}"/>
         <SolidColorBrush x:Key="AppWhite" Color="#FFFFFF"/>
     </Application.Resources>
 

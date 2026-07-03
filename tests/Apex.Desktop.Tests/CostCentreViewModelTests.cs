@@ -377,7 +377,7 @@ public sealed class CostCentreViewModelTests : IDisposable
         vm.ShowStatementsOfAccountsMenu();
         Assert.Equal(GatewayMenu.StatementsOfAccounts, vm.CurrentGatewayMenu);
         var hubLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Outstandings", "Cost Centres" }, hubLabels);
+        Assert.Equal(new[] { "Outstandings", "Cost Centres", "Budgets" }, hubLabels);
 
         // Statements of Accounts → Cost Centres lists the two cost reports.
         vm.ShowCostCentresMenu();

@@ -25,4 +25,7 @@ public static class Report
 
     public static LedgerBook BuildLedgerBook(Company c, Guid ledgerId, DateOnly from, DateOnly to)
         => LedgerBook.Build(c, ledgerId, from, to);
+
+    public static BudgetVarianceReport BuildBudgetVariance(Company c, Budget budget)
+        => BudgetVarianceReport.Build(c, budget);
 }

@@ -66,6 +66,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted cost-report view model (non-null only for a Category Summary / Break-up column).</summary>
     public CostReportsViewModel? CostReport => Page as CostReportsViewModel;
 
+    /// <summary>The hosted Budget master (non-null only for the Budget-creation column).</summary>
+    public BudgetMasterViewModel? BudgetMaster => Page as BudgetMasterViewModel;
+
+    /// <summary>The hosted Budget Variance report (non-null only for the Budget Variance column).</summary>
+    public BudgetVarianceViewModel? BudgetVariance => Page as BudgetVarianceViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

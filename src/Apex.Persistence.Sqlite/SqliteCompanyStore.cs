@@ -129,6 +129,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 3;
         }
 
+        // v3 → v4: apply the budgets migration, then bump the marker. Existing v3 data survives.
+        if (version == 3)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV3ToV4;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 4);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 4;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -206,6 +227,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var v in ReadVouchers(companyId))
             service.Post(v);
 
+        // Budgets (catalog §7): masters that reference groups/ledgers already loaded above.
+        foreach (var b in ReadBudgets(companyId))
+            company.AddBudget(b);
+
         return company;
     }
 
@@ -247,6 +272,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertCostCategories(tx, company);
         InsertCostCentres(tx, company);
         InsertVouchers(tx, company);
+        // Budgets last: their lines FK groups and ledgers, both already inserted.
+        InsertBudgets(tx, company);
 
         tx.Commit();
     }
@@ -454,6 +481,56 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
+    private IEnumerable<Budget> ReadBudgets(Guid companyId)
+    {
+        // Header rows first, then lines per budget (ordered), to build each aggregate.
+        var headers = new List<(Guid Id, string Name, Guid? UnderId, DateOnly From, DateOnly To)>();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, name, under_id, period_from, period_to
+                FROM budgets WHERE company_id = $cid ORDER BY rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                headers.Add((
+                    Guid.Parse(r.GetString(0)),
+                    r.GetString(1),
+                    r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
+                    ParseDate(r.GetString(3)),
+                    ParseDate(r.GetString(4))));
+            }
+        }
+
+        var result = new List<Budget>();
+        foreach (var h in headers)
+            result.Add(new Budget(h.Id, h.Name, h.From, h.To, underId: h.UnderId, lines: ReadBudgetLines(h.Id)));
+        return result;
+    }
+
+    private List<BudgetLine> ReadBudgetLines(Guid budgetId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT group_id, ledger_id, budget_type, amount_paisa
+            FROM budget_lines WHERE budget_id = $bid ORDER BY line_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$bid", budgetId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<BudgetLine>();
+        while (r.Read())
+        {
+            var type = (BudgetType)(int)r.GetInt64(2);
+            var amount = Paisa.ToMoney(r.GetInt64(3));
+            list.Add(r.IsDBNull(0)
+                ? BudgetLine.ForLedger(Guid.Parse(r.GetString(1)), type, amount)
+                : BudgetLine.ForGroup(Guid.Parse(r.GetString(0)), type, amount));
+        }
+        return list;
+    }
+
     private IEnumerable<Voucher> ReadVouchers(Guid companyId)
     {
         // Header rows first, then lines per voucher (ordered), to build each aggregate.
@@ -599,6 +676,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
+        // Budgets (and their lines) FK groups + ledgers → delete them before those masters.
+        ExecTx(tx, """
+            DELETE FROM budget_lines WHERE budget_id IN (SELECT id FROM budgets WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM budgets WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
         // Cost centres reference cost categories → delete centres first.
@@ -766,6 +848,47 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$parent", (object?)centre.ParentId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$alias", (object?)centre.Alias ?? DBNull.Value);
             cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertBudgets(SqliteTransaction tx, Company c)
+    {
+        foreach (var budget in c.Budgets)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO budgets (id, company_id, name, under_id, period_from, period_to)
+                    VALUES ($id, $cid, $name, $under, $from, $to);
+                    """;
+                cmd.Parameters.AddWithValue("$id", budget.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$name", budget.Name);
+                cmd.Parameters.AddWithValue("$under", (object?)budget.UnderId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$from", FormatDate(budget.PeriodFrom));
+                cmd.Parameters.AddWithValue("$to", FormatDate(budget.PeriodTo));
+                cmd.ExecuteNonQuery();
+            }
+
+            var order = 0;
+            foreach (var line in budget.Lines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO budget_lines
+                        (budget_id, line_order, group_id, ledger_id, budget_type, amount_paisa)
+                    VALUES ($bid, $ord, $gid, $lid, $type, $amt);
+                    """;
+                cmd.Parameters.AddWithValue("$bid", budget.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$gid", (object?)line.GroupId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$lid", (object?)line.LedgerId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$type", (int)line.Type);
+                cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(line.Amount));
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 
