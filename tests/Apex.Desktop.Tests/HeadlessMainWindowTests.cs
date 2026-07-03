@@ -201,6 +201,76 @@ public sealed class HeadlessMainWindowTests
         }
     }
 
+    [AvaloniaFact]
+    public void Billwise_outstandings_page_renders_the_bill_and_CtrlB_settles_it_through_the_window()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.NewCompanyName = "Headless BillWise Co";
+            vm.CreateCompany();
+
+            // Create a bill-wise party debtor (Sundry Debtors auto-enables bill-by-bill) + a Sales ledger.
+            vm.ShowLedgerMaster();
+            vm.LedgerMaster!.Name = "Party X";
+            vm.LedgerMaster!.SelectedGroup = vm.Company!.FindGroupByName("Sundry Debtors");
+            Assert.True(vm.LedgerMaster!.MaintainBillByBill);
+            vm.LedgerMaster!.DefaultCreditPeriodText = "15";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var party = vm.Company!.FindLedgerByName("Party X");
+            Assert.NotNull(party);
+
+            vm.ShowLedgerMaster();
+            vm.LedgerMaster!.Name = "Sales A/c";
+            vm.LedgerMaster!.SelectedGroup = vm.Company!.FindGroupByName("Sales Accounts");
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var sales = vm.Company!.FindLedgerByName("Sales A/c");
+
+            // Enter a Sales voucher with a bill-wise New-Ref allocation on the party line.
+            vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Sales);
+            var entry = vm.VoucherEntry!;
+            entry.Lines[0].SelectedLedger = party;
+            entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;
+            entry.Lines[0].AmountText = "25000";
+            Assert.True(entry.Lines[0].IsBillWise);               // the sub-panel turned on
+            entry.Lines[0].BillAllocations[0].Name = "BILL-1";
+            entry.Lines[0].BillAllocations[0].AmountText = "25000";
+            entry.Lines[1].SelectedLedger = sales;
+            entry.Lines[1].Side = Apex.Ledger.DrCr.Credit;
+            entry.Lines[1].AmountText = "25000";
+            Assert.True(entry.CanAccept);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control); // accept
+
+            // Open the Receivables Outstandings page and confirm the rendered page shows the bill.
+            vm.OpenOutstandings(OutstandingsKind.Receivables);
+            Assert.Equal(Screen.Outstandings, vm.CurrentScreen);
+            Assert.Single(vm.Outstandings!.Rows);
+
+            // Force a layout/render pass so the page column's rows are realized before we read them.
+            window.UpdateLayout();
+
+            var texts = window.GetVisualDescendants()
+                .OfType<TextBlock>()
+                .Select(t => t.Text ?? string.Empty)
+                .ToList();
+            Assert.Contains(texts, t => t.Contains("BILL-1"));   // the reference rendered
+            Assert.Contains(texts, t => t.Contains("25,000"));   // the pending amount rendered
+
+            // Spacebar selects the highlighted bill; Ctrl+B settles it — real key input on the window.
+            window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Assert.True(vm.Outstandings!.Rows[0].IsSelected);
+            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.Control);
+
+            // The bill is knocked off — the page is now empty.
+            Assert.Empty(vm.Outstandings!.Rows);
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
     private static DateOnly LastVoucherDate(Apex.Ledger.Domain.Company c)
     {
         DateOnly? last = null;

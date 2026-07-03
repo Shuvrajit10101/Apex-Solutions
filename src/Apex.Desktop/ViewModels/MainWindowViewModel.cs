@@ -18,6 +18,7 @@ public enum Screen
     VoucherEntry,
     LedgerMaster,
     ChartOfAccounts,
+    Outstandings,
 }
 
 /// <summary>
@@ -30,6 +31,7 @@ public enum GatewayMenu
     Root,
     Vouchers,
     Create,
+    Outstandings,
 }
 
 /// <summary>
@@ -87,17 +89,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The chart-of-accounts tree view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private ChartOfAccountsViewModel? _chartOfAccounts;
 
+    /// <summary>The Outstandings (Receivables/Payables) view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private OutstandingsViewModel? _outstandings;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
     /// </summary>
     public bool IsMenuScreen => !IsGatewayCascade
-        && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null;
+        && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
+        && Outstandings is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -262,6 +269,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Balance Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Profit & Loss A/c", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -293,6 +301,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Create"));
         col.Add(new MenuItemViewModel("Ledger", () => { }, "Alt+C", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Statements of Accounts → Outstandings" submenu column (Reports → Statements of
+    /// Accounts): the Receivables and Payables pages, each a page item under this Outstandings group.
+    /// </summary>
+    private GatewayColumn BuildOutstandingsColumn()
+    {
+        var col = new GatewayColumn("Statements of Accounts");
+        col.Add(MenuItemViewModel.Header("Outstandings"));
+        col.Add(new MenuItemViewModel("Receivables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Payables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -420,6 +441,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Chart of Accounts", () => ChartOfAccounts = chart);
     }
 
+    // =============================================================== screen: outstandings
+
+    /// <summary>
+    /// Opens the Outstandings page (Reports → Statements of Accounts → Outstandings → Receivables/Payables)
+    /// as a page column: the open bill-wise bills for the chosen side with due date, pending amount and
+    /// ageing. Spacebar multi-select + Ctrl+B settle bills through the engine, then the report refreshes.
+    /// </summary>
+    public void OpenOutstandings(OutstandingsKind kind)
+    {
+        if (Company is null) return;
+
+        var vm = new OutstandingsViewModel(Company, _storage, kind, onChanged: () => { });
+        var title = kind == OutstandingsKind.Receivables ? "Outstandings — Receivables" : "Outstandings — Payables";
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.Outstandings, title,
+            () => Outstandings = vm);
+    }
+
+    /// <summary>
+    /// Opens the "Statements of Accounts → Outstandings" submenu column directly (the public entry a
+    /// hotkey/test uses). Rebuilds the cascade to [root → Outstandings] and focuses the submenu.
+    /// </summary>
+    public void ShowOutstandingsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statements of Accounts");
+        OpenSubmenuColumn(BuildOutstandingsColumn(), GatewayMenu.Outstandings,
+            "Gateway of Apex Solutions — Outstandings");
+    }
+
     /// <summary>
     /// Adds a page column to the right of the cascade (replacing any existing rightmost page/submenu of
     /// the active column), sets the matching sub-screen property + <see cref="CurrentScreen"/>, and
@@ -471,13 +521,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Columns.RemoveAt(i);
     }
 
-    /// <summary>Nulls the report/voucher/ledger/chart page view models (mutually exclusive pages).</summary>
+    /// <summary>Nulls the report/voucher/ledger/chart/outstandings page view models (mutually exclusive pages).</summary>
     private void ClearSubScreens()
     {
         Reports = null;
         VoucherEntry = null;
         LedgerMaster = null;
         ChartOfAccounts = null;
+        Outstandings = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -522,6 +573,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.AddLine();
     }
 
+    /// <summary>Adds a bill-wise allocation row to a voucher line (the sub-panel "+ Add bill" button).</summary>
+    public void AddBillAllocation(VoucherLineViewModel line)
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.AddBillAllocation(line);
+    }
+
+    /// <summary>True while an Outstandings (Receivables/Payables) page column is the active screen.</summary>
+    public bool IsOutstandingsScreen => CurrentScreen == Screen.Outstandings && Outstandings is not null;
+
+    /// <summary>Spacebar on the Outstandings page: toggle the highlighted bill's multi-select flag.</summary>
+    public void ToggleOutstandingSelection()
+    {
+        if (IsOutstandingsScreen) Outstandings!.ToggleSelectHighlighted();
+    }
+
+    /// <summary>Ctrl+B on the Outstandings page: settle (knock off) the selected bills via the engine.</summary>
+    public void SettleBills()
+    {
+        if (IsOutstandingsScreen) Outstandings!.SettleSelected();
+    }
+
     // =============================================================== keyboard navigation
 
     /// <summary>Moves the highlight up (arrow Up) within the active column, skipping headers; wraps.</summary>
@@ -537,6 +610,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void StepActive(int direction)
     {
+        // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Ctrl+B).
+        if (IsOutstandingsScreen)
+        {
+            Outstandings!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -634,6 +714,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Vouchers"),
             "Create" => (BuildCreateColumn(), GatewayMenu.Create,
                 "Gateway of Apex Solutions — Create"),
+            "Statements of Accounts" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
+                "Gateway of Apex Solutions — Outstandings"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
 
@@ -658,6 +740,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Trial Balance": OpenReport(ReportKind.TrialBalance); break;
             case "Ledger": ShowLedgerMaster(); break;
             case "Group": ShowLedgerMaster(); break;
+            case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
+            case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;
@@ -729,6 +813,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 {
                     "Vouchers" => GatewayMenu.Vouchers,
                     "Create" => GatewayMenu.Create,
+                    "Statements of Accounts" => GatewayMenu.Outstandings,
                     _ => GatewayMenu.Root,
                 };
         return GatewayMenu.Root;
@@ -791,6 +876,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Create master + report quick-jumps (enabled once a company is open).
         ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
+        // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
+        ButtonBar.Add(new ButtonBarItem("O", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));

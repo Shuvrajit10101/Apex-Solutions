@@ -101,6 +101,55 @@ public sealed class DrCrLabelConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+/// <summary>
+/// Maps a <see cref="Apex.Ledger.Domain.BillRefType"/> to its label ("New Ref" / "Agst Ref" /
+/// "Advance" / "On Account") for the "Type of Ref" combo in the bill-wise sub-panel.
+/// </summary>
+public sealed class BillRefTypeLabelConverter : IValueConverter
+{
+    public static readonly BillRefTypeLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is Apex.Ledger.Domain.BillRefType t
+            ? t switch
+            {
+                Apex.Ledger.Domain.BillRefType.NewRef => "New Ref",
+                Apex.Ledger.Domain.BillRefType.AgstRef => "Agst Ref",
+                Apex.Ledger.Domain.BillRefType.Advance => "Advance",
+                Apex.Ledger.Domain.BillRefType.OnAccount => "On Account",
+                _ => t.ToString(),
+            }
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps (IsSelected, IsHighlighted) → an Outstandings bill-row background: amber for the row under the
+/// keyboard highlight, a pale-green tick tint for a spacebar-selected row, a blend when both, else white.
+/// Lets the user see at a glance which bills are picked for Ctrl+B settlement.
+/// </summary>
+public sealed class OutstandingRowBrushConverter : IMultiValueConverter
+{
+    public static readonly OutstandingRowBrushConverter Instance = new();
+
+    private static readonly IBrush Highlight = new SolidColorBrush(Color.Parse("#FFE9A8"));
+    private static readonly IBrush Selected = new SolidColorBrush(Color.Parse("#CDEBCB"));
+    private static readonly IBrush SelectedAndHighlight = new SolidColorBrush(Color.Parse("#BFE0B0"));
+    private static readonly IBrush None = Brushes.White;
+
+    public object Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var selected = values.Count > 0 && values[0] is true;
+        var highlighted = values.Count > 1 && values[1] is true;
+        if (selected && highlighted) return SelectedAndHighlight;
+        if (selected) return Selected;
+        if (highlighted) return Highlight;
+        return None;
+    }
+}
+
 /// <summary>True when the bound <see cref="Screen"/> equals the converter parameter (screen name).</summary>
 public sealed class ScreenEqualsConverter : IValueConverter
 {

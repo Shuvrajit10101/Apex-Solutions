@@ -6,12 +6,15 @@ namespace Apex.Ledger.Domain;
 /// always magnitudes &gt; 0.
 /// </summary>
 /// <remarks>
-/// Extension seam (later phases, empty in Phase 1): bill refs, inventory,
-/// cost, tax and bank allocations hang off a line. They are intentionally
-/// absent here so the Phase-1 shape stays minimal.
+/// Extension seam (later phases): inventory, cost, tax and bank allocations hang off a
+/// line too. <b>Phase 2</b> adds <see cref="BillAllocations"/> — the bill-wise slices for a
+/// line whose ledger maintains balances bill-by-bill; a line with no bill-wise ledger simply
+/// carries an empty list, so existing non-bill-wise vouchers are unaffected.
 /// </remarks>
 public sealed class EntryLine
 {
+    private readonly List<BillAllocation> _billAllocations;
+
     /// <summary>The account posted to.</summary>
     public Guid LedgerId { get; }
 
@@ -21,13 +24,34 @@ public sealed class EntryLine
     /// <summary>Debit or Credit.</summary>
     public DrCr Side { get; }
 
-    public EntryLine(Guid ledgerId, Money amount, DrCr side)
+    /// <summary>
+    /// The bill-wise allocations for this line (catalog §5). Empty for a non-bill-wise line.
+    /// When present, their amounts must sum to <see cref="Amount"/> (enforced at posting).
+    /// </summary>
+    public IReadOnlyList<BillAllocation> BillAllocations => _billAllocations;
+
+    /// <summary>True iff this line carries one or more bill-wise allocations.</summary>
+    public bool HasBillAllocations => _billAllocations.Count > 0;
+
+    public EntryLine(Guid ledgerId, Money amount, DrCr side, IEnumerable<BillAllocation>? billAllocations = null)
     {
         LedgerId = ledgerId;
         Amount = amount;
         Side = side;
+        _billAllocations = billAllocations?.ToList() ?? new List<BillAllocation>();
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>
     public decimal Signed => Side == DrCr.Debit ? Amount.Amount : -Amount.Amount;
+
+    /// <summary>Σ of the allocation magnitudes on this line.</summary>
+    public Money BillAllocationTotal
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var a in _billAllocations) sum += a.Amount.Amount;
+            return new Money(sum);
+        }
+    }
 }

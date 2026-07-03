@@ -29,6 +29,18 @@ public sealed class Ledger
     /// <summary>True for the 2 predefined ledgers (Cash, Profit &amp; Loss A/c) — cannot be deleted.</summary>
     public bool IsPredefined { get; }
 
+    /// <summary>
+    /// "Maintain balances bill-by-bill" (catalog §5). When true, party lines posting to this ledger
+    /// carry bill-wise allocations and the ledger's open bills are tracked for Outstandings/ageing.
+    /// </summary>
+    public bool MaintainBillByBill { get; set; }
+
+    /// <summary>
+    /// Default credit period in days (catalog §5). When a New-Ref allocation omits an explicit due
+    /// date and its own credit-period days, the due date derives from the voucher date + this value.
+    /// </summary>
+    public int? DefaultCreditPeriodDays { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -36,12 +48,17 @@ public sealed class Ledger
         Money openingBalance,
         bool openingIsDebit,
         string? alias = null,
-        bool isPredefined = false)
+        bool isPredefined = false,
+        bool maintainBillByBill = false,
+        int? defaultCreditPeriodDays = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
         if (openingBalance.Amount < 0m)
             throw new ArgumentException("Opening balance magnitude must be ≥ 0.", nameof(openingBalance));
+
+        if (defaultCreditPeriodDays is < 0)
+            throw new ArgumentException("Default credit period days must be ≥ 0.", nameof(defaultCreditPeriodDays));
 
         Id = id;
         Name = name;
@@ -50,6 +67,8 @@ public sealed class Ledger
         OpeningIsDebit = openingIsDebit;
         Alias = alias;
         IsPredefined = isPredefined;
+        MaintainBillByBill = maintainBillByBill;
+        DefaultCreditPeriodDays = defaultCreditPeriodDays;
     }
 
     /// <summary>Signed opening: positive when debit, negative when credit (Dr = +, Cr = −).</summary>

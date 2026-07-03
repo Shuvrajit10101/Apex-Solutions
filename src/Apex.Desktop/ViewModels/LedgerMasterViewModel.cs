@@ -40,6 +40,15 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     [ObservableProperty] private Group? _selectedGroup;
     [ObservableProperty] private string? _message;
 
+    /// <summary>
+    /// "Maintain balances bill-by-bill" (catalog §5) — shown for a party ledger. When on, party lines
+    /// posting to this ledger capture bill-wise allocations and the ledger's open bills feed Outstandings.
+    /// </summary>
+    [ObservableProperty] private bool _maintainBillByBill;
+
+    /// <summary>"Default credit period (days)" (catalog §5), typed as text; blank ⇒ none.</summary>
+    [ObservableProperty] private string _defaultCreditPeriodText = string.Empty;
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -49,6 +58,33 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         Groups = company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
         SelectedGroup = company.FindGroupByName("Sundry Debtors") ?? Groups.FirstOrDefault();
         RefreshList();
+    }
+
+    /// <summary>
+    /// A party group (Sundry Debtors / Sundry Creditors, or a sub-group under one) — the bill-wise
+    /// prompts are shown only for these, where "Maintain bill-by-bill" surfaces for party
+    /// ledgers. When the chosen group is a party group the flag defaults on.
+    /// </summary>
+    public bool IsPartyGroup => SelectedGroup is not null && IsUnderParty(SelectedGroup);
+
+    partial void OnSelectedGroupChanged(Group? value)
+    {
+        MaintainBillByBill = value is not null && IsUnderParty(value);
+        OnPropertyChanged(nameof(IsPartyGroup));
+    }
+
+    private bool IsUnderParty(Group group)
+    {
+        var g = group;
+        var guard = 0;
+        while (g is not null && guard++ < 64)
+        {
+            if (g.Name.Equals("Sundry Debtors", StringComparison.OrdinalIgnoreCase) ||
+                g.Name.Equals("Sundry Creditors", StringComparison.OrdinalIgnoreCase))
+                return true;
+            g = g.ParentId is { } pid ? _company.FindGroup(pid) : null;
+        }
+        return false;
     }
 
     /// <summary>
@@ -77,10 +113,26 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
             return false;
         }
 
+        // Parse the optional default credit period; a non-empty non-numeric value is an error.
+        int? creditDays = null;
+        var creditText = (DefaultCreditPeriodText ?? string.Empty).Trim();
+        if (!string.IsNullOrEmpty(creditText))
+        {
+            if (!int.TryParse(creditText, out var days) || days < 0)
+            {
+                Message = "Default credit period must be a whole number of days (≥ 0), or blank.";
+                return false;
+            }
+            creditDays = days;
+        }
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
-        var ledger = new DomainLedger(Guid.NewGuid(), name, SelectedGroup.Id, Money.Zero, openingIsDebit);
+        var ledger = new DomainLedger(
+            Guid.NewGuid(), name, SelectedGroup.Id, Money.Zero, openingIsDebit,
+            maintainBillByBill: MaintainBillByBill,
+            defaultCreditPeriodDays: MaintainBillByBill ? creditDays : null);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -88,6 +140,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         RefreshList();
         Message = $"Ledger '{name}' created under {SelectedGroup.Name}.";
         Name = string.Empty;
+        DefaultCreditPeriodText = string.Empty;
         _onChanged();
         return true;
     }

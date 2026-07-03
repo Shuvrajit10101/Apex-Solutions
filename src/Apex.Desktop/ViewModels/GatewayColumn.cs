@@ -54,6 +54,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted chart-of-accounts view model (non-null only for the Chart-of-Accounts column).</summary>
     public ChartOfAccountsViewModel? Chart => Page as ChartOfAccountsViewModel;
 
+    /// <summary>The hosted Outstandings view model (non-null only for a Receivables/Payables column).</summary>
+    public OutstandingsViewModel? Outstanding => Page as OutstandingsViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 
