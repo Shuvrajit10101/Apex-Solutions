@@ -347,6 +347,89 @@ public sealed class HeadlessMainWindowTests
         }
     }
 
+    [AvaloniaFact]
+    public void Multi_currency_master_forex_voucher_and_forex_report_render_through_the_real_window()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.NewCompanyName = "Headless Forex Co";
+            vm.CreateCompany();
+            var fyStart = vm.Company!.FinancialYearStart;
+
+            // Create a USD currency + a rate through the real Currency master page (Ctrl+A creates the currency).
+            vm.ShowCurrencyMaster();
+            Assert.Equal(Screen.CurrencyMaster, vm.CurrentScreen);
+            vm.CurrencyMaster!.Symbol = "$";
+            vm.CurrencyMaster!.FormalName = "USD";
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var usd = vm.Company!.FindCurrencyByName("USD");
+            Assert.NotNull(usd);
+            vm.CurrencyMaster!.RateDateText =
+                fyStart.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            vm.CurrencyMaster!.StandardRateText = "83";
+            Assert.True(vm.CurrencyMaster!.CreateRate());
+            window.UpdateLayout();
+
+            // The Currency master page rendered the USD currency + the rate.
+            var curTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Select(t => t.Text ?? string.Empty).ToList();
+            Assert.Contains(curTexts, t => t.Contains("USD"));
+            Assert.Contains(curTexts, t => t.Contains("83"));
+
+            // A USD export-sales ledger (via the Ledger master's Currency picker) + a base cash line.
+            vm.ShowLedgerMaster();
+            vm.LedgerMaster!.Name = "Export Sales";
+            vm.LedgerMaster!.SelectedGroup = vm.Company!.FindGroupByName("Sales Accounts");
+            vm.LedgerMaster!.SelectedCurrency =
+                vm.LedgerMaster!.CurrencyChoices.Single(c => c.Display.Contains("USD"));
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            var exportSales = vm.Company!.FindLedgerByName("Export Sales");
+            Assert.NotNull(exportSales);
+            Assert.True(exportSales!.IsForeignCurrency);
+            var cash = vm.Company!.FindLedgerByName("Cash");
+
+            // Enter a Receipt with a forex line: Cash Dr 83,000; Export Sales Cr (US$1,000 @ 83).
+            vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Receipt);
+            var entry = vm.VoucherEntry!;
+            entry.Date = fyStart.AddDays(9);
+            entry.Lines[0].SelectedLedger = cash;
+            entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;
+            entry.Lines[0].AmountText = "83000";
+            var fx = entry.Lines[1];
+            fx.SelectedLedger = exportSales;
+            fx.Side = Apex.Ledger.DrCr.Credit;
+            Assert.True(fx.IsForexLine);                        // the forex sub-panel turned on
+            fx.ForexAmountText = "1000";
+            Assert.Equal("83000", fx.AmountText);              // base auto-computed = forex × rate
+            window.UpdateLayout();
+
+            // The forex sub-panel rendered its fields.
+            var lineTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Select(t => t.Text ?? string.Empty).ToList();
+            Assert.Contains(lineTexts, t => t.Contains("Forex Details"));
+            Assert.Contains(lineTexts, t => t.Contains("83,000"));
+
+            Assert.True(entry.CanAccept);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control); // accept
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+            Assert.Contains(vm.Company!.Vouchers.Single().Lines, l => l.HasForex);
+
+            // The Forex Gain/Loss report page renders the ledger revalued (nil at the same 83 rate).
+            vm.OpenForexReport();
+            Assert.Equal(Screen.ForexReport, vm.CurrentScreen);
+            window.UpdateLayout();
+            var reportTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Select(t => t.Text ?? string.Empty).ToList();
+            Assert.Contains(reportTexts, t => t.Contains("Export Sales"));
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
     private static DateOnly LastVoucherDate(Apex.Ledger.Domain.Company c)
     {
         DateOnly? last = null;

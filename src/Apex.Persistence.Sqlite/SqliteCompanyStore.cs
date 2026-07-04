@@ -213,6 +213,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 7;
         }
 
+        // v7 → v8: apply the multi-currency migration, then bump the marker. Existing v7 data survives.
+        if (version == 7)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV7ToV8;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 8);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 8;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -270,6 +291,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             else
                 company.AddGroup(g);
         }
+
+        // Currencies + rates before ledgers/vouchers: ledgers.currency_id and entry-line forex reference them.
+        foreach (var cur in ReadCurrencies(companyId))
+            company.AddCurrency(cur);
+        foreach (var rate in ReadExchangeRates(companyId))
+            company.AddExchangeRate(rate);
 
         foreach (var l in ReadLedgers(companyId))
             company.AddLedger(l);
@@ -332,6 +359,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertCompany(tx, company);
         InsertGroups(tx, company);
         SetProfitAndLossHead(tx, company);
+        // Currencies + rates before ledgers (ledgers.currency_id FK currencies) and before vouchers
+        // (entry-line forex FK currencies).
+        InsertCurrencies(tx, company);
+        InsertExchangeRates(tx, company);
         InsertLedgers(tx, company);
         InsertVoucherTypes(tx, company);
         // Cost categories before centres (centres FK categories); both before vouchers (cost allocations
@@ -472,7 +503,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    enable_cheque_printing, cheque_bank_name,
                    interest_enabled, interest_rate_millis, interest_per, interest_on_balance,
                    interest_applicability, interest_calc_from, interest_style,
-                   interest_round_method, interest_round_decimals
+                   interest_round_method, interest_round_decimals, currency_id
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -493,7 +524,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 costCentresApplicable: r.IsDBNull(9) ? (bool?)null : r.GetInt64(9) != 0,
                 enableChequePrinting: r.GetInt64(10) != 0,
                 chequePrintingBankName: r.IsDBNull(11) ? null : r.GetString(11),
-                interest: ReadInterest(r)));
+                interest: ReadInterest(r),
+                currencyId: r.IsDBNull(21) ? (Guid?)null : Guid.Parse(r.GetString(21))));
         }
         return list;
     }
@@ -539,6 +571,51 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 abbreviation: r.IsDBNull(5) ? null : r.GetString(5),
                 isActive: r.GetInt64(6) != 0,
                 isPredefined: r.GetInt64(7) != 0));
+        }
+        return list;
+    }
+
+    private IEnumerable<Currency> ReadCurrencies(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, symbol, formal_name, decimal_places, is_base
+            FROM currencies WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Currency>();
+        while (r.Read())
+        {
+            list.Add(new Currency(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                r.GetString(2),
+                decimalPlaces: (int)r.GetInt64(3),
+                isBaseCurrency: r.GetInt64(4) != 0));
+        }
+        return list;
+    }
+
+    private IEnumerable<ExchangeRate> ReadExchangeRates(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, currency_id, rate_date, standard_rate_micro, selling_rate_micro, buying_rate_micro
+            FROM exchange_rates WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<ExchangeRate>();
+        while (r.Read())
+        {
+            list.Add(new ExchangeRate(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                ParseDate(r.GetString(2)),
+                standardRate: MicroToDecimal(r.GetInt64(3)),
+                sellingRate: r.IsDBNull(4) ? (decimal?)null : MicroToDecimal(r.GetInt64(4)),
+                buyingRate: r.IsDBNull(5) ? (decimal?)null : MicroToDecimal(r.GetInt64(5))));
         }
         return list;
     }
@@ -733,27 +810,37 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     private List<EntryLine> ReadEntryLines(Guid voucherId)
     {
         // Read the raw line rows first (capturing the id), then load each line's bill allocations.
-        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side)>();
+        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side, ForexInfo? Forex)>();
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT id, ledger_id, amount_paisa, side
+                SELECT id, ledger_id, amount_paisa, side,
+                       forex_currency_id, forex_amount_micro, forex_rate_micro
                 FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
                 """;
             cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
             using var r = cmd.ExecuteReader();
             while (r.Read())
             {
+                ForexInfo? forex = null;
+                if (!r.IsDBNull(4))
+                {
+                    forex = new ForexInfo(
+                        Guid.Parse(r.GetString(4)),
+                        Money.FromRupees(MicroToDecimal(r.GetInt64(5))),
+                        MicroToDecimal(r.GetInt64(6)));
+                }
                 raw.Add((
                     r.GetInt64(0),
                     Guid.Parse(r.GetString(1)),
                     r.GetInt64(2),
-                    (DrCr)(int)r.GetInt64(3)));
+                    (DrCr)(int)r.GetInt64(3),
+                    forex));
             }
         }
 
         var lines = new List<EntryLine>(raw.Count);
-        foreach (var (id, ledgerId, amountPaisa, side) in raw)
+        foreach (var (id, ledgerId, amountPaisa, side, forex) in raw)
         {
             var allocs = ReadBillAllocations(id);
             var costAllocs = ReadCostAllocations(id);
@@ -764,7 +851,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 side,
                 allocs.Count > 0 ? allocs : null,
                 costAllocs.Count > 0 ? costAllocs : null,
-                bankAlloc));
+                bankAlloc,
+                forex));
         }
         return lines;
     }
@@ -868,6 +956,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM scenarios WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
+        // Exchange rates FK currencies; ledgers + entry-line forex FK currencies → after those are gone.
+        ExecTx(tx, "DELETE FROM exchange_rates WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM currencies WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
         // Cost centres reference cost categories → delete centres first.
         ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
@@ -958,9 +1049,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      enable_cheque_printing, cheque_bank_name,
                      interest_enabled, interest_rate_millis, interest_per, interest_on_balance,
                      interest_applicability, interest_calc_from, interest_style,
-                     interest_round_method, interest_round_decimals)
+                     interest_round_method, interest_round_decimals, currency_id)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
-                        $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird);
+                        $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -988,6 +1079,51 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$istyle", ip is null ? (object)DBNull.Value : (int)ip.Style);
             cmd.Parameters.AddWithValue("$irm", ip is null ? (object)DBNull.Value : (int)ip.RoundingMethod);
             cmd.Parameters.AddWithValue("$ird", ip is null ? (object)DBNull.Value : ip.RoundingDecimals);
+
+            // v8 multi-currency: the ledger's currency (NULL = base).
+            cmd.Parameters.AddWithValue("$curid", (object?)l.CurrencyId?.ToString("D") ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertCurrencies(SqliteTransaction tx, Company c)
+    {
+        foreach (var cur in c.Currencies)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO currencies (id, company_id, symbol, formal_name, decimal_places, is_base)
+                VALUES ($id, $cid, $sym, $fn, $dp, $base);
+                """;
+            cmd.Parameters.AddWithValue("$id", cur.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$sym", cur.Symbol);
+            cmd.Parameters.AddWithValue("$fn", cur.FormalName);
+            cmd.Parameters.AddWithValue("$dp", cur.DecimalPlaces);
+            cmd.Parameters.AddWithValue("$base", cur.IsBaseCurrency ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertExchangeRates(SqliteTransaction tx, Company c)
+    {
+        foreach (var rate in c.ExchangeRates)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO exchange_rates
+                    (id, company_id, currency_id, rate_date, standard_rate_micro, selling_rate_micro, buying_rate_micro)
+                VALUES ($id, $cid, $cur, $date, $std, $sell, $buy);
+                """;
+            cmd.Parameters.AddWithValue("$id", rate.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cur", rate.CurrencyId.ToString("D"));
+            cmd.Parameters.AddWithValue("$date", FormatDate(rate.Date));
+            cmd.Parameters.AddWithValue("$std", MicroFromDecimal(rate.StandardRate));
+            cmd.Parameters.AddWithValue("$sell", rate.SellingRate is { } s ? MicroFromDecimal(s) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$buy", rate.BuyingRate is { } b ? MicroFromDecimal(b) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1177,8 +1313,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Transaction = tx;
                 // RETURNING id gives us the AUTOINCREMENT key to hang bill allocations off (SQLite ≥ 3.35).
                 cmd.CommandText = """
-                    INSERT INTO entry_lines (voucher_id, line_order, ledger_id, amount_paisa, side)
-                    VALUES ($vid, $ord, $lid, $amt, $side)
+                    INSERT INTO entry_lines
+                        (voucher_id, line_order, ledger_id, amount_paisa, side,
+                         forex_currency_id, forex_amount_micro, forex_rate_micro)
+                    VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate)
                     RETURNING id;
                     """;
                 cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
@@ -1186,6 +1324,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$lid", line.LedgerId.ToString("D"));
                 cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(line.Amount));
                 cmd.Parameters.AddWithValue("$side", (int)line.Side);
+
+                // v8 multi-currency: forex detail, all NULL for a base-currency line.
+                var fx = line.Forex;
+                cmd.Parameters.AddWithValue("$fxcur", (object?)fx?.CurrencyId.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$fxamt", fx is null ? (object)DBNull.Value : MicroFromDecimal(fx.ForexAmount.Amount));
+                cmd.Parameters.AddWithValue("$fxrate", fx is null ? (object)DBNull.Value : MicroFromDecimal(fx.Rate));
                 lineId = Convert.ToInt64(cmd.ExecuteScalar());
             }
 
@@ -1299,6 +1443,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 $"Interest rate {ratePercent}% is not exact to 3 decimal places; cannot persist without loss.");
         return (long)truncated;
     }
+
+    /// <summary>
+    /// A forex amount / exchange rate → micros (value × 1,000,000), stored as INTEGER so it round-trips
+    /// exactly (no binary float). Throws if the value carries more than 6 decimal places (would lose precision).
+    /// </summary>
+    private static long MicroFromDecimal(decimal value)
+    {
+        var scaled = value * Schema.ForexScale;
+        var truncated = decimal.Truncate(scaled);
+        if (scaled != truncated)
+            throw new InvalidOperationException(
+                $"Value {value} is not exact to 6 decimal places; cannot persist as forex micros without loss.");
+        return (long)truncated;
+    }
+
+    /// <summary>Micros (value × 1,000,000) → an exact decimal.</summary>
+    private static decimal MicroToDecimal(long micros) => micros / (decimal)Schema.ForexScale;
 
     private static string FormatDate(DateOnly d) => d.ToString("yyyy-MM-dd");
 

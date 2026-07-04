@@ -22,11 +22,20 @@ namespace Apex.Persistence.Sqlite;
 /// <b>v7</b> adds interest calculation (catalog §7): a nullable interest-parameter block on <c>ledgers</c>
 /// (<c>interest_enabled</c> and the Rate / Per / On / Applicability / Calculate-From / Style / Rounding
 /// columns) — all NULL/0 for a ledger with no interest, so existing ledgers stay off.
+/// <b>v8</b> adds multi-currency (catalog §2/§20; plan.md §10 C-1): a <c>currencies</c> master table (the
+/// base ₹/INR plus any foreign currencies), an <c>exchange_rates</c> table (dated base-per-foreign quotes,
+/// rates stored as INTEGER micros = rate × 1,000,000), a nullable <c>currency_id</c> column on
+/// <c>ledgers</c> (NULL = base), and three nullable forex columns on <c>entry_lines</c>
+/// (<c>forex_currency_id</c>, <c>forex_amount_micro</c> = forex × 1,000,000, <c>forex_rate_micro</c> =
+/// rate × 1,000,000) — all NULL for a base-currency line, so the ledger engine is unchanged for base.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v7 = interest calculation).</summary>
-    public const int CurrentVersion = 7;
+    /// <summary>The current schema version this adapter reads and writes (v8 = multi-currency).</summary>
+    public const int CurrentVersion = 8;
+
+    /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
+    public const long ForexScale = 1_000_000L;
 
     /// <summary>
     /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
@@ -99,7 +108,28 @@ public static class Schema
             interest_calc_from       TEXT        NULL,             -- ISO yyyy-MM-dd, or NULL
             interest_style           INTEGER     NULL,             -- InterestStyle enum ordinal
             interest_round_method    INTEGER     NULL,             -- InterestRoundingMethod enum ordinal
-            interest_round_decimals  INTEGER     NULL              -- decimal places for rounding
+            interest_round_decimals  INTEGER     NULL,             -- decimal places for rounding
+            -- v8 multi-currency (catalog §2/§20): the ledger's currency, NULL = base ₹/INR
+            currency_id              TEXT        NULL REFERENCES currencies(id)
+        );
+
+        CREATE TABLE currencies (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            symbol           TEXT    NOT NULL,   -- display symbol (₹, $, €)
+            formal_name      TEXT    NOT NULL,   -- ISO-style code (INR, USD, EUR)
+            decimal_places   INTEGER NOT NULL,   -- minor-unit places
+            is_base          INTEGER NOT NULL    -- 1 for the single base currency (₹/INR)
+        );
+
+        CREATE TABLE exchange_rates (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            currency_id        TEXT    NOT NULL REFERENCES currencies(id),
+            rate_date          TEXT    NOT NULL,   -- ISO yyyy-MM-dd (effective date)
+            standard_rate_micro INTEGER NOT NULL,  -- base per 1 foreign × 1,000,000 (> 0)
+            selling_rate_micro  INTEGER    NULL,   -- NULL = fall back to standard
+            buying_rate_micro   INTEGER    NULL    -- NULL = fall back to standard
         );
 
         CREATE TABLE voucher_types (
@@ -134,8 +164,12 @@ public static class Schema
             voucher_id   TEXT    NOT NULL REFERENCES vouchers(id),
             line_order   INTEGER NOT NULL,   -- preserves the entry order within the voucher
             ledger_id    TEXT    NOT NULL REFERENCES ledgers(id),
-            amount_paisa INTEGER NOT NULL,   -- magnitude > 0, in paisa
-            side         INTEGER NOT NULL    -- DrCr enum ordinal (Debit=0, Credit=1)
+            amount_paisa INTEGER NOT NULL,   -- magnitude > 0, in paisa (base value = forex × rate)
+            side         INTEGER NOT NULL,   -- DrCr enum ordinal (Debit=0, Credit=1)
+            -- v8 multi-currency (catalog §2/§20): forex detail, all NULL for a base-currency line
+            forex_currency_id  TEXT    NULL REFERENCES currencies(id),
+            forex_amount_micro INTEGER NULL,   -- forex magnitude × 1,000,000 (exact, no float)
+            forex_rate_micro   INTEGER NULL    -- rate (base per foreign) × 1,000,000 (exact, no float)
         );
 
         CREATE TABLE bill_allocations (
@@ -232,6 +266,9 @@ public static class Schema
         CREATE INDEX ix_bank_allocations_line   ON bank_allocations(entry_line_id);
         CREATE INDEX ix_scenarios_company        ON scenarios(company_id);
         CREATE INDEX ix_scenario_vtypes_scenario ON scenario_voucher_types(scenario_id);
+        CREATE INDEX ix_currencies_company       ON currencies(company_id);
+        CREATE INDEX ix_exchange_rates_company   ON exchange_rates(company_id);
+        CREATE INDEX ix_exchange_rates_currency  ON exchange_rates(currency_id);
         """;
 
     /// <summary>
@@ -394,5 +431,44 @@ public static class Schema
         ALTER TABLE ledgers ADD COLUMN interest_style          INTEGER NULL;
         ALTER TABLE ledgers ADD COLUMN interest_round_method   INTEGER NULL;
         ALTER TABLE ledgers ADD COLUMN interest_round_decimals INTEGER NULL;
+        """;
+
+    /// <summary>
+    /// The v7→v8 migration (catalog §2/§20 Multi-currency): creates the <c>currencies</c> and
+    /// <c>exchange_rates</c> master tables, adds the nullable <c>currency_id</c> column to <c>ledgers</c>,
+    /// and adds the three nullable forex columns to <c>entry_lines</c>. Run inside a transaction that also
+    /// bumps <c>schema_version</c> to 8. Existing v7 databases keep all their data — the new columns default
+    /// to NULL ("base currency" / "no forex") and the new tables start empty. A migrated database has NO base
+    /// currency row until the company is next saved (Save seeds it from the base-currency fields).
+    /// </summary>
+    public const string MigrateV7ToV8 = """
+        CREATE TABLE currencies (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            symbol           TEXT    NOT NULL,
+            formal_name      TEXT    NOT NULL,
+            decimal_places   INTEGER NOT NULL,
+            is_base          INTEGER NOT NULL
+        );
+
+        CREATE TABLE exchange_rates (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            currency_id        TEXT    NOT NULL REFERENCES currencies(id),
+            rate_date          TEXT    NOT NULL,
+            standard_rate_micro INTEGER NOT NULL,
+            selling_rate_micro  INTEGER    NULL,
+            buying_rate_micro   INTEGER    NULL
+        );
+
+        ALTER TABLE ledgers ADD COLUMN currency_id TEXT NULL REFERENCES currencies(id);
+
+        ALTER TABLE entry_lines ADD COLUMN forex_currency_id  TEXT    NULL REFERENCES currencies(id);
+        ALTER TABLE entry_lines ADD COLUMN forex_amount_micro INTEGER NULL;
+        ALTER TABLE entry_lines ADD COLUMN forex_rate_micro   INTEGER NULL;
+
+        CREATE INDEX ix_currencies_company      ON currencies(company_id);
+        CREATE INDEX ix_exchange_rates_company  ON exchange_rates(company_id);
+        CREATE INDEX ix_exchange_rates_currency ON exchange_rates(currency_id);
         """;
 }

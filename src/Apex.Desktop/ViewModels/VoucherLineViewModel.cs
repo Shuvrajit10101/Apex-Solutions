@@ -100,6 +100,29 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     /// <summary>The instrument date typed as text (dd-MMM-yyyy); blank ⇒ no explicit instrument date.</summary>
     [ObservableProperty] private string _instrumentDateText = string.Empty;
 
+    // =============================================================== forex (catalog §2/§20 Multi-currency)
+
+    /// <summary>
+    /// True when the picked ledger holds a foreign currency ⇒ show the "Forex Details" sub-panel (Amount in
+    /// Forex / Rate of Exchange / Amount in ₹). False (and the panel hidden) for a base-currency ledger.
+    /// </summary>
+    [ObservableProperty] private bool _isForexLine;
+
+    /// <summary>The ledger's foreign-currency symbol ("$", "€") for the forex-field prefixes; blank when base.</summary>
+    [ObservableProperty] private string _forexSymbol = string.Empty;
+
+    /// <summary>The ledger's foreign-currency code ("USD"); blank when base.</summary>
+    [ObservableProperty] private string _forexCurrencyCode = string.Empty;
+
+    /// <summary>The amount in the foreign currency typed as text; drives the base <see cref="AmountText"/>.</summary>
+    [ObservableProperty] private string _forexAmountText = string.Empty;
+
+    /// <summary>The rate of exchange typed as text (base ₹ per 1 foreign unit); defaulted from the rate in force.</summary>
+    [ObservableProperty] private string _forexRateText = string.Empty;
+
+    /// <summary>The computed base ₹ value ("Amount in ₹ = forex × rate"), shown read-only under the fields.</summary>
+    [ObservableProperty] private string _forexBaseText = string.Empty;
+
     public VoucherLineViewModel(IReadOnlyList<DomainLedger> ledgers, Action onChanged, DrCr side = DrCr.Debit)
         : this(ledgers, onChanged, company: null, side)
     {
@@ -118,6 +141,7 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
 
     partial void OnSelectedLedgerChanged(DomainLedger? value)
     {
+        SyncForexLine();
         SyncBillWise();
         SyncCostApplicable();
         SyncBankLine();
@@ -413,8 +437,129 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             instrumentDate: ParsedInstrumentDate);
     }
 
+    // =============================================================== forex (catalog §2/§20 Multi-currency)
+
+    partial void OnForexAmountTextChanged(string value) => RecomputeForexBase();
+    partial void OnForexRateTextChanged(string value) => RecomputeForexBase();
+
+    /// <summary>
+    /// Reflects whether the picked ledger holds a foreign currency (its <c>CurrencyId</c> is set and the
+    /// company knows that currency). When it turns on the "Forex Details" sub-panel appears, the currency's
+    /// symbol/code are captured and the rate is defaulted from the rate in force on the parent voucher's
+    /// current date (when known). When it turns off the panel hides and the forex fields are cleared, so
+    /// switching a line's ledger never leaves a stray forex detail behind.
+    /// </summary>
+    private void SyncForexLine()
+    {
+        var currency = _company is not null
+                       && SelectedLedger?.CurrencyId is { } cid
+            ? _company.FindCurrency(cid)
+            : null;
+
+        var on = currency is not null;
+        if (on == IsForexLine && (!on || !string.IsNullOrEmpty(ForexSymbol)))
+        {
+            RecomputeForexBase();
+            return;
+        }
+
+        IsForexLine = on;
+        if (on && currency is not null)
+        {
+            ForexSymbol = currency.Symbol;
+            ForexCurrencyCode = currency.FormalName;
+            // Default the rate from the latest quote on/before the voucher date, if one exists.
+            if (string.IsNullOrWhiteSpace(ForexRateText) && _voucherDate is { } d
+                && _company!.RateInForce(currency.Id, d) is { } inForce)
+                ForexRateText = inForce.RateOf(ExchangeRateKind.Standard)
+                    .ToString("0.####", CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            ForexSymbol = string.Empty;
+            ForexCurrencyCode = string.Empty;
+            ForexAmountText = string.Empty;
+            ForexRateText = string.Empty;
+            ForexBaseText = string.Empty;
+        }
+        RecomputeForexBase();
+    }
+
+    /// <summary>
+    /// Recomputes the base ₹ value from forex × rate and drives the line's base <see cref="AmountText"/> so
+    /// the balance/engine see the exact paisa value. A base-currency line is untouched (the user types the
+    /// amount directly). On an incomplete/invalid forex pair the base is left blank (the line stays
+    /// incomplete until both forex amount and rate are valid).
+    /// </summary>
+    private void RecomputeForexBase()
+    {
+        if (!IsForexLine)
+        {
+            ForexBaseText = string.Empty;
+            return;
+        }
+
+        var haveForex = TryParseDecimal(ForexAmountText, out var forex) && forex > 0m;
+        var haveRate = TryParseDecimal(ForexRateText, out var rate) && rate > 0m;
+        if (!haveForex || !haveRate)
+        {
+            ForexBaseText = string.Empty;
+            AmountText = string.Empty; // no valid base yet ⇒ line incomplete
+            return;
+        }
+
+        // Snap to the paisa (the same rounding ForexInfo.BaseValue uses) so the base the engine sees is
+        // paisa-exact even on a non-round rate — an unrounded sub-paisa base cannot persist (INTEGER paisa).
+        var baseValue = Money.ForexBase(new Money(forex), rate).Amount;
+        ForexBaseText = $"₹ {baseValue.ToString("#,##0.00", CultureInfo.InvariantCulture)}";
+        // Drive the authoritative base amount (the engine enforces base == forex × rate rounded to the paisa).
+        AmountText = baseValue.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The parsed forex amount (0 when blank/unparsable).</summary>
+    public decimal ParsedForexAmount => TryParseDecimal(ForexAmountText, out var v) ? v : 0m;
+
+    /// <summary>The parsed rate of exchange (0 when blank/unparsable).</summary>
+    public decimal ParsedForexRate => TryParseDecimal(ForexRateText, out var v) ? v : 0m;
+
+    /// <summary>
+    /// True when the forex detail is valid: not a forex line (no constraint), OR a positive forex amount and
+    /// a positive rate are both entered (the base is then driven as forex × rate). A half-filled forex pair
+    /// is invalid, so the line will not be accepted.
+    /// </summary>
+    public bool ForexOk => !IsForexLine || (ParsedForexAmount > 0m && ParsedForexRate > 0m);
+
+    /// <summary>
+    /// The domain <see cref="ForexInfo"/> for this line — currency + forex amount + rate. <c>null</c> for a
+    /// base-currency line (so the built <see cref="EntryLine"/> carries none). The base amount the parent
+    /// posts equals forex × rate (enforced by the engine).
+    /// </summary>
+    public ForexInfo? ToForexInfo()
+    {
+        if (!IsForexLine || SelectedLedger?.CurrencyId is not { } currencyId) return null;
+        if (ParsedForexAmount <= 0m || ParsedForexRate <= 0m) return null;
+        return new ForexInfo(currencyId, new Money(ParsedForexAmount), ParsedForexRate);
+    }
+
+    /// <summary>The parent voucher's current date, so a forex rate can be defaulted from the rate in force.</summary>
+    private DateOnly? _voucherDate;
+
+    /// <summary>Sets the voucher date used to default a forex rate; re-syncs a forex line's default rate.</summary>
+    public void SetVoucherDate(DateOnly date)
+    {
+        _voucherDate = date;
+        if (IsForexLine && string.IsNullOrWhiteSpace(ForexRateText)
+            && SelectedLedger?.CurrencyId is { } cid && _company?.RateInForce(cid, date) is { } inForce)
+        {
+            ForexRateText = inForce.RateOf(ExchangeRateKind.Standard)
+                .ToString("0.####", CultureInfo.InvariantCulture);
+            RecomputeForexBase();
+        }
+    }
+
     /// <summary>True when this line is fully specified: a ledger picked and a positive amount typed.</summary>
-    public bool IsComplete => SelectedLedger is not null && TryParseAmount(out var amt) && amt > 0m;
+    public bool IsComplete => SelectedLedger is not null && TryParseAmount(out var amt) && amt > 0m
+        && ForexOk;
 
     /// <summary>True when the row has been touched at all (ledger or amount) — a blank row is ignored.</summary>
     public bool IsBlank => SelectedLedger is null && string.IsNullOrWhiteSpace(AmountText);
@@ -431,4 +576,11 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands,
             CultureInfo.InvariantCulture,
             out amount);
+
+    private static bool TryParseDecimal(string? text, out decimal value)
+        => decimal.TryParse(
+            (text ?? string.Empty).Trim(),
+            NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands,
+            CultureInfo.InvariantCulture,
+            out value);
 }

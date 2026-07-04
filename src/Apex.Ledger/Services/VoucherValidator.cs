@@ -50,6 +50,9 @@ public static class VoucherValidator
 
             if (line.HasBankAllocation)
                 EnsureBankAllocationValid(line, ledger, c);
+
+            if (line.HasForex)
+                EnsureForexValid(line, ledger, c);
         }
 
         // §6.9 date within books.
@@ -120,5 +123,34 @@ public static class VoucherValidator
         if (!ClassificationRules.IsBankLedger(ledger, c))
             throw new InvalidVoucherException(
                 $"Ledger '{ledger.Name}' is not a bank account; it cannot carry a bank allocation.");
+    }
+
+    /// <summary>One paisa, the coarsest base-currency unit — the tolerance a rounded forex base may differ by.</summary>
+    private const decimal OnePaisa = 0.01m;
+
+    /// <summary>
+    /// Multi-currency integrity for one line (catalog §2/§20): the forex detail must reference a known
+    /// currency, and the line's base <see cref="Domain.EntryLine.Amount"/> must equal the
+    /// <b>paisa-rounded</b> <c>ForexAmount × Rate</c> (<see cref="ForexInfo.BaseValue"/>), so the base ledger
+    /// math is unchanged. Because a non-round rate makes the raw product carry a sub-paisa tail, the base is
+    /// the product snapped to the paisa; a base off by <b>more than a paisa</b> (or an unknown currency) is
+    /// rejected. Throws otherwise.
+    /// </summary>
+    public static void EnsureForexValid(Domain.EntryLine line, Domain.Ledger ledger, Company c)
+    {
+        var forex = line.Forex!;
+        if (c.FindCurrency(forex.CurrencyId) is null)
+            throw new InvalidVoucherException(
+                $"Forex on the line for '{ledger.Name}' references unknown currency {forex.CurrencyId}.");
+
+        // BaseValue is the paisa-rounded forex × rate; the line's base must match it to within one paisa,
+        // so a base that carries the unrounded sub-paisa tail (or the rounded value) both pass, but a base
+        // that is genuinely wrong (off by more than a paisa) is rejected.
+        var expected = forex.BaseValue; // paisa-exact
+        if (Math.Abs((line.Amount - expected).Amount) > OnePaisa)
+            throw new InvalidVoucherException(
+                $"Forex on the line for '{ledger.Name}': {forex.ForexAmount} × {forex.Rate} ≈ {expected} " +
+                $"(paisa-rounded) does not equal the base line amount {line.Amount}; the base amount must be " +
+                $"forex × rate rounded to the paisa.");
     }
 }

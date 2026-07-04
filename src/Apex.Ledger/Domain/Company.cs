@@ -15,6 +15,8 @@ public sealed class Company
     private readonly List<CostCentre> _costCentres = new();
     private readonly List<Budget> _budgets = new();
     private readonly List<Scenario> _scenarios = new();
+    private readonly List<Currency> _currencies = new();
+    private readonly List<ExchangeRate> _exchangeRates = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -76,6 +78,16 @@ public sealed class Company
     /// Memorandum) vouchers over the actuals.</summary>
     public IReadOnlyList<Scenario> Scenarios => _scenarios;
 
+    /// <summary>Currencies (catalog §2/§20 Multi-currency): the base ₹/INR (seeded on create) plus any
+    /// foreign currencies created for forex transactions.</summary>
+    public IReadOnlyList<Currency> Currencies => _currencies;
+
+    /// <summary>Rates of Exchange (catalog §2): dated base-per-foreign quotes for the foreign currencies.</summary>
+    public IReadOnlyList<ExchangeRate> ExchangeRates => _exchangeRates;
+
+    /// <summary>The single base currency (₹/INR), or <c>null</c> if none has been seeded yet.</summary>
+    public Currency? BaseCurrency => _currencies.FirstOrDefault(c => c.IsBaseCurrency);
+
     public Company(Guid id, string name, DateOnly financialYearStart, DateOnly booksBeginFrom)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -99,6 +111,19 @@ public sealed class Company
     public void AddCostCentre(CostCentre centre) => _costCentres.Add(centre);
     public void AddBudget(Budget budget) => _budgets.Add(budget);
     public void AddScenario(Scenario scenario) => _scenarios.Add(scenario);
+
+    /// <summary>Adds a currency master. At most one currency may be the base (guarded).</summary>
+    public void AddCurrency(Currency currency)
+    {
+        ArgumentNullException.ThrowIfNull(currency);
+        if (currency.IsBaseCurrency && _currencies.Any(c => c.IsBaseCurrency))
+            throw new InvalidOperationException("A base currency is already registered for this company.");
+        _currencies.Add(currency);
+    }
+
+    /// <summary>Adds a dated exchange-rate quote for a foreign currency.</summary>
+    public void AddExchangeRate(ExchangeRate rate) => _exchangeRates.Add(rate ?? throw new ArgumentNullException(nameof(rate)));
+
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
@@ -114,6 +139,22 @@ public sealed class Company
     public CostCentre? FindCostCentre(Guid id) => _costCentres.FirstOrDefault(c => c.Id == id);
     public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);
     public Scenario? FindScenario(Guid id) => _scenarios.FirstOrDefault(s => s.Id == id);
+    public Currency? FindCurrency(Guid id) => _currencies.FirstOrDefault(c => c.Id == id);
+
+    /// <summary>
+    /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote
+    /// on or before that date, or <c>null</c> if the currency has no quote yet on/before the date.
+    /// </summary>
+    public ExchangeRate? RateInForce(Guid currencyId, DateOnly asOf)
+    {
+        ExchangeRate? best = null;
+        foreach (var r in _exchangeRates)
+        {
+            if (r.CurrencyId != currencyId || r.Date > asOf) continue;
+            if (best is null || r.Date > best.Date) best = r;
+        }
+        return best;
+    }
 
     public Group? FindGroupByName(string name) =>
         _groups.FirstOrDefault(g =>
@@ -143,4 +184,10 @@ public sealed class Company
 
     public Scenario? FindScenarioByName(string name) =>
         _scenarios.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a currency by its formal name or symbol (case-insensitive).</summary>
+    public Currency? FindCurrencyByName(string name) =>
+        _currencies.FirstOrDefault(c =>
+            string.Equals(c.FormalName, name, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(c.Symbol, name, StringComparison.OrdinalIgnoreCase));
 }

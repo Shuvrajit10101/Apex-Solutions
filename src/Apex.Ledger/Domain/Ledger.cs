@@ -73,6 +73,14 @@ public sealed class Ledger
     /// </summary>
     public InterestParameters? Interest { get; set; }
 
+    /// <summary>
+    /// "Currency of ledger" (catalog §2/§20 Multi-currency). <c>null</c> ⇒ the company <b>base currency</b>
+    /// (₹/INR) — the default for every existing ledger. When set to a foreign <see cref="Currency"/>, this
+    /// ledger holds its balances in that currency; its open forex balance can be revalued at period-end to
+    /// book unrealized forex gain/loss.
+    /// </summary>
+    public Guid? CurrencyId { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -86,7 +94,8 @@ public sealed class Ledger
         bool? costCentresApplicable = null,
         bool enableChequePrinting = false,
         string? chequePrintingBankName = null,
-        InterestParameters? interest = null)
+        InterestParameters? interest = null,
+        Guid? currencyId = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -109,7 +118,11 @@ public sealed class Ledger
         EnableChequePrinting = enableChequePrinting;
         ChequePrintingBankName = string.IsNullOrWhiteSpace(chequePrintingBankName) ? null : chequePrintingBankName.Trim();
         Interest = interest;
+        CurrencyId = currencyId;
     }
+
+    /// <summary>True iff this ledger holds balances in a foreign (non-base) currency.</summary>
+    public bool IsForeignCurrency => CurrencyId is not null;
 
     /// <summary>True iff this ledger has an interest block that is activated.</summary>
     public bool InterestEnabled => Interest is { Enabled: true };

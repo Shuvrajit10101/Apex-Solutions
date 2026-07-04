@@ -13,7 +13,11 @@ namespace Apex.Ledger.Domain;
 /// adds <see cref="CostAllocations"/> — the cost-centre slices for a line whose ledger has
 /// cost centres applicable. The banking slice adds <see cref="BankAllocation"/> — a single
 /// optional bank detail (transaction type + instrument + bank date) for a line whose ledger is a
-/// bank account. All three are OPTIONAL trailing params, so existing callers are unaffected.
+/// bank account. The multi-currency slice adds <see cref="Forex"/> — an optional
+/// (currency, forex amount, rate) triple for a line posted in a foreign currency; the base
+/// <see cref="Amount"/> stays the exact paisa value (= forex × rate), so every existing report is
+/// unchanged for base lines. All of these are OPTIONAL trailing params, so existing callers are
+/// unaffected.
 /// </remarks>
 public sealed class EntryLine
 {
@@ -58,13 +62,25 @@ public sealed class EntryLine
     /// <summary>True iff this line carries a bank allocation.</summary>
     public bool HasBankAllocation => BankAllocation is not null;
 
+    /// <summary>
+    /// The forex detail for this line (catalog §2/§20 Multi-currency), or <c>null</c> for a base-currency
+    /// line. When present, the base <see cref="Amount"/> equals <see cref="ForexInfo.ForexAmount"/> ×
+    /// <see cref="ForexInfo.Rate"/> (enforced at posting), so the ledger engine treats a foreign line
+    /// exactly like a base line.
+    /// </summary>
+    public ForexInfo? Forex { get; }
+
+    /// <summary>True iff this line was posted in a foreign currency.</summary>
+    public bool HasForex => Forex is not null;
+
     public EntryLine(
         Guid ledgerId,
         Money amount,
         DrCr side,
         IEnumerable<BillAllocation>? billAllocations = null,
         IEnumerable<CostAllocation>? costAllocations = null,
-        BankAllocation? bankAllocation = null)
+        BankAllocation? bankAllocation = null,
+        ForexInfo? forex = null)
     {
         LedgerId = ledgerId;
         Amount = amount;
@@ -72,6 +88,7 @@ public sealed class EntryLine
         _billAllocations = billAllocations?.ToList() ?? new List<BillAllocation>();
         _costAllocations = costAllocations?.ToList() ?? new List<CostAllocation>();
         BankAllocation = bankAllocation;
+        Forex = forex;
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>
