@@ -28,4 +28,7 @@ public static class Report
 
     public static BudgetVarianceReport BuildBudgetVariance(Company c, Budget budget)
         => BudgetVarianceReport.Build(c, budget);
+
+    public static InterestReport BuildInterest(Company c, DateOnly from, DateOnly to)
+        => InterestCalculation.Build(c, from, to);
 }

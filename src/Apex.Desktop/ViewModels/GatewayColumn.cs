@@ -81,6 +81,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Scenario master (non-null only for the Scenario-creation column).</summary>
     public ScenarioMasterViewModel? ScenarioMaster => Page as ScenarioMasterViewModel;
 
+    /// <summary>The hosted Interest Calculation report (non-null only for the Interest-report column).</summary>
+    public InterestReportViewModel? InterestReport => Page as InterestReportViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

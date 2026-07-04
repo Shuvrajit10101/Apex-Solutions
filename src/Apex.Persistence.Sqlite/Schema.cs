@@ -19,11 +19,14 @@ namespace Apex.Persistence.Sqlite;
 /// <b>v6</b> adds scenarios (catalog §7): a <c>scenarios</c> master table and a
 /// <c>scenario_voucher_types</c> child table (one row per included/excluded voucher type), plus a nullable
 /// <c>applicable_upto</c> column on <c>vouchers</c> for Reversing Journals.
+/// <b>v7</b> adds interest calculation (catalog §7): a nullable interest-parameter block on <c>ledgers</c>
+/// (<c>interest_enabled</c> and the Rate / Per / On / Applicability / Calculate-From / Style / Rounding
+/// columns) — all NULL/0 for a ledger with no interest, so existing ledgers stay off.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v6 = scenarios).</summary>
-    public const int CurrentVersion = 6;
+    /// <summary>The current schema version this adapter reads and writes (v7 = interest calculation).</summary>
+    public const int CurrentVersion = 7;
 
     /// <summary>
     /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
@@ -85,7 +88,18 @@ public static class Schema
             cost_applicable          INTEGER     NULL,
             -- v5 banking (catalog §8): cheque-printing configuration (physical layout deferred)
             enable_cheque_printing   INTEGER NOT NULL DEFAULT 0,   -- 0/1
-            cheque_bank_name         TEXT        NULL
+            cheque_bank_name         TEXT        NULL,
+            -- v7 interest calculation (catalog §7): nullable interest-parameter block. When
+            -- interest_enabled IS NULL the ledger has no interest block at all (default off).
+            interest_enabled         INTEGER     NULL,             -- NULL = no block, 0/1 = Activate flag
+            interest_rate_millis     INTEGER     NULL,             -- rate% × 1000 (exact to 3 dp)
+            interest_per             INTEGER     NULL,             -- InterestPer enum ordinal
+            interest_on_balance      INTEGER     NULL,             -- InterestOnBalance enum ordinal
+            interest_applicability   INTEGER     NULL,             -- InterestApplicability enum ordinal
+            interest_calc_from       TEXT        NULL,             -- ISO yyyy-MM-dd, or NULL
+            interest_style           INTEGER     NULL,             -- InterestStyle enum ordinal
+            interest_round_method    INTEGER     NULL,             -- InterestRoundingMethod enum ordinal
+            interest_round_decimals  INTEGER     NULL              -- decimal places for rounding
         );
 
         CREATE TABLE voucher_types (
@@ -363,5 +377,22 @@ public static class Schema
 
         CREATE INDEX ix_scenarios_company        ON scenarios(company_id);
         CREATE INDEX ix_scenario_vtypes_scenario ON scenario_voucher_types(scenario_id);
+        """;
+
+    /// <summary>
+    /// The v6→v7 migration (catalog §7): adds the nullable interest-parameter columns to <c>ledgers</c>.
+    /// Run inside a transaction that also bumps <c>schema_version</c> to 7. Existing v6 databases keep all
+    /// their data — every new column defaults to NULL, i.e. "no interest block" (interest stays off).
+    /// </summary>
+    public const string MigrateV6ToV7 = """
+        ALTER TABLE ledgers ADD COLUMN interest_enabled        INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_rate_millis    INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_per            INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_on_balance     INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_applicability  INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_calc_from      TEXT    NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_style          INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_round_method   INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN interest_round_decimals INTEGER NULL;
         """;
 }

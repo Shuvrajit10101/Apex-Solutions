@@ -16,6 +16,21 @@ public sealed class LedgerListRow
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Opening { get; init; } = string.Empty;
+
+    /// <summary>An interest summary ("18% p.a. Simple") for an interest-enabled ledger, else blank.</summary>
+    public string Interest { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A combo option wrapping one of the interest enums (Per / On balance / Applicability / Style) with a
+/// human display label, so the interest sub-form can bind a friendly list yet write the enum value.
+/// </summary>
+public sealed class InterestChoice<T> where T : struct, Enum
+{
+    public T Value { get; }
+    public string Display { get; }
+    public InterestChoice(T value, string display) { Value = value; Display = display; }
+    public override string ToString() => Display;
 }
 
 /// <summary>
@@ -49,6 +64,53 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     /// <summary>"Default credit period (days)" (catalog §5), typed as text; blank ⇒ none.</summary>
     [ObservableProperty] private string _defaultCreditPeriodText = string.Empty;
 
+    // --------------------------------------------------------------- interest (catalog §7)
+
+    /// <summary>
+    /// "Activate Interest Calculation = Yes" (catalog §7). When ticked, the Rate/Per/On/Applicability/
+    /// Style sub-form is shown and an <see cref="InterestParameters"/> block is attached on Create.
+    /// </summary>
+    [ObservableProperty] private bool _enableInterest;
+
+    /// <summary>Interest rate percentage (per the chosen <see cref="SelectedPer"/> basis), typed as text.</summary>
+    [ObservableProperty] private string _interestRateText = string.Empty;
+
+    /// <summary>The rate-basis ("Per") choices — 365-day year, 30-day month, calendar year/month.</summary>
+    public IReadOnlyList<InterestChoice<InterestPer>> PerChoices { get; } = new[]
+    {
+        new InterestChoice<InterestPer>(InterestPer.ThreeSixtyFiveDayYear, "365-Day Year"),
+        new InterestChoice<InterestPer>(InterestPer.ThirtyDayMonth, "30-Day Month (360)"),
+        new InterestChoice<InterestPer>(InterestPer.CalendarYear, "Calendar Year"),
+        new InterestChoice<InterestPer>(InterestPer.CalendarMonth, "Calendar Month"),
+    };
+
+    /// <summary>Which side of the balance interest accrues on (all / debit-only / credit-only).</summary>
+    public IReadOnlyList<InterestChoice<InterestOnBalance>> OnBalanceChoices { get; } = new[]
+    {
+        new InterestChoice<InterestOnBalance>(InterestOnBalance.All, "All Balances"),
+        new InterestChoice<InterestOnBalance>(InterestOnBalance.DebitOnly, "Debit Balances only"),
+        new InterestChoice<InterestOnBalance>(InterestOnBalance.CreditOnly, "Credit Balances only"),
+    };
+
+    /// <summary>Whether interest runs for the whole period or only after a bill's due date.</summary>
+    public IReadOnlyList<InterestChoice<InterestApplicability>> ApplicabilityChoices { get; } = new[]
+    {
+        new InterestChoice<InterestApplicability>(InterestApplicability.Always, "Always"),
+        new InterestChoice<InterestApplicability>(InterestApplicability.PostDue, "Past Due Date"),
+    };
+
+    /// <summary>Simple or compound interest.</summary>
+    public IReadOnlyList<InterestChoice<InterestStyle>> StyleChoices { get; } = new[]
+    {
+        new InterestChoice<InterestStyle>(InterestStyle.Simple, "Simple"),
+        new InterestChoice<InterestStyle>(InterestStyle.Compound, "Compound"),
+    };
+
+    [ObservableProperty] private InterestChoice<InterestPer>? _selectedPer;
+    [ObservableProperty] private InterestChoice<InterestOnBalance>? _selectedOnBalance;
+    [ObservableProperty] private InterestChoice<InterestApplicability>? _selectedApplicability;
+    [ObservableProperty] private InterestChoice<InterestStyle>? _selectedStyle;
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -57,6 +119,12 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
 
         Groups = company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
         SelectedGroup = company.FindGroupByName("Sundry Debtors") ?? Groups.FirstOrDefault();
+
+        _selectedPer = PerChoices[0];
+        _selectedOnBalance = OnBalanceChoices[0];
+        _selectedApplicability = ApplicabilityChoices[0];
+        _selectedStyle = StyleChoices[0];
+
         RefreshList();
     }
 
@@ -126,13 +194,34 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
             creditDays = days;
         }
 
+        // Build the optional interest-parameter block when interest is activated.
+        InterestParameters? interest = null;
+        if (EnableInterest)
+        {
+            var rateText = (InterestRateText ?? string.Empty).Trim();
+            if (!decimal.TryParse(rateText, out var rate) || rate < 0m)
+            {
+                Message = "Interest rate % must be a number ≥ 0.";
+                return false;
+            }
+
+            interest = new InterestParameters(
+                enabled: true,
+                ratePercent: rate,
+                per: (SelectedPer ?? PerChoices[0]).Value,
+                onBalance: (SelectedOnBalance ?? OnBalanceChoices[0]).Value,
+                applicability: (SelectedApplicability ?? ApplicabilityChoices[0]).Value,
+                style: (SelectedStyle ?? StyleChoices[0]).Value);
+        }
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
         var ledger = new DomainLedger(
             Guid.NewGuid(), name, SelectedGroup.Id, Money.Zero, openingIsDebit,
             maintainBillByBill: MaintainBillByBill,
-            defaultCreditPeriodDays: MaintainBillByBill ? creditDays : null);
+            defaultCreditPeriodDays: MaintainBillByBill ? creditDays : null,
+            interest: interest);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -141,8 +230,27 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         Message = $"Ledger '{name}' created under {SelectedGroup.Name}.";
         Name = string.Empty;
         DefaultCreditPeriodText = string.Empty;
+        EnableInterest = false;
+        InterestRateText = string.Empty;
         _onChanged();
         return true;
+    }
+
+    /// <summary>A short human summary of a ledger's interest block ("18% p.a. Simple"), or blank.</summary>
+    private static string DescribeInterest(DomainLedger l)
+    {
+        var p = l.Interest;
+        if (p is null || !p.Enabled) return string.Empty;
+        var perLabel = p.Per switch
+        {
+            InterestPer.ThreeSixtyFiveDayYear => "p.a.",
+            InterestPer.CalendarYear => "p.a.",
+            InterestPer.ThirtyDayMonth => "p.m.-basis",
+            InterestPer.CalendarMonth => "p.m.-basis",
+            _ => string.Empty,
+        };
+        var style = p.Style == InterestStyle.Compound ? "Compound" : "Simple";
+        return $"{p.RatePercent:0.##}% {perLabel} {style}".Trim();
     }
 
     private void RefreshList()
@@ -159,6 +267,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
                 Name = l.Name,
                 Under = group?.Name ?? "(P&L)",
                 Opening = opening,
+                Interest = DescribeInterest(l),
             });
         }
     }

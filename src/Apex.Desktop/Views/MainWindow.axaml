@@ -707,6 +707,84 @@
                                   </Grid>
                                 </StackPanel>
 
+                                <!-- Interest Calculation parameters (catalog §7) -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10">
+                                  <StackPanel Spacing="8">
+                                    <CheckBox Content="Activate Interest Calculation"
+                                              IsChecked="{Binding EnableInterest, Mode=TwoWay}"
+                                              FontSize="13" FontWeight="SemiBold"
+                                              Foreground="{StaticResource BrandNavy}"/>
+                                    <StackPanel Spacing="8" IsVisible="{Binding EnableInterest}">
+                                      <Grid ColumnDefinitions="110,*">
+                                        <TextBlock Grid.Column="0" Text="Rate %"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Width="120" HorizontalAlignment="Left"
+                                                 Text="{Binding InterestRateText, Mode=TwoWay}"
+                                                 PlaceholderText="e.g. 18" TextAlignment="Right"/>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="110,*">
+                                        <TextBlock Grid.Column="0" Text="Per"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding PerChoices}"
+                                                  SelectedItem="{Binding SelectedPer, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="110,*">
+                                        <TextBlock Grid.Column="0" Text="On"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding OnBalanceChoices}"
+                                                  SelectedItem="{Binding SelectedOnBalance, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="110,*">
+                                        <TextBlock Grid.Column="0" Text="Applicability"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding ApplicabilityChoices}"
+                                                  SelectedItem="{Binding SelectedApplicability, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="110,*">
+                                        <TextBlock Grid.Column="0" Text="Style"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding StyleChoices}"
+                                                  SelectedItem="{Binding SelectedStyle, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+                                  </StackPanel>
+                                </Border>
+
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Message}"
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -721,10 +799,11 @@
 
                             <!-- Existing ledgers header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,200,140">
+                              <Grid ColumnDefinitions="*,170,120,150">
                                 <TextBlock Grid.Column="0" Text="Ledger" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Opening" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Interest" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
 
@@ -733,14 +812,20 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:LedgerListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,200,140" Height="24">
+                                      <Grid ColumnDefinitions="*,170,120,150" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Under}"
-                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="2" Text="{Binding Opening}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
                                                    VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Interest}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
@@ -1650,6 +1735,68 @@
                                        IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        Foreground="{StaticResource BrandNavy}" FontSize="12"
                                        Margin="2,4,0,2" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Interest Calculation report (per interest-enabled ledger: principal / rate / days / interest) -->
+                    <ContentControl IsVisible="{Binding InterestReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding InterestReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:InterestReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,110,150,80,80,150">
+                                <TextBlock Grid.Column="0" Text="Ledger" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Ref" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Principal" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Days" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Interest" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:InterestReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,110,150,80,80,150" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Ledger}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Reference}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Principal}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Rate}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Days}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Interest}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
