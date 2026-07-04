@@ -34,11 +34,18 @@ namespace Apex.Persistence.Sqlite;
 /// ALTER, so existing v8 data is untouched). Inventory money is INTEGER paisa (rate, value); quantity is an
 /// INTEGER scaled by <see cref="QuantityScale"/> (× 1,000,000 = "micros") so 0–4 decimal quantities
 /// round-trip exactly with no float. All inventory tables start empty on a migrated database.
+/// <b>v10</b> adds inventory &amp; order vouchers (catalog §10; plan.md §5 Phase 3): two effect-flag columns on
+/// <c>voucher_types</c> (<c>affects_accounts</c>, <c>affects_stock</c>) and four child tables —
+/// <c>inventory_vouchers</c> (a stock/order voucher header), <c>inventory_allocations</c> (its stock-movement
+/// lines, with a <c>role</c> distinguishing a Stock-Journal source from its destination), <c>order_lines</c>
+/// (PO/SO ordered items) and <c>physical_stock_lines</c> (Physical-Stock counted quantities). Added by
+/// <see cref="MigrateV9ToV10"/> (two ALTER + four CREATE TABLE/INDEX; existing v9 data untouched). Quantities
+/// are INTEGER micros, rates INTEGER paisa.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v9 = inventory masters).</summary>
-    public const int CurrentVersion = 9;
+    /// <summary>The current schema version this adapter reads and writes (v10 = inventory &amp; order vouchers).</summary>
+    public const int CurrentVersion = 10;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -151,7 +158,10 @@ public static class Schema
             numbering        INTEGER NOT NULL,   -- NumberingMethod enum ordinal
             abbreviation     TEXT        NULL,
             is_active        INTEGER NOT NULL,
-            is_predefined    INTEGER NOT NULL
+            is_predefined    INTEGER NOT NULL,
+            -- v10 effect flags (catalog §10): whether posting this type touches accounts / moves stock
+            affects_accounts INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            affects_stock    INTEGER NOT NULL DEFAULT 0    -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -332,6 +342,52 @@ public static class Schema
             expiry_date        TEXT        NULL              -- forward-compat (Phase 6), no behaviour yet
         );
 
+        CREATE TABLE inventory_vouchers (
+            id          TEXT    NOT NULL PRIMARY KEY,
+            company_id  TEXT    NOT NULL REFERENCES companies(id),
+            type_id     TEXT    NOT NULL REFERENCES voucher_types(id),
+            number      INTEGER NOT NULL,
+            date        TEXT    NOT NULL,                     -- ISO yyyy-MM-dd
+            narration   TEXT        NULL,
+            party_id    TEXT        NULL REFERENCES ledgers(id),
+            cancelled   INTEGER NOT NULL DEFAULT 0,           -- 0/1
+            post_dated  INTEGER NOT NULL DEFAULT 0            -- 0/1
+        );
+
+        CREATE TABLE inventory_allocations (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL REFERENCES inventory_vouchers(id),
+            line_order        INTEGER NOT NULL,               -- preserves order within the voucher
+            role              INTEGER NOT NULL,               -- 0 = movement/source, 1 = Stock-Journal destination
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            unit_id           TEXT        NULL REFERENCES units(id),   -- line's unit; NULL = item base unit
+            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
+            direction         INTEGER NOT NULL,               -- StockDirection ordinal (Inward=0, Outward=1)
+            rate_paisa        INTEGER     NULL,               -- optional per-unit rate in paisa
+            batch_label       TEXT        NULL
+        );
+
+        CREATE TABLE order_lines (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL REFERENCES inventory_vouchers(id),
+            line_order        INTEGER NOT NULL,
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
+            rate_paisa        INTEGER     NULL                -- optional per-unit rate in paisa
+        );
+
+        CREATE TABLE physical_stock_lines (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL REFERENCES inventory_vouchers(id),
+            line_order        INTEGER NOT NULL,
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            counted_qty_micro INTEGER NOT NULL,               -- counted qty × 1,000,000 (≥ 0)
+            batch_label       TEXT        NULL
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -356,6 +412,10 @@ public static class Schema
         CREATE INDEX ix_stock_items_company      ON stock_items(company_id);
         CREATE INDEX ix_stock_openings_company   ON stock_opening_balances(company_id);
         CREATE INDEX ix_stock_openings_item      ON stock_opening_balances(stock_item_id);
+        CREATE INDEX ix_inv_vouchers_company     ON inventory_vouchers(company_id);
+        CREATE INDEX ix_inv_allocations_voucher  ON inventory_allocations(inventory_voucher_id);
+        CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
+        CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
         """;
 
     /// <summary>
@@ -644,5 +704,71 @@ public static class Schema
         CREATE INDEX ix_stock_items_company      ON stock_items(company_id);
         CREATE INDEX ix_stock_openings_company   ON stock_opening_balances(company_id);
         CREATE INDEX ix_stock_openings_item      ON stock_opening_balances(stock_item_id);
+        """;
+
+    /// <summary>
+    /// The v9→v10 migration (catalog §10 Inventory &amp; order vouchers): adds the two effect-flag columns to
+    /// <c>voucher_types</c> and creates the four inventory-voucher tables (<c>inventory_vouchers</c>,
+    /// <c>inventory_allocations</c>, <c>order_lines</c>, <c>physical_stock_lines</c>) + indexes. Two
+    /// <c>ALTER TABLE … ADD COLUMN</c> with defaults + pure CREATE TABLE/INDEX — no row rewrites — so an
+    /// existing v9 database keeps all its data (the flag columns default to 0 and the new tables start empty).
+    /// Run inside a transaction that also bumps <c>schema_version</c> to 10. A fresh DB is stamped straight to
+    /// v10 via <see cref="CreateV1"/>; a migrated database has NO inventory-voucher rows until the company is
+    /// next saved (which re-writes the correct effect flags on every voucher type).
+    /// </summary>
+    public const string MigrateV9ToV10 = """
+        ALTER TABLE voucher_types ADD COLUMN affects_accounts INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN affects_stock    INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE inventory_vouchers (
+            id          TEXT    NOT NULL PRIMARY KEY,
+            company_id  TEXT    NOT NULL REFERENCES companies(id),
+            type_id     TEXT    NOT NULL REFERENCES voucher_types(id),
+            number      INTEGER NOT NULL,
+            date        TEXT    NOT NULL,
+            narration   TEXT        NULL,
+            party_id    TEXT        NULL REFERENCES ledgers(id),
+            cancelled   INTEGER NOT NULL DEFAULT 0,
+            post_dated  INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE inventory_allocations (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL REFERENCES inventory_vouchers(id),
+            line_order        INTEGER NOT NULL,
+            role              INTEGER NOT NULL,
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            unit_id           TEXT        NULL REFERENCES units(id),
+            quantity_micro    INTEGER NOT NULL,
+            direction         INTEGER NOT NULL,
+            rate_paisa        INTEGER     NULL,
+            batch_label       TEXT        NULL
+        );
+
+        CREATE TABLE order_lines (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL REFERENCES inventory_vouchers(id),
+            line_order        INTEGER NOT NULL,
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            quantity_micro    INTEGER NOT NULL,
+            rate_paisa        INTEGER     NULL
+        );
+
+        CREATE TABLE physical_stock_lines (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL REFERENCES inventory_vouchers(id),
+            line_order        INTEGER NOT NULL,
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            counted_qty_micro INTEGER NOT NULL,
+            batch_label       TEXT        NULL
+        );
+
+        CREATE INDEX ix_inv_vouchers_company     ON inventory_vouchers(company_id);
+        CREATE INDEX ix_inv_allocations_voucher  ON inventory_allocations(inventory_voucher_id);
+        CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
+        CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
         """;
 }

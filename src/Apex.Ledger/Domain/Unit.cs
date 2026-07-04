@@ -127,6 +127,25 @@ public sealed class Unit
     }
 
     /// <summary>
+    /// Converts a <paramref name="quantity"/> expressed in <b>this</b> unit into a quantity in the unit's
+    /// underlying base measure (its <see cref="FirstUnitId"/>). For a simple unit the quantity is already in
+    /// its own measure, so it is returned unchanged. For a compound unit "1 first = (numerator/denominator)"
+    /// of the base measure — e.g. 1 Dozen = 12 Nos — so the quantity is scaled by the exact integer factor
+    /// (no float drift, RQ-4/DP-6). The stock-movement engine calls this to normalise a line's quantity to
+    /// the item's base unit before accumulating on-hand.
+    /// </summary>
+    public decimal QuantityInBaseMeasure(decimal quantity)
+    {
+        if (!IsCompound) return quantity;
+        // numerator/denominator = base-measure units per one of THIS compound unit.
+        return quantity * ConversionNumerator!.Value / ConversionDenominator!.Value;
+    }
+
+    /// <summary>The id of the underlying base measure this unit's quantities normalise to: a compound unit's
+    /// <see cref="FirstUnitId"/>, or the unit itself when simple.</summary>
+    public Guid BaseMeasureUnitId => FirstUnitId ?? Id;
+
+    /// <summary>
     /// Rehydrates a unit from persisted fields (the SQLite adapter). Chooses simple or compound by
     /// <paramref name="isCompound"/> and applies the same invariants as the factory methods.
     /// </summary>

@@ -255,6 +255,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 9;
         }
 
+        // v9 → v10: apply the inventory & order voucher migration, then bump the marker. Existing v9 data survives.
+        if (version == 9)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV9ToV10;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 10);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 10;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -348,6 +369,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var ob in ReadStockOpeningBalances(companyId))
             company.AddStockOpeningBalance(ob);
 
+        // Inventory & order vouchers (catalog §10): rehydrated directly (the store is trusted; posting guards
+        // ran when they were first accepted). They reference stock items/godowns/units + a party ledger.
+        foreach (var iv in ReadInventoryVouchers(companyId))
+            company.AddInventoryVoucher(iv);
+
         // Vouchers: re-post through the engine (real posting path). The stored number is preserved
         // because Post only assigns a number when the voucher's number is unset (≤ 0).
         var service = new LedgerService(company);
@@ -415,6 +441,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertStockItems(tx, company);
         InsertStockOpeningBalances(tx, company);
         InsertVouchers(tx, company);
+        // Inventory & order vouchers (catalog §10): reference voucher_types, stock_items, godowns, units, and
+        // (optionally) a party ledger — all inserted above.
+        InsertInventoryVouchers(tx, company);
         // Budgets last: their lines FK groups and ledgers, both already inserted.
         InsertBudgets(tx, company);
         // Scenarios: their voucher-type rows FK voucher_types, already inserted.
@@ -599,7 +628,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined
+            SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
+                   affects_accounts, affects_stock
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -615,7 +645,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 defaultShortcut: r.IsDBNull(3) ? null : r.GetString(3),
                 abbreviation: r.IsDBNull(5) ? null : r.GetString(5),
                 isActive: r.GetInt64(6) != 0,
-                isPredefined: r.GetInt64(7) != 0));
+                isPredefined: r.GetInt64(7) != 0,
+                affectsAccounts: r.GetInt64(8) != 0,
+                affectsStock: r.GetInt64(9) != 0));
         }
         return list;
     }
@@ -853,6 +885,121 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 batchLabel: r.IsDBNull(3) ? null : r.GetString(3),
                 manufacturingDate: r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6)),
                 expiryDate: r.IsDBNull(7) ? (DateOnly?)null : ParseDate(r.GetString(7))));
+        }
+        return list;
+    }
+
+    private IEnumerable<InventoryVoucher> ReadInventoryVouchers(Guid companyId)
+    {
+        // Header rows first, then the four kinds of child line per voucher.
+        var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
+            Guid? PartyId, bool Cancelled, bool PostDated)>();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, type_id, number, date, narration, party_id, cancelled, post_dated
+                FROM inventory_vouchers WHERE company_id = $cid ORDER BY rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                headers.Add((
+                    Guid.Parse(r.GetString(0)),
+                    Guid.Parse(r.GetString(1)),
+                    (int)r.GetInt64(2),
+                    ParseDate(r.GetString(3)),
+                    r.IsDBNull(4) ? null : r.GetString(4),
+                    r.IsDBNull(5) ? (Guid?)null : Guid.Parse(r.GetString(5)),
+                    r.GetInt64(6) != 0,
+                    r.GetInt64(7) != 0));
+            }
+        }
+
+        var result = new List<InventoryVoucher>();
+        foreach (var h in headers)
+        {
+            var (source, destination) = ReadInventoryAllocations(h.Id);
+            result.Add(InventoryVoucher.FromStorage(
+                h.Id, h.TypeId, h.Date,
+                allocations: source,
+                destinationAllocations: destination,
+                orderLines: ReadOrderLines(h.Id),
+                physicalLines: ReadPhysicalStockLines(h.Id),
+                number: h.Number,
+                narration: h.Narration,
+                partyId: h.PartyId,
+                cancelled: h.Cancelled,
+                postDated: h.PostDated));
+        }
+        return result;
+    }
+
+    private (List<InventoryAllocation> Source, List<InventoryAllocation> Destination) ReadInventoryAllocations(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT role, stock_item_id, godown_id, unit_id, quantity_micro, direction, rate_paisa, batch_label
+            FROM inventory_allocations WHERE inventory_voucher_id = $vid ORDER BY line_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var source = new List<InventoryAllocation>();
+        var destination = new List<InventoryAllocation>();
+        while (r.Read())
+        {
+            var alloc = new InventoryAllocation(
+                Guid.Parse(r.GetString(1)),
+                Guid.Parse(r.GetString(2)),
+                QtyMicroToDecimal(r.GetInt64(4)),
+                (StockDirection)(int)r.GetInt64(5),
+                rate: r.IsDBNull(6) ? null : Paisa.ToMoney(r.GetInt64(6)),
+                batchLabel: r.IsDBNull(7) ? null : r.GetString(7),
+                unitId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)));
+            if (r.GetInt64(0) == 1) destination.Add(alloc);
+            else source.Add(alloc);
+        }
+        return (source, destination);
+    }
+
+    private List<OrderLine> ReadOrderLines(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT stock_item_id, godown_id, quantity_micro, rate_paisa
+            FROM order_lines WHERE inventory_voucher_id = $vid ORDER BY line_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<OrderLine>();
+        while (r.Read())
+        {
+            list.Add(new OrderLine(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                QtyMicroToDecimal(r.GetInt64(2)),
+                r.IsDBNull(3) ? null : Paisa.ToMoney(r.GetInt64(3))));
+        }
+        return list;
+    }
+
+    private List<PhysicalStockLine> ReadPhysicalStockLines(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT stock_item_id, godown_id, counted_qty_micro, batch_label
+            FROM physical_stock_lines WHERE inventory_voucher_id = $vid ORDER BY line_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<PhysicalStockLine>();
+        while (r.Read())
+        {
+            list.Add(new PhysicalStockLine(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                QtyMicroToDecimal(r.GetInt64(2)),
+                r.IsDBNull(3) ? null : r.GetString(3)));
         }
         return list;
     }
@@ -1137,6 +1284,21 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
+        // Inventory & order vouchers: child lines FK the header; the header FKs voucher_types + a party ledger
+        // + stock masters → delete these before voucher_types / ledgers / stock masters below.
+        ExecTx(tx, """
+            DELETE FROM inventory_allocations WHERE inventory_voucher_id IN (
+                SELECT id FROM inventory_vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM order_lines WHERE inventory_voucher_id IN (
+                SELECT id FROM inventory_vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM physical_stock_lines WHERE inventory_voucher_id IN (
+                SELECT id FROM inventory_vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM inventory_vouchers WHERE company_id = $cid;", ("$cid", cid));
         // Budgets (and their lines) FK groups + ledgers → delete them before those masters.
         ExecTx(tx, """
             DELETE FROM budget_lines WHERE budget_id IN (SELECT id FROM budgets WHERE company_id = $cid);
@@ -1336,8 +1498,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO voucher_types
-                    (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre);
+                    (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
+                     affects_accounts, affects_stock)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1348,6 +1511,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$abbr", (object?)t.Abbreviation ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$active", t.IsActive ? 1 : 0);
             cmd.Parameters.AddWithValue("$pre", t.IsPredefined ? 1 : 0);
+            cmd.Parameters.AddWithValue("$aa", t.AffectsAccounts ? 1 : 0);
+            cmd.Parameters.AddWithValue("$as", t.AffectsStock ? 1 : 0);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1540,6 +1705,99 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$exp", (object?)(b.ExpiryDate is { } e ? FormatDate(e) : null) ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
+    }
+
+    private void InsertInventoryVouchers(SqliteTransaction tx, Company c)
+    {
+        foreach (var v in c.InventoryVouchers)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO inventory_vouchers
+                        (id, company_id, type_id, number, date, narration, party_id, cancelled, post_dated)
+                    VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $pd);
+                    """;
+                cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$tid", v.TypeId.ToString("D"));
+                cmd.Parameters.AddWithValue("$num", v.Number);
+                cmd.Parameters.AddWithValue("$date", FormatDate(v.Date));
+                cmd.Parameters.AddWithValue("$narr", (object?)v.Narration ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$party", (object?)v.PartyId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$cancel", v.Cancelled ? 1 : 0);
+                cmd.Parameters.AddWithValue("$pd", v.PostDated ? 1 : 0);
+                cmd.ExecuteNonQuery();
+            }
+
+            var order = 0;
+            foreach (var a in v.Allocations)
+                InsertInventoryAllocation(tx, v.Id, a, role: 0, order++);
+            foreach (var a in v.DestinationAllocations)
+                InsertInventoryAllocation(tx, v.Id, a, role: 1, order++);
+
+            order = 0;
+            foreach (var o in v.OrderLines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO order_lines
+                        (inventory_voucher_id, line_order, stock_item_id, godown_id, quantity_micro, rate_paisa)
+                    VALUES ($vid, $ord, $item, $godown, $qty, $rate);
+                    """;
+                cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$item", o.StockItemId.ToString("D"));
+                cmd.Parameters.AddWithValue("$godown", o.GodownId.ToString("D"));
+                cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(o.Quantity));
+                cmd.Parameters.AddWithValue("$rate", o.Rate is { } r ? Paisa.FromMoney(r) : (object)DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
+
+            order = 0;
+            foreach (var pl in v.PhysicalLines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO physical_stock_lines
+                        (inventory_voucher_id, line_order, stock_item_id, godown_id, counted_qty_micro, batch_label)
+                    VALUES ($vid, $ord, $item, $godown, $qty, $batch);
+                    """;
+                cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$item", pl.StockItemId.ToString("D"));
+                cmd.Parameters.AddWithValue("$godown", pl.GodownId.ToString("D"));
+                cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(pl.CountedQuantity));
+                cmd.Parameters.AddWithValue("$batch", (object?)pl.BatchLabel ?? DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private void InsertInventoryAllocation(SqliteTransaction tx, Guid voucherId, InventoryAllocation a, int role, int order)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO inventory_allocations
+                (inventory_voucher_id, line_order, role, stock_item_id, godown_id, unit_id,
+                 quantity_micro, direction, rate_paisa, batch_label)
+            VALUES ($vid, $ord, $role, $item, $godown, $unit, $qty, $dir, $rate, $batch);
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        cmd.Parameters.AddWithValue("$ord", order);
+        cmd.Parameters.AddWithValue("$role", role);
+        cmd.Parameters.AddWithValue("$item", a.StockItemId.ToString("D"));
+        cmd.Parameters.AddWithValue("$godown", a.GodownId.ToString("D"));
+        cmd.Parameters.AddWithValue("$unit", (object?)a.UnitId?.ToString("D") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(a.Quantity));
+        cmd.Parameters.AddWithValue("$dir", (int)a.Direction);
+        cmd.Parameters.AddWithValue("$rate", a.Rate is { } r ? Paisa.FromMoney(r) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$batch", (object?)a.BatchLabel ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
     }
 
     private void InsertBudgets(SqliteTransaction tx, Company c)

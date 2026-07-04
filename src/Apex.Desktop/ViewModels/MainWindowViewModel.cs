@@ -16,6 +16,7 @@ public enum Screen
     Gateway,
     Report,
     VoucherEntry,
+    InventoryVoucherEntry,
     LedgerMaster,
     ChartOfAccounts,
     Outstandings,
@@ -53,6 +54,8 @@ public enum GatewayMenu
     Budgets,
     Banking,
     OtherVouchers,
+    OrderVouchers,
+    InventoryVouchers,
 }
 
 /// <summary>
@@ -103,6 +106,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The voucher-entry view model, non-null only while a voucher page column is open.</summary>
     [ObservableProperty] private VoucherEntryViewModel? _voucherEntry;
+
+    /// <summary>The inventory/order voucher-entry view model, non-null only while such a page column is open.</summary>
+    [ObservableProperty] private InventoryVoucherEntryViewModel? _inventoryVoucherEntry;
 
     /// <summary>The ledger-master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
@@ -166,7 +172,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
     /// </summary>
     public bool IsMenuScreen => !IsGatewayCascade
-        && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
+        && Reports is null && VoucherEntry is null && InventoryVoucherEntry is null && LedgerMaster is null
+        && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
@@ -176,6 +183,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnInventoryVoucherEntryChanged(InventoryVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -383,10 +391,89 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
 
+        // Inventory (stock/order) voucher kinds under their own groups (professional hierarchy):
+        // Order Vouchers [PO, SO]; Inventory Vouchers [GRN, Delivery, Rejection In/Out, Stock Journal, Physical Stock].
+        col.Add(MenuItemViewModel.Header("Inventory"));
+        col.Add(new MenuItemViewModel("Order Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Inventory Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
         // Provisional (off-books) voucher kinds under their own group (Reversing Journal / Memorandum).
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Other Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         return col;
+    }
+
+    /// <summary>
+    /// Builds the "Order Vouchers" submenu column (Transactions → Vouchers → Order Vouchers): the two order
+    /// kinds — <b>Purchase Order</b> (Ctrl+F9) and <b>Sales Order</b> (Ctrl+F8) — each a page item. Orders
+    /// carry ordered-item lines only and post no stock/accounting effect (an outstanding commitment).
+    /// </summary>
+    private GatewayColumn BuildOrderVouchersColumn()
+    {
+        var col = new GatewayColumn("Order Vouchers");
+        col.Add(MenuItemViewModel.Header("Order Vouchers"));
+        col.Add(new MenuItemViewModel("Purchase Order", () => { }, "Ctrl+F9", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Sales Order", () => { }, "Ctrl+F8", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Inventory Vouchers" submenu column (Transactions → Vouchers → Inventory Vouchers): the six
+    /// stock-moving kinds — <b>Receipt Note (GRN)</b> (Alt+F9), <b>Delivery Note</b> (Alt+F8),
+    /// <b>Rejection In</b> (Ctrl+F6), <b>Rejection Out</b> (Ctrl+F5), <b>Stock Journal</b> (Alt+F7) and
+    /// <b>Physical Stock</b> (F10 menu) — each a page item. They move stock only (no accounting entry, DP-5).
+    /// </summary>
+    private GatewayColumn BuildInventoryVouchersColumn()
+    {
+        var col = new GatewayColumn("Inventory Vouchers");
+        col.Add(MenuItemViewModel.Header("Inventory Vouchers"));
+        col.Add(new MenuItemViewModel("Receipt Note", () => { }, "Alt+F9", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Delivery Note", () => { }, "Alt+F8", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Rejection In", () => { }, "Ctrl+F6", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Rejection Out", () => { }, "Ctrl+F5", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Physical Stock", () => { }, "F10", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Order Vouchers" submenu column directly (Transactions → Vouchers → Order Vouchers) — the
+    /// public entry the Ctrl+F8/F9 hotkeys / tests use. Rebuilds the cascade to [root → Vouchers → Order
+    /// Vouchers] and focuses it.
+    /// </summary>
+    public void ShowOrderVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowVouchersMenu();
+        SelectVouchersChild("Order Vouchers");
+        OpenSubmenuColumn(BuildOrderVouchersColumn(), GatewayMenu.OrderVouchers,
+            "Gateway of Apex Solutions — Order Vouchers");
+    }
+
+    /// <summary>
+    /// Opens the "Inventory Vouchers" submenu column directly (Transactions → Vouchers → Inventory Vouchers) —
+    /// the public entry the Alt+F7/8/9 + Ctrl+F5/6 hotkeys / tests use. Rebuilds the cascade to
+    /// [root → Vouchers → Inventory Vouchers] and focuses it.
+    /// </summary>
+    public void ShowInventoryVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowVouchersMenu();
+        SelectVouchersChild("Inventory Vouchers");
+        OpenSubmenuColumn(BuildInventoryVouchersColumn(), GatewayMenu.InventoryVouchers,
+            "Gateway of Apex Solutions — Inventory Vouchers");
+    }
+
+    /// <summary>Highlights a named child of the (rightmost) Vouchers submenu column before drilling into it.</summary>
+    private void SelectVouchersChild(string label)
+    {
+        var vouchers = Columns[^1];
+        for (var i = 0; i < vouchers.Items.Count; i++)
+            if (vouchers.Items[i].IsSelectable && vouchers.Items[i].Label == label)
+            {
+                vouchers.SetSelected(i);
+                break;
+            }
     }
 
     /// <summary>
@@ -616,6 +703,42 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
+    }
+
+    // =============================================================== screen: inventory voucher entry
+
+    /// <summary>
+    /// Opens the reusable stock/order voucher-entry screen for the given inventory base type (Purchase Order,
+    /// Sales Order, Receipt Note/GRN, Delivery Note, Rejection In/Out, Stock Journal, Physical Stock) as a
+    /// page column on the right of the cascade, resolving the seeded voucher type on the current company. The
+    /// screen posts to the separate <see cref="InventoryVoucher"/> aggregate via
+    /// <see cref="InventoryPostingService"/> — no Dr/Cr balancing.
+    /// </summary>
+    public void OpenInventoryVoucher(VoucherBaseType baseType)
+    {
+        if (Company is null) return;
+
+        if (!VoucherEffects.IsInventoryBaseType(baseType))
+        {
+            Message = $"'{baseType}' is not a stock or order voucher.";
+            return;
+        }
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        var entry = new InventoryVoucherEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Inventory Voucher Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.InventoryVoucherEntry, title,
+            () => InventoryVoucherEntry = entry);
     }
 
     // =============================================================== screen: ledger master
@@ -989,6 +1112,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         Reports = null;
         VoucherEntry = null;
+        InventoryVoucherEntry = null;
         LedgerMaster = null;
         ChartOfAccounts = null;
         Outstandings = null;
@@ -1034,6 +1158,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
+        else if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
@@ -1058,6 +1184,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.TogglePostDated();
+        else if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.TogglePostDated();
     }
 
     /// <summary>Ctrl+L: toggle the in-progress voucher as Optional (a provisional, scenario-only entry).</summary>
@@ -1118,6 +1246,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.AddLine();
+    }
+
+    /// <summary>Adds a fresh blank line to the current inventory voucher's primary grid ("+ Add line").</summary>
+    public void AddInventoryLine()
+    {
+        if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.AddLine();
+    }
+
+    /// <summary>Adds a fresh blank line to the current Stock Journal's destination grid ("+ Add destination line").</summary>
+    public void AddInventoryDestinationLine()
+    {
+        if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.AddDestinationLine();
     }
 
     /// <summary>Adds a bill-wise allocation row to a voucher line (the sub-panel "+ Add bill" button).</summary>
@@ -1213,6 +1355,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.VoucherEntry:
                 VoucherEntry?.Accept();
                 return;
+            case Screen.InventoryVoucherEntry:
+                InventoryVoucherEntry?.Accept();
+                return;
             case Screen.LedgerMaster:
                 LedgerMaster?.Create();
                 return;
@@ -1304,6 +1449,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Vouchers"),
             "Other Vouchers" => (BuildOtherVouchersColumn(), GatewayMenu.OtherVouchers,
                 "Gateway of Apex Solutions — Other Vouchers"),
+            "Order Vouchers" => (BuildOrderVouchersColumn(), GatewayMenu.OrderVouchers,
+                "Gateway of Apex Solutions — Order Vouchers"),
+            "Inventory Vouchers" => (BuildInventoryVouchersColumn(), GatewayMenu.InventoryVouchers,
+                "Gateway of Apex Solutions — Inventory Vouchers"),
             "Banking" => (BuildBankingColumn(), GatewayMenu.Banking,
                 "Gateway of Apex Solutions — Banking"),
             "Create" => (BuildCreateColumn(), GatewayMenu.Create,
@@ -1367,6 +1516,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Purchase": OpenVoucher(VoucherBaseType.Purchase); break;
             case "Reversing Journal": OpenVoucher(VoucherBaseType.ReversingJournal); break;
             case "Memorandum": OpenVoucher(VoucherBaseType.Memorandum); break;
+            case "Purchase Order": OpenInventoryVoucher(VoucherBaseType.PurchaseOrder); break;
+            case "Sales Order": OpenInventoryVoucher(VoucherBaseType.SalesOrder); break;
+            case "Receipt Note": OpenInventoryVoucher(VoucherBaseType.ReceiptNote); break;
+            case "Delivery Note": OpenInventoryVoucher(VoucherBaseType.DeliveryNote); break;
+            case "Rejection In": OpenInventoryVoucher(VoucherBaseType.RejectionIn); break;
+            case "Rejection Out": OpenInventoryVoucher(VoucherBaseType.RejectionOut); break;
+            case "Stock Journal": OpenInventoryVoucher(VoucherBaseType.StockJournal); break;
+            case "Physical Stock": OpenInventoryVoucher(VoucherBaseType.PhysicalStock); break;
         }
     }
 
@@ -1432,6 +1589,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 {
                     "Vouchers" => GatewayMenu.Vouchers,
                     "Other Vouchers" => GatewayMenu.OtherVouchers,
+                    "Order Vouchers" => GatewayMenu.OrderVouchers,
+                    "Inventory Vouchers" => GatewayMenu.InventoryVouchers,
                     "Banking" => GatewayMenu.Banking,
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,

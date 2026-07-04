@@ -111,6 +111,29 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Inventory/order voucher shortcuts (modifier + F-key). Checked before the plain F-key switch so a
+        // modified F-key never falls through to its bare-key report/voucher action. Physical Stock is
+        // menu-only (F10 has no standalone modifier hotkey), matching the seed.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            switch (e.Key)
+            {
+                case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.PurchaseOrder); e.Handled = true; return;
+                case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.SalesOrder); e.Handled = true; return;
+                case Key.F6: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionIn); e.Handled = true; return;
+                case Key.F5: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionOut); e.Handled = true; return;
+            }
+        }
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            switch (e.Key)
+            {
+                case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.ReceiptNote); e.Handled = true; return;
+                case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.DeliveryNote); e.Handled = true; return;
+                case Key.F7: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.StockJournal); e.Handled = true; return;
+            }
+        }
+
         switch (e.Key)
         {
             case Key.Up when !IsTyping(e):
@@ -191,6 +214,18 @@ public partial class MainWindow : Window
 
     private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddVoucherLine();
+
+    private void OnAcceptInventoryVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.InventoryVoucherEntry?.Accept();
+
+    private void OnCancelInventoryVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.CancelVoucher();
+
+    private void OnAddInventoryLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AddInventoryLine();
+
+    private void OnAddInventoryDestinationLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AddInventoryDestinationLine();
 
     private void OnAddBillAllocationClick(object? sender, RoutedEventArgs e)
     {

@@ -50,7 +50,14 @@ public static class SeedVoucherTypes
     /// <summary>Count guard: exactly 24.</summary>
     public const int Count = 24;
 
-    /// <summary>Builds the 24 predefined <see cref="VoucherType"/> instances.</summary>
+    /// <summary>
+    /// Builds the 24 predefined <see cref="VoucherType"/> instances. Each carries its
+    /// <see cref="VoucherType.AffectsAccounts"/> / <see cref="VoucherType.AffectsStock"/> effect flags,
+    /// stamped from the canonical <see cref="VoucherEffects"/> classification of its base kind (catalog §10;
+    /// phase3-inventory-requirements §2.2): PO/SO affect neither; GRN/Rejection-In are stock-inward;
+    /// Delivery/Rejection-Out are stock-outward; Stock Journal transfers; Physical Stock adjusts; the
+    /// accounting kinds affect accounts.
+    /// </summary>
     public static IReadOnlyList<VoucherType> Build()
     {
         var result = new List<VoucherType>(Definitions.Length);
@@ -64,7 +71,9 @@ public static class SeedVoucherTypes
                 d.Shortcut,
                 d.Abbreviation,
                 d.IsActive,
-                isPredefined: true));
+                isPredefined: true,
+                affectsAccounts: VoucherEffects.AffectsAccounts(d.BaseType),
+                affectsStock: VoucherEffects.AffectsStock(d.BaseType)));
         }
 
         if (result.Count != Count)

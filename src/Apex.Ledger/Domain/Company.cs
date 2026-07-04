@@ -23,6 +23,7 @@ public sealed class Company
     private readonly List<Godown> _godowns = new();
     private readonly List<StockItem> _stockItems = new();
     private readonly List<StockOpeningBalance> _stockOpeningBalances = new();
+    private readonly List<InventoryVoucher> _inventoryVouchers = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -109,6 +110,9 @@ public sealed class Company
     /// <summary>Opening-stock allocations (catalog §9): per item, per godown, per batch label.</summary>
     public IReadOnlyList<StockOpeningBalance> StockOpeningBalances => _stockOpeningBalances;
 
+    /// <summary>Stock &amp; order vouchers (catalog §10): GRN/Delivery/Rejection/Stock-Journal/Physical/PO/SO.</summary>
+    public IReadOnlyList<InventoryVoucher> InventoryVouchers => _inventoryVouchers;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -161,6 +165,15 @@ public sealed class Company
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
 
+    /// <summary>Adds a stock/order voucher (posting guards live in <c>InventoryPostingService</c>).</summary>
+    internal void AddInventoryVoucherInternal(InventoryVoucher voucher) => _inventoryVouchers.Add(voucher ?? throw new ArgumentNullException(nameof(voucher)));
+
+    /// <summary>Removes a stock/order voucher (delete guards live in <c>InventoryPostingService</c>).</summary>
+    internal bool RemoveInventoryVoucherInternal(InventoryVoucher voucher) => _inventoryVouchers.Remove(voucher);
+
+    /// <summary>Adds a rehydrated stock/order voucher on load (bypasses posting guards — the store is trusted).</summary>
+    public void AddInventoryVoucher(InventoryVoucher voucher) => _inventoryVouchers.Add(voucher ?? throw new ArgumentNullException(nameof(voucher)));
+
     /// <summary>Removes a stock group (delete-guards live in <c>InventoryService</c>).</summary>
     public bool RemoveStockGroup(StockGroup group) => _stockGroups.Remove(group);
     /// <summary>Removes a stock category (delete-guards live in <c>InventoryService</c>).</summary>
@@ -194,6 +207,7 @@ public sealed class Company
     public Godown? FindGodown(Guid id) => _godowns.FirstOrDefault(g => g.Id == id);
     public StockItem? FindStockItem(Guid id) => _stockItems.FirstOrDefault(i => i.Id == id);
     public StockOpeningBalance? FindStockOpeningBalance(Guid id) => _stockOpeningBalances.FirstOrDefault(b => b.Id == id);
+    public InventoryVoucher? FindInventoryVoucher(Guid id) => _inventoryVouchers.FirstOrDefault(v => v.Id == id);
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote

@@ -48,6 +48,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted voucher-entry view model (non-null only for a voucher-entry column).</summary>
     public VoucherEntryViewModel? Voucher => Page as VoucherEntryViewModel;
 
+    /// <summary>The hosted inventory/order voucher-entry view model (non-null only for that column).</summary>
+    public InventoryVoucherEntryViewModel? InventoryVoucher => Page as InventoryVoucherEntryViewModel;
+
     /// <summary>The hosted ledger-master view model (non-null only for the Ledger-creation column).</summary>
     public LedgerMasterViewModel? Ledger => Page as LedgerMasterViewModel;
 
