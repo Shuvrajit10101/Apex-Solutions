@@ -152,12 +152,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         Recalculate();
     }
 
-    partial void OnDateChanged(DateOnly value) => OnPropertyChanged(nameof(DateText));
+    partial void OnDateChanged(DateOnly value)
+    {
+        OnPropertyChanged(nameof(DateText));
+        // Push the new date to every line so a forex line can default its rate from the rate in force.
+        foreach (var line in Lines) line.SetVoucherDate(value);
+    }
 
     /// <summary>Adds a blank particulars line (default side supplied); recomputes the balance.</summary>
     public VoucherLineViewModel AddLine(DrCr side = DrCr.Debit)
     {
         var line = new VoucherLineViewModel(Ledgers, Recalculate, _company, side);
+        line.SetVoucherDate(Date);
         Lines.Add(line);
         return line;
     }
@@ -251,6 +257,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // Reject a half-filled forex pair up front (a forex line needs both a forex amount and a rate).
+        var badForex = Lines.FirstOrDefault(l => l.SelectedLedger is not null && l.IsForexLine && !l.ForexOk);
+        if (badForex is not null)
+        {
+            Message = $"Forex details for '{badForex.SelectedLedger!.Name}' need both an amount in " +
+                      $"{badForex.ForexCurrencyCode} and a rate of exchange.";
+            return false;
+        }
+
         var entryLines = Lines
             .Where(l => l.IsComplete)
             .Select(l =>
@@ -258,11 +273,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 var billAllocs = l.ToBillAllocations();
                 var costAllocs = l.ToCostAllocations();
                 var bankAlloc = l.ToBankAllocation();
+                var forex = l.ToForexInfo();
                 return new EntryLine(
                     l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side,
                     billAllocs.Count > 0 ? billAllocs : null,
                     costAllocs.Count > 0 ? costAllocs : null,
-                    bankAlloc);
+                    bankAlloc,
+                    forex);
             })
             .ToList();
 

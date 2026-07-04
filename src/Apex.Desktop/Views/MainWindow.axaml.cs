@@ -230,4 +230,16 @@ public partial class MainWindow : Window
 
     private void OnCreateScenarioClick(object? sender, RoutedEventArgs e)
         => Vm?.ScenarioMaster?.Create();
+
+    private void OnCreateCurrencyClick(object? sender, RoutedEventArgs e)
+        => Vm?.CurrencyMaster?.CreateCurrency();
+
+    private void OnCreateExchangeRateClick(object? sender, RoutedEventArgs e)
+        => Vm?.CurrencyMaster?.CreateRate();
+
+    private void OnRecomputeForexClick(object? sender, RoutedEventArgs e)
+        => Vm?.ForexReport?.Recompute();
+
+    private void OnBookForexAdjustmentClick(object? sender, RoutedEventArgs e)
+        => Vm?.ForexReport?.BookAdjustment();
 }

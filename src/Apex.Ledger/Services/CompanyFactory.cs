@@ -45,6 +45,9 @@ public static class CompanyFactory
         // Default "Primary Cost Category" (catalog §6).
         company.AddCostCategory(SeedCostCategories.BuildPrimary(company.PrimaryCostCategoryName));
 
+        // Base currency ₹/INR as a first-class Currency (catalog §2/§20 Multi-currency).
+        company.AddCurrency(SeedCurrencies.BuildBaseCurrency(company));
+
         return company;
     }
 

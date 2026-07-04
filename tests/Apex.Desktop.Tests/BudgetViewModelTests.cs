@@ -247,11 +247,14 @@ public sealed class BudgetViewModelTests : IDisposable
     {
         var vm = NewSeededCompany("Budget Nav Reports Co");
 
-        // Reports → Statements of Accounts is a hub that now also offers Budgets and Interest Calculation.
+        // Reports → Statements of Accounts is a hub that now also offers Budgets, Interest Calculation
+        // and Forex Gain/Loss.
         vm.ShowStatementsOfAccountsMenu();
         Assert.Equal(GatewayMenu.StatementsOfAccounts, vm.CurrentGatewayMenu);
         var hubLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Outstandings", "Cost Centres", "Budgets", "Interest Calculation" }, hubLabels);
+        Assert.Equal(
+            new[] { "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss" },
+            hubLabels);
 
         // Statements of Accounts → Budgets lists the Budget Variance report.
         vm.ShowBudgetsMenu();

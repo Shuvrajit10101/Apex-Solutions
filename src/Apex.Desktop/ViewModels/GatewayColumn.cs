@@ -84,6 +84,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Interest Calculation report (non-null only for the Interest-report column).</summary>
     public InterestReportViewModel? InterestReport => Page as InterestReportViewModel;
 
+    /// <summary>The hosted Currency master (+ Rates of Exchange) — non-null only for the Currency-creation column.</summary>
+    public CurrencyMasterViewModel? CurrencyMaster => Page as CurrencyMasterViewModel;
+
+    /// <summary>The hosted Forex Gain/Loss report (non-null only for the Forex-revaluation column).</summary>
+    public ForexReportViewModel? ForexReport => Page as ForexReportViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

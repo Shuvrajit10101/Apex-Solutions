@@ -19,6 +19,9 @@ public sealed class LedgerListRow
 
     /// <summary>An interest summary ("18% p.a. Simple") for an interest-enabled ledger, else blank.</summary>
     public string Interest { get; init; } = string.Empty;
+
+    /// <summary>The ledger currency ("USD" for a forex ledger, blank/"₹" for a base-currency ledger).</summary>
+    public string Currency { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -30,6 +33,20 @@ public sealed class InterestChoice<T> where T : struct, Enum
     public T Value { get; }
     public string Display { get; }
     public InterestChoice(T value, string display) { Value = value; Display = display; }
+    public override string ToString() => Display;
+}
+
+/// <summary>
+/// A "Currency of ledger" picker option (catalog §2/§20 Multi-currency): the company base currency (₹/INR,
+/// <see cref="CurrencyId"/> null) or a created foreign currency. Wraps the currency's display for the combo
+/// and the <see cref="CurrencyId"/> the ledger stores (null for the base).
+/// </summary>
+public sealed class CurrencyChoice
+{
+    /// <summary>The stored ledger currency id — null means the company base currency.</summary>
+    public Guid? CurrencyId { get; }
+    public string Display { get; }
+    public CurrencyChoice(Guid? currencyId, string display) { CurrencyId = currencyId; Display = display; }
     public override string ToString() => Display;
 }
 
@@ -111,6 +128,17 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     [ObservableProperty] private InterestChoice<InterestApplicability>? _selectedApplicability;
     [ObservableProperty] private InterestChoice<InterestStyle>? _selectedStyle;
 
+    // --------------------------------------------------------------- currency (catalog §2/§20)
+
+    /// <summary>
+    /// The "Currency of ledger" choices (catalog §2/§20): the company base currency (₹/INR) plus every
+    /// created foreign currency. Defaults to the base — every existing ledger stays base-currency.
+    /// </summary>
+    public IReadOnlyList<CurrencyChoice> CurrencyChoices { get; }
+
+    /// <summary>The chosen "Currency of ledger" — base by default; a foreign currency holds forex balances.</summary>
+    [ObservableProperty] private CurrencyChoice? _selectedCurrency;
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -125,7 +153,31 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         _selectedApplicability = ApplicabilityChoices[0];
         _selectedStyle = StyleChoices[0];
 
+        CurrencyChoices = BuildCurrencyChoices(company);
+        _selectedCurrency = CurrencyChoices[0]; // base currency
+
         RefreshList();
+    }
+
+    /// <summary>
+    /// Builds the currency-picker list: the base currency first (stored as null), then each foreign
+    /// currency (stored as its id). A base-only company shows just the one base option.
+    /// </summary>
+    private static IReadOnlyList<CurrencyChoice> BuildCurrencyChoices(Company company)
+    {
+        var list = new List<CurrencyChoice>();
+        var baseCur = company.BaseCurrency;
+        var baseLabel = baseCur is not null
+            ? $"{baseCur.FormalName} ({baseCur.Symbol}) — base"
+            : $"{company.BaseCurrencyName} ({company.BaseCurrencySymbol}) — base";
+        list.Add(new CurrencyChoice(null, baseLabel));
+
+        foreach (var c in company.Currencies
+                     .Where(c => !c.IsBaseCurrency)
+                     .OrderBy(c => c.FormalName, StringComparer.OrdinalIgnoreCase))
+            list.Add(new CurrencyChoice(c.Id, $"{c.FormalName} ({c.Symbol})"));
+
+        return list;
     }
 
     /// <summary>
@@ -221,17 +273,23 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
             Guid.NewGuid(), name, SelectedGroup.Id, Money.Zero, openingIsDebit,
             maintainBillByBill: MaintainBillByBill,
             defaultCreditPeriodDays: MaintainBillByBill ? creditDays : null,
-            interest: interest);
+            interest: interest,
+            // "Currency of ledger" — null (base ₹/INR) for every existing ledger; a foreign currency
+            // makes this a forex ledger whose lines carry forex amounts + rates.
+            currencyId: SelectedCurrency?.CurrencyId);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
 
         RefreshList();
-        Message = $"Ledger '{name}' created under {SelectedGroup.Name}.";
+        var currencyNote = SelectedCurrency?.CurrencyId is null ? string.Empty
+            : $" in {SelectedCurrency!.Display}";
+        Message = $"Ledger '{name}' created under {SelectedGroup.Name}{currencyNote}.";
         Name = string.Empty;
         DefaultCreditPeriodText = string.Empty;
         EnableInterest = false;
         InterestRateText = string.Empty;
+        SelectedCurrency = CurrencyChoices[0]; // reset to base for the next entry
         _onChanged();
         return true;
     }
@@ -262,12 +320,16 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
             var opening = l.OpeningBalance == Money.Zero
                 ? string.Empty
                 : $"{IndianFormat.Amount(l.OpeningBalance)} {(l.OpeningIsDebit ? "Dr" : "Cr")}";
+            var currency = l.CurrencyId is { } cid && _company.FindCurrency(cid) is { } cur
+                ? cur.FormalName
+                : string.Empty;
             Existing.Add(new LedgerListRow
             {
                 Name = l.Name,
                 Under = group?.Name ?? "(P&L)",
                 Opening = opening,
                 Interest = DescribeInterest(l),
+                Currency = currency,
             });
         }
     }

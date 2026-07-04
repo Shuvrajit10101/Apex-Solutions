@@ -28,6 +28,8 @@ public enum Screen
     BankStatementImport,
     ScenarioMaster,
     InterestReport,
+    CurrencyMaster,
+    ForexReport,
 }
 
 /// <summary>
@@ -133,6 +135,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Interest Calculation report view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private InterestReportViewModel? _interestReport;
 
+    /// <summary>The Currency-creation master (+ Rates of Exchange) view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private CurrencyMasterViewModel? _currencyMaster;
+
+    /// <summary>The Forex Gain/Loss (unrealized revaluation) report view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private ForexReportViewModel? _forexReport;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -142,7 +150,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
-        && InterestReport is null;
+        && InterestReport is null && CurrencyMaster is null && ForexReport is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -158,6 +166,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBankStatementImportChanged(BankStatementImportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnScenarioMasterChanged(ScenarioMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnInterestReportChanged(InterestReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnCurrencyMasterChanged(CurrencyMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForexReportChanged(ForexReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -395,6 +405,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Scenario", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Multi-Currency"));
+        col.Add(new MenuItemViewModel("Currency", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -411,6 +424,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Forex Gain/Loss", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -639,6 +653,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Scenario Creation", () => ScenarioMaster = master);
     }
 
+    /// <summary>
+    /// Opens the Currency creation master (Masters → Create → Currency) as a page column: create a foreign
+    /// <b>Currency</b> (symbol / formal name / decimals) and dated <b>Rates of Exchange</b> (standard /
+    /// selling / buying) for it, both persisted (catalog §2/§20 Multi-currency).
+    /// </summary>
+    public void ShowCurrencyMaster()
+    {
+        if (Company is null) return;
+
+        var master = new CurrencyMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Currency Creation", master), Screen.CurrencyMaster,
+            "Currency Creation", () => CurrencyMaster = master);
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -667,6 +695,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var vm = new InterestReportViewModel(Company);
         OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.InterestReport, vm.Title,
             () => InterestReport = vm);
+    }
+
+    // =============================================================== screen: forex gain/loss
+
+    /// <summary>
+    /// Opens the Forex Gain/Loss report (Reports → Statements of Accounts → Forex Gain/Loss) as a page
+    /// column: every open foreign-currency ledger balance revalued at an editable as-of rate, with the
+    /// per-ledger and net unrealized gain/loss; "Book adjustment" posts the balanced revaluation Journal.
+    /// </summary>
+    public void OpenForexReport()
+    {
+        if (Company is null) return;
+
+        var vm = new ForexReportViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.ForexReport, vm.Title,
+            () => ForexReport = vm);
     }
 
     // =============================================================== screen: budget variance
@@ -871,6 +915,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BankStatementImport = null;
         ScenarioMaster = null;
         InterestReport = null;
+        CurrencyMaster = null;
+        ForexReport = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -898,9 +944,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
-                 or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster)
+                 or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
+                 or Screen.CurrencyMaster)
             BackFromPage();
     }
+
+    /// <summary>Ctrl+A on the Currency master: create the currency form's entry (its main create action).</summary>
+    public bool CreateCurrency() => CurrencyMaster?.CreateCurrency() ?? false;
+
+    /// <summary>Create a rate-of-exchange quote on the Currency master (the "Add Rate" button).</summary>
+    public bool CreateExchangeRate() => CurrencyMaster?.CreateRate() ?? false;
+
+    /// <summary>Re-runs the Forex Gain/Loss revaluation at the current as-of date (the "Recompute" button).</summary>
+    public void RecomputeForex() => ForexReport?.Recompute();
+
+    /// <summary>Books the Forex Gain/Loss revaluation adjustment through the engine (the "Book" button).</summary>
+    public void BookForexAdjustment() => ForexReport?.BookAdjustment();
 
     /// <summary>Ctrl+T: toggle the in-progress voucher as post-dated (post-dated cheque handling).</summary>
     public void TogglePostDated()
@@ -1077,6 +1136,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ScenarioMaster:
                 ScenarioMaster?.Create();
                 return;
+            case Screen.CurrencyMaster:
+                CurrencyMaster?.CreateCurrency();
+                return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
                 return;
@@ -1175,12 +1237,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Cost Centre": ShowCostCentreMaster(); break;
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
+            case "Currency": ShowCurrencyMaster(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
             case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
             case "Budget Variance": OpenBudgetVariance(); break;
             case "Interest Calculation": OpenInterestReport(); break;
+            case "Forex Gain/Loss": OpenForexReport(); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;

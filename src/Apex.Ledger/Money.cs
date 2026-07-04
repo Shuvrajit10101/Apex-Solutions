@@ -21,6 +21,19 @@ public readonly struct Money : IEquatable<Money>, IComparable<Money>
     /// <summary>Creates a <see cref="Money"/> from a rupee amount.</summary>
     public static Money FromRupees(decimal rupees) => new(rupees);
 
+    /// <summary>
+    /// This amount rounded to the paisa (2 decimal places), using normal (away-from-zero) rounding —
+    /// the same convention the interest engine uses (<see cref="Domain.InterestParameters.ApplyRounding"/>).
+    /// A base-currency amount must be paisa-exact to persist (INTEGER paisa, NFR-3); any amount derived from
+    /// a non-round factor — notably a forex line's base = <c>forexAmount × rate</c> — must be snapped to the
+    /// paisa here so it never carries a sub-paisa tail that the paisa store would reject.
+    /// </summary>
+    public Money RoundToPaisa() => new(Math.Round(Amount, 2, MidpointRounding.AwayFromZero));
+
+    /// <summary>The paisa-exact base value of <paramref name="forexAmount"/> × <paramref name="rate"/>.</summary>
+    public static Money ForexBase(Money forexAmount, decimal rate) =>
+        new Money(forexAmount.Amount * rate).RoundToPaisa();
+
     public static Money operator +(Money a, Money b) => new(a.Amount + b.Amount);
     public static Money operator -(Money a, Money b) => new(a.Amount - b.Amount);
     public static Money operator -(Money a) => new(-a.Amount);
