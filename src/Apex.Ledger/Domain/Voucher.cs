@@ -7,6 +7,7 @@ namespace Apex.Ledger.Domain;
 public sealed class Voucher
 {
     private readonly List<EntryLine> _lines;
+    private readonly List<VoucherInventoryLine> _inventoryLines;
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -28,6 +29,32 @@ public sealed class Voucher
 
     /// <summary>The entry lines; ≥ 2 and balanced for a valid voucher.</summary>
     public IReadOnlyList<EntryLine> Lines => _lines;
+
+    /// <summary>
+    /// The <b>Item-Invoice</b> stock lines (catalog §10; phase3-inventory-requirements RQ-16/RQ-17; slice
+    /// 3.3b) — present ONLY on a Purchase/Sales voucher run in item-invoice mode. Empty for every other
+    /// voucher, so an ordinary accounting voucher behaves exactly as before. When present, the voucher both
+    /// posts its balanced Dr/Cr <see cref="Lines"/> AND moves stock (inward for Purchase, outward for Sales);
+    /// the two arms are posted atomically by <c>LedgerService</c> and their pairing is enforced by
+    /// <c>VoucherValidator</c>. The lines' <see cref="VoucherInventoryLine.Direction"/> is stamped to the
+    /// voucher-nature-implied direction at posting time.
+    /// </summary>
+    public IReadOnlyList<VoucherInventoryLine> InventoryLines => _inventoryLines;
+
+    /// <summary>True iff this voucher carries item-invoice stock lines (item-invoice mode).</summary>
+    public bool HasInventoryLines => _inventoryLines.Count > 0;
+
+    /// <summary>Σ of the item-invoice line values (each qty × rate, paisa-exact) — the stock value that the
+    /// pairing invariant reconciles against the voucher's stock/purchase/sales accounting amount.</summary>
+    public Money InventoryLinesValue
+    {
+        get
+        {
+            var sum = Money.Zero;
+            foreach (var l in _inventoryLines) sum += l.Value;
+            return sum;
+        }
+    }
 
     /// <summary>Alt+X — number retained in sequence, zero effect on balances.</summary>
     public bool Cancelled { get; set; }
@@ -56,7 +83,8 @@ public sealed class Voucher
         bool cancelled = false,
         bool optional = false,
         bool postDated = false,
-        DateOnly? applicableUpto = null)
+        DateOnly? applicableUpto = null,
+        IEnumerable<VoucherInventoryLine>? inventoryLines = null)
     {
         Id = id;
         TypeId = typeId;
@@ -69,6 +97,19 @@ public sealed class Voucher
         Optional = optional;
         PostDated = postDated;
         ApplicableUpto = applicableUpto;
+        _inventoryLines = inventoryLines?.ToList() ?? new List<VoucherInventoryLine>();
+    }
+
+    /// <summary>
+    /// Stamps every item-invoice line's <see cref="VoucherInventoryLine.Direction"/> to
+    /// <paramref name="direction"/> (Purchase ⇒ Inward, Sales ⇒ Outward), in place. Called by the posting
+    /// service so the stored lines carry the voucher-nature-implied direction the on-hand engine reads.
+    /// </summary>
+    public void SetInventoryLineDirections(StockDirection direction)
+    {
+        for (var i = 0; i < _inventoryLines.Count; i++)
+            if (_inventoryLines[i].Direction != direction)
+                _inventoryLines[i] = _inventoryLines[i].WithDirection(direction);
     }
 
     /// <summary>Sum of debit-line magnitudes.</summary>

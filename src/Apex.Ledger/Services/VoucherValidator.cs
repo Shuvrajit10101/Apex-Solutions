@@ -63,6 +63,100 @@ public static class VoucherValidator
         // §6.1 the golden invariant: Σ Dr == Σ Cr.
         if (!IsBalanced(v))
             throw new UnbalancedVoucherException(v.TotalDebit, v.TotalCredit);
+
+        // §10 item-invoice mode (slice 3.3b): the accounts↔inventory pairing invariant.
+        if (v.HasInventoryLines)
+            EnsureItemInvoiceValid(v, c);
+    }
+
+    /// <summary>
+    /// The item-invoice pairing invariant (catalog §10; phase3-inventory-requirements RQ-16/RQ-17; slice 3.3b).
+    /// Item lines are permitted only on a Purchase or Sales voucher whose type moves stock, every line must
+    /// reference a known stock item and godown, and — critically — the item lines' <b>total value</b>
+    /// (Σ qty × rate) must reconcile with the voucher's <b>stock accounting amount</b> so the inward/outward is
+    /// always backed by an accounting posting (no unbacked stock, no phantom profit). The exact rule:
+    /// <list type="bullet">
+    ///   <item><b>Purchase</b>: Σ item-line value == Σ of the <b>debit</b>-line amounts posted to ledgers under
+    ///     <b>Purchase Accounts</b> or <b>Stock-in-Hand</b> (the stock-in leg).</item>
+    ///   <item><b>Sales</b>: Σ item-line value == Σ of the <b>credit</b>-line amounts posted to ledgers under
+    ///     <b>Sales Accounts</b> (the sales leg).</item>
+    /// </list>
+    /// A mismatch, item lines on a non-Purchase/Sales (or non-stock-affecting) type, or an unknown item/godown
+    /// reference all throw a clean <see cref="InvalidVoucherException"/>.
+    /// </summary>
+    public static void EnsureItemInvoiceValid(Voucher v, Company c)
+    {
+        var type = c.FindVoucherType(v.TypeId)!; // referential integrity already checked above
+        var isPurchase = type.BaseType == VoucherBaseType.Purchase;
+        var isSales = type.BaseType == VoucherBaseType.Sales;
+        if (!isPurchase && !isSales)
+            throw new InvalidVoucherException(
+                $"Item-invoice stock lines are only valid on a Purchase or Sales voucher; '{type.Name}' is neither.");
+
+        // The implied direction: Purchase ⇒ inward, Sales ⇒ outward. Every item line must already carry it
+        // (the posting service stamps it), so the on-hand engine reads the direction directly.
+        var expectedDir = isPurchase ? StockDirection.Inward : StockDirection.Outward;
+        foreach (var line in v.InventoryLines)
+        {
+            if (c.FindStockItem(line.StockItemId) is null)
+                throw new InvalidVoucherException($"Item-invoice line references unknown stock item {line.StockItemId}.");
+            if (c.FindGodown(line.GodownId) is null)
+                throw new InvalidVoucherException($"Item-invoice line references unknown godown {line.GodownId}.");
+            if (line.Direction != expectedDir)
+                throw new InvalidVoucherException(
+                    $"Item-invoice line direction {line.Direction} does not match the '{type.Name}' nature " +
+                    $"(expected {expectedDir}).");
+            // Defense in depth (the VoucherInventoryLine constructor already rejects a non-positive rate): every
+            // item line must carry a positive value, so no line can move stock with no accounting backing. A
+            // zero-value line would add real quantity but ₹0 to the value sum, slipping through the pairing
+            // check below while injecting unbacked stock (phantom on-hand / phantom profit).
+            if (line.Rate.Amount <= 0m || line.Value.Amount <= 0m)
+                throw new InvalidVoucherException(
+                    "Item-invoice line rate must be greater than zero (a zero-rate line would move stock with no " +
+                    "accounting backing).");
+        }
+
+        // Σ of the accounting stock leg: Purchase = debit lines to Purchase Accounts / Stock-in-Hand ledgers;
+        // Sales = credit lines to Sales Accounts ledgers.
+        var wantSide = isPurchase ? DrCr.Debit : DrCr.Credit;
+        var accountingStockAmount = 0m;
+        foreach (var line in v.Lines)
+        {
+            if (line.Side != wantSide) continue;
+            var ledger = c.FindLedger(line.LedgerId);
+            if (ledger is null) continue; // already validated above
+            if (IsStockLegLedger(ledger, c, isPurchase))
+                accountingStockAmount += line.Amount.Amount;
+        }
+
+        var itemLinesValue = v.InventoryLinesValue.Amount;
+        if (accountingStockAmount != itemLinesValue)
+        {
+            var leg = isPurchase ? "Purchases / Stock-in-Hand (debit)" : "Sales (credit)";
+            throw new InvalidVoucherException(
+                $"Item-invoice pairing: the item lines total ₹{itemLinesValue:0.00} (Σ qty × rate) does not equal " +
+                $"the voucher's {leg} accounting amount ₹{accountingStockAmount:0.00}. The stock leg must be backed " +
+                "by an equal accounting posting so no unbacked stock is created.");
+        }
+    }
+
+    /// <summary>
+    /// Whether a ledger is the accounting "stock leg" for an item-invoice: for a Purchase, a ledger under
+    /// <b>Purchase Accounts</b> (primary ancestor) or under <b>Stock-in-Hand</b>; for a Sales, a ledger under
+    /// <b>Sales Accounts</b> (primary ancestor).
+    /// </summary>
+    private static bool IsStockLegLedger(Domain.Ledger ledger, Company c, bool isPurchase)
+    {
+        var group = c.FindGroup(ledger.GroupId);
+        if (group is null) return false;
+        if (isPurchase)
+        {
+            if (ClassificationRules.IsStockInHandLedger(ledger, c)) return true;
+            return string.Equals(ClassificationRules.PrimaryAncestorOf(group, c).Name, "Purchase Accounts",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        return string.Equals(ClassificationRules.PrimaryAncestorOf(group, c).Name, "Sales Accounts",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

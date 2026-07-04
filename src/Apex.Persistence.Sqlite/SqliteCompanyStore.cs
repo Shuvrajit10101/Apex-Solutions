@@ -297,6 +297,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 11;
         }
 
+        // v11 → v12: apply the item-invoice stock-line migration, then bump the marker. Existing v11 data survives.
+        if (version == 11)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV11ToV12;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 12);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 12;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1156,6 +1177,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var h in headers)
         {
             var lines = ReadEntryLines(h.Id);
+            var inventoryLines = ReadVoucherInventoryLines(h.Id);
             result.Add(new Voucher(
                 h.Id, h.TypeId, h.Date, lines,
                 number: h.Number,
@@ -1164,9 +1186,33 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cancelled: h.Cancelled,
                 optional: h.Optional,
                 postDated: h.PostDated,
-                applicableUpto: h.ApplicableUpto));
+                applicableUpto: h.ApplicableUpto,
+                inventoryLines: inventoryLines.Count > 0 ? inventoryLines : null));
         }
         return result;
+    }
+
+    private List<VoucherInventoryLine> ReadVoucherInventoryLines(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label
+            FROM voucher_inventory_lines WHERE voucher_id = $vid ORDER BY line_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<VoucherInventoryLine>();
+        while (r.Read())
+        {
+            list.Add(new VoucherInventoryLine(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                QtyMicroToDecimal(r.GetInt64(2)),
+                Paisa.ToMoney(r.GetInt64(4)),
+                (StockDirection)(int)r.GetInt64(3),
+                batchLabel: r.IsDBNull(5) ? null : r.GetString(5)));
+        }
+        return list;
     }
 
     private List<EntryLine> ReadEntryLines(Guid voucherId)
@@ -1303,6 +1349,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT el.id FROM entry_lines el
                 JOIN vouchers v ON v.id = el.voucher_id
                 WHERE v.company_id = $cid);
+            """, ("$cid", cid));
+        // Item-invoice stock lines FK the accounting voucher + stock masters → delete before vouchers and the
+        // stock masters below.
+        ExecTx(tx, """
+            DELETE FROM voucher_inventory_lines WHERE voucher_id IN (
+                SELECT id FROM vouchers WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
@@ -1966,6 +2018,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             InsertBillAllocations(tx, lineId, line);
             InsertCostAllocations(tx, lineId, line);
             InsertBankAllocation(tx, lineId, line);
+        }
+
+        InsertVoucherInventoryLines(tx, v);
+    }
+
+    private void InsertVoucherInventoryLines(SqliteTransaction tx, Voucher v)
+    {
+        var order = 0;
+        foreach (var line in v.InventoryLines)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO voucher_inventory_lines
+                    (voucher_id, line_order, stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label)
+                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch);
+                """;
+            cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$ord", order++);
+            cmd.Parameters.AddWithValue("$item", line.StockItemId.ToString("D"));
+            cmd.Parameters.AddWithValue("$godown", line.GodownId.ToString("D"));
+            cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(line.Quantity));
+            cmd.Parameters.AddWithValue("$dir", (int)line.Direction);
+            cmd.Parameters.AddWithValue("$rate", Paisa.FromMoney(line.Rate));
+            cmd.Parameters.AddWithValue("$batch", (object?)line.BatchLabel ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
         }
     }
 

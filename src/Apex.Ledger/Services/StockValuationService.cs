@@ -107,30 +107,33 @@ public sealed class StockValuationService
 
     /// <summary>
     /// The item's chronological inward/outward events as of <paramref name="asOf"/>: opening allocations
-    /// first (earliest cost lots), then stock-affecting voucher lines in the same deterministic order
-    /// <see cref="InventoryLedger"/> replays (by date; Physical-Stock last within a date; then number/id).
-    /// Only stock-affecting, non-cancelled, in-date vouchers contribute (post-dated excluded until due).
-    /// Quantities are normalised to the item's base unit (DP-6).
+    /// first (earliest cost lots), then stock-affecting <see cref="InventoryVoucher"/> lines AND item-invoice
+    /// (Purchase/Sales) stock lines merged in the same deterministic order <see cref="InventoryLedger"/> replays
+    /// (by date; Physical-Stock last within a date; then number/id). Only stock-affecting, non-cancelled,
+    /// in-date vouchers contribute (post-dated excluded until due). Quantities are normalised to the item's base
+    /// unit (DP-6).
     /// </summary>
     private List<MovementEvent> MovementEvents(Guid stockItemId, DateOnly asOf)
     {
-        var events = new List<MovementEvent>();
-
-        // Opening balances are the earliest inward lots (each carries its own rate).
+        // Opening balances are the earliest inward lots (each carries its own rate). They sort before every
+        // dated voucher via a min-date key.
+        var tagged = new List<(DateOnly Date, int PhysicalLast, int Number, Guid Id, MovementEvent Event)>();
+        var minDate = DateOnly.MinValue;
         foreach (var b in _company.StockOpeningBalances)
             if (b.StockItemId == stockItemId && b.Quantity > 0m)
-                events.Add(MovementEvent.Inward(b.Quantity, b.Rate.Amount));
+                tagged.Add((minDate, 0, int.MinValue, Guid.Empty, MovementEvent.Inward(b.Quantity, b.Rate.Amount)));
 
         foreach (var v in OrderedInventoryVouchers())
         {
             if (!Counts(v, asOf)) continue;
+            var physicalLast = IsPhysicalStock(v) ? 1 : 0;
 
             // A Physical-Stock count reconciles the running quantity to the counted total (DP-3).
             if (IsPhysicalStock(v))
             {
                 foreach (var pl in v.PhysicalLines)
                     if (pl.StockItemId == stockItemId)
-                        events.Add(MovementEvent.Count(pl.CountedQuantity));
+                        tagged.Add((v.Date, physicalLast, v.Number, v.Id, MovementEvent.Count(pl.CountedQuantity)));
                 continue;
             }
 
@@ -138,14 +141,27 @@ public sealed class StockValuationService
             {
                 if (a.StockItemId != stockItemId) continue;
                 var qty = QuantityInBase(a);
-                if (a.Direction == StockDirection.Inward)
-                    events.Add(MovementEvent.Inward(qty, a.Rate?.Amount));
-                else
-                    events.Add(MovementEvent.Outward(qty, a.Rate?.Amount));
+                tagged.Add((v.Date, physicalLast, v.Number, v.Id, a.Direction == StockDirection.Inward
+                    ? MovementEvent.Inward(qty, a.Rate?.Amount)
+                    : MovementEvent.Outward(qty, a.Rate?.Amount)));
             }
         }
 
-        return events;
+        // Item-invoice (Purchase/Sales) stock lines: merged as non-Physical movements at their voucher's
+        // (date, number, id) so they interleave with pure-stock movements and sit before any same-date count.
+        foreach (var m in ItemInvoiceStock.Movements(_company, asOf))
+        {
+            var a = m.Allocation;
+            if (a.StockItemId != stockItemId) continue;
+            tagged.Add((m.Date, 0, m.Number, m.VoucherId, a.Direction == StockDirection.Inward
+                ? MovementEvent.Inward(a.Quantity, a.Rate?.Amount)
+                : MovementEvent.Outward(a.Quantity, a.Rate?.Amount)));
+        }
+
+        return tagged
+            .OrderBy(t => t.Date).ThenBy(t => t.PhysicalLast).ThenBy(t => t.Number).ThenBy(t => t.Id)
+            .Select(t => t.Event)
+            .ToList();
     }
 
     // ------------------------------------------------------------------ per-method valuation

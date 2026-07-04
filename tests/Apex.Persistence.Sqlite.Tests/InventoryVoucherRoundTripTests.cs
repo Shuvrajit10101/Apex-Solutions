@@ -68,9 +68,10 @@ public sealed class InventoryVoucherRoundTripTests
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
-                // The current version has advanced past v10 (v11 added the per-item standard-cost column);
-                // a fresh DB is stamped straight to it and inventory-voucher round-trip is unaffected.
-                Assert.Equal(11, Schema.CurrentVersion);
+                // The current version has advanced past v10 (v11 added the per-item standard-cost column; v12
+                // added item-invoice stock lines); a fresh DB is stamped straight to it and inventory-voucher
+                // round-trip is unaffected.
+                Assert.Equal(12, Schema.CurrentVersion);
                 write.Save(original);
                 write.Save(original); // re-save (upsert) must not trip an inventory-voucher FK
             }
@@ -255,6 +256,9 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS order_lines;");
         Exec(conn, "DROP TABLE IF EXISTS physical_stock_lines;");
         Exec(conn, "DROP TABLE IF EXISTS inventory_vouchers;");
+        // Drop the v12 item-invoice table too, so the reopen's v11→v12 CREATE TABLE does not collide with an
+        // already-present table (this is a faithful v9 shape that predates every later slice).
+        Exec(conn, "DROP TABLE IF EXISTS voucher_inventory_lines;");
         // Rebuild voucher_types WITHOUT the two v10 effect columns (SQLite pre-3.35 has no DROP COLUMN; use a
         // table rewrite that is robust across versions).
         Exec(conn, """

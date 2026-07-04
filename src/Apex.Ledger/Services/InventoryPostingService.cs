@@ -109,6 +109,15 @@ public sealed class InventoryPostingService
         return max + 1;
     }
 
+    /// <summary>
+    /// Runs the centralised no-negative-stock guard (DP-7/ER-5) across the whole company timeline — including
+    /// item-invoice (Purchase/Sales) movements. <see cref="LedgerService"/> calls this <b>after</b> it has
+    /// provisionally appended an item-invoice accounting voucher, so a Sales item-invoice that would over-draw
+    /// on-hand is rejected and the whole voucher rolled back atomically (no accounting leg, no stock movement
+    /// persisted). Throws a clean domain exception naming the item and godown on violation.
+    /// </summary>
+    public void EnsureNoNegativeStock() => EnsureNoNegativeStockAnywhere();
+
     // ------------------------------------------------------------------ validation
 
     private static void EnsureContentMatchesType(InventoryVoucher v, VoucherType type)
@@ -242,6 +251,22 @@ public sealed class InventoryPostingService
             foreach (var pl in v.PhysicalLines)
             {
                 keys.Add(new InventoryLedger.Key(pl.StockItemId, pl.GodownId, Batch(pl.BatchLabel)));
+                dates.Add(v.Date);
+            }
+        }
+
+        // Item-invoice (Purchase/Sales) stock lines touch the same keys/dates and must satisfy the same guard,
+        // so a Sales item-invoice that would over-draw on-hand is blocked (and rolled back) exactly like a
+        // Delivery Note (DP-7). Cancelled/optional item-invoice vouchers never contribute (Counts filters them).
+        foreach (var v in _company.Vouchers)
+        {
+            if (!v.HasInventoryLines) continue;
+            if (v.Cancelled || v.Optional) continue;
+            var type = _company.FindVoucherType(v.TypeId);
+            if (type is null || type.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales)) continue;
+            foreach (var line in v.InventoryLines)
+            {
+                keys.Add(new InventoryLedger.Key(line.StockItemId, line.GodownId, Batch(line.BatchLabel)));
                 dates.Add(v.Date);
             }
         }

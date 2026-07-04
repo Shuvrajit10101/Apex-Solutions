@@ -46,11 +46,18 @@ namespace Apex.Persistence.Sqlite;
 /// method values closing stock at), added by <see cref="MigrateV10ToV11"/> (one <c>ALTER TABLE … ADD
 /// COLUMN</c>; existing v10 rows keep NULL = no standard rate). Run inside a transaction that bumps
 /// <c>schema_version</c> to 11; a fresh DB is stamped straight to v11 via <see cref="CreateV1"/>.
+///
+/// <b>v12</b> adds Item-Invoice-mode stock lines (catalog §10; plan.md §5 Phase 3, slice 3.3b): one child
+/// table <c>voucher_inventory_lines</c> hung off the accounting <c>vouchers</c> table (a Purchase/Sales
+/// voucher run in item-invoice mode carries item lines that move stock in the same voucher). Added by
+/// <see cref="MigrateV11ToV12"/> (one pure CREATE TABLE/INDEX — no ALTER, no row rewrites — so an existing v11
+/// database keeps all its data and simply gains an empty table). Run inside a transaction that bumps
+/// <c>schema_version</c> to 12; a fresh DB is stamped straight to v12 via <see cref="CreateV1"/>.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v11 = per-item standard cost).</summary>
-    public const int CurrentVersion = 11;
+    /// <summary>The current schema version this adapter reads and writes (v12 = item-invoice stock lines).</summary>
+    public const int CurrentVersion = 12;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -394,6 +401,19 @@ public static class Schema
             batch_label       TEXT        NULL
         );
 
+        -- v12 (catalog §10; slice 3.3b): Item-Invoice stock lines on a Purchase/Sales accounting voucher.
+        CREATE TABLE voucher_inventory_lines (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            voucher_id        TEXT    NOT NULL REFERENCES vouchers(id),   -- the accounting voucher it hangs off
+            line_order        INTEGER NOT NULL,               -- preserves order within the voucher
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
+            direction         INTEGER NOT NULL,               -- StockDirection ordinal (Inward=0, Outward=1)
+            rate_paisa        INTEGER NOT NULL,               -- per-unit rate in paisa (item-invoice always rated)
+            batch_label       TEXT        NULL
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -422,6 +442,7 @@ public static class Schema
         CREATE INDEX ix_inv_allocations_voucher  ON inventory_allocations(inventory_voucher_id);
         CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
         CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
+        CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
         """;
 
     /// <summary>
@@ -788,5 +809,29 @@ public static class Schema
     /// </summary>
     public const string MigrateV10ToV11 = """
         ALTER TABLE stock_items ADD COLUMN standard_cost_paisa INTEGER NULL;
+        """;
+
+    /// <summary>
+    /// The v11→v12 migration (catalog §10 Item-Invoice mode; slice 3.3b): creates the
+    /// <c>voucher_inventory_lines</c> child table (item lines on a Purchase/Sales accounting voucher) + its
+    /// index. Pure CREATE TABLE/INDEX — no ALTER, no row rewrites — so an existing v11 database keeps all its
+    /// data and simply gains an empty table (there are no item-invoice lines until a company is next saved).
+    /// Run inside a transaction that also bumps <c>schema_version</c> to 12. A fresh DB is stamped straight to
+    /// v12 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV11ToV12 = """
+        CREATE TABLE voucher_inventory_lines (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            voucher_id        TEXT    NOT NULL REFERENCES vouchers(id),
+            line_order        INTEGER NOT NULL,
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+            quantity_micro    INTEGER NOT NULL,
+            direction         INTEGER NOT NULL,
+            rate_paisa        INTEGER NOT NULL,
+            batch_label       TEXT        NULL
+        );
+
+        CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
         """;
 }

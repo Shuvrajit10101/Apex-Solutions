@@ -85,6 +85,18 @@ public sealed class InventoryLedger
     {
         var running = OpeningFor(key);
         var reached = excludeFromInclusive is null;
+
+        // Item-invoice movements (Purchase/Sales in item-invoice mode) interleave with the pure-stock vouchers
+        // by date. They are simple directional deltas (no Physical-Stock checkpoint). We merge them into the
+        // date-ordered replay so a same-date-or-earlier item-invoice delta is absorbed BEFORE a Physical-Stock
+        // count checkpoints the running balance (a count reflects the day's actual movements — DP-3), and a
+        // later delta applies after the count. Within a date, deltas commute, so date-level interleave suffices.
+        var itemMovements = ItemInvoiceStock.Movements(_company, asOf, excludeVoucherId)
+            .Where(m => SignedFor(m.Allocation, key) != 0m)
+            .OrderBy(m => m.Date)
+            .ToList();
+        var mi = 0;
+
         foreach (var v in OrderedInventoryVouchers())
         {
             if (!reached)
@@ -93,12 +105,25 @@ public sealed class InventoryLedger
             }
             if (excludeVoucherId is { } ex && v.Id == ex) continue;
             if (!Counts(v, asOf)) continue;
+
+            // Absorb every item-invoice delta strictly BEFORE this voucher's date (and same-date deltas before a
+            // Physical-Stock count, which is ordered last within its date so its date's non-count movements and
+            // item-invoice deltas land first).
+            var applyBefore = IsPhysicalStock(v) ? v.Date : v.Date.AddDays(-1);
+            while (mi < itemMovements.Count && itemMovements[mi].Date <= applyBefore)
+                running += SignedFor(itemMovements[mi++].Allocation, key);
+
             // For the no-negative GUARD only: on the as-of date itself, apply that date's movements but NOT its
             // Physical-Stock count checkpoint, so an outward line that over-drew pre-count stock is not masked
             // by the count SETTING on-hand back to the counted quantity (DP-3 vs DP-7).
             var suppressCheckpoint = skipCountCheckpointOnAsOf && v.Date == asOf;
             ApplyToKey(v, key, ref running, suppressCheckpoint);
         }
+
+        // Any remaining item-invoice deltas (dated after the last replayed voucher) apply last.
+        while (mi < itemMovements.Count)
+            running += SignedFor(itemMovements[mi++].Allocation, key);
+
         return running;
     }
 
@@ -171,6 +196,13 @@ public sealed class InventoryLedger
                 if (pl.StockItemId == stockItemId && (godownId is null || pl.GodownId == godownId.Value))
                     keys.Add(new Key(stockItemId, pl.GodownId, Normalise(pl.BatchLabel)));
         }
+
+        // Item-invoice stock lines contribute their (item, godown, batch) keys too.
+        foreach (var v in _company.Vouchers)
+            foreach (var line in v.InventoryLines)
+                if (line.StockItemId == stockItemId && (godownId is null || line.GodownId == godownId.Value))
+                    keys.Add(new Key(stockItemId, line.GodownId, Normalise(line.BatchLabel)));
+
         return keys;
     }
 

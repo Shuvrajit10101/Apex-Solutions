@@ -65,9 +65,9 @@ public sealed class InventoryRoundTripTests
             {
                 write.Save(original);
                 // The inventory-master tables are unchanged since v9; the current version has since advanced
-                // (v10 added inventory & order vouchers; v11 added the per-item standard-cost column), and a
-                // fresh DB is stamped straight to it.
-                Assert.Equal(11, Schema.CurrentVersion);
+                // (v10 added inventory & order vouchers; v11 added the per-item standard-cost column; v12 added
+                // item-invoice stock lines), and a fresh DB is stamped straight to it.
+                Assert.Equal(12, Schema.CurrentVersion);
                 // Re-save (delete-then-insert upsert) must not trip an inventory foreign key.
                 write.Save(original);
             }
