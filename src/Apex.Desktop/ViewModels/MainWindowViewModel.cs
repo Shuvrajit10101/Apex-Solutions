@@ -27,6 +27,7 @@ public enum Screen
     BankReconciliation,
     BankStatementImport,
     ScenarioMaster,
+    InterestReport,
 }
 
 /// <summary>
@@ -129,6 +130,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Scenario-creation master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private ScenarioMasterViewModel? _scenarioMaster;
 
+    /// <summary>The Interest Calculation report view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private InterestReportViewModel? _interestReport;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -137,7 +141,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
-        && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null;
+        && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
+        && InterestReport is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -152,6 +157,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBankReconciliationChanged(BankReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBankStatementImportChanged(BankStatementImportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnScenarioMasterChanged(ScenarioMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnInterestReportChanged(InterestReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -404,6 +410,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Outstandings", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -646,6 +653,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.CostReport, vm.Title, () => CostReports = vm);
     }
 
+    // =============================================================== screen: interest calculation
+
+    /// <summary>
+    /// Opens the Interest Calculation report (Reports → Statements of Accounts → Interest Calculation) as a
+    /// page column: each interest-enabled ledger's accrued interest (principal / rate / days / interest,
+    /// right-aligned) over the company period, plus the total. A projection over the posted vouchers.
+    /// </summary>
+    public void OpenInterestReport()
+    {
+        if (Company is null) return;
+
+        var vm = new InterestReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.InterestReport, vm.Title,
+            () => InterestReport = vm);
+    }
+
     // =============================================================== screen: budget variance
 
     /// <summary>
@@ -847,6 +870,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BankReconciliation = null;
         BankStatementImport = null;
         ScenarioMaster = null;
+        InterestReport = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -1156,6 +1180,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
             case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
             case "Budget Variance": OpenBudgetVariance(); break;
+            case "Interest Calculation": OpenInterestReport(); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -1310,6 +1335,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport, hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));

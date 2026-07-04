@@ -65,6 +65,14 @@ public sealed class Ledger
     /// </summary>
     public string? ChequePrintingBankName { get; set; }
 
+    /// <summary>
+    /// "Activate Interest Calculation = Yes" (catalog §7) — the optional interest-parameter block. <c>null</c>
+    /// (or a block with <see cref="InterestParameters.Enabled"/> false) means no interest accrues, so existing
+    /// ledgers default off. When set and enabled, the interest projection accrues interest on this ledger's
+    /// outstanding balance per the block's Rate / Per / On / Applicability / Style / Rounding settings.
+    /// </summary>
+    public InterestParameters? Interest { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -77,7 +85,8 @@ public sealed class Ledger
         int? defaultCreditPeriodDays = null,
         bool? costCentresApplicable = null,
         bool enableChequePrinting = false,
-        string? chequePrintingBankName = null)
+        string? chequePrintingBankName = null,
+        InterestParameters? interest = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -99,7 +108,11 @@ public sealed class Ledger
         CostCentresApplicable = costCentresApplicable;
         EnableChequePrinting = enableChequePrinting;
         ChequePrintingBankName = string.IsNullOrWhiteSpace(chequePrintingBankName) ? null : chequePrintingBankName.Trim();
+        Interest = interest;
     }
+
+    /// <summary>True iff this ledger has an interest block that is activated.</summary>
+    public bool InterestEnabled => Interest is { Enabled: true };
 
     /// <summary>Signed opening: positive when debit, negative when credit (Dr = +, Cr = −).</summary>
     public decimal SignedOpening => OpeningIsDebit ? OpeningBalance.Amount : -OpeningBalance.Amount;

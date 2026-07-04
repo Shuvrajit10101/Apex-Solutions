@@ -192,6 +192,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 6;
         }
 
+        // v6 → v7: apply the interest-calculation migration, then bump the marker. Existing v6 data survives.
+        if (version == 6)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV6ToV7;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 7);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 7;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -448,7 +469,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
                    maintain_bill_by_bill, default_credit_period, cost_applicable,
-                   enable_cheque_printing, cheque_bank_name
+                   enable_cheque_printing, cheque_bank_name,
+                   interest_enabled, interest_rate_millis, interest_per, interest_on_balance,
+                   interest_applicability, interest_calc_from, interest_style,
+                   interest_round_method, interest_round_decimals
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -468,9 +492,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 defaultCreditPeriodDays: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8),
                 costCentresApplicable: r.IsDBNull(9) ? (bool?)null : r.GetInt64(9) != 0,
                 enableChequePrinting: r.GetInt64(10) != 0,
-                chequePrintingBankName: r.IsDBNull(11) ? null : r.GetString(11)));
+                chequePrintingBankName: r.IsDBNull(11) ? null : r.GetString(11),
+                interest: ReadInterest(r)));
         }
         return list;
+    }
+
+    /// <summary>
+    /// Reads the interest block from the current ledger row (columns 12–20), or <c>null</c> when the ledger
+    /// carries no block (<c>interest_enabled IS NULL</c>). Rate is stored as millis (rate% × 1000).
+    /// </summary>
+    private static InterestParameters? ReadInterest(SqliteDataReader r)
+    {
+        if (r.IsDBNull(12)) return null; // no interest block at all
+
+        return new InterestParameters(
+            enabled: r.GetInt64(12) != 0,
+            ratePercent: r.GetInt64(13) / 1000m,
+            per: (InterestPer)(int)r.GetInt64(14),
+            onBalance: (InterestOnBalance)(int)r.GetInt64(15),
+            applicability: (InterestApplicability)(int)r.GetInt64(16),
+            calculateFrom: r.IsDBNull(17) ? (DateOnly?)null : ParseDate(r.GetString(17)),
+            style: (InterestStyle)(int)r.GetInt64(18),
+            roundingMethod: (InterestRoundingMethod)(int)r.GetInt64(19),
+            roundingDecimals: (int)r.GetInt64(20));
     }
 
     private IEnumerable<VoucherType> ReadVoucherTypes(Guid companyId)
@@ -910,8 +955,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO ledgers
                     (id, company_id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
                      maintain_bill_by_bill, default_credit_period, cost_applicable,
-                     enable_cheque_printing, cheque_bank_name)
-                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn);
+                     enable_cheque_printing, cheque_bank_name,
+                     interest_enabled, interest_rate_millis, interest_per, interest_on_balance,
+                     interest_applicability, interest_calc_from, interest_style,
+                     interest_round_method, interest_round_decimals)
+                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
+                        $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -926,6 +975,19 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$cca", l.CostCentresApplicable is { } cca ? (cca ? 1 : 0) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$ecp", l.EnableChequePrinting ? 1 : 0);
             cmd.Parameters.AddWithValue("$cbn", (object?)l.ChequePrintingBankName ?? DBNull.Value);
+
+            // v7 interest block: all NULL when the ledger has no block, so existing ledgers stay off.
+            var ip = l.Interest;
+            cmd.Parameters.AddWithValue("$ien", ip is null ? (object)DBNull.Value : (ip.Enabled ? 1 : 0));
+            cmd.Parameters.AddWithValue("$irate", ip is null ? (object)DBNull.Value : RateToMillis(ip.RatePercent));
+            cmd.Parameters.AddWithValue("$iper", ip is null ? (object)DBNull.Value : (int)ip.Per);
+            cmd.Parameters.AddWithValue("$ion", ip is null ? (object)DBNull.Value : (int)ip.OnBalance);
+            cmd.Parameters.AddWithValue("$iapp", ip is null ? (object)DBNull.Value : (int)ip.Applicability);
+            cmd.Parameters.AddWithValue("$icf",
+                ip?.CalculateFrom is { } cf ? FormatDate(cf) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$istyle", ip is null ? (object)DBNull.Value : (int)ip.Style);
+            cmd.Parameters.AddWithValue("$irm", ip is null ? (object)DBNull.Value : (int)ip.RoundingMethod);
+            cmd.Parameters.AddWithValue("$ird", ip is null ? (object)DBNull.Value : ip.RoundingDecimals);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1222,6 +1284,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = sql;
         var result = cmd.ExecuteScalar();
         return result is null or DBNull ? 0 : Convert.ToInt64(result);
+    }
+
+    /// <summary>
+    /// Interest rate percent → millis (rate% × 1000), stored as INTEGER so the rate round-trips exactly
+    /// (no binary float). Throws if the rate carries more than 3 decimal places (would lose precision).
+    /// </summary>
+    private static long RateToMillis(decimal ratePercent)
+    {
+        var scaled = ratePercent * 1000m;
+        var truncated = decimal.Truncate(scaled);
+        if (scaled != truncated)
+            throw new InvalidOperationException(
+                $"Interest rate {ratePercent}% is not exact to 3 decimal places; cannot persist without loss.");
+        return (long)truncated;
     }
 
     private static string FormatDate(DateOnly d) => d.ToString("yyyy-MM-dd");
