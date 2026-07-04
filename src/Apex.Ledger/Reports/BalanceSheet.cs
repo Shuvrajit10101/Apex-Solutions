@@ -1,4 +1,5 @@
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Reports;
 
@@ -9,7 +10,9 @@ public sealed record BalanceSheetLine(string Name, string GroupName, Money Amoun
 /// The Balance Sheet (design §7.4). Every non-P&amp;L ledger's closing balance, split
 /// Liabilities vs Assets by its primary ancestor's nature, plus the period net profit
 /// folded into the capital/P&amp;L side. Stock-in-Hand ledgers contribute only their
-/// closing movement (opening stock is consumed into the trading account).
+/// closing movement (opening stock is consumed into the trading account) under
+/// <see cref="ClosingStockMode.AsPostedLedger"/>; under <see cref="ClosingStockMode.InventoryDerived"/> the
+/// Stock-in-Hand asset is the single <b>derived</b> Σ item-closing-value line (RQ-25/RQ-26).
 /// <see cref="TotalLiabilities"/> == <see cref="TotalAssets"/> by construction (§6).
 /// </summary>
 public sealed record BalanceSheet(
@@ -22,12 +25,21 @@ public sealed record BalanceSheet(
     public bool Balanced => TotalLiabilities == TotalAssets;
 
     /// <summary>
-    /// Builds the Balance Sheet as of a date. When <paramref name="scenario"/> is non-<c>null</c> the
-    /// figures are computed under that scenario (catalog §7); a <c>null</c> scenario yields the plain
-    /// actual Balance Sheet (unchanged behaviour).
+    /// Builds the Balance Sheet as of a date. When <paramref name="mode"/> is
+    /// <see cref="ClosingStockMode.InventoryDerived"/> the Stock-in-Hand asset is the derived Σ item-closing
+    /// value (RQ-25/RQ-26) and the folded net profit is computed on the same derived closing stock, so the
+    /// statement still balances to the paisa (assets incl. derived closing stock = liabilities incl. the
+    /// profit effect of closing stock). When <paramref name="scenario"/> is non-<c>null</c> the figures are
+    /// computed under that scenario (catalog §7); a <c>null</c> scenario yields the plain actual sheet.
     /// </summary>
-    public static BalanceSheet Build(Company company, DateOnly asOf, Scenario? scenario = null)
+    public static BalanceSheet Build(
+        Company company,
+        DateOnly asOf,
+        ClosingStockMode mode = ClosingStockMode.AsPostedLedger,
+        Scenario? scenario = null)
     {
+        var inventoryDerived = mode == ClosingStockMode.InventoryDerived;
+
         var liabilities = new List<BalanceSheetLine>();
         var assets = new List<BalanceSheetLine>();
         var totalLiab = 0m;
@@ -42,13 +54,30 @@ public sealed record BalanceSheet(
             if (ClassificationRules.IsProfitAndLossGroup(group, company))
                 continue;
 
-            var signed = LedgerBalances.SignedClosing(company, ledger, asOf, scenario);
-
-            // Stock-in-Hand: opening stock is consumed into the trading account, so only the
-            // closing movement (closing − opening) remains on the Balance Sheet.
+            // Stock-in-Hand ledgers: under InventoryDerived, every one is suppressed here and replaced by a
+            // single derived Stock-in-Hand asset line below (no manual closing-stock ledger participates).
             if (ClassificationRules.IsStockInHandLedger(ledger, company))
-                signed -= ledger.SignedOpening;
+            {
+                if (inventoryDerived) continue;
+                // AsPostedLedger: opening stock is consumed into the trading account, so only the closing
+                // movement (closing − opening) remains on the Balance Sheet.
+                var signedStock = LedgerBalances.SignedClosing(company, ledger, asOf, scenario) - ledger.SignedOpening;
+                if (signedStock == 0m) continue;
+                var stockNature = ClassificationRules.PrimaryNatureOf(group, company);
+                if (stockNature == GroupNature.Asset)
+                {
+                    assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(signedStock)));
+                    totalAsset += signedStock;
+                }
+                else
+                {
+                    liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(-signedStock)));
+                    totalLiab += -signedStock;
+                }
+                continue;
+            }
 
+            var signed = LedgerBalances.SignedClosing(company, ledger, asOf, scenario);
             if (signed == 0m) continue;
 
             var primaryNature = ClassificationRules.PrimaryNatureOf(group, company);
@@ -68,8 +97,19 @@ public sealed record BalanceSheet(
             }
         }
 
-        // Fold the period net profit into the capital / P&L side (under the same scenario).
-        var pl = ProfitAndLoss.Build(company, asOf, ClosingStockMode.AsPostedLedger, scenario);
+        // Derived Stock-in-Hand: one asset line = Σ each item's closing value by its own method (RQ-25/26).
+        if (inventoryDerived)
+        {
+            var derived = new StockValuationService(company).TotalClosingStockValue(asOf).Amount;
+            if (derived != 0m)
+            {
+                assets.Add(new BalanceSheetLine("Stock-in-Hand", "Stock-in-Hand", new Money(derived)));
+                totalAsset += derived;
+            }
+        }
+
+        // Fold the period net profit into the capital / P&L side (under the same mode + scenario).
+        var pl = ProfitAndLoss.Build(company, asOf, mode, scenario);
         var netProfit = pl.NetProfit;
         liabilities.Add(new BalanceSheetLine("Net Profit (period)", "Profit & Loss A/c", netProfit));
         totalLiab += netProfit.Amount;

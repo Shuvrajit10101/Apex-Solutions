@@ -111,7 +111,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     private void BuildBalanceSheet()
     {
-        var bs = BalanceSheet.Build(_company, _asOf, CurrentScenario);
+        var bs = BalanceSheet.Build(_company, _asOf, scenario: CurrentScenario);
         Title = "Balance Sheet";
         Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}";
         IsTwoColumn = false;

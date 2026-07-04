@@ -276,6 +276,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 10;
         }
 
+        // v10 → v11: apply the per-item standard-cost migration, then bump the marker. Existing v10 data survives.
+        if (version == 10)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV10ToV11;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 11);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 11;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -840,7 +861,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
-                   hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro
+                   hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -859,7 +880,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 hsnSacCode: r.IsDBNull(7) ? null : r.GetString(7),
                 isTaxable: r.GetInt64(8) != 0,
                 reorderLevel: r.IsDBNull(9) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(9)),
-                minimumOrderQuantity: r.IsDBNull(10) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(10))));
+                minimumOrderQuantity: r.IsDBNull(10) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(10)),
+                standardCost: r.IsDBNull(11) ? (Money?)null : Paisa.ToMoney(r.GetInt64(11))));
         }
         return list;
     }
@@ -1663,8 +1685,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO stock_items
                     (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
-                     hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro)
-                VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq);
+                     hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa)
+                VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1678,6 +1700,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tax", item.IsTaxable ? 1 : 0);
             cmd.Parameters.AddWithValue("$rol", item.ReorderLevel is { } rol ? QtyMicroFromDecimal(rol) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$moq", item.MinimumOrderQuantity is { } moq ? QtyMicroFromDecimal(moq) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$std", item.StandardCost is { } std ? Paisa.FromMoney(std) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

@@ -65,8 +65,9 @@ public sealed class InventoryRoundTripTests
             {
                 write.Save(original);
                 // The inventory-master tables are unchanged since v9; the current version has since advanced
-                // (v10 added inventory & order vouchers), and a fresh DB is stamped straight to it.
-                Assert.Equal(10, Schema.CurrentVersion);
+                // (v10 added inventory & order vouchers; v11 added the per-item standard-cost column), and a
+                // fresh DB is stamped straight to it.
+                Assert.Equal(11, Schema.CurrentVersion);
                 // Re-save (delete-then-insert upsert) must not trip an inventory foreign key.
                 write.Save(original);
             }
@@ -175,6 +176,39 @@ public sealed class InventoryRoundTripTests
             Assert.Equal(123.4567m, ob.Quantity);
             // Value = 123.4567 × 45 = 5555.5515 → paisa-snapped to 5555.55.
             Assert.Equal(Money.FromRupees(5555.55m), ob.Value);
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Standard_cost_rate_round_trips_and_null_stays_null()
+    {
+        // A Standard-Cost item carries a paisa-exact standard rate that must survive save/reload (schema v11);
+        // an item with no standard rate must reload as null (the last-purchase fallback then applies).
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-inv-std-{Guid.NewGuid():N}.db");
+        try
+        {
+            var c = CompanyFactory.CreateSeeded("Std Cost Co", new DateOnly(2024, 4, 1));
+            var svc = new InventoryService(c);
+            var grp = svc.CreateStockGroup("Goods");
+            var nos = svc.CreateSimpleUnit("Nos", "Numbers");
+            var withStd = svc.CreateStockItem("Bolt", grp.Id, nos.Id,
+                valuationMethod: StockValuationMethod.StandardCost, standardCost: Money.FromRupees(11.25m));
+            var noStd = svc.CreateStockItem("Nut", grp.Id, nos.Id,
+                valuationMethod: StockValuationMethod.StandardCost);
+
+            using (var write = new SqliteCompanyStore(dbPath)) write.Save(c);
+
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+
+            using var read = new SqliteCompanyStore(dbPath);
+            var reloaded = read.Load(c.Id)!;
+            Assert.Equal(Money.FromRupees(11.25m), reloaded.FindStockItem(withStd.Id)!.StandardCost);
+            Assert.Null(reloaded.FindStockItem(noStd.Id)!.StandardCost);
         }
         finally
         {

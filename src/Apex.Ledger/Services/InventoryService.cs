@@ -272,7 +272,8 @@ public sealed class InventoryService
         string? hsnSacCode = null,
         bool isTaxable = false,
         decimal? reorderLevel = null,
-        decimal? minimumOrderQuantity = null)
+        decimal? minimumOrderQuantity = null,
+        Money? standardCost = null)
     {
         var trimmed = RequireName(name, "stock item");
         if (_company.FindStockItemByName(trimmed) is not null)
@@ -285,7 +286,7 @@ public sealed class InventoryService
             throw new InvalidOperationException($"Stock category {cid} not found.");
 
         var item = new StockItem(Guid.NewGuid(), trimmed, stockGroupId, baseUnitId, categoryId, alias,
-            valuationMethod, hsnSacCode, isTaxable, reorderLevel, minimumOrderQuantity);
+            valuationMethod, hsnSacCode, isTaxable, reorderLevel, minimumOrderQuantity, standardCost);
         _company.AddStockItem(item);
         return item;
     }

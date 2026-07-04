@@ -68,7 +68,9 @@ public sealed class InventoryVoucherRoundTripTests
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
-                Assert.Equal(10, Schema.CurrentVersion);
+                // The current version has advanced past v10 (v11 added the per-item standard-cost column);
+                // a fresh DB is stamped straight to it and inventory-voucher round-trip is unaffected.
+                Assert.Equal(11, Schema.CurrentVersion);
                 write.Save(original);
                 write.Save(original); // re-save (upsert) must not trip an inventory-voucher FK
             }
@@ -269,6 +271,26 @@ public sealed class InventoryVoucherRoundTripTests
             """);
         Exec(conn, "DROP TABLE voucher_types;");
         Exec(conn, "ALTER TABLE voucher_types_v9 RENAME TO voucher_types;");
+        // Rebuild stock_items WITHOUT the v11 standard_cost_paisa column, so this is a faithful v9 shape and
+        // the reopen's v10→v11 ALTER TABLE ADD COLUMN does not collide with an already-present column.
+        Exec(conn, """
+            CREATE TABLE stock_items_v9 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                stock_group_id TEXT NOT NULL, category_id TEXT NULL, base_unit_id TEXT NOT NULL,
+                alias TEXT NULL, valuation_method INTEGER NOT NULL DEFAULT 0, hsn_sac_code TEXT NULL,
+                is_taxable INTEGER NOT NULL DEFAULT 0, reorder_level_micro INTEGER NULL,
+                min_order_qty_micro INTEGER NULL);
+            """);
+        Exec(conn, """
+            INSERT INTO stock_items_v9
+                (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
+                 hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro)
+            SELECT id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
+                 hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro
+            FROM stock_items;
+            """);
+        Exec(conn, "DROP TABLE stock_items;");
+        Exec(conn, "ALTER TABLE stock_items_v9 RENAME TO stock_items;");
         Exec(conn, "UPDATE schema_version SET version = 9;");
         SqliteConnection.ClearPool(conn);
     }

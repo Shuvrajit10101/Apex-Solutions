@@ -41,11 +41,16 @@ namespace Apex.Persistence.Sqlite;
 /// (PO/SO ordered items) and <c>physical_stock_lines</c> (Physical-Stock counted quantities). Added by
 /// <see cref="MigrateV9ToV10"/> (two ALTER + four CREATE TABLE/INDEX; existing v9 data untouched). Quantities
 /// are INTEGER micros, rates INTEGER paisa.
+/// <b>v11</b> adds the per-item standard-cost rate (catalog §9; plan.md §5 Phase 3, slice 3.3a): a single
+/// nullable <c>standard_cost_paisa</c> column on <c>stock_items</c> (the rate the Standard-Cost valuation
+/// method values closing stock at), added by <see cref="MigrateV10ToV11"/> (one <c>ALTER TABLE … ADD
+/// COLUMN</c>; existing v10 rows keep NULL = no standard rate). Run inside a transaction that bumps
+/// <c>schema_version</c> to 11; a fresh DB is stamped straight to v11 via <see cref="CreateV1"/>.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v10 = inventory &amp; order vouchers).</summary>
-    public const int CurrentVersion = 10;
+    /// <summary>The current schema version this adapter reads and writes (v11 = per-item standard cost).</summary>
+    public const int CurrentVersion = 11;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -325,7 +330,8 @@ public static class Schema
             hsn_sac_code        TEXT        NULL,             -- GST placeholder, inert until the GST slice
             is_taxable          INTEGER NOT NULL DEFAULT 0,   -- GST placeholder 0/1
             reorder_level_micro INTEGER     NULL,             -- simple reorder level, qty × 1,000,000
-            min_order_qty_micro INTEGER     NULL              -- minimum order qty, qty × 1,000,000
+            min_order_qty_micro INTEGER     NULL,             -- minimum order qty, qty × 1,000,000
+            standard_cost_paisa INTEGER     NULL              -- Standard-Cost valuation rate in paisa (NULL = unset)
         );
 
         CREATE TABLE stock_opening_balances (
@@ -770,5 +776,17 @@ public static class Schema
         CREATE INDEX ix_inv_allocations_voucher  ON inventory_allocations(inventory_voucher_id);
         CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
         CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
+        """;
+
+    /// <summary>
+    /// The v10→v11 migration (catalog §9 per-item standard cost; slice 3.3a): adds a single nullable
+    /// <c>standard_cost_paisa</c> column to <c>stock_items</c> (the Standard-Cost valuation rate in paisa).
+    /// One <c>ALTER TABLE … ADD COLUMN</c> — no row rewrites — so an existing v10 database keeps all its data
+    /// (the column defaults to NULL = no standard rate, i.e. Standard-Cost items fall back to last purchase
+    /// cost until a rate is set). Run inside a transaction that also bumps <c>schema_version</c> to 11. A
+    /// fresh DB is stamped straight to v11 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV10ToV11 = """
+        ALTER TABLE stock_items ADD COLUMN standard_cost_paisa INTEGER NULL;
         """;
 }

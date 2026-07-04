@@ -49,6 +49,14 @@ public sealed class StockItem
     public bool IsTaxable { get; set; }
 
     /// <summary>
+    /// The optional per-item <b>standard cost</b> rate (RQ-21/RQ-22): the fixed per-unit rate the
+    /// <see cref="StockValuationMethod.StandardCost"/> method values closing stock at, independent of actual
+    /// movements. <c>null</c> ⇒ no standard rate set; a <c>StandardCost</c>-method item then falls back to its
+    /// last purchase cost (documented in <c>StockValuationService</c>). Paisa-exact when set.
+    /// </summary>
+    public Money? StandardCost { get; set; }
+
+    /// <summary>
     /// Simple reorder level: the on-hand quantity at/below which the item is flagged for reorder
     /// (RQ-33). <c>null</c> ⇒ no reorder level set.
     /// </summary>
@@ -71,10 +79,19 @@ public sealed class StockItem
         string? hsnSacCode = null,
         bool isTaxable = false,
         decimal? reorderLevel = null,
-        decimal? minimumOrderQuantity = null)
+        decimal? minimumOrderQuantity = null,
+        Money? standardCost = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Stock item name is required.", nameof(name));
+        if (standardCost is { } sc)
+        {
+            if (sc.Amount < 0m)
+                throw new ArgumentException("Standard cost must be ≥ 0 when set.", nameof(standardCost));
+            if (!sc.IsPaisaExact)
+                throw new InvalidOperationException(
+                    $"Standard cost {sc.Amount} must be to the paisa (2 decimal places).");
+        }
         if (reorderLevel is < 0m)
             throw new ArgumentException("Reorder level must be ≥ 0 when set.", nameof(reorderLevel));
         if (reorderLevel is { } rl && !Quantities.IsWithinPrecision(rl))
@@ -97,5 +114,6 @@ public sealed class StockItem
         IsTaxable = isTaxable;
         ReorderLevel = reorderLevel;
         MinimumOrderQuantity = minimumOrderQuantity;
+        StandardCost = standardCost;
     }
 }

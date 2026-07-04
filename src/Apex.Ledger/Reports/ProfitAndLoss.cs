@@ -1,4 +1,5 @@
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Reports;
 
@@ -43,7 +44,7 @@ public sealed record ProfitAndLoss(
         ClosingStockMode mode = ClosingStockMode.AsPostedLedger,
         Scenario? scenario = null)
     {
-        _ = mode; // Phase 1 supports AsPostedLedger; InventoryDerived is a Phase-3 seam.
+        var inventoryDerived = mode == ClosingStockMode.InventoryDerived;
 
         var income = new List<ProfitAndLossLine>();
         var expenses = new List<ProfitAndLossLine>();
@@ -52,6 +53,11 @@ public sealed record ProfitAndLoss(
         var openingStock = 0m;
         var closingStock = 0m;
 
+        // Phase-3 integration (RQ-25/RQ-27): when inventory-derived, closing stock is the Σ of each stock
+        // item's closing value by its own valuation method — NOT a posted Stock-in-Hand movement.
+        if (inventoryDerived)
+            closingStock = new StockValuationService(company).TotalClosingStockValue(to).Amount;
+
         foreach (var ledger in company.Ledgers)
         {
             var group = company.FindGroup(ledger.GroupId)
@@ -59,17 +65,22 @@ public sealed record ProfitAndLoss(
 
             // Stock-in-Hand ledgers get the trading treatment, not the P&L-group treatment.
             // Opening stock (opening debit balance) is a charge to the trading account.
-            // Closing stock is injected via a paired income-side adjustment ledger (Dr asset /
-            // Cr Direct-Income adjustment), so the income arm already carries the closing-stock
-            // credit; the asset-ledger movement is reported for display only, never re-added.
             if (ClassificationRules.IsStockInHandLedger(ledger, company))
             {
                 if (ledger.OpeningIsDebit && ledger.OpeningBalance != Money.Zero)
                     openingStock += ledger.OpeningBalance.Amount;
 
-                var closingSigned = LedgerBalances.SignedClosing(company, ledger, to, scenario);
-                var movement = closingSigned - ledger.SignedOpening;
-                if (movement > 0m) closingStock += movement;
+                // AsPostedLedger: closing stock is injected via a paired income-side adjustment ledger (Dr
+                // asset / Cr Direct-Income adjustment), so the income arm already carries the closing-stock
+                // credit; the asset-ledger movement is reported for display only, never re-added.
+                // InventoryDerived: the posted Stock-in-Hand closing movement is IGNORED — closing stock is
+                // the derived Σ computed above (so no manual closing-stock ledger is required).
+                if (!inventoryDerived)
+                {
+                    var closingSigned = LedgerBalances.SignedClosing(company, ledger, to, scenario);
+                    var movement = closingSigned - ledger.SignedOpening;
+                    if (movement > 0m) closingStock += movement;
+                }
                 continue;
             }
 
@@ -100,13 +111,15 @@ public sealed record ProfitAndLoss(
             }
         }
 
-        // Trading + P&L: opening stock is an added charge. Closing stock is already in the
-        // income arm via its adjustment ledger, so only opening stock adjusts the totals here.
-        var net = totalIncome - (totalExpense + openingStock);
+        // Trading + P&L. AsPostedLedger: closing stock is already in the income arm via its adjustment
+        // ledger, so only opening stock adjusts the totals here. InventoryDerived: closing stock is NOT in
+        // income, so it is added back explicitly (it reduces COGS and lifts profit).
+        var net = totalIncome - (totalExpense + openingStock) + (inventoryDerived ? closingStock : 0m);
 
-        // Gross profit (periodic inventory): sales + direct income (incl. closing-stock
-        // adjustment) − opening − purchases − direct expenses.
-        var gross = ComputeGrossProfit(company, to, openingStock, scenario);
+        // Gross profit (periodic inventory): sales + direct income − opening − purchases − direct expenses,
+        // with closing stock either already in direct income (AsPostedLedger) or added here (InventoryDerived).
+        var gross = ComputeGrossProfit(company, to, openingStock, scenario)
+            + (inventoryDerived ? closingStock : 0m);
 
         return new ProfitAndLoss(
             income,
