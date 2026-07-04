@@ -31,4 +31,43 @@ public static class Report
 
     public static InterestReport BuildInterest(Company c, DateOnly from, DateOnly to)
         => InterestCalculation.Build(c, from, to);
+
+    // ------------------------------------------------------------------ inventory reports (slice 3.4a)
+
+    /// <summary>The Stock Summary over a period (catalog §16; RQ-28). <paramref name="from"/> defaults to
+    /// <see cref="Company.BooksBeginFrom"/>.</summary>
+    public static StockSummary BuildStockSummary(Company c, DateOnly to, DateOnly? from = null)
+        => StockSummary.Build(c, to, from);
+
+    /// <summary>The Godown Summary as of a date (catalog §16; RQ-29).</summary>
+    public static GodownSummary BuildGodownSummary(Company c, DateOnly asOf)
+        => GodownSummary.Build(c, asOf);
+
+    /// <summary>The Stock Item Movement journal (Stock-Summary drill target) over a period (catalog §16; RQ-28).</summary>
+    public static StockItemMovement BuildStockItemMovement(Company c, Guid stockItemId, DateOnly to, DateOnly? from = null)
+        => StockItemMovement.Build(c, stockItemId, to, from);
+
+    /// <summary>The Receipt Note (GRN) register over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<InventoryRegisterRow> BuildReceiptNoteRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildReceiptNotes(c, from, to);
+
+    /// <summary>The Delivery Note register over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<InventoryRegisterRow> BuildDeliveryNoteRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildDeliveryNotes(c, from, to);
+
+    /// <summary>The Rejection register (In + Out) over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<InventoryRegisterRow> BuildRejectionRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildRejections(c, from, to);
+
+    /// <summary>The Physical-Stock register (counted vs book + variance) over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<PhysicalStockRegisterRow> BuildPhysicalStockRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildPhysicalStock(c, from, to);
+
+    /// <summary>The Order register (Purchase &amp; Sales orders) over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<OrderRegisterRow> BuildOrderRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildOrders(c, from, to);
+
+    /// <summary>The Reorder Status report as of a date (catalog §16; RQ-33).</summary>
+    public static ReorderStatus BuildReorderStatus(Company c, DateOnly asOf)
+        => ReorderStatus.Build(c, asOf);
 }
