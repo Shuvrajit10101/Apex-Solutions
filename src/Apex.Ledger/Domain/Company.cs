@@ -17,6 +17,12 @@ public sealed class Company
     private readonly List<Scenario> _scenarios = new();
     private readonly List<Currency> _currencies = new();
     private readonly List<ExchangeRate> _exchangeRates = new();
+    private readonly List<StockGroup> _stockGroups = new();
+    private readonly List<StockCategory> _stockCategories = new();
+    private readonly List<Unit> _units = new();
+    private readonly List<Godown> _godowns = new();
+    private readonly List<StockItem> _stockItems = new();
+    private readonly List<StockOpeningBalance> _stockOpeningBalances = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -85,6 +91,27 @@ public sealed class Company
     /// <summary>Rates of Exchange (catalog §2): dated base-per-foreign quotes for the foreign currencies.</summary>
     public IReadOnlyList<ExchangeRate> ExchangeRates => _exchangeRates;
 
+    /// <summary>Stock groups (catalog §9): the inventory classification tree.</summary>
+    public IReadOnlyList<StockGroup> StockGroups => _stockGroups;
+
+    /// <summary>Stock categories (catalog §9): the independent stock-item classification axis.</summary>
+    public IReadOnlyList<StockCategory> StockCategories => _stockCategories;
+
+    /// <summary>Units of measure (catalog §9): simple + compound.</summary>
+    public IReadOnlyList<Unit> Units => _units;
+
+    /// <summary>Godowns / locations (catalog §9): includes the seeded "Main Location".</summary>
+    public IReadOnlyList<Godown> Godowns => _godowns;
+
+    /// <summary>Stock items (catalog §9): the things bought, sold and held.</summary>
+    public IReadOnlyList<StockItem> StockItems => _stockItems;
+
+    /// <summary>Opening-stock allocations (catalog §9): per item, per godown, per batch label.</summary>
+    public IReadOnlyList<StockOpeningBalance> StockOpeningBalances => _stockOpeningBalances;
+
+    /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
+    public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
+
     /// <summary>The single base currency (₹/INR), or <c>null</c> if none has been seeded yet.</summary>
     public Currency? BaseCurrency => _currencies.FirstOrDefault(c => c.IsBaseCurrency);
 
@@ -124,6 +151,27 @@ public sealed class Company
     /// <summary>Adds a dated exchange-rate quote for a foreign currency.</summary>
     public void AddExchangeRate(ExchangeRate rate) => _exchangeRates.Add(rate ?? throw new ArgumentNullException(nameof(rate)));
 
+    public void AddStockGroup(StockGroup group) => _stockGroups.Add(group ?? throw new ArgumentNullException(nameof(group)));
+    public void AddStockCategory(StockCategory category) => _stockCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
+    public void AddUnit(Unit unit) => _units.Add(unit ?? throw new ArgumentNullException(nameof(unit)));
+    public void AddGodown(Godown godown) => _godowns.Add(godown ?? throw new ArgumentNullException(nameof(godown)));
+    public void AddStockItem(StockItem item) => _stockItems.Add(item ?? throw new ArgumentNullException(nameof(item)));
+    public void AddStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Add(balance ?? throw new ArgumentNullException(nameof(balance)));
+
+    /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
+    public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
+
+    /// <summary>Removes a stock group (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveStockGroup(StockGroup group) => _stockGroups.Remove(group);
+    /// <summary>Removes a stock category (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveStockCategory(StockCategory category) => _stockCategories.Remove(category);
+    /// <summary>Removes a unit (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveUnit(Unit unit) => _units.Remove(unit);
+    /// <summary>Removes a godown (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveGodown(Godown godown) => _godowns.Remove(godown);
+    /// <summary>Removes a stock item (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveStockItem(StockItem item) => _stockItems.Remove(item);
+
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
@@ -140,6 +188,12 @@ public sealed class Company
     public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);
     public Scenario? FindScenario(Guid id) => _scenarios.FirstOrDefault(s => s.Id == id);
     public Currency? FindCurrency(Guid id) => _currencies.FirstOrDefault(c => c.Id == id);
+    public StockGroup? FindStockGroup(Guid id) => _stockGroups.FirstOrDefault(g => g.Id == id);
+    public StockCategory? FindStockCategory(Guid id) => _stockCategories.FirstOrDefault(c => c.Id == id);
+    public Unit? FindUnit(Guid id) => _units.FirstOrDefault(u => u.Id == id);
+    public Godown? FindGodown(Guid id) => _godowns.FirstOrDefault(g => g.Id == id);
+    public StockItem? FindStockItem(Guid id) => _stockItems.FirstOrDefault(i => i.Id == id);
+    public StockOpeningBalance? FindStockOpeningBalance(Guid id) => _stockOpeningBalances.FirstOrDefault(b => b.Id == id);
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote
@@ -190,4 +244,34 @@ public sealed class Company
         _currencies.FirstOrDefault(c =>
             string.Equals(c.FormalName, name, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(c.Symbol, name, StringComparison.OrdinalIgnoreCase));
+
+    public StockGroup? FindStockGroupByName(string name) =>
+        _stockGroups.FirstOrDefault(g =>
+            string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (g.Alias is not null && string.Equals(g.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    public StockCategory? FindStockCategoryByName(string name) =>
+        _stockCategories.FirstOrDefault(c =>
+            string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (c.Alias is not null && string.Equals(c.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Finds a unit by its symbol or formal name (case-insensitive).</summary>
+    public Unit? FindUnitByName(string name) =>
+        _units.FirstOrDefault(u =>
+            string.Equals(u.Symbol, name, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(u.FormalName, name, StringComparison.OrdinalIgnoreCase));
+
+    public Godown? FindGodownByName(string name) =>
+        _godowns.FirstOrDefault(g =>
+            string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (g.Alias is not null && string.Equals(g.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    public StockItem? FindStockItemByName(string name) =>
+        _stockItems.FirstOrDefault(i =>
+            string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (i.Alias is not null && string.Equals(i.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>All opening-stock allocations that belong to a given stock item.</summary>
+    public IEnumerable<StockOpeningBalance> OpeningBalancesFor(Guid stockItemId) =>
+        _stockOpeningBalances.Where(b => b.StockItemId == stockItemId);
 }

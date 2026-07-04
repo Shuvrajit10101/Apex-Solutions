@@ -234,6 +234,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 8;
         }
 
+        // v8 → v9: apply the inventory-masters migration, then bump the marker. Existing v8 data survives.
+        if (version == 8)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV8ToV9;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 9);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 9;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -311,6 +332,22 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var centre in ReadCostCentres(companyId))
             company.AddCostCentre(centre);
 
+        // Inventory masters (catalog §9). Order matters: units first (a compound unit + a stock item
+        // reference simple units), then stock groups + categories + godowns, then stock items (reference
+        // group/category/unit), then opening balances (reference items + godowns).
+        foreach (var u in ReadUnits(companyId))
+            company.AddUnit(u);
+        foreach (var g in ReadStockGroups(companyId))
+            company.AddStockGroup(g);
+        foreach (var cat in ReadStockCategories(companyId))
+            company.AddStockCategory(cat);
+        foreach (var g in ReadGodowns(companyId))
+            company.AddGodown(g);
+        foreach (var item in ReadStockItems(companyId))
+            company.AddStockItem(item);
+        foreach (var ob in ReadStockOpeningBalances(companyId))
+            company.AddStockOpeningBalance(ob);
+
         // Vouchers: re-post through the engine (real posting path). The stored number is preserved
         // because Post only assigns a number when the voucher's number is unset (≤ 0).
         var service = new LedgerService(company);
@@ -369,6 +406,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // FK both).
         InsertCostCategories(tx, company);
         InsertCostCentres(tx, company);
+        // Inventory masters (catalog §9). Units first (a compound unit references simple units; a stock item
+        // references a unit); then groups + categories + godowns; then stock items; then opening balances.
+        InsertUnits(tx, company);
+        InsertStockGroups(tx, company);
+        InsertStockCategories(tx, company);
+        InsertGodowns(tx, company);
+        InsertStockItems(tx, company);
+        InsertStockOpeningBalances(tx, company);
         InsertVouchers(tx, company);
         // Budgets last: their lines FK groups and ledgers, both already inserted.
         InsertBudgets(tx, company);
@@ -660,6 +705,154 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 Guid.Parse(r.GetString(2)),
                 parentId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
                 alias: r.IsDBNull(4) ? null : r.GetString(4)));
+        }
+        return list;
+    }
+
+    private IEnumerable<Unit> ReadUnits(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, symbol, formal_name, is_compound, uqc, decimal_places,
+                   first_unit_id, tail_unit_id, conversion_numerator, conversion_denominator
+            FROM units WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Unit>();
+        while (r.Read())
+        {
+            list.Add(Unit.FromStorage(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                r.GetString(2),
+                isCompound: r.GetInt64(3) != 0,
+                unitQuantityCode: r.IsDBNull(4) ? null : r.GetString(4),
+                decimalPlaces: (int)r.GetInt64(5),
+                firstUnitId: r.IsDBNull(6) ? (Guid?)null : Guid.Parse(r.GetString(6)),
+                tailUnitId: r.IsDBNull(7) ? (Guid?)null : Guid.Parse(r.GetString(7)),
+                conversionNumerator: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8),
+                conversionDenominator: r.IsDBNull(9) ? (int?)null : (int)r.GetInt64(9)));
+        }
+        return list;
+    }
+
+    private IEnumerable<StockGroup> ReadStockGroups(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, parent_id, alias, add_quantities
+            FROM stock_groups WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<StockGroup>();
+        while (r.Read())
+        {
+            list.Add(new StockGroup(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
+                alias: r.IsDBNull(3) ? null : r.GetString(3),
+                addQuantities: r.GetInt64(4) != 0));
+        }
+        return list;
+    }
+
+    private IEnumerable<StockCategory> ReadStockCategories(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, parent_id, alias
+            FROM stock_categories WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<StockCategory>();
+        while (r.Read())
+        {
+            list.Add(new StockCategory(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
+                alias: r.IsDBNull(3) ? null : r.GetString(3)));
+        }
+        return list;
+    }
+
+    private IEnumerable<Godown> ReadGodowns(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, parent_id, alias, third_party, is_main_location
+            FROM godowns WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Godown>();
+        while (r.Read())
+        {
+            list.Add(new Godown(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
+                alias: r.IsDBNull(3) ? null : r.GetString(3),
+                thirdParty: r.GetInt64(4) != 0,
+                isMainLocation: r.GetInt64(5) != 0));
+        }
+        return list;
+    }
+
+    private IEnumerable<StockItem> ReadStockItems(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
+                   hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro
+            FROM stock_items WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<StockItem>();
+        while (r.Read())
+        {
+            list.Add(new StockItem(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                stockGroupId: Guid.Parse(r.GetString(2)),
+                baseUnitId: Guid.Parse(r.GetString(4)),
+                categoryId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                alias: r.IsDBNull(5) ? null : r.GetString(5),
+                valuationMethod: (StockValuationMethod)(int)r.GetInt64(6),
+                hsnSacCode: r.IsDBNull(7) ? null : r.GetString(7),
+                isTaxable: r.GetInt64(8) != 0,
+                reorderLevel: r.IsDBNull(9) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(9)),
+                minimumOrderQuantity: r.IsDBNull(10) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(10))));
+        }
+        return list;
+    }
+
+    private IEnumerable<StockOpeningBalance> ReadStockOpeningBalances(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, stock_item_id, godown_id, batch_label, quantity_micro, rate_paisa, mfg_date, expiry_date
+            FROM stock_opening_balances WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<StockOpeningBalance>();
+        while (r.Read())
+        {
+            list.Add(new StockOpeningBalance(
+                Guid.Parse(r.GetString(0)),
+                stockItemId: Guid.Parse(r.GetString(1)),
+                godownId: Guid.Parse(r.GetString(2)),
+                quantity: QtyMicroToDecimal(r.GetInt64(4)),
+                rate: Paisa.ToMoney(r.GetInt64(5)),
+                batchLabel: r.IsDBNull(3) ? null : r.GetString(3),
+                manufacturingDate: r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6)),
+                expiryDate: r.IsDBNull(7) ? (DateOnly?)null : ParseDate(r.GetString(7))));
         }
         return list;
     }
@@ -963,6 +1156,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Cost centres reference cost categories → delete centres first.
         ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM cost_categories WHERE company_id = $cid;", ("$cid", cid));
+        // Inventory: openings FK items+godowns; items FK groups/categories/units → delete child-first.
+        ExecTx(tx, "DELETE FROM stock_opening_balances WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM stock_items WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM stock_categories WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM stock_groups WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM godowns WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM units WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
@@ -1189,6 +1389,155 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$cat", centre.CategoryId.ToString("D"));
             cmd.Parameters.AddWithValue("$parent", (object?)centre.ParentId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$alias", (object?)centre.Alias ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertUnits(SqliteTransaction tx, Company c)
+    {
+        foreach (var u in c.Units)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO units
+                    (id, company_id, symbol, formal_name, is_compound, uqc, decimal_places,
+                     first_unit_id, tail_unit_id, conversion_numerator, conversion_denominator)
+                VALUES ($id, $cid, $sym, $fn, $comp, $uqc, $dp, $first, $tail, $num, $den);
+                """;
+            cmd.Parameters.AddWithValue("$id", u.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$sym", u.Symbol);
+            cmd.Parameters.AddWithValue("$fn", u.FormalName);
+            cmd.Parameters.AddWithValue("$comp", u.IsCompound ? 1 : 0);
+            cmd.Parameters.AddWithValue("$uqc", (object?)u.UnitQuantityCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dp", u.DecimalPlaces);
+            cmd.Parameters.AddWithValue("$first", (object?)u.FirstUnitId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$tail", (object?)u.TailUnitId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$num", (object?)u.ConversionNumerator ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$den", (object?)u.ConversionDenominator ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertStockGroups(SqliteTransaction tx, Company c)
+    {
+        // Self-FK (parent_id → id) is enforced, so a parent must be inserted before its children — even when
+        // it appears later in list order (e.g. re-parented under a later-created sibling). A cycle throws a
+        // clean domain exception rather than a raw FK error (DEFECT 1).
+        var ordered = HierarchyOrdering.ParentsBeforeChildren(
+            c.StockGroups, g => g.Id, g => g.ParentId, "Stock group");
+        foreach (var g in ordered)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO stock_groups (id, company_id, name, parent_id, alias, add_quantities)
+                VALUES ($id, $cid, $name, $parent, $alias, $addq);
+                """;
+            cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", g.Name);
+            cmd.Parameters.AddWithValue("$parent", (object?)g.ParentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$addq", g.AddQuantities ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertStockCategories(SqliteTransaction tx, Company c)
+    {
+        var ordered = HierarchyOrdering.ParentsBeforeChildren(
+            c.StockCategories, cat => cat.Id, cat => cat.ParentId, "Stock category");
+        foreach (var cat in ordered)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO stock_categories (id, company_id, name, parent_id, alias)
+                VALUES ($id, $cid, $name, $parent, $alias);
+                """;
+            cmd.Parameters.AddWithValue("$id", cat.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", cat.Name);
+            cmd.Parameters.AddWithValue("$parent", (object?)cat.ParentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$alias", (object?)cat.Alias ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertGodowns(SqliteTransaction tx, Company c)
+    {
+        var ordered = HierarchyOrdering.ParentsBeforeChildren(
+            c.Godowns, g => g.Id, g => g.ParentId, "Godown");
+        foreach (var g in ordered)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO godowns (id, company_id, name, parent_id, alias, third_party, is_main_location)
+                VALUES ($id, $cid, $name, $parent, $alias, $tp, $main);
+                """;
+            cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", g.Name);
+            cmd.Parameters.AddWithValue("$parent", (object?)g.ParentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$tp", g.ThirdParty ? 1 : 0);
+            cmd.Parameters.AddWithValue("$main", g.IsMainLocation ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertStockItems(SqliteTransaction tx, Company c)
+    {
+        foreach (var item in c.StockItems)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO stock_items
+                    (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
+                     hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro)
+                VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq);
+                """;
+            cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", item.Name);
+            cmd.Parameters.AddWithValue("$grp", item.StockGroupId.ToString("D"));
+            cmd.Parameters.AddWithValue("$cat", (object?)item.CategoryId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$unit", item.BaseUnitId.ToString("D"));
+            cmd.Parameters.AddWithValue("$alias", (object?)item.Alias ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$vm", (int)item.ValuationMethod);
+            cmd.Parameters.AddWithValue("$hsn", (object?)item.HsnSacCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$tax", item.IsTaxable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$rol", item.ReorderLevel is { } rol ? QtyMicroFromDecimal(rol) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$moq", item.MinimumOrderQuantity is { } moq ? QtyMicroFromDecimal(moq) : (object)DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertStockOpeningBalances(SqliteTransaction tx, Company c)
+    {
+        foreach (var b in c.StockOpeningBalances)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO stock_opening_balances
+                    (id, company_id, stock_item_id, godown_id, batch_label, quantity_micro, rate_paisa,
+                     mfg_date, expiry_date)
+                VALUES ($id, $cid, $item, $godown, $batch, $qty, $rate, $mfg, $exp);
+                """;
+            cmd.Parameters.AddWithValue("$id", b.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$item", b.StockItemId.ToString("D"));
+            cmd.Parameters.AddWithValue("$godown", b.GodownId.ToString("D"));
+            cmd.Parameters.AddWithValue("$batch", (object?)b.BatchLabel ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(b.Quantity));
+            cmd.Parameters.AddWithValue("$rate", Paisa.FromMoney(b.Rate));
+            cmd.Parameters.AddWithValue("$mfg", (object?)(b.ManufacturingDate is { } m ? FormatDate(m) : null) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$exp", (object?)(b.ExpiryDate is { } e ? FormatDate(e) : null) ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1460,6 +1809,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     /// <summary>Micros (value × 1,000,000) → an exact decimal.</summary>
     private static decimal MicroToDecimal(long micros) => micros / (decimal)Schema.ForexScale;
+
+    /// <summary>
+    /// A stock quantity → micros (qty × 1,000,000), stored as INTEGER so a 0–4-decimal quantity round-trips
+    /// exactly (no binary float). Throws if the quantity carries more than 6 decimal places (would lose precision).
+    /// </summary>
+    private static long QtyMicroFromDecimal(decimal qty)
+    {
+        var scaled = qty * Schema.QuantityScale;
+        var truncated = decimal.Truncate(scaled);
+        if (scaled != truncated)
+            throw new InvalidOperationException(
+                $"Quantity {qty} is not exact to 6 decimal places; cannot persist as quantity micros without loss.");
+        return (long)truncated;
+    }
+
+    /// <summary>Quantity micros (qty × 1,000,000) → an exact decimal.</summary>
+    private static decimal QtyMicroToDecimal(long micros) => micros / (decimal)Schema.QuantityScale;
 
     private static string FormatDate(DateOnly d) => d.ToString("yyyy-MM-dd");
 

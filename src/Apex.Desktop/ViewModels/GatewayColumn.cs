@@ -90,6 +90,21 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Forex Gain/Loss report (non-null only for the Forex-revaluation column).</summary>
     public ForexReportViewModel? ForexReport => Page as ForexReportViewModel;
 
+    /// <summary>The hosted Stock-Group master (non-null only for the Stock-Group creation column).</summary>
+    public StockGroupMasterViewModel? StockGroupMaster => Page as StockGroupMasterViewModel;
+
+    /// <summary>The hosted Stock-Category master (non-null only for the Stock-Category creation column).</summary>
+    public StockCategoryMasterViewModel? StockCategoryMaster => Page as StockCategoryMasterViewModel;
+
+    /// <summary>The hosted Unit-of-Measure master (non-null only for the Unit creation column).</summary>
+    public UnitMasterViewModel? UnitMaster => Page as UnitMasterViewModel;
+
+    /// <summary>The hosted Godown master (non-null only for the Godown creation column).</summary>
+    public GodownMasterViewModel? GodownMaster => Page as GodownMasterViewModel;
+
+    /// <summary>The hosted Stock-Item master (non-null only for the Stock-Item creation column).</summary>
+    public StockItemMasterViewModel? StockItemMaster => Page as StockItemMasterViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

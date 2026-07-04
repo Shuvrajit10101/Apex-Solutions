@@ -28,14 +28,24 @@ namespace Apex.Persistence.Sqlite;
 /// <c>ledgers</c> (NULL = base), and three nullable forex columns on <c>entry_lines</c>
 /// (<c>forex_currency_id</c>, <c>forex_amount_micro</c> = forex × 1,000,000, <c>forex_rate_micro</c> =
 /// rate × 1,000,000) — all NULL for a base-currency line, so the ledger engine is unchanged for base.
+/// <b>v9</b> adds inventory masters (catalog §9; plan.md §5 Phase 3): six new master tables —
+/// <c>stock_groups</c>, <c>stock_categories</c>, <c>units</c>, <c>godowns</c>, <c>stock_items</c> and
+/// <c>stock_opening_balances</c> — created by <see cref="MigrateV8ToV9"/> (pure CREATE TABLE/INDEX, no
+/// ALTER, so existing v8 data is untouched). Inventory money is INTEGER paisa (rate, value); quantity is an
+/// INTEGER scaled by <see cref="QuantityScale"/> (× 1,000,000 = "micros") so 0–4 decimal quantities
+/// round-trip exactly with no float. All inventory tables start empty on a migrated database.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v8 = multi-currency).</summary>
-    public const int CurrentVersion = 8;
+    /// <summary>The current schema version this adapter reads and writes (v9 = inventory masters).</summary>
+    public const int CurrentVersion = 9;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
+
+    /// <summary>The scale stock quantities are stored at (× 1,000,000 = "micros"), as INTEGER — covers a
+    /// unit's 0–4 decimals exactly with headroom, so quantities round-trip losslessly (no binary float).</summary>
+    public const long QuantityScale = 1_000_000L;
 
     /// <summary>
     /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
@@ -252,6 +262,76 @@ public static class Schema
             is_included      INTEGER NOT NULL   -- 1 = included, 0 = excluded
         );
 
+        CREATE TABLE stock_groups (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            name           TEXT    NOT NULL,
+            parent_id      TEXT        NULL REFERENCES stock_groups(id),   -- NULL = under implicit Primary
+            alias          TEXT        NULL,
+            add_quantities INTEGER NOT NULL DEFAULT 1                      -- "Should quantities be added?" 0/1
+        );
+
+        CREATE TABLE stock_categories (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            name           TEXT    NOT NULL,
+            parent_id      TEXT        NULL REFERENCES stock_categories(id),
+            alias          TEXT        NULL
+        );
+
+        CREATE TABLE units (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            symbol                 TEXT    NOT NULL,
+            formal_name            TEXT    NOT NULL,
+            is_compound            INTEGER NOT NULL,          -- 0 = simple, 1 = compound
+            uqc                    TEXT        NULL,          -- GST Unit Quantity Code (simple units)
+            decimal_places         INTEGER NOT NULL DEFAULT 0,-- 0–4 for simple units, 0 for compound
+            first_unit_id          TEXT        NULL REFERENCES units(id),   -- compound: base/first unit
+            tail_unit_id           TEXT        NULL REFERENCES units(id),   -- compound: tail unit
+            conversion_numerator   INTEGER     NULL,          -- compound: tail-per-first factor numerator (> 0)
+            conversion_denominator INTEGER     NULL           -- compound: factor denominator (> 0, default 1)
+        );
+
+        CREATE TABLE godowns (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            name             TEXT    NOT NULL,
+            parent_id        TEXT        NULL REFERENCES godowns(id),
+            alias            TEXT        NULL,
+            third_party      INTEGER NOT NULL DEFAULT 0,   -- "our stock with a third party" (job-work) 0/1
+            is_main_location INTEGER NOT NULL DEFAULT 0    -- the single seeded "Main Location" 0/1
+        );
+
+        CREATE TABLE stock_items (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            name                TEXT    NOT NULL,
+            stock_group_id      TEXT    NOT NULL REFERENCES stock_groups(id),
+            category_id         TEXT        NULL REFERENCES stock_categories(id),
+            base_unit_id        TEXT    NOT NULL REFERENCES units(id),
+            alias               TEXT        NULL,
+            valuation_method    INTEGER NOT NULL DEFAULT 0,   -- StockValuationMethod ordinal (0 = AverageCost)
+            hsn_sac_code        TEXT        NULL,             -- GST placeholder, inert until the GST slice
+            is_taxable          INTEGER NOT NULL DEFAULT 0,   -- GST placeholder 0/1
+            reorder_level_micro INTEGER     NULL,             -- simple reorder level, qty × 1,000,000
+            min_order_qty_micro INTEGER     NULL              -- minimum order qty, qty × 1,000,000
+        );
+
+        CREATE TABLE stock_opening_balances (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            stock_item_id      TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id          TEXT    NOT NULL REFERENCES godowns(id),
+            batch_label        TEXT        NULL,             -- batch/lot label (DP-10), NULL for non-batch
+            quantity_micro     INTEGER NOT NULL,             -- opening qty × 1,000,000
+            rate_paisa         INTEGER NOT NULL,             -- per-unit rate in paisa
+            -- value (qty × rate) is NOT stored: it is derived on read from quantity × rate to the paisa,
+            -- so a single source of truth avoids drift (the old write-only value_paisa column was removed).
+            mfg_date           TEXT        NULL,             -- forward-compat (Phase 6), no behaviour yet
+            expiry_date        TEXT        NULL              -- forward-compat (Phase 6), no behaviour yet
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -269,6 +349,13 @@ public static class Schema
         CREATE INDEX ix_currencies_company       ON currencies(company_id);
         CREATE INDEX ix_exchange_rates_company   ON exchange_rates(company_id);
         CREATE INDEX ix_exchange_rates_currency  ON exchange_rates(currency_id);
+        CREATE INDEX ix_stock_groups_company     ON stock_groups(company_id);
+        CREATE INDEX ix_stock_categories_company ON stock_categories(company_id);
+        CREATE INDEX ix_units_company            ON units(company_id);
+        CREATE INDEX ix_godowns_company          ON godowns(company_id);
+        CREATE INDEX ix_stock_items_company      ON stock_items(company_id);
+        CREATE INDEX ix_stock_openings_company   ON stock_opening_balances(company_id);
+        CREATE INDEX ix_stock_openings_item      ON stock_opening_balances(stock_item_id);
         """;
 
     /// <summary>
@@ -470,5 +557,92 @@ public static class Schema
         CREATE INDEX ix_currencies_company      ON currencies(company_id);
         CREATE INDEX ix_exchange_rates_company  ON exchange_rates(company_id);
         CREATE INDEX ix_exchange_rates_currency ON exchange_rates(currency_id);
+        """;
+
+    /// <summary>
+    /// The v8→v9 migration (catalog §9 Inventory): creates the six inventory master tables
+    /// (<c>stock_groups</c>, <c>stock_categories</c>, <c>units</c>, <c>godowns</c>, <c>stock_items</c>,
+    /// <c>stock_opening_balances</c>) + indexes. Pure CREATE TABLE/INDEX — no ALTER, no row rewrites — so an
+    /// existing v8 database keeps all its data and the new tables simply start empty. Run inside a transaction
+    /// that also bumps <c>schema_version</c> to 9. A migrated database has NO godown rows (not even Main
+    /// Location) until the company is next saved; a fresh DB is stamped straight to v9 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV8ToV9 = """
+        CREATE TABLE stock_groups (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            name           TEXT    NOT NULL,
+            parent_id      TEXT        NULL REFERENCES stock_groups(id),
+            alias          TEXT        NULL,
+            add_quantities INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE stock_categories (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            name           TEXT    NOT NULL,
+            parent_id      TEXT        NULL REFERENCES stock_categories(id),
+            alias          TEXT        NULL
+        );
+
+        CREATE TABLE units (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            symbol                 TEXT    NOT NULL,
+            formal_name            TEXT    NOT NULL,
+            is_compound            INTEGER NOT NULL,
+            uqc                    TEXT        NULL,
+            decimal_places         INTEGER NOT NULL DEFAULT 0,
+            first_unit_id          TEXT        NULL REFERENCES units(id),
+            tail_unit_id           TEXT        NULL REFERENCES units(id),
+            conversion_numerator   INTEGER     NULL,
+            conversion_denominator INTEGER     NULL
+        );
+
+        CREATE TABLE godowns (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            name             TEXT    NOT NULL,
+            parent_id        TEXT        NULL REFERENCES godowns(id),
+            alias            TEXT        NULL,
+            third_party      INTEGER NOT NULL DEFAULT 0,
+            is_main_location INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE stock_items (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            name                TEXT    NOT NULL,
+            stock_group_id      TEXT    NOT NULL REFERENCES stock_groups(id),
+            category_id         TEXT        NULL REFERENCES stock_categories(id),
+            base_unit_id        TEXT    NOT NULL REFERENCES units(id),
+            alias               TEXT        NULL,
+            valuation_method    INTEGER NOT NULL DEFAULT 0,
+            hsn_sac_code        TEXT        NULL,
+            is_taxable          INTEGER NOT NULL DEFAULT 0,
+            reorder_level_micro INTEGER     NULL,
+            min_order_qty_micro INTEGER     NULL
+        );
+
+        CREATE TABLE stock_opening_balances (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            stock_item_id      TEXT    NOT NULL REFERENCES stock_items(id),
+            godown_id          TEXT    NOT NULL REFERENCES godowns(id),
+            batch_label        TEXT        NULL,
+            quantity_micro     INTEGER NOT NULL,
+            rate_paisa         INTEGER NOT NULL,
+            -- value (qty × rate) is derived on read, not stored (no drift-prone second source of truth).
+            mfg_date           TEXT        NULL,
+            expiry_date        TEXT        NULL
+        );
+
+        CREATE INDEX ix_stock_groups_company     ON stock_groups(company_id);
+        CREATE INDEX ix_stock_categories_company ON stock_categories(company_id);
+        CREATE INDEX ix_units_company            ON units(company_id);
+        CREATE INDEX ix_godowns_company          ON godowns(company_id);
+        CREATE INDEX ix_stock_items_company      ON stock_items(company_id);
+        CREATE INDEX ix_stock_openings_company   ON stock_opening_balances(company_id);
+        CREATE INDEX ix_stock_openings_item      ON stock_opening_balances(stock_item_id);
         """;
 }

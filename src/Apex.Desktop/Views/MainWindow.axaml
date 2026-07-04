@@ -1676,6 +1676,592 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Stock Group master (create + list) -->
+                    <ContentControl IsVisible="{Binding StockGroupMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding StockGroupMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:StockGroupMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Stock Group Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*,70,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Finished Goods"/>
+                                  <TextBlock Grid.Column="2" Text="Alias" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Primary…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ParentStockGroupOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <CheckBox Content="Should quantities be added?"
+                                          IsChecked="{Binding AddQuantities, Mode=TwoWay}" FontSize="13"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateStockGroupClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing groups header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,200,120">
+                                <TextBlock Grid.Column="0" Text="Stock Group" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Quantities" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:StockGroupListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Quantities}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Stock Category master (create + list) -->
+                    <ContentControl IsVisible="{Binding StockCategoryMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding StockCategoryMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:StockCategoryMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Stock Category Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*,70,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Brand A"/>
+                                  <TextBlock Grid.Column="2" Text="Alias" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Primary…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ParentStockCategoryOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateStockCategoryClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing categories header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,220">
+                                <TextBlock Grid.Column="0" Text="Stock Category" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:StockCategoryListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,220" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Unit of Measure master (Simple/Compound toggle; create + list) -->
+                    <ContentControl IsVisible="{Binding UnitMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding UnitMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:UnitMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Unit of Measure Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <!-- Simple / Compound toggle -->
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                  <RadioButton Content="Simple" GroupName="UnitType"
+                                               IsChecked="{Binding !IsCompound, Mode=OneWay}"
+                                               Click="OnUnitSimpleClick" FontSize="13"/>
+                                  <RadioButton Content="Compound" GroupName="UnitType"
+                                               IsChecked="{Binding IsCompound, Mode=OneWay}"
+                                               Click="OnUnitCompoundClick" FontSize="13"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="90,*,110,*">
+                                  <TextBlock Grid.Column="0" Text="Symbol" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Symbol, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Nos / Dozen"/>
+                                  <TextBlock Grid.Column="2" Text="Formal Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding FormalName, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Numbers"/>
+                                </Grid>
+
+                                <!-- Simple-only fields -->
+                                <Grid ColumnDefinitions="90,*,140,110" IsVisible="{Binding ShowSimpleForm}">
+                                  <TextBlock Grid.Column="0" Text="UQC" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding UnitQuantityCode, Mode=TwoWay}"
+                                           PlaceholderText="optional (e.g. NOS)"/>
+                                  <TextBlock Grid.Column="2" Text="Decimals (0–4)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,10,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding DecimalPlacesText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="0"/>
+                                </Grid>
+
+                                <!-- Compound-only fields -->
+                                <StackPanel Spacing="10" IsVisible="{Binding IsCompound}">
+                                  <TextBlock IsVisible="{Binding !CanBuildCompound}"
+                                             Text="A compound unit needs two existing simple units — create at least two simple units first."
+                                             FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                  <Grid ColumnDefinitions="90,*,110,90,90,*" IsVisible="{Binding CanBuildCompound}">
+                                    <TextBlock Grid.Column="0" Text="First unit" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding SimpleUnits}"
+                                              SelectedItem="{Binding FirstUnit, Mode=TwoWay}"
+                                              PlaceholderText="base unit…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:Unit">
+                                          <TextBlock Text="{Binding Symbol}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="× Factor" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding ConversionFactorText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="12"/>
+                                    <TextBlock Grid.Column="4" Text="Tail unit" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding SimpleUnits}"
+                                              SelectedItem="{Binding TailUnit, Mode=TwoWay}"
+                                              PlaceholderText="tail unit…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:Unit">
+                                          <TextBlock Text="{Binding Symbol}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateUnitClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing units header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="120,*,90,*">
+                                <TextBlock Grid.Column="0" Text="Symbol" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Formal Name" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Kind" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Detail" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:UnitListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="120,*,90,*" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Symbol}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding FormalName}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Detail}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Godown master (create + list) -->
+                    <ContentControl IsVisible="{Binding GodownMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding GodownMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GodownMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Godown / Location Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*,70,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Warehouse 2"/>
+                                  <TextBlock Grid.Column="2" Text="Alias" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Primary…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ParentGodownOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <CheckBox Content="Third-party (our stock with others)"
+                                          IsChecked="{Binding ThirdParty, Mode=TwoWay}" FontSize="13"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateGodownClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing godowns header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,200,140">
+                                <TextBlock Grid.Column="0" Text="Godown" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GodownListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200,140" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Stock Item master (create + list) -->
+                    <ContentControl IsVisible="{Binding StockItemMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding StockItemMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:StockItemMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Stock Item Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                            <!-- Create form -->
+                            <ScrollViewer Grid.Row="1" MaxHeight="360" Margin="0,0,0,10">
+                              <Border Background="White"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="16">
+                                <StackPanel Spacing="10">
+                                  <Grid ColumnDefinitions="90,*,70,*">
+                                    <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                             PlaceholderText="e.g. Widget-X"/>
+                                    <TextBlock Grid.Column="2" Text="Alias" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding Alias, Mode=TwoWay}"
+                                             PlaceholderText="optional"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="90,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Groups}"
+                                              SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
+                                              PlaceholderText="stock group…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:StockGroup">
+                                          <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Category" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding CategoryOptions}"
+                                              SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                                              PlaceholderText="(none)">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:OptionalStockCategoryOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="90,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Base unit" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Units}"
+                                              SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                                              PlaceholderText="unit…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:Unit">
+                                          <TextBlock Text="{Binding Symbol}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Valuation" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding ValuationMethods}"
+                                              SelectedItem="{Binding SelectedValuation, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ValuationMethodOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="90,*,90,110,110">
+                                    <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding HsnSacCode, Mode=TwoWay}"
+                                             PlaceholderText="optional"/>
+                                    <CheckBox Grid.Column="2" Content="Taxable" Margin="10,0,0,0"
+                                              IsChecked="{Binding IsTaxable, Mode=TwoWay}" FontSize="12"
+                                              VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="3" Text="{Binding ReorderLevelText, Mode=TwoWay}"
+                                             TextAlignment="Right" Margin="6,0,0,0"
+                                             PlaceholderText="Reorder lvl"/>
+                                    <TextBox Grid.Column="4" Text="{Binding MinimumOrderQtyText, Mode=TwoWay}"
+                                             TextAlignment="Right" Margin="6,0,0,0"
+                                             PlaceholderText="Min order qty"/>
+                                  </Grid>
+
+                                  <!-- Opening balance (optional) -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="Opening Balance (optional)" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="90,*,80,120,70,120">
+                                        <TextBlock Grid.Column="0" Text="Godown" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding Godowns}"
+                                                  SelectedItem="{Binding OpeningGodown, Mode=TwoWay}"
+                                                  PlaceholderText="Main Location">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="ledger:Godown">
+                                              <TextBlock Text="{Binding Name}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Grid.Column="2" Text="Qty" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="3" Text="{Binding OpeningQuantityText, Mode=TwoWay}"
+                                                 TextAlignment="Right" PlaceholderText="0"/>
+                                        <TextBlock Grid.Column="4" Text="Rate ₹" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="5" Text="{Binding OpeningRateText, Mode=TwoWay}"
+                                                 TextAlignment="Right" PlaceholderText="0.00"/>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="90,*">
+                                        <TextBlock Grid.Column="0" Text="Batch/Lot" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding OpeningBatchLabel, Mode=TwoWay}"
+                                                 PlaceholderText="optional label"/>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Foreground="{StaticResource AlertRed}" FontSize="12"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnCreateStockItemClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+                            </ScrollViewer>
+
+                            <!-- Existing items header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,150,70,150,120">
+                                <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Unit" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Valuation" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Opening ₹" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:StockItemListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,150,70,150,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Unit}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Valuation}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding OpeningValue}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#555555"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Forex Gain/Loss (unrealized revaluation) report -->
                     <ContentControl IsVisible="{Binding ForexReport, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ForexReport}">
@@ -2164,10 +2750,11 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ButtonBarItem">
                                 <Button Classes="barBtn" Command="{Binding Invoke}" IsEnabled="{Binding Enabled}">
-                                    <Grid ColumnDefinitions="34,*">
+                                    <Grid ColumnDefinitions="52,*">
                                         <TextBlock Grid.Column="0" Text="{Binding Key}"
                                                    Foreground="{StaticResource AlertRed}" FontWeight="Bold"
-                                                   FontSize="11"/>
+                                                   FontSize="11" Margin="0,0,6,0"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Caption}"
                                                    Foreground="{StaticResource Ink}" FontSize="11"
                                                    TextTrimming="CharacterEllipsis"/>

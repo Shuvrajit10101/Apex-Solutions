@@ -237,6 +237,31 @@ public partial class MainWindow : Window
     private void OnCreateExchangeRateClick(object? sender, RoutedEventArgs e)
         => Vm?.CurrencyMaster?.CreateRate();
 
+    private void OnCreateStockGroupClick(object? sender, RoutedEventArgs e)
+        => Vm?.StockGroupMaster?.Create();
+
+    private void OnCreateStockCategoryClick(object? sender, RoutedEventArgs e)
+        => Vm?.StockCategoryMaster?.Create();
+
+    private void OnCreateUnitClick(object? sender, RoutedEventArgs e)
+        => Vm?.UnitMaster?.Create();
+
+    private void OnCreateGodownClick(object? sender, RoutedEventArgs e)
+        => Vm?.GodownMaster?.Create();
+
+    private void OnCreateStockItemClick(object? sender, RoutedEventArgs e)
+        => Vm?.StockItemMaster?.Create();
+
+    private void OnUnitSimpleClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.UnitMaster is { } m) m.IsCompound = false;
+    }
+
+    private void OnUnitCompoundClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.UnitMaster is { } m) m.IsCompound = true;
+    }
+
     private void OnRecomputeForexClick(object? sender, RoutedEventArgs e)
         => Vm?.ForexReport?.Recompute();
 

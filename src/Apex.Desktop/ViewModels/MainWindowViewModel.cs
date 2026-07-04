@@ -30,6 +30,11 @@ public enum Screen
     InterestReport,
     CurrencyMaster,
     ForexReport,
+    StockGroupMaster,
+    StockCategoryMaster,
+    UnitMaster,
+    GodownMaster,
+    StockItemMaster,
 }
 
 /// <summary>
@@ -141,6 +146,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Forex Gain/Loss (unrealized revaluation) report view model, non-null only while that page is open.</summary>
     [ObservableProperty] private ForexReportViewModel? _forexReport;
 
+    /// <summary>The Stock-Group master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private StockGroupMasterViewModel? _stockGroupMaster;
+
+    /// <summary>The Stock-Category master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private StockCategoryMasterViewModel? _stockCategoryMaster;
+
+    /// <summary>The Unit-of-Measure master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private UnitMasterViewModel? _unitMaster;
+
+    /// <summary>The Godown master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private GodownMasterViewModel? _godownMaster;
+
+    /// <summary>The Stock-Item master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private StockItemMasterViewModel? _stockItemMaster;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -150,7 +170,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
-        && InterestReport is null && CurrencyMaster is null && ForexReport is null;
+        && InterestReport is null && CurrencyMaster is null && ForexReport is null
+        && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
+        && GodownMaster is null && StockItemMaster is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -168,6 +190,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnInterestReportChanged(InterestReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCurrencyMasterChanged(CurrencyMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForexReportChanged(ForexReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnStockGroupMasterChanged(StockGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnStockCategoryMasterChanged(StockCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnUnitMasterChanged(UnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -401,6 +428,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Cost Masters"));
         col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Cost Centre", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Inventory Masters"));
+        col.Add(new MenuItemViewModel("Stock Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Godown", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Item", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -667,6 +701,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Currency Creation", () => CurrencyMaster = master);
     }
 
+    // =============================================================== screen: inventory masters
+
+    /// <summary>Opens the Stock-Group creation master (Masters → Create → Inventory Masters → Stock Group).</summary>
+    public void ShowStockGroupMaster()
+    {
+        if (Company is null) return;
+
+        var master = new StockGroupMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Stock Group Creation", master), Screen.StockGroupMaster,
+            "Stock Group Creation", () => StockGroupMaster = master);
+    }
+
+    /// <summary>Opens the Stock-Category creation master (Masters → Create → Inventory Masters → Stock Category).</summary>
+    public void ShowStockCategoryMaster()
+    {
+        if (Company is null) return;
+
+        var master = new StockCategoryMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Stock Category Creation", master), Screen.StockCategoryMaster,
+            "Stock Category Creation", () => StockCategoryMaster = master);
+    }
+
+    /// <summary>Opens the Unit-of-Measure creation master (Masters → Create → Inventory Masters → Unit).</summary>
+    public void ShowUnitMaster()
+    {
+        if (Company is null) return;
+
+        var master = new UnitMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Unit Creation", master), Screen.UnitMaster,
+            "Unit Creation", () => UnitMaster = master);
+    }
+
+    /// <summary>Opens the Godown creation master (Masters → Create → Inventory Masters → Godown).</summary>
+    public void ShowGodownMaster()
+    {
+        if (Company is null) return;
+
+        var master = new GodownMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Godown Creation", master), Screen.GodownMaster,
+            "Godown Creation", () => GodownMaster = master);
+    }
+
+    /// <summary>Opens the Stock-Item creation master (Masters → Create → Inventory Masters → Stock Item).</summary>
+    public void ShowStockItemMaster()
+    {
+        if (Company is null) return;
+
+        var master = new StockItemMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Stock Item Creation", master), Screen.StockItemMaster,
+            "Stock Item Creation", () => StockItemMaster = master);
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -917,6 +1003,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         InterestReport = null;
         CurrencyMaster = null;
         ForexReport = null;
+        StockGroupMaster = null;
+        StockCategoryMaster = null;
+        UnitMaster = null;
+        GodownMaster = null;
+        StockItemMaster = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -945,7 +1036,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
-                 or Screen.CurrencyMaster)
+                 or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
+                 or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster)
             BackFromPage();
     }
 
@@ -1130,6 +1222,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.CostCentreMaster:
                 CostCentreMaster?.Create();
                 return;
+            case Screen.StockGroupMaster:
+                StockGroupMaster?.Create();
+                return;
+            case Screen.StockCategoryMaster:
+                StockCategoryMaster?.Create();
+                return;
+            case Screen.UnitMaster:
+                UnitMaster?.Create();
+                return;
+            case Screen.GodownMaster:
+                GodownMaster?.Create();
+                return;
+            case Screen.StockItemMaster:
+                StockItemMaster?.Create();
+                return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
@@ -1235,6 +1342,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Group": ShowLedgerMaster(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
+            case "Stock Group": ShowStockGroupMaster(); break;
+            case "Stock Category": ShowStockCategoryMaster(); break;
+            case "Unit": ShowUnitMaster(); break;
+            case "Godown": ShowGodownMaster(); break;
+            case "Stock Item": ShowStockItemMaster(); break;
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
