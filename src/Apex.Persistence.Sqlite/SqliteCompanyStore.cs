@@ -150,6 +150,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 4;
         }
 
+        // v4 → v5: apply the banking migration, then bump the marker. Existing v4 data survives.
+        if (version == 4)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV4ToV5;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 5);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 5;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -327,6 +348,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             delCostAllocs.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
             delCostAllocs.ExecuteNonQuery();
         }
+        using (var delBankAllocs = _connection.CreateCommand())
+        {
+            delBankAllocs.Transaction = tx;
+            delBankAllocs.CommandText = """
+                DELETE FROM bank_allocations WHERE entry_line_id IN (
+                    SELECT id FROM entry_lines WHERE voucher_id = $vid);
+                """;
+            delBankAllocs.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+            delBankAllocs.ExecuteNonQuery();
+        }
         using (var delLines = _connection.CreateCommand())
         {
             delLines.Transaction = tx;
@@ -389,7 +420,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
-                   maintain_bill_by_bill, default_credit_period, cost_applicable
+                   maintain_bill_by_bill, default_credit_period, cost_applicable,
+                   enable_cheque_printing, cheque_bank_name
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -407,7 +439,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 isPredefined: r.GetInt64(6) != 0,
                 maintainBillByBill: r.GetInt64(7) != 0,
                 defaultCreditPeriodDays: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8),
-                costCentresApplicable: r.IsDBNull(9) ? (bool?)null : r.GetInt64(9) != 0));
+                costCentresApplicable: r.IsDBNull(9) ? (bool?)null : r.GetInt64(9) != 0,
+                enableChequePrinting: r.GetInt64(10) != 0,
+                chequePrintingBankName: r.IsDBNull(11) ? null : r.GetString(11)));
         }
         return list;
     }
@@ -603,12 +637,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         {
             var allocs = ReadBillAllocations(id);
             var costAllocs = ReadCostAllocations(id);
+            var bankAlloc = ReadBankAllocation(id);
             lines.Add(new EntryLine(
                 ledgerId,
                 Paisa.ToMoney(amountPaisa),
                 side,
                 allocs.Count > 0 ? allocs : null,
-                costAllocs.Count > 0 ? costAllocs : null));
+                costAllocs.Count > 0 ? costAllocs : null,
+                bankAlloc));
         }
         return lines;
     }
@@ -655,6 +691,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
+    /// <summary>Reads the (at most one) bank allocation for an entry line, or <c>null</c> if none.</summary>
+    private BankAllocation? ReadBankAllocation(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT transaction_type, instrument_number, instrument_date, bank_date
+            FROM bank_allocations WHERE entry_line_id = $lid ORDER BY id LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new BankAllocation(
+            (BankTransactionType)(int)r.GetInt64(0),
+            instrumentNumber: r.GetString(1),
+            instrumentDate: r.IsDBNull(2) ? (DateOnly?)null : ParseDate(r.GetString(2)),
+            bankDate: r.IsDBNull(3) ? (DateOnly?)null : ParseDate(r.GetString(3)));
+    }
+
     // ------------------------------------------------------------------ writers
 
     private void DeleteCompanyRows(SqliteTransaction tx, Guid companyId)
@@ -670,6 +724,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             """, ("$cid", cid));
         ExecTx(tx, """
             DELETE FROM cost_allocations WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM bank_allocations WHERE entry_line_id IN (
                 SELECT el.id FROM entry_lines el
                 JOIN vouchers v ON v.id = el.voucher_id
                 WHERE v.company_id = $cid);
@@ -768,8 +828,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO ledgers
                     (id, company_id, name, group_id, opening_balance_paisa, opening_is_debit, alias, is_predefined,
-                     maintain_bill_by_bill, default_credit_period, cost_applicable)
-                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca);
+                     maintain_bill_by_bill, default_credit_period, cost_applicable,
+                     enable_cheque_printing, cheque_bank_name)
+                VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -782,6 +843,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$bbb", l.MaintainBillByBill ? 1 : 0);
             cmd.Parameters.AddWithValue("$dcp", (object?)l.DefaultCreditPeriodDays ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$cca", l.CostCentresApplicable is { } cca ? (cca ? 1 : 0) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$ecp", l.EnableChequePrinting ? 1 : 0);
+            cmd.Parameters.AddWithValue("$cbn", (object?)l.ChequePrintingBankName ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -944,6 +1007,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
             InsertBillAllocations(tx, lineId, line);
             InsertCostAllocations(tx, lineId, line);
+            InsertBankAllocation(tx, lineId, line);
         }
     }
 
@@ -989,6 +1053,26 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(a.Amount));
             cmd.ExecuteNonQuery();
         }
+    }
+
+    private void InsertBankAllocation(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        var a = line.BankAllocation;
+        if (a is null) return;
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO bank_allocations
+                (entry_line_id, transaction_type, instrument_number, instrument_date, bank_date)
+            VALUES ($lid, $tt, $inum, $idate, $bdate);
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        cmd.Parameters.AddWithValue("$tt", (int)a.TransactionType);
+        cmd.Parameters.AddWithValue("$inum", a.InstrumentNumber);
+        cmd.Parameters.AddWithValue("$idate", (object?)(a.InstrumentDate is { } id ? FormatDate(id) : null) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$bdate", (object?)(a.BankDate is { } bd ? FormatDate(bd) : null) ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
     }
 
     // ------------------------------------------------------------------ low-level helpers

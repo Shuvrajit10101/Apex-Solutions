@@ -50,6 +50,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     [ObservableProperty] private string _narration = string.Empty;
 
     /// <summary>
+    /// Ctrl+T — marks this voucher <b>post-dated</b> (catalog §8, post-dated cheques): the posted voucher
+    /// is excluded from current balances until its date is reached (<see cref="Voucher.PostDated"/> ⇒ the
+    /// engine's CountsAsOf skips it while its date is in the future). Toggled on the header; the built
+    /// voucher carries the flag.
+    /// </summary>
+    [ObservableProperty] private bool _isPostDated;
+
+    /// <summary>
     /// The date as editable text (dd-MMM-yyyy) for the header TextBox. Setting it with a parseable
     /// value updates <see cref="Date"/>; an unparseable value is kept as-typed and left for Accept
     /// to surface (the engine also rejects a date before books-begin).
@@ -215,10 +223,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             {
                 var billAllocs = l.ToBillAllocations();
                 var costAllocs = l.ToCostAllocations();
+                var bankAlloc = l.ToBankAllocation();
                 return new EntryLine(
                     l.SelectedLedger!.Id, new Money(l.ParsedAmount), l.Side,
                     billAllocs.Count > 0 ? billAllocs : null,
-                    costAllocs.Count > 0 ? costAllocs : null);
+                    costAllocs.Count > 0 ? costAllocs : null,
+                    bankAlloc);
             })
             .ToList();
 
@@ -234,7 +244,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             Date,
             entryLines,
             number: 0, // let the engine assign the automatic number
-            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim());
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            postDated: IsPostDated);
 
         try
         {
@@ -256,6 +267,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
     }
+
+    /// <summary>Ctrl+T — toggles the post-dated flag for this voucher (post-dated cheque handling).</summary>
+    public void TogglePostDated() => IsPostDated = !IsPostDated;
 
     /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
     public void Cancel() => _onCancelled();

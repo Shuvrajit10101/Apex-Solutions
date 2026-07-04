@@ -187,6 +187,60 @@ public sealed class VarianceToBrushConverter : IMultiValueConverter
     }
 }
 
+/// <summary>
+/// Maps a <see cref="Apex.Ledger.Domain.BankTransactionType"/> to its label ("Cheque/DD" / "NEFT" /
+/// "RTGS" / "Cash" / "Other") for the "Transaction Type" combo in the bank-allocation sub-panel.
+/// </summary>
+public sealed class BankTxTypeLabelConverter : IValueConverter
+{
+    public static readonly BankTxTypeLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is Apex.Ledger.Domain.BankTransactionType t
+            ? t switch
+            {
+                Apex.Ledger.Domain.BankTransactionType.ChequeOrDD => "Cheque/DD",
+                Apex.Ledger.Domain.BankTransactionType.NEFT => "NEFT",
+                Apex.Ledger.Domain.BankTransactionType.RTGS => "RTGS",
+                Apex.Ledger.Domain.BankTransactionType.Cash => "Cash",
+                Apex.Ledger.Domain.BankTransactionType.Other => "Other",
+                _ => t.ToString(),
+            }
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Colours a statement-import result row by its <see cref="Apex.Desktop.ViewModels.StatementRowKind"/>:
+/// a pale-green tint for a matched row, a pale-amber tint for an unmatched statement row, a pale-red tint
+/// for an unmatched book transaction. Bound with the row's <c>Kind</c>.
+/// </summary>
+public sealed class StatementRowBrushConverter : IValueConverter
+{
+    public static readonly StatementRowBrushConverter Instance = new();
+
+    private static readonly IBrush Matched = new SolidColorBrush(Color.Parse("#EAF7EA"));
+    private static readonly IBrush UnmatchedStatement = new SolidColorBrush(Color.Parse("#FBF3DD"));
+    private static readonly IBrush UnmatchedBook = new SolidColorBrush(Color.Parse("#FBE9E9"));
+    private static readonly IBrush None = Brushes.White;
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is Apex.Desktop.ViewModels.StatementRowKind k
+            ? k switch
+            {
+                Apex.Desktop.ViewModels.StatementRowKind.Matched => Matched,
+                Apex.Desktop.ViewModels.StatementRowKind.UnmatchedStatement => UnmatchedStatement,
+                Apex.Desktop.ViewModels.StatementRowKind.UnmatchedBook => UnmatchedBook,
+                _ => None,
+            }
+            : None;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>True when the bound <see cref="Screen"/> equals the converter parameter (screen name).</summary>
 public sealed class ScreenEqualsConverter : IValueConverter
 {

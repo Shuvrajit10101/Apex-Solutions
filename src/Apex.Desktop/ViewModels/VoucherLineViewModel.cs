@@ -28,6 +28,14 @@ namespace Apex.Desktop.ViewModels;
 /// "Cost Allocation" sub-panel — a list of <see cref="CostAllocationRowViewModel"/> (Category → Centre →
 /// Amount) whose amounts must <b>sum to the line amount</b>. It is optional: a line with no cost
 /// allocations posts none, so existing vouchers are unaffected.</para>
+///
+/// <para><b>Bank allocation (catalog §8):</b> when the picked ledger is a bank account (under Bank
+/// Accounts / Bank OD A/c, resolved via <see cref="ClassificationRules.IsBankLedger"/>),
+/// <see cref="IsBankLine"/> turns on and the line owns a single "Bank Allocation" sub-panel — a
+/// Transaction Type (cheque/DD, NEFT, RTGS, cash, other), an Instrument No. and an Instrument Date. A
+/// bank line carries at most <b>one</b> allocation (it is not split), so it maps to the line's single
+/// <see cref="Apex.Ledger.Domain.BankAllocation"/>. A non-bank line carries none, so existing vouchers
+/// are unaffected.</para>
 /// </summary>
 public sealed partial class VoucherLineViewModel : ViewModelBase
 {
@@ -67,6 +75,31 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     /// <summary>The editable cost-allocation rows for this line (empty for a non-cost line).</summary>
     public ObservableCollection<CostAllocationRowViewModel> CostAllocations { get; } = new();
 
+    // =============================================================== bank allocation (catalog §8)
+
+    /// <summary>
+    /// True when the picked ledger is a bank account (under Bank Accounts / Bank OD A/c) ⇒ show the
+    /// single "Bank Allocation" sub-panel (Transaction Type / Instrument No. / Instrument Date). False
+    /// (and the panel hidden) otherwise.
+    /// </summary>
+    [ObservableProperty] private bool _isBankLine;
+
+    /// <summary>The transaction (instrument) types the "Transaction Type" picker offers.</summary>
+    public IReadOnlyList<BankTransactionType> BankTransactionTypes { get; } = new[]
+    {
+        BankTransactionType.ChequeOrDD, BankTransactionType.NEFT, BankTransactionType.RTGS,
+        BankTransactionType.Cash, BankTransactionType.Other,
+    };
+
+    /// <summary>The chosen bank transaction type (defaults to cheque/DD, the classic instrument).</summary>
+    [ObservableProperty] private BankTransactionType _bankTransactionType = BankTransactionType.ChequeOrDD;
+
+    /// <summary>The instrument number (cheque no. / UTR / reference); optional (blank for a cash deposit).</summary>
+    [ObservableProperty] private string _instrumentNumber = string.Empty;
+
+    /// <summary>The instrument date typed as text (dd-MMM-yyyy); blank ⇒ no explicit instrument date.</summary>
+    [ObservableProperty] private string _instrumentDateText = string.Empty;
+
     public VoucherLineViewModel(IReadOnlyList<DomainLedger> ledgers, Action onChanged, DrCr side = DrCr.Debit)
         : this(ledgers, onChanged, company: null, side)
     {
@@ -87,6 +120,7 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     {
         SyncBillWise();
         SyncCostApplicable();
+        SyncBankLine();
         _onChanged();
     }
 
@@ -327,6 +361,56 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     {
         if (!IsCostApplicable) return Array.Empty<CostAllocation>();
         return CostAllocations.Where(a => a.IsComplete).Select(a => a.ToAllocation()).ToList();
+    }
+
+    // =============================================================== bank allocation (catalog §8)
+
+    partial void OnBankTransactionTypeChanged(BankTransactionType value) => _onChanged();
+    partial void OnInstrumentNumberChanged(string value) => _onChanged();
+    partial void OnInstrumentDateTextChanged(string value) => _onChanged();
+
+    /// <summary>
+    /// Reflects whether the picked ledger is a bank account (under Bank Accounts / Bank OD A/c). When it
+    /// turns on the "Bank Allocation" sub-panel appears (defaulting to a cheque/DD). When it turns off the
+    /// panel hides and its captured details are cleared, so switching a line's ledger never leaves a stray
+    /// bank allocation behind.
+    /// </summary>
+    private void SyncBankLine()
+    {
+        var on = _company is not null
+                 && SelectedLedger is not null
+                 && ClassificationRules.IsBankLedger(SelectedLedger, _company);
+
+        if (on == IsBankLine) return;
+
+        IsBankLine = on;
+        if (!on)
+        {
+            BankTransactionType = BankTransactionType.ChequeOrDD;
+            InstrumentNumber = string.Empty;
+            InstrumentDateText = string.Empty;
+        }
+    }
+
+    /// <summary>The parsed instrument date, or null when blank/unparsable.</summary>
+    public DateOnly? ParsedInstrumentDate =>
+        DateOnly.TryParse(InstrumentDateText, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
+            ? d
+            : (DateOnly?)null;
+
+    /// <summary>
+    /// The domain <see cref="BankAllocation"/> for this line — the captured transaction type, instrument
+    /// number and instrument date. <c>null</c> for a non-bank line (so the built <see cref="EntryLine"/>
+    /// carries none). A bank line always yields an allocation (it is how the BRS lists the transaction),
+    /// even when the instrument fields are left blank.
+    /// </summary>
+    public BankAllocation? ToBankAllocation()
+    {
+        if (!IsBankLine) return null;
+        return new BankAllocation(
+            BankTransactionType,
+            instrumentNumber: string.IsNullOrWhiteSpace(InstrumentNumber) ? null : InstrumentNumber.Trim(),
+            instrumentDate: ParsedInstrumentDate);
     }
 
     /// <summary>True when this line is fully specified: a ledger picked and a positive amount typed.</summary>

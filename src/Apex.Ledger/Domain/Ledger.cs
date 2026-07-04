@@ -50,6 +50,21 @@ public sealed class Ledger
     /// </summary>
     public bool? CostCentresApplicable { get; set; }
 
+    /// <summary>
+    /// "Set/alter cheque printing configuration = Yes" (catalog §8) — the minimal cheque-printing data
+    /// model. When true, this bank ledger prints cheques using <see cref="ChequePrintingBankName"/> as
+    /// the selected bank format. The physical print LAYOUT (positions on the cheque) is deferred to a
+    /// later slice; this flag + bank-format name is the persisted configuration.
+    /// </summary>
+    public bool EnableChequePrinting { get; set; }
+
+    /// <summary>
+    /// The bank / cheque-format name used when <see cref="EnableChequePrinting"/> is on (catalog §8;
+    /// e.g. "HDFC Bank", "SBI"). Optional; <c>null</c> when cheque printing is off or the format is
+    /// unset. The concrete layout for a given format is a later-slice concern.
+    /// </summary>
+    public string? ChequePrintingBankName { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -60,7 +75,9 @@ public sealed class Ledger
         bool isPredefined = false,
         bool maintainBillByBill = false,
         int? defaultCreditPeriodDays = null,
-        bool? costCentresApplicable = null)
+        bool? costCentresApplicable = null,
+        bool enableChequePrinting = false,
+        string? chequePrintingBankName = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -80,6 +97,8 @@ public sealed class Ledger
         MaintainBillByBill = maintainBillByBill;
         DefaultCreditPeriodDays = defaultCreditPeriodDays;
         CostCentresApplicable = costCentresApplicable;
+        EnableChequePrinting = enableChequePrinting;
+        ChequePrintingBankName = string.IsNullOrWhiteSpace(chequePrintingBankName) ? null : chequePrintingBankName.Trim();
     }
 
     /// <summary>Signed opening: positive when debit, negative when credit (Dr = +, Cr = −).</summary>

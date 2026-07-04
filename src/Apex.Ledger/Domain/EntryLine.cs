@@ -11,8 +11,9 @@ namespace Apex.Ledger.Domain;
 /// line whose ledger maintains balances bill-by-bill; a line with no bill-wise ledger simply
 /// carries an empty list, so existing non-bill-wise vouchers are unaffected. The same slice
 /// adds <see cref="CostAllocations"/> — the cost-centre slices for a line whose ledger has
-/// cost centres applicable; both are OPTIONAL trailing params, so existing callers are
-/// unaffected.
+/// cost centres applicable. The banking slice adds <see cref="BankAllocation"/> — a single
+/// optional bank detail (transaction type + instrument + bank date) for a line whose ledger is a
+/// bank account. All three are OPTIONAL trailing params, so existing callers are unaffected.
 /// </remarks>
 public sealed class EntryLine
 {
@@ -47,18 +48,30 @@ public sealed class EntryLine
     /// <summary>True iff this line carries one or more cost-centre allocations.</summary>
     public bool HasCostAllocations => _costAllocations.Count > 0;
 
+    /// <summary>
+    /// The bank-allocation detail for this line (catalog §8), or <c>null</c> for a line whose ledger is
+    /// not a bank account. When present, its whole detail covers this line's amount (a bank line is not
+    /// split); its <see cref="Domain.BankAllocation.BankDate"/> drives Bank Reconciliation.
+    /// </summary>
+    public BankAllocation? BankAllocation { get; }
+
+    /// <summary>True iff this line carries a bank allocation.</summary>
+    public bool HasBankAllocation => BankAllocation is not null;
+
     public EntryLine(
         Guid ledgerId,
         Money amount,
         DrCr side,
         IEnumerable<BillAllocation>? billAllocations = null,
-        IEnumerable<CostAllocation>? costAllocations = null)
+        IEnumerable<CostAllocation>? costAllocations = null,
+        BankAllocation? bankAllocation = null)
     {
         LedgerId = ledgerId;
         Amount = amount;
         Side = side;
         _billAllocations = billAllocations?.ToList() ?? new List<BillAllocation>();
         _costAllocations = costAllocations?.ToList() ?? new List<CostAllocation>();
+        BankAllocation = bankAllocation;
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>
