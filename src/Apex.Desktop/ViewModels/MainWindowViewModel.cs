@@ -56,6 +56,7 @@ public enum GatewayMenu
     OtherVouchers,
     OrderVouchers,
     InventoryVouchers,
+    InventoryReports,
 }
 
 /// <summary>
@@ -369,6 +370,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Profit & Loss A/c", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -588,6 +590,45 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Builds the "Inventory Reports" submenu column (Reports → Inventory Reports): the nine Phase-3 stock
+    /// reports nested under three sub-sections (professional hierarchy, never flat) — <b>Stock</b> (Stock
+    /// Summary, Godown Summary, Stock Movement), <b>Analysis</b> (Reorder Status) and <b>Registers</b> (Receipt
+    /// Note, Delivery Note, Rejection, Physical Stock, Order). Each is a page item reusing
+    /// <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>.
+    /// </summary>
+    private GatewayColumn BuildInventoryReportsColumn()
+    {
+        var col = new GatewayColumn("Inventory Reports");
+        col.Add(MenuItemViewModel.Header("Stock"));
+        col.Add(new MenuItemViewModel("Stock Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Godown Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Movement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Analysis"));
+        col.Add(new MenuItemViewModel("Reorder Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Registers"));
+        col.Add(new MenuItemViewModel("Receipt Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Delivery Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Rejection Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Physical Stock Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Order Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Inventory Reports" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Inventory Reports] and focuses the submenu.
+    /// </summary>
+    public void ShowInventoryReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Inventory Reports");
+        OpenSubmenuColumn(BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
+            "Gateway of Apex Solutions — Inventory Reports");
+    }
+
+    /// <summary>
     /// Opens the "Vouchers" submenu column directly (Transactions → Vouchers). Rebuilds the cascade to
     /// [root → Vouchers] and focuses the Vouchers column — the public entry the F-keys/tests use.
     /// </summary>
@@ -667,16 +708,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens a report as a page column on the right of the cascade (when a company/Gateway is open) —
-    /// or, when called cold (e.g. from a test/F-key before the cascade exists), as the sole page.
+    /// or, when called cold (e.g. from a test/F-key before the cascade exists), as the sole page. For a
+    /// <see cref="ReportKind.StockItemMovement"/> report, <paramref name="stockItemId"/> scopes it to one
+    /// item (the Stock-Summary drill target); it is ignored by the other kinds. A Stock-Summary report is
+    /// wired so drilling a row (Enter / double-click a stock item) opens that item's movement report.
     /// </summary>
-    public void OpenReport(ReportKind kind)
+    public void OpenReport(ReportKind kind, Guid? stockItemId = null)
     {
         if (Company is null) return;
 
-        var reports = new ReportsViewModel(Company, kind);
+        var reports = new ReportsViewModel(Company, kind, stockItemId);
+        if (kind == ReportKind.StockSummary)
+            reports.DrillToMovementRequested += id => OpenReport(ReportKind.StockItemMovement, id);
         OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
             () => Reports = reports);
     }
+
+    /// <summary>
+    /// The keyboard-first Stock-Summary drill (Enter on the report page): drills the highlighted/selected
+    /// Stock-Summary item row into its Stock Item Movement report. A no-op unless a Stock Summary is open.
+    /// </summary>
+    public void DrillReport(ReportRow? row) => Reports?.Drill(row);
 
     // =============================================================== screen: voucher entry
 
@@ -1459,6 +1511,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Create"),
             "Statements of Accounts" => (BuildStatementsOfAccountsColumn(), GatewayMenu.StatementsOfAccounts,
                 "Gateway of Apex Solutions — Statements of Accounts"),
+            "Inventory Reports" => (BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
+                "Gateway of Apex Solutions — Inventory Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -1506,6 +1560,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Budget Variance": OpenBudgetVariance(); break;
             case "Interest Calculation": OpenInterestReport(); break;
             case "Forex Gain/Loss": OpenForexReport(); break;
+            case "Stock Summary": OpenReport(ReportKind.StockSummary); break;
+            case "Godown Summary": OpenReport(ReportKind.GodownSummary); break;
+            case "Stock Movement": OpenReport(ReportKind.StockItemMovement); break;
+            case "Reorder Status": OpenReport(ReportKind.ReorderStatus); break;
+            case "Receipt Note Register": OpenReport(ReportKind.ReceiptNoteRegister); break;
+            case "Delivery Note Register": OpenReport(ReportKind.DeliveryNoteRegister); break;
+            case "Rejection Register": OpenReport(ReportKind.RejectionRegister); break;
+            case "Physical Stock Register": OpenReport(ReportKind.PhysicalStockRegister); break;
+            case "Order Register": OpenReport(ReportKind.OrderRegister); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -1594,6 +1657,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Banking" => GatewayMenu.Banking,
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
+                    "Inventory Reports" => GatewayMenu.InventoryReports,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
@@ -1671,6 +1735,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup), hasCompany));
         ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport, hasCompany));
+        ButtonBar.Add(new ButtonBarItem("SS", "Stock Summary", () => OpenReport(ReportKind.StockSummary), hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));

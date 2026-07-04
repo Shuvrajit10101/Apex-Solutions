@@ -302,4 +302,27 @@ public partial class MainWindow : Window
 
     private void OnBookForexAdjustmentClick(object? sender, RoutedEventArgs e)
         => Vm?.ForexReport?.BookAdjustment();
+
+    // ---------------------------------------------------------------- Stock-Summary drill → Stock Item Movement
+
+    /// <summary>Double-click a Stock-Summary item row → open that item's Stock Item Movement report.</summary>
+    private void OnStockSummaryDrill(object? sender, TappedEventArgs e)
+    {
+        if (sender is ListBox { SelectedItem: ReportRow row })
+            Vm?.DrillReport(row);
+    }
+
+    /// <summary>
+    /// Enter on the highlighted Stock-Summary row drills into that item's Stock Item Movement report
+    /// (keyboard-first). Handled here (and marked handled) so it does not bubble to the cascade driver.
+    /// </summary>
+    private void OnStockSummaryKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        if (sender is ListBox { SelectedItem: ReportRow row } && row.CanDrill)
+        {
+            Vm?.DrillReport(row);
+            e.Handled = true;
+        }
+    }
 }

@@ -1,3 +1,4 @@
+using System;
 using Apex.Ledger;
 using Apex.Desktop.Services;
 
@@ -34,6 +35,47 @@ public sealed class ReportRow
     /// which occupy the same grid column, are mutually exclusive.
     /// </summary>
     public bool IsTwoColumn { get; init; }
+
+    // ---------------------------------------------------------------- inventory-report columns (slice 3.4b)
+    // The accounting reports (TB/BS/P&L/Day Book) use Particulars/Secondary/Debit/Credit/Amount above. The
+    // inventory reports need wider, per-report column sets (e.g. Stock Summary = Item | Closing Qty | Rate |
+    // Value; a register = Date | No. | Party | Item | Godown | Qty | Rate | Value | Batch). Rather than a
+    // second row model, these generic string cells carry each inventory report's columns, projected by the
+    // ReportsViewModel Build* methods and rendered by the per-ReportKind inventory DataTemplates in the view.
+
+    /// <summary>Inventory column 1 (e.g. Godown / Date / Item, per report).</summary>
+    public string Col1 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 2.</summary>
+    public string Col2 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 3.</summary>
+    public string Col3 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 4.</summary>
+    public string Col4 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 5.</summary>
+    public string Col5 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 6.</summary>
+    public string Col6 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 7.</summary>
+    public string Col7 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 8.</summary>
+    public string Col8 { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The stock item this row drills to (Stock Summary → Stock Item Movement). Non-null only on a
+    /// selectable Stock-Summary item row; null for headers, totals and other reports. Drives whether
+    /// Enter/double-click drills in.
+    /// </summary>
+    public Guid? DrillStockItemId { get; init; }
+
+    /// <summary>True when this row can be drilled into (has a <see cref="DrillStockItemId"/>).</summary>
+    public bool CanDrill => DrillStockItemId is not null;
 
     public static ReportRow Line(string particulars, Money amount, string secondary = "")
         => new() { Particulars = particulars, Secondary = secondary, Amount = IndianFormat.Amount(amount) };

@@ -37,4 +37,11 @@ public static class IndianFormat
 
     /// <summary>Always renders a <see cref="Money"/> value (even zero).</summary>
     public static string AmountAlways(Money money) => AmountAlways(money.Amount);
+
+    /// <summary>
+    /// Formats a stock quantity with Indian grouping and up to six decimals (trailing zeros trimmed),
+    /// e.g. 1050 → "1,050", 12.5 → "12.5". Exactly zero renders "0" (quantities are meaningful at zero,
+    /// unlike money cells which blank out). Used by the inventory report grids.
+    /// </summary>
+    public static string Quantity(decimal value) => value.ToString("#,##0.######", Indian);
 }
