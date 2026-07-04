@@ -58,6 +58,36 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     [ObservableProperty] private bool _isPostDated;
 
     /// <summary>
+    /// Ctrl+L — marks this voucher <b>Optional</b> (catalog §7): a provisional entry that stays out of the
+    /// real books (<see cref="Voucher.Optional"/> ⇒ the engine's CountsAsOf skips it) until it is
+    /// regularised, and is surfaced only through a Scenario that includes its voucher type. Toggled on the
+    /// header alongside Post-Dated; the built voucher carries the flag.
+    /// </summary>
+    [ObservableProperty] private bool _isOptional;
+
+    /// <summary>
+    /// True only for a <b>Reversing Journal</b> (catalog §7): the voucher is provisional (never in the real
+    /// books) and carries an <b>Applicable Upto</b> date (<see cref="ApplicableUptoText"/>) — under a
+    /// scenario it counts only while the as-of date is ≤ that date, then it reverses out. Drives the
+    /// "Applicable Upto" field's visibility on the header.
+    /// </summary>
+    public bool IsReversing => _type.BaseType == VoucherBaseType.ReversingJournal;
+
+    /// <summary>
+    /// True for any provisional voucher type (<b>Memorandum</b> / <b>Reversing Journal</b>): it never
+    /// affects the real books, so the header shows a "provisional" hint and the Optional toggle is hidden
+    /// (it is already off-books by nature).
+    /// </summary>
+    public bool IsProvisionalType =>
+        _type.BaseType is VoucherBaseType.Memorandum or VoucherBaseType.ReversingJournal;
+
+    /// <summary>
+    /// The Reversing Journal's "Applicable Upto" date as editable text (dd-MMM-yyyy). Defaults to the
+    /// financial-year end; parsed on <see cref="Accept"/>. Ignored for every non-reversing voucher.
+    /// </summary>
+    [ObservableProperty] private string _applicableUptoText = string.Empty;
+
+    /// <summary>
     /// The date as editable text (dd-MMM-yyyy) for the header TextBox. Setting it with a parseable
     /// value updates <see cref="Date"/>; an unparseable value is kept as-typed and left for Accept
     /// to surface (the engine also rejects a date before books-begin).
@@ -111,6 +141,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
         VoucherNumber = _service.NextNumber(type.Id);
         Title = $"{type.Name} Voucher";
+
+        // A Reversing Journal defaults its "Applicable Upto" to the financial-year end.
+        _applicableUptoText = company.FinancialYearStart.AddYears(1).AddDays(-1)
+            .ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
         // Seed two starter lines: the first Dr, the second Cr (opens with a By/To pair).
         AddLine(DrCr.Debit);
@@ -238,6 +272,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // A Reversing Journal must carry a valid "Applicable Upto" date (on/after the voucher date).
+        DateOnly? applicableUpto = null;
+        if (IsReversing)
+        {
+            if (!DateOnly.TryParseExact((ApplicableUptoText ?? string.Empty).Trim(), "dd-MMM-yyyy",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var upto))
+            {
+                Message = "Applicable Upto must be dd-MMM-yyyy (e.g. 30-Apr-2024).";
+                return false;
+            }
+            if (upto < Date)
+            {
+                Message = "Applicable Upto must be on or after the voucher date.";
+                return false;
+            }
+            applicableUpto = upto;
+        }
+
         var voucher = new Voucher(
             Guid.NewGuid(),
             _type.Id,
@@ -245,7 +298,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             entryLines,
             number: 0, // let the engine assign the automatic number
             narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
-            postDated: IsPostDated);
+            // Provisional types (Memorandum / Reversing Journal) are off-books by nature; the Optional
+            // toggle only applies to real voucher types.
+            optional: !IsProvisionalType && IsOptional,
+            postDated: IsPostDated,
+            applicableUpto: applicableUpto);
 
         try
         {
@@ -270,6 +327,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     /// <summary>Ctrl+T — toggles the post-dated flag for this voucher (post-dated cheque handling).</summary>
     public void TogglePostDated() => IsPostDated = !IsPostDated;
+
+    /// <summary>
+    /// Ctrl+L — toggles the Optional flag for this voucher (a provisional entry surfaced only through a
+    /// scenario). No-op for a provisional type (Memorandum / Reversing Journal), which is off-books already.
+    /// </summary>
+    public void ToggleOptional()
+    {
+        if (IsProvisionalType) return;
+        IsOptional = !IsOptional;
+    }
 
     /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
     public void Cancel() => _onCancelled();

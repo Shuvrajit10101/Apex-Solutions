@@ -21,8 +21,12 @@ public sealed record BalanceSheet(
 {
     public bool Balanced => TotalLiabilities == TotalAssets;
 
-    /// <summary>Builds the Balance Sheet as of a date.</summary>
-    public static BalanceSheet Build(Company company, DateOnly asOf)
+    /// <summary>
+    /// Builds the Balance Sheet as of a date. When <paramref name="scenario"/> is non-<c>null</c> the
+    /// figures are computed under that scenario (catalog §7); a <c>null</c> scenario yields the plain
+    /// actual Balance Sheet (unchanged behaviour).
+    /// </summary>
+    public static BalanceSheet Build(Company company, DateOnly asOf, Scenario? scenario = null)
     {
         var liabilities = new List<BalanceSheetLine>();
         var assets = new List<BalanceSheetLine>();
@@ -38,7 +42,7 @@ public sealed record BalanceSheet(
             if (ClassificationRules.IsProfitAndLossGroup(group, company))
                 continue;
 
-            var signed = LedgerBalances.SignedClosing(company, ledger, asOf);
+            var signed = LedgerBalances.SignedClosing(company, ledger, asOf, scenario);
 
             // Stock-in-Hand: opening stock is consumed into the trading account, so only the
             // closing movement (closing − opening) remains on the Balance Sheet.
@@ -64,8 +68,8 @@ public sealed record BalanceSheet(
             }
         }
 
-        // Fold the period net profit into the capital / P&L side.
-        var pl = ProfitAndLoss.Build(company, asOf);
+        // Fold the period net profit into the capital / P&L side (under the same scenario).
+        var pl = ProfitAndLoss.Build(company, asOf, ClosingStockMode.AsPostedLedger, scenario);
         var netProfit = pl.NetProfit;
         liabilities.Add(new BalanceSheetLine("Net Profit (period)", "Profit & Loss A/c", netProfit));
         totalLiab += netProfit.Amount;

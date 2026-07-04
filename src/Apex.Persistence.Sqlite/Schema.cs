@@ -16,11 +16,14 @@ namespace Apex.Persistence.Sqlite;
 /// <b>v5</b> adds banking (catalog §8): a <c>bank_allocations</c> child table hung off
 /// <c>entry_lines</c> (one row per bank line — transaction type, instrument no./date, and the nullable
 /// cleared <c>bank_date</c>), plus two cheque-printing columns on <c>ledgers</c>.
+/// <b>v6</b> adds scenarios (catalog §7): a <c>scenarios</c> master table and a
+/// <c>scenario_voucher_types</c> child table (one row per included/excluded voucher type), plus a nullable
+/// <c>applicable_upto</c> column on <c>vouchers</c> for Reversing Journals.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v5 = banking).</summary>
-    public const int CurrentVersion = 5;
+    /// <summary>The current schema version this adapter reads and writes (v6 = scenarios).</summary>
+    public const int CurrentVersion = 6;
 
     /// <summary>
     /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
@@ -107,7 +110,9 @@ public static class Schema
             party_id    TEXT        NULL REFERENCES ledgers(id),
             cancelled   INTEGER NOT NULL,
             optional    INTEGER NOT NULL,
-            post_dated  INTEGER NOT NULL
+            post_dated  INTEGER NOT NULL,
+            -- v6 (catalog §7): Reversing-Journal "Applicable upto" date; NULL for every other voucher
+            applicable_upto TEXT    NULL
         );
 
         CREATE TABLE entry_lines (
@@ -185,6 +190,20 @@ public static class Schema
             bank_date         TEXT        NULL    -- cleared date (BRS), or NULL when unreconciled
         );
 
+        CREATE TABLE scenarios (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            name             TEXT    NOT NULL,
+            include_actuals  INTEGER NOT NULL   -- 0/1
+        );
+
+        CREATE TABLE scenario_voucher_types (
+            id               INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            scenario_id      TEXT    NOT NULL REFERENCES scenarios(id),
+            voucher_type_id  TEXT    NOT NULL REFERENCES voucher_types(id),
+            is_included      INTEGER NOT NULL   -- 1 = included, 0 = excluded
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -197,6 +216,8 @@ public static class Schema
         CREATE INDEX ix_budgets_company         ON budgets(company_id);
         CREATE INDEX ix_budget_lines_budget     ON budget_lines(budget_id);
         CREATE INDEX ix_bank_allocations_line   ON bank_allocations(entry_line_id);
+        CREATE INDEX ix_scenarios_company        ON scenarios(company_id);
+        CREATE INDEX ix_scenario_vtypes_scenario ON scenario_voucher_types(scenario_id);
         """;
 
     /// <summary>
@@ -314,5 +335,33 @@ public static class Schema
         );
 
         CREATE INDEX ix_bank_allocations_line ON bank_allocations(entry_line_id);
+        """;
+
+    /// <summary>
+    /// The v5→v6 migration (catalog §7): adds the nullable <c>applicable_upto</c> column to
+    /// <c>vouchers</c> and creates the <c>scenarios</c> master table and the
+    /// <c>scenario_voucher_types</c> child table + indexes. Run inside a transaction that also bumps
+    /// <c>schema_version</c> to 6. Existing v5 databases keep all their data — the new column defaults to
+    /// NULL (no Reversing-Journal "Applicable upto") and the new tables start empty.
+    /// </summary>
+    public const string MigrateV5ToV6 = """
+        ALTER TABLE vouchers ADD COLUMN applicable_upto TEXT NULL;
+
+        CREATE TABLE scenarios (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            name             TEXT    NOT NULL,
+            include_actuals  INTEGER NOT NULL
+        );
+
+        CREATE TABLE scenario_voucher_types (
+            id               INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            scenario_id      TEXT    NOT NULL REFERENCES scenarios(id),
+            voucher_type_id  TEXT    NOT NULL REFERENCES voucher_types(id),
+            is_included      INTEGER NOT NULL
+        );
+
+        CREATE INDEX ix_scenarios_company        ON scenarios(company_id);
+        CREATE INDEX ix_scenario_vtypes_scenario ON scenario_voucher_types(scenario_id);
         """;
 }

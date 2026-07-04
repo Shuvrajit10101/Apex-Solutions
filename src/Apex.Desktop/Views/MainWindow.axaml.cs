@@ -95,6 +95,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+L toggles the in-progress voucher as Optional (a provisional, scenario-only entry).
+        if (e.Key == Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            vm.ToggleOptional();
+            e.Handled = true;
+            return;
+        }
+
         // Spacebar toggles the highlighted bill's multi-select on the Outstandings page (not while typing).
         if (e.Key == Key.Space && vm.IsOutstandingsScreen && !IsTyping(e))
         {
@@ -219,4 +227,7 @@ public partial class MainWindow : Window
 
     private void OnImportBankStatementClick(object? sender, RoutedEventArgs e)
         => Vm?.BankStatementImport?.Import();
+
+    private void OnCreateScenarioClick(object? sender, RoutedEventArgs e)
+        => Vm?.ScenarioMaster?.Create();
 }

@@ -171,6 +171,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 5;
         }
 
+        // v5 → v6: apply the scenarios migration, then bump the marker. Existing v5 data survives.
+        if (version == 5)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV5ToV6;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 6);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 6;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -252,6 +273,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var b in ReadBudgets(companyId))
             company.AddBudget(b);
 
+        // Scenarios (catalog §7): masters whose include/exclude lists reference voucher types loaded above.
+        foreach (var s in ReadScenarios(companyId))
+            company.AddScenario(s);
+
         return company;
     }
 
@@ -295,6 +320,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertVouchers(tx, company);
         // Budgets last: their lines FK groups and ledgers, both already inserted.
         InsertBudgets(tx, company);
+        // Scenarios: their voucher-type rows FK voucher_types, already inserted.
+        InsertScenarios(tx, company);
 
         tx.Commit();
     }
@@ -565,16 +592,62 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
+    private IEnumerable<Scenario> ReadScenarios(Guid companyId)
+    {
+        // Header rows first, then include/exclude voucher-type rows per scenario.
+        var headers = new List<(Guid Id, string Name, bool IncludeActuals)>();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, name, include_actuals
+                FROM scenarios WHERE company_id = $cid ORDER BY rowid;
+                """;
+            cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                headers.Add((Guid.Parse(r.GetString(0)), r.GetString(1), r.GetInt64(2) != 0));
+        }
+
+        var result = new List<Scenario>();
+        foreach (var h in headers)
+        {
+            var (included, excluded) = ReadScenarioVoucherTypes(h.Id);
+            result.Add(new Scenario(h.Id, h.Name, h.IncludeActuals, included, excluded));
+        }
+        return result;
+    }
+
+    private (List<Guid> Included, List<Guid> Excluded) ReadScenarioVoucherTypes(Guid scenarioId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT voucher_type_id, is_included
+            FROM scenario_voucher_types WHERE scenario_id = $sid ORDER BY id;
+            """;
+        cmd.Parameters.AddWithValue("$sid", scenarioId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var included = new List<Guid>();
+        var excluded = new List<Guid>();
+        while (r.Read())
+        {
+            var id = Guid.Parse(r.GetString(0));
+            if (r.GetInt64(1) != 0) included.Add(id);
+            else excluded.Add(id);
+        }
+        return (included, excluded);
+    }
+
     private IEnumerable<Voucher> ReadVouchers(Guid companyId)
     {
         // Header rows first, then lines per voucher (ordered), to build each aggregate.
         var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
-            Guid? PartyId, bool Cancelled, bool Optional, bool PostDated)>();
+            Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto)>();
 
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated
+                SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
+                       applicable_upto
                 FROM vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -590,7 +663,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.IsDBNull(5) ? (Guid?)null : Guid.Parse(r.GetString(5)),
                     r.GetInt64(6) != 0,
                     r.GetInt64(7) != 0,
-                    r.GetInt64(8) != 0));
+                    r.GetInt64(8) != 0,
+                    r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9))));
             }
         }
 
@@ -605,7 +679,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 partyId: h.PartyId,
                 cancelled: h.Cancelled,
                 optional: h.Optional,
-                postDated: h.PostDated));
+                postDated: h.PostDated,
+                applicableUpto: h.ApplicableUpto));
         }
         return result;
     }
@@ -741,6 +816,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             DELETE FROM budget_lines WHERE budget_id IN (SELECT id FROM budgets WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM budgets WHERE company_id = $cid;", ("$cid", cid));
+        // Scenarios (and their voucher-type rows) FK voucher_types → delete them before those masters.
+        ExecTx(tx, """
+            DELETE FROM scenario_voucher_types WHERE scenario_id IN (
+                SELECT id FROM scenarios WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM scenarios WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
         // Cost centres reference cost categories → delete centres first.
@@ -955,6 +1036,45 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         }
     }
 
+    private void InsertScenarios(SqliteTransaction tx, Company c)
+    {
+        foreach (var scenario in c.Scenarios)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO scenarios (id, company_id, name, include_actuals)
+                    VALUES ($id, $cid, $name, $ia);
+                    """;
+                cmd.Parameters.AddWithValue("$id", scenario.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$name", scenario.Name);
+                cmd.Parameters.AddWithValue("$ia", scenario.IncludeActuals ? 1 : 0);
+                cmd.ExecuteNonQuery();
+            }
+
+            foreach (var typeId in scenario.IncludedTypeIds)
+                InsertScenarioVoucherType(tx, scenario.Id, typeId, isIncluded: true);
+            foreach (var typeId in scenario.ExcludedTypeIds)
+                InsertScenarioVoucherType(tx, scenario.Id, typeId, isIncluded: false);
+        }
+    }
+
+    private void InsertScenarioVoucherType(SqliteTransaction tx, Guid scenarioId, Guid voucherTypeId, bool isIncluded)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO scenario_voucher_types (scenario_id, voucher_type_id, is_included)
+            VALUES ($sid, $vtid, $inc);
+            """;
+        cmd.Parameters.AddWithValue("$sid", scenarioId.ToString("D"));
+        cmd.Parameters.AddWithValue("$vtid", voucherTypeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$inc", isIncluded ? 1 : 0);
+        cmd.ExecuteNonQuery();
+    }
+
     private void InsertVouchers(SqliteTransaction tx, Company c)
     {
         foreach (var v in c.Vouchers)
@@ -968,8 +1088,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO vouchers
-                    (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated)
-                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd);
+                    (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
+                     applicable_upto)
+                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au);
                 """;
             cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -981,6 +1102,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$cancel", v.Cancelled ? 1 : 0);
             cmd.Parameters.AddWithValue("$opt", v.Optional ? 1 : 0);
             cmd.Parameters.AddWithValue("$pd", v.PostDated ? 1 : 0);
+            cmd.Parameters.AddWithValue("$au", (object?)(v.ApplicableUpto is { } au ? FormatDate(au) : null) ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
 

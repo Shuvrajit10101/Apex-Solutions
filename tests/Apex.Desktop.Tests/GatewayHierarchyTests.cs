@@ -109,14 +109,15 @@ public sealed class GatewayHierarchyTests : IDisposable
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
         Assert.Equal(GatewayMenu.Vouchers, vm.CurrentGatewayMenu);
 
-        // The six accounting voucher types are listed under the VOUCHERS header.
-        Assert.Equal(new[] { "Vouchers" }, HeaderLabels(vm));
+        // The six accounting voucher types are listed under the VOUCHERS header, then an
+        // "Other Vouchers" group (Reversing Journal / Memorandum nest under it).
+        Assert.Equal(new[] { "Vouchers", "Other Vouchers" }, HeaderLabels(vm));
         Assert.Equal(
-            new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase" },
+            new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase", "Other Vouchers" },
             ItemLabels(vm));
 
-        // Each selectable row carries its F-key hint (F4..F9) and is a submenu child.
-        var hints = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Hint).ToArray();
+        // The six accounting types carry their F-key hint (F4..F9); each row is a submenu child.
+        var hints = vm.Menu.Where(m => m.IsSelectable).Take(6).Select(m => m.Hint).ToArray();
         Assert.Equal(new[] { "F4", "F5", "F6", "F7", "F8", "F9" }, hints);
         Assert.All(vm.Menu.Where(m => m.IsSelectable), m => Assert.True(m.IsSubItem));
     }

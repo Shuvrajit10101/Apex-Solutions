@@ -38,6 +38,13 @@ public sealed class Voucher
     /// <summary>Ctrl+T — excluded from balances until its date is reached.</summary>
     public bool PostDated { get; set; }
 
+    /// <summary>
+    /// "Applicable upto" date for a <see cref="VoucherBaseType.ReversingJournal"/> (catalog §7): the
+    /// last date on which the reversing entry is in force. Under a scenario it affects reports only for
+    /// as-of dates ≤ this value; on/after it lapses (reverses out). <c>null</c> for every other voucher.
+    /// </summary>
+    public DateOnly? ApplicableUpto { get; set; }
+
     public Voucher(
         Guid id,
         Guid typeId,
@@ -48,7 +55,8 @@ public sealed class Voucher
         Guid? partyId = null,
         bool cancelled = false,
         bool optional = false,
-        bool postDated = false)
+        bool postDated = false,
+        DateOnly? applicableUpto = null)
     {
         Id = id;
         TypeId = typeId;
@@ -60,6 +68,7 @@ public sealed class Voucher
         Cancelled = cancelled;
         Optional = optional;
         PostDated = postDated;
+        ApplicableUpto = applicableUpto;
     }
 
     /// <summary>Sum of debit-line magnitudes.</summary>

@@ -32,11 +32,16 @@ public sealed record ProfitAndLoss(
     Money GrossProfit,
     Money NetProfit)
 {
-    /// <summary>Builds the P&amp;L over a period ending at <paramref name="to"/>.</summary>
+    /// <summary>
+    /// Builds the P&amp;L over a period ending at <paramref name="to"/>. When <paramref name="scenario"/>
+    /// is non-<c>null</c> the ledger figures are computed under that scenario (catalog §7); a <c>null</c>
+    /// scenario yields the plain actual P&amp;L (unchanged behaviour).
+    /// </summary>
     public static ProfitAndLoss Build(
         Company company,
         DateOnly to,
-        ClosingStockMode mode = ClosingStockMode.AsPostedLedger)
+        ClosingStockMode mode = ClosingStockMode.AsPostedLedger,
+        Scenario? scenario = null)
     {
         _ = mode; // Phase 1 supports AsPostedLedger; InventoryDerived is a Phase-3 seam.
 
@@ -62,7 +67,7 @@ public sealed record ProfitAndLoss(
                 if (ledger.OpeningIsDebit && ledger.OpeningBalance != Money.Zero)
                     openingStock += ledger.OpeningBalance.Amount;
 
-                var closingSigned = LedgerBalances.SignedClosing(company, ledger, to);
+                var closingSigned = LedgerBalances.SignedClosing(company, ledger, to, scenario);
                 var movement = closingSigned - ledger.SignedOpening;
                 if (movement > 0m) closingStock += movement;
                 continue;
@@ -72,7 +77,7 @@ public sealed record ProfitAndLoss(
                 continue; // Balance-Sheet ledger
 
             var nature = ClassificationRules.PrimaryNatureOf(group, company);
-            var signed = LedgerBalances.SignedClosing(company, ledger, to);
+            var signed = LedgerBalances.SignedClosing(company, ledger, to, scenario);
 
             if (nature == GroupNature.Income)
             {
@@ -101,7 +106,7 @@ public sealed record ProfitAndLoss(
 
         // Gross profit (periodic inventory): sales + direct income (incl. closing-stock
         // adjustment) − opening − purchases − direct expenses.
-        var gross = ComputeGrossProfit(company, to, openingStock);
+        var gross = ComputeGrossProfit(company, to, openingStock, scenario);
 
         return new ProfitAndLoss(
             income,
@@ -114,7 +119,7 @@ public sealed record ProfitAndLoss(
             new Money(net));
     }
 
-    private static decimal ComputeGrossProfit(Company company, DateOnly to, decimal openingStock)
+    private static decimal ComputeGrossProfit(Company company, DateOnly to, decimal openingStock, Scenario? scenario = null)
     {
         decimal salesAndDirectIncome = 0m; // Sales + Direct Incomes (the latter includes the closing-stock adjustment)
         decimal purchasesAndDirectExpense = 0m;
@@ -127,7 +132,7 @@ public sealed record ProfitAndLoss(
             if (group is null || !ClassificationRules.IsProfitAndLossGroup(group, company)) continue;
 
             var primary = ClassificationRules.PrimaryAncestorOf(group, company);
-            var signed = LedgerBalances.SignedClosing(company, ledger, to);
+            var signed = LedgerBalances.SignedClosing(company, ledger, to, scenario);
 
             switch (primary.Name)
             {
