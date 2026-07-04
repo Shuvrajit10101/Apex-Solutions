@@ -13,8 +13,13 @@ public sealed record TrialBalance(IReadOnlyList<TrialBalanceRow> Rows, Money Tot
 {
     public bool Balanced => TotalDebit == TotalCredit;
 
-    /// <summary>Builds the Trial Balance as of a date (pure over masters + posted set).</summary>
-    public static TrialBalance Build(Company company, DateOnly asOf)
+    /// <summary>
+    /// Builds the Trial Balance as of a date (pure over masters + posted set). When
+    /// <paramref name="scenario"/> is non-<c>null</c> the balances are computed under that scenario
+    /// (catalog §7): actuals (if the scenario includes them) plus its included provisional vouchers.
+    /// A <c>null</c> scenario yields the plain actual Trial Balance (unchanged behaviour).
+    /// </summary>
+    public static TrialBalance Build(Company company, DateOnly asOf, Scenario? scenario = null)
     {
         var rows = new List<TrialBalanceRow>();
         var totalDr = 0m;
@@ -22,7 +27,7 @@ public sealed record TrialBalance(IReadOnlyList<TrialBalanceRow> Rows, Money Tot
 
         foreach (var ledger in company.Ledgers)
         {
-            var bal = LedgerBalances.Closing(company, ledger, asOf);
+            var bal = LedgerBalances.Closing(company, ledger, asOf, scenario);
             if (bal.Amount == Money.Zero) continue; // zero-balance ledgers do not appear
 
             var group = company.FindGroup(ledger.GroupId);

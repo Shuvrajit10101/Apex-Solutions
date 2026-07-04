@@ -14,6 +14,7 @@ public sealed class Company
     private readonly List<CostCategory> _costCategories = new();
     private readonly List<CostCentre> _costCentres = new();
     private readonly List<Budget> _budgets = new();
+    private readonly List<Scenario> _scenarios = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -71,6 +72,10 @@ public sealed class Company
     /// <summary>Budgets (catalog §7): named budget masters compared against actuals.</summary>
     public IReadOnlyList<Budget> Budgets => _budgets;
 
+    /// <summary>Scenarios (catalog §7): what-if columns that surface provisional (Optional / Reversing /
+    /// Memorandum) vouchers over the actuals.</summary>
+    public IReadOnlyList<Scenario> Scenarios => _scenarios;
+
     public Company(Guid id, string name, DateOnly financialYearStart, DateOnly booksBeginFrom)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -93,6 +98,7 @@ public sealed class Company
     public void AddCostCategory(CostCategory category) => _costCategories.Add(category);
     public void AddCostCentre(CostCentre centre) => _costCentres.Add(centre);
     public void AddBudget(Budget budget) => _budgets.Add(budget);
+    public void AddScenario(Scenario scenario) => _scenarios.Add(scenario);
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
@@ -107,6 +113,7 @@ public sealed class Company
     public CostCategory? FindCostCategory(Guid id) => _costCategories.FirstOrDefault(c => c.Id == id);
     public CostCentre? FindCostCentre(Guid id) => _costCentres.FirstOrDefault(c => c.Id == id);
     public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);
+    public Scenario? FindScenario(Guid id) => _scenarios.FirstOrDefault(s => s.Id == id);
 
     public Group? FindGroupByName(string name) =>
         _groups.FirstOrDefault(g =>
@@ -133,4 +140,7 @@ public sealed class Company
 
     public Budget? FindBudgetByName(string name) =>
         _budgets.FirstOrDefault(b => string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    public Scenario? FindScenarioByName(string name) =>
+        _scenarios.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
 }

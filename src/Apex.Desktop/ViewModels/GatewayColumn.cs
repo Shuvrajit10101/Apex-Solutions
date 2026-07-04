@@ -78,6 +78,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Import Bank Statement page (non-null only for the statement-import column).</summary>
     public BankStatementImportViewModel? BankStatementImport => Page as BankStatementImportViewModel;
 
+    /// <summary>The hosted Scenario master (non-null only for the Scenario-creation column).</summary>
+    public ScenarioMasterViewModel? ScenarioMaster => Page as ScenarioMasterViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

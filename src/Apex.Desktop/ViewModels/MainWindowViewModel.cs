@@ -26,6 +26,7 @@ public enum Screen
     BudgetVariance,
     BankReconciliation,
     BankStatementImport,
+    ScenarioMaster,
 }
 
 /// <summary>
@@ -43,6 +44,7 @@ public enum GatewayMenu
     CostCentres,
     Budgets,
     Banking,
+    OtherVouchers,
 }
 
 /// <summary>
@@ -124,6 +126,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Import Bank Statement view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private BankStatementImportViewModel? _bankStatementImport;
 
+    /// <summary>The Scenario-creation master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private ScenarioMasterViewModel? _scenarioMaster;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -132,7 +137,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
-        && BankReconciliation is null && BankStatementImport is null;
+        && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -146,6 +151,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBudgetVarianceChanged(BudgetVarianceViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBankReconciliationChanged(BankReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBankStatementImportChanged(BankStatementImportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnScenarioMasterChanged(ScenarioMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -333,6 +339,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Journal", () => { }, "F7", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Provisional (off-books) voucher kinds under their own group (Reversing Journal / Memorandum).
+        col.Add(MenuItemViewModel.Header("Other Vouchers"));
+        col.Add(new MenuItemViewModel("Other Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Other Vouchers" submenu column (Transactions → Vouchers → Other Vouchers): the two
+    /// provisional voucher kinds — <b>Reversing Journal</b> (carries an Applicable-Upto date) and
+    /// <b>Memorandum</b> (a non-affecting suspense entry) — each a page item under this group.
+    /// </summary>
+    private GatewayColumn BuildOtherVouchersColumn()
+    {
+        var col = new GatewayColumn("Other Vouchers");
+        col.Add(MenuItemViewModel.Header("Other Vouchers"));
+        col.Add(new MenuItemViewModel("Reversing Journal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Memorandum", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -364,6 +388,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Scenario", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -430,6 +455,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("Vouchers");
         OpenSubmenuColumn(BuildVouchersColumn(), GatewayMenu.Vouchers,
             "Gateway of Apex Solutions — Vouchers");
+    }
+
+    /// <summary>
+    /// Opens the "Other Vouchers" submenu column directly (Transactions → Vouchers → Other Vouchers).
+    /// Rebuilds the cascade to [root → Vouchers → Other Vouchers] and focuses it — the public entry a
+    /// hotkey/test uses.
+    /// </summary>
+    public void ShowOtherVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        // Rebuild the cascade down to the Vouchers submenu, then push Other Vouchers onto it.
+        ShowVouchersMenu();
+        var vouchers = Columns[^1];
+        for (var i = 0; i < vouchers.Items.Count; i++)
+            if (vouchers.Items[i].IsSelectable && vouchers.Items[i].Label == "Other Vouchers")
+            {
+                vouchers.SetSelected(i);
+                break;
+            }
+        OpenSubmenuColumn(BuildOtherVouchersColumn(), GatewayMenu.OtherVouchers,
+            "Gateway of Apex Solutions — Other Vouchers");
     }
 
     /// <summary>
@@ -574,6 +620,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var master = new BudgetMasterViewModel(Company, _storage, onChanged: () => { });
         OpenPageColumn(new GatewayColumn("Budget Creation", master), Screen.BudgetMaster,
             "Budget Creation", () => BudgetMaster = master);
+    }
+
+    /// <summary>Opens the Scenario creation master (Masters → Create → Scenario) as a page column.</summary>
+    public void ShowScenarioMaster()
+    {
+        if (Company is null) return;
+
+        var master = new ScenarioMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Scenario Creation", master), Screen.ScenarioMaster,
+            "Scenario Creation", () => ScenarioMaster = master);
     }
 
     // =============================================================== screen: cost reports
@@ -790,6 +846,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BudgetVariance = null;
         BankReconciliation = null;
         BankStatementImport = null;
+        ScenarioMaster = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -817,7 +874,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
-                 or Screen.CostCentreMaster or Screen.BudgetMaster)
+                 or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster)
             BackFromPage();
     }
 
@@ -826,6 +883,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.TogglePostDated();
+    }
+
+    /// <summary>Ctrl+L: toggle the in-progress voucher as Optional (a provisional, scenario-only entry).</summary>
+    public void ToggleOptional()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ToggleOptional();
+    }
+
+    /// <summary>True while a Memorandum voucher-entry page is the active screen (drives the Convert action).</summary>
+    public bool IsMemorandumEntry =>
+        CurrentScreen == Screen.VoucherEntry && VoucherEntry?.Type.BaseType == VoucherBaseType.Memorandum;
+
+    /// <summary>
+    /// Converts a posted <b>Memorandum</b> voucher into a real voucher of <paramref name="targetBaseType"/>
+    /// (default Journal) so it now affects the books, then persists the company. The memo is removed and the
+    /// regularised voucher takes a fresh automatic number for its target type. Returns the new voucher, or
+    /// null when the memo/target is invalid (surfaced as a message). This is the UI surface for the engine's
+    /// <see cref="Apex.Ledger.Services.LedgerService.ConvertToRegular"/> (catalog §7).
+    /// </summary>
+    public Voucher? ConvertMemorandum(Guid memorandumVoucherId,
+        VoucherBaseType targetBaseType = VoucherBaseType.Journal)
+    {
+        if (Company is null) return null;
+
+        var target = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == targetBaseType && t.IsActive)
+                     ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == targetBaseType);
+        if (target is null)
+        {
+            Message = $"No '{targetBaseType}' voucher type is configured to convert into.";
+            return null;
+        }
+
+        try
+        {
+            var service = new Apex.Ledger.Services.LedgerService(Company);
+            var regular = service.ConvertToRegular(memorandumVoucherId, target.Id);
+            _storage.Save(Company);
+            Message = $"Memorandum converted to {target.Name} No. {regular.Number}.";
+            return regular;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = $"Cannot convert: {ex.Message}";
+            return null;
+        }
     }
 
     /// <summary>Alt+C: open the Ledger-creation master whenever a company is open.</summary>
@@ -947,6 +1050,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
+            case Screen.ScenarioMaster:
+                ScenarioMaster?.Create();
+                return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
                 return;
@@ -1003,6 +1109,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             "Vouchers" => (BuildVouchersColumn(), GatewayMenu.Vouchers,
                 "Gateway of Apex Solutions — Vouchers"),
+            "Other Vouchers" => (BuildOtherVouchersColumn(), GatewayMenu.OtherVouchers,
+                "Gateway of Apex Solutions — Other Vouchers"),
             "Banking" => (BuildBankingColumn(), GatewayMenu.Banking,
                 "Gateway of Apex Solutions — Banking"),
             "Create" => (BuildCreateColumn(), GatewayMenu.Create,
@@ -1042,6 +1150,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
             case "Budget": ShowBudgetMaster(); break;
+            case "Scenario": ShowScenarioMaster(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
@@ -1055,6 +1164,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Journal": OpenVoucher(VoucherBaseType.Journal); break;
             case "Sales": OpenVoucher(VoucherBaseType.Sales); break;
             case "Purchase": OpenVoucher(VoucherBaseType.Purchase); break;
+            case "Reversing Journal": OpenVoucher(VoucherBaseType.ReversingJournal); break;
+            case "Memorandum": OpenVoucher(VoucherBaseType.Memorandum); break;
         }
     }
 
@@ -1119,6 +1230,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return Columns[i].Title switch
                 {
                     "Vouchers" => GatewayMenu.Vouchers,
+                    "Other Vouchers" => GatewayMenu.OtherVouchers,
                     "Banking" => GatewayMenu.Banking,
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
@@ -1185,8 +1297,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucher(VoucherBaseType.Sales), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucher(VoucherBaseType.Purchase), hasCompany));
 
+        // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
+        var onVoucher = CurrentScreen == Screen.VoucherEntry;
+        ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
+
         // Create master + report quick-jumps (enabled once a company is open).
         ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
+        ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
         // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
         ButtonBar.Add(new ButtonBarItem("O", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));

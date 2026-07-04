@@ -1,5 +1,4 @@
 using Apex.Ledger;
-using Apex.Ledger.Banking;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
@@ -11,74 +10,82 @@ using Domain = Apex.Ledger.Domain;
 namespace Apex.Persistence.Sqlite.Tests;
 
 /// <summary>
-/// Banking persistence contract (task §5; catalog §8): a company with a bank ledger, cheque-printing
-/// configuration, and bank-allocated voucher lines (one cleared, one still uncleared) SAVES and RELOADS
-/// with schema_version = 5, preserving the transaction type / instrument / bank date on every line and
-/// reproducing the Bank Reconciliation book-vs-bank figures; and a legacy v4 database still opens
-/// (auto-migrated to v5) and then accepts bank data.
+/// Scenario persistence contract (task §7): a company with a Scenario master (Include Actuals + an
+/// included and an excluded voucher type), an OPTIONAL voucher, and a Reversing Journal carrying an
+/// "Applicable upto" date SAVES and RELOADS with schema_version = 6, preserving the optional flag, the
+/// applicable_upto column, and the scenario include/exclude lists, and reproducing the scenario Trial
+/// Balance. A legacy v5 database still opens (auto-migrated to v6) with its data intact and then accepts
+/// scenario data.
 /// </summary>
-public sealed class BankingRoundTripTests
+public sealed class ScenarioRoundTripTests
 {
-    private static (Company Company, Domain.Ledger Hdfc, Guid ClearedVoucherId, Guid UnclearedVoucherId) SeedWithBanking()
+    private static (Company Company, Scenario Scenario, DateOnly AsOf) SeedWithScenario()
     {
-        var c = CompanyFactory.CreateSeeded("Bank Persist Co", new DateOnly(2024, 4, 1));
+        var c = CompanyFactory.CreateSeeded("Scenario Persist Co", new DateOnly(2024, 4, 1));
 
         var cash = c.FindLedgerByName("Cash")!;
         cash.OpeningBalance = Money.FromRupees(1000000m);
         cash.OpeningIsDebit = true;
-
-        var hdfc = new Domain.Ledger(Guid.NewGuid(), "HDFC Bank", c.FindGroupByName("Bank Accounts")!.Id,
-            Money.FromRupees(500000m), openingIsDebit: true)
-        {
-            EnableChequePrinting = true,
-            ChequePrintingBankName = "HDFC Bank",
-        };
-        c.AddLedger(hdfc);
+        var capital = new Domain.Ledger(Guid.NewGuid(), "Capital", c.FindGroupByName("Capital Account")!.Id,
+            Money.FromRupees(1000000m), openingIsDebit: false);
+        c.AddLedger(capital);
 
         var rent = new Domain.Ledger(Guid.NewGuid(), "Rent", c.FindGroupByName("Indirect Expenses")!.Id,
             Money.Zero, openingIsDebit: true);
+        var provision = new Domain.Ledger(Guid.NewGuid(), "Provision for Expenses",
+            c.FindGroupByName("Provisions")!.Id, Money.Zero, openingIsDebit: false);
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
         c.AddLedger(rent);
+        c.AddLedger(provision);
+        c.AddLedger(sales);
 
-        var payment = c.FindVoucherTypeByName("Payment")!;
+        var journalType = c.FindVoucherTypeByName("Journal")!;
+        var revType = c.FindVoucherTypeByName("Reversing Journal")!;
+        var payType = c.FindVoucherTypeByName("Payment")!;
         var svc = new LedgerService(c);
 
-        // Cleared cheque: 40,000 out on 2024-04-05, reconciled on 2024-04-28.
-        var cleared = svc.Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 4, 5), new[]
+        // A real receipt, an OPTIONAL provision accrual, and a Reversing Journal with an Applicable-upto.
+        svc.Post(new Voucher(Guid.NewGuid(), journalType.Id, new DateOnly(2024, 4, 5), new[]
         {
-            new EntryLine(rent.Id, Money.FromRupees(40000m), DrCr.Debit),
-            new EntryLine(hdfc.Id, Money.FromRupees(40000m), DrCr.Credit,
-                bankAllocation: new BankAllocation(BankTransactionType.ChequeOrDD, "100200",
-                    instrumentDate: new DateOnly(2024, 4, 5), bankDate: new DateOnly(2024, 4, 28))),
+            new EntryLine(cash.Id, Money.FromRupees(8000m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(8000m), DrCr.Credit),
         }));
-
-        // Uncleared cheque: 15,000 out on 2024-04-20, no bank date yet.
-        var uncleared = svc.Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 4, 20), new[]
+        svc.Post(new Voucher(Guid.NewGuid(), journalType.Id, new DateOnly(2024, 4, 10), new[]
         {
-            new EntryLine(rent.Id, Money.FromRupees(15000m), DrCr.Debit),
-            new EntryLine(hdfc.Id, Money.FromRupees(15000m), DrCr.Credit,
-                bankAllocation: new BankAllocation(BankTransactionType.NEFT, "UTR7788")),
-        }));
+            new EntryLine(rent.Id, Money.FromRupees(5000m), DrCr.Debit),
+            new EntryLine(provision.Id, Money.FromRupees(5000m), DrCr.Credit),
+        }, optional: true));
+        svc.Post(new Voucher(Guid.NewGuid(), revType.Id, new DateOnly(2024, 4, 12), new[]
+        {
+            new EntryLine(rent.Id, Money.FromRupees(3000m), DrCr.Debit),
+            new EntryLine(provision.Id, Money.FromRupees(3000m), DrCr.Credit),
+        }, applicableUpto: new DateOnly(2024, 4, 30)));
 
-        return (c, hdfc, cleared.Id, uncleared.Id);
+        // Scenario: include actuals, surface the Journal (Optional) and Reversing Journal, exclude Payments.
+        var scenario = new Scenario(Guid.NewGuid(), "What-if", includeActuals: true,
+            includedTypeIds: new[] { journalType.Id, revType.Id },
+            excludedTypeIds: new[] { payType.Id });
+        c.AddScenario(scenario);
+
+        return (c, scenario, new DateOnly(2024, 4, 30));
     }
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Bank_allocations_and_cheque_config_survive_save_reload_with_schema_version_5()
+    public void Scenarios_optional_and_applicable_upto_survive_save_reload_with_schema_version_6()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-bank-{Guid.NewGuid():N}.db");
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-scenario-{Guid.NewGuid():N}.db");
         try
         {
-            var (original, hdfc, clearedId, unclearedId) = SeedWithBanking();
-            var asOf = new DateOnly(2024, 4, 30);
-            var beforeBrs = BankReconciliation.Build(original, hdfc, asOf);
+            var (original, scenario, asOf) = SeedWithScenario();
+            var beforeActual = TrialBalance.Build(original, asOf);
+            var beforeScenario = TrialBalance.Build(original, asOf, scenario);
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
                 write.Save(original);
-                // Schema has since advanced past v5 (scenarios = v6); a fresh DB is stamped to the current
-                // version. This test still guarantees the v5 banking data survives round-trip.
-                Assert.True(Schema.CurrentVersion >= 5);
+                Assert.True(Schema.CurrentVersion >= 6);
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
@@ -87,37 +94,36 @@ public sealed class BankingRoundTripTests
             using (var read = new SqliteCompanyStore(dbPath))
                 reloaded = read.Load(original.Id)!;
 
-            // Cheque-printing config survived on the bank ledger.
-            var rHdfc = reloaded.FindLedgerByName("HDFC Bank")!;
-            Assert.True(rHdfc.EnableChequePrinting);
-            Assert.Equal("HDFC Bank", rHdfc.ChequePrintingBankName);
+            // The Optional flag persisted.
+            var reloadedOptional = Assert.Single(reloaded.Vouchers, v => v.Optional);
+            Assert.True(reloadedOptional.Optional);
 
-            // The cleared cheque line kept its type, instrument, instrument date AND bank date.
-            var clearedLine = reloaded.FindVoucher(clearedId)!.Lines.Single(l => l.LedgerId == rHdfc.Id);
-            Assert.NotNull(clearedLine.BankAllocation);
-            Assert.Equal(BankTransactionType.ChequeOrDD, clearedLine.BankAllocation!.TransactionType);
-            Assert.Equal("100200", clearedLine.BankAllocation.InstrumentNumber);
-            Assert.Equal(new DateOnly(2024, 4, 5), clearedLine.BankAllocation.InstrumentDate);
-            Assert.Equal(new DateOnly(2024, 4, 28), clearedLine.BankAllocation.BankDate);
-            Assert.True(clearedLine.BankAllocation.IsReconciled);
+            // The Reversing Journal's Applicable-upto persisted.
+            var reloadedRev = Assert.Single(reloaded.Vouchers, v => v.ApplicableUpto is not null);
+            Assert.Equal(new DateOnly(2024, 4, 30), reloadedRev.ApplicableUpto);
 
-            // The uncleared cheque line kept its details and stayed unreconciled (bank date null).
-            var unclearedLine = reloaded.FindVoucher(unclearedId)!.Lines.Single(l => l.LedgerId == rHdfc.Id);
-            Assert.Equal(BankTransactionType.NEFT, unclearedLine.BankAllocation!.TransactionType);
-            Assert.Equal("UTR7788", unclearedLine.BankAllocation.InstrumentNumber);
-            Assert.Null(unclearedLine.BankAllocation.BankDate);
-            Assert.False(unclearedLine.BankAllocation.IsReconciled);
+            // The scenario master persisted with its include/exclude lists and IncludeActuals.
+            var rScenario = Assert.Single(reloaded.Scenarios);
+            Assert.Equal("What-if", rScenario.Name);
+            Assert.True(rScenario.IncludeActuals);
+            Assert.Equal(2, rScenario.IncludedTypeIds.Count);
+            Assert.Single(rScenario.ExcludedTypeIds);
+            Assert.True(rScenario.Includes(reloaded.FindVoucherTypeByName("Journal")!.Id));
+            Assert.True(rScenario.Includes(reloaded.FindVoucherTypeByName("Reversing Journal")!.Id));
+            Assert.True(rScenario.Excludes(reloaded.FindVoucherTypeByName("Payment")!.Id));
 
-            // The BRS reproduces on the reloaded company: books 4,45,000 Dr; bank reflects only the
-            // cleared cheque → 4,60,000 Dr; the 15,000 uncleared cheque is the difference.
-            var afterBrs = BankReconciliation.Build(reloaded, rHdfc, asOf);
-            Assert.Equal(beforeBrs.BalanceAsPerBooks, afterBrs.BalanceAsPerBooks);
-            Assert.Equal(beforeBrs.BalanceAsPerBank, afterBrs.BalanceAsPerBank);
-            Assert.Equal(Money.FromRupees(445000m), afterBrs.BalanceAsPerBooks.Amount);
-            Assert.Equal(Money.FromRupees(460000m), afterBrs.BalanceAsPerBank.Amount);
-            Assert.Single(afterBrs.Unreconciled);
-            Assert.Single(afterBrs.Reconciled);
-            Assert.Equal(Money.FromRupees(-15000m), afterBrs.AmountNotReflectedInBank);
+            // Both the plain actual and the scenario Trial Balance reproduce on the reloaded company.
+            var afterActual = TrialBalance.Build(reloaded, asOf);
+            var afterScenario = TrialBalance.Build(reloaded, asOf, rScenario);
+            Assert.Equal(beforeActual.TotalDebit.Amount, afterActual.TotalDebit.Amount);
+            Assert.Equal(beforeScenario.TotalDebit.Amount, afterScenario.TotalDebit.Amount);
+            Assert.Equal(beforeScenario.TotalCredit.Amount, afterScenario.TotalCredit.Amount);
+
+            // Sanity: the scenario Rent = 5,000 (optional) + 3,000 (reversing, within upto) = 8,000 Dr;
+            // the actual has no Rent at all.
+            Assert.DoesNotContain(afterActual.Rows, r => r.LedgerName == "Rent");
+            var rentRow = Assert.Single(afterScenario.Rows, r => r.LedgerName == "Rent");
+            Assert.Equal(8000m, rentRow.Debit.Amount);
         }
         finally
         {
@@ -127,22 +133,23 @@ public sealed class BankingRoundTripTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Legacy_v4_database_opens_and_auto_migrates_to_v5()
+    public void Legacy_v5_database_opens_and_auto_migrates_to_v6()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v4legacy-{Guid.NewGuid():N}.db");
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v5legacy-{Guid.NewGuid():N}.db");
         try
         {
             var companyId = Guid.NewGuid();
             var connStr = new SqliteConnectionStringBuilder
             {
-                DataSource = dbPath, Mode = SqliteOpenMode.ReadWriteCreate,
+                DataSource = dbPath,
+                Mode = SqliteOpenMode.ReadWriteCreate,
             }.ToString();
 
             using (var conn = new SqliteConnection(connStr))
             {
                 conn.Open();
-                Exec(conn, LegacyV4Ddl);
-                Exec(conn, "INSERT INTO schema_version(version) VALUES (4);");
+                Exec(conn, LegacyV5Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (5);");
                 Exec(conn,
                     """
                     INSERT INTO companies
@@ -151,7 +158,7 @@ public sealed class BankingRoundTripTests
                        base_currency_name, decimal_places, decimal_unit_name,
                        primary_cost_category, main_location, profit_and_loss_head_id)
                     VALUES
-                      ($id, 'Legacy V4 Co', 'Legacy V4 Co', NULL, 'India', NULL, NULL,
+                      ($id, 'Legacy V5 Co', 'Legacy V5 Co', NULL, 'India', NULL, NULL,
                        '2024-04-01', '2024-04-01', '₹', 'INR', 2, 'Paisa',
                        'Primary Cost Category', 'Main Location', NULL);
                     """,
@@ -159,19 +166,20 @@ public sealed class BankingRoundTripTests
                 SqliteConnection.ClearPool(conn);
             }
 
-            Assert.Equal(4L, ReadSchemaVersion(dbPath));
+            Assert.Equal(5L, ReadSchemaVersion(dbPath));
 
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var loaded = store.Load(companyId);
                 Assert.NotNull(loaded);
-                Assert.Equal("Legacy V4 Co", loaded!.Name);
+                Assert.Equal("Legacy V5 Co", loaded!.Name);
+                Assert.Empty(loaded.Scenarios); // no scenarios existed in v5
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
-            Assert.True(TableExists(dbPath, "bank_allocations"), "bank_allocations table was not created.");
-            Assert.True(ColumnExists(dbPath, "ledgers", "enable_cheque_printing"));
-            Assert.True(ColumnExists(dbPath, "ledgers", "cheque_bank_name"));
+            Assert.True(TableExists(dbPath, "scenarios"), "scenarios table was not created.");
+            Assert.True(TableExists(dbPath, "scenario_voucher_types"), "scenario_voucher_types table was not created.");
+            Assert.True(ColumnExists(dbPath, "vouchers", "applicable_upto"), "applicable_upto column was not added.");
         }
         finally
         {
@@ -181,9 +189,9 @@ public sealed class BankingRoundTripTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Migrated_v4_database_then_accepts_and_round_trips_bank_data()
+    public void Migrated_v5_database_then_accepts_and_round_trips_scenario_data()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v4then5-{Guid.NewGuid():N}.db");
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v5then6-{Guid.NewGuid():N}.db");
         try
         {
             var connStr = new SqliteConnectionStringBuilder
@@ -193,15 +201,15 @@ public sealed class BankingRoundTripTests
             using (var conn = new SqliteConnection(connStr))
             {
                 conn.Open();
-                Exec(conn, LegacyV4Ddl);
-                Exec(conn, "INSERT INTO schema_version(version) VALUES (4);");
+                Exec(conn, LegacyV5Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (5);");
                 SqliteConnection.ClearPool(conn);
             }
 
-            var (original, _, _, _) = SeedWithBanking();
-            var asOf = new DateOnly(2024, 4, 30);
+            var (original, scenario, asOf) = SeedWithScenario();
+            var beforeScenario = TrialBalance.Build(original, asOf, scenario);
 
-            using (var store = new SqliteCompanyStore(dbPath)) // opens v4 → migrates to current
+            using (var store = new SqliteCompanyStore(dbPath)) // opens v5 → migrates (chained) to current
             {
                 Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
                 store.Save(original);
@@ -210,10 +218,11 @@ public sealed class BankingRoundTripTests
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var reloaded = store.Load(original.Id)!;
-                var hdfc = reloaded.FindLedgerByName("HDFC Bank")!;
-                var brs = BankReconciliation.Build(reloaded, hdfc, asOf);
-                Assert.Equal(Money.FromRupees(460000m), brs.BalanceAsPerBank.Amount);
-                Assert.Single(brs.Unreconciled);
+                var rScenario = Assert.Single(reloaded.Scenarios);
+                Assert.Equal(2, rScenario.IncludedTypeIds.Count);
+                var after = TrialBalance.Build(reloaded, asOf, rScenario);
+                Assert.Equal(beforeScenario.TotalDebit.Amount, after.TotalDebit.Amount);
+                Assert.Contains(reloaded.Vouchers, v => v.ApplicableUpto == new DateOnly(2024, 4, 30));
             }
         }
         finally
@@ -260,7 +269,8 @@ public sealed class BankingRoundTripTests
     {
         var conn = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = dbPath, Mode = SqliteOpenMode.ReadWrite,
+            DataSource = dbPath,
+            Mode = SqliteOpenMode.ReadWrite,
         }.ToString());
         conn.Open();
         return conn;
@@ -274,10 +284,11 @@ public sealed class BankingRoundTripTests
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>The pre-banking v4 DDL (the tables the migration/load touches), kept in the test so it does
-    /// not drift when the production <see cref="Schema"/> advances past v4. Ledgers carry the v2/v3 columns
-    /// but NOT the v5 cheque-printing columns; there is no bank_allocations table.</summary>
-    private const string LegacyV4Ddl = """
+    /// <summary>The pre-scenarios v5 DDL (the tables the migration/load touches), kept in the test so it
+    /// does not drift when the production <see cref="Schema"/> advances past v5. It includes budgets and
+    /// banking, but NOT <c>scenarios</c>/<c>scenario_voucher_types</c> nor the <c>applicable_upto</c>
+    /// voucher column.</summary>
+    private const string LegacyV5Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (
             id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,
@@ -297,7 +308,8 @@ public sealed class BankingRoundTripTests
             opening_balance_paisa INTEGER NOT NULL, opening_is_debit INTEGER NOT NULL,
             alias TEXT NULL, is_predefined INTEGER NOT NULL,
             maintain_bill_by_bill INTEGER NOT NULL DEFAULT 0, default_credit_period INTEGER NULL,
-            cost_applicable INTEGER NULL);
+            cost_applicable INTEGER NULL,
+            enable_cheque_printing INTEGER NOT NULL DEFAULT 0, cheque_bank_name TEXT NULL);
         CREATE TABLE voucher_types (
             id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, base_type INTEGER NOT NULL, default_shortcut TEXT NULL,
@@ -336,5 +348,9 @@ public sealed class BankingRoundTripTests
             id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, budget_id TEXT NOT NULL REFERENCES budgets(id),
             line_order INTEGER NOT NULL, group_id TEXT NULL REFERENCES groups(id),
             ledger_id TEXT NULL REFERENCES ledgers(id), budget_type INTEGER NOT NULL, amount_paisa INTEGER NOT NULL);
+        CREATE TABLE bank_allocations (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, entry_line_id INTEGER NOT NULL REFERENCES entry_lines(id),
+            transaction_type INTEGER NOT NULL, instrument_number TEXT NOT NULL,
+            instrument_date TEXT NULL, bank_date TEXT NULL);
         """;
 }

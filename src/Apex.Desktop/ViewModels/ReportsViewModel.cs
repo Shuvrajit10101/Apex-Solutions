@@ -37,6 +37,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     public ObservableCollection<ReportRow> Rows { get; } = new();
 
+    /// <summary>
+    /// The scenario picker options: "Actual (no scenario)" first (a null <see cref="ScenarioOption.Scenario"/>),
+    /// then every scenario defined on the company. Only meaningful for the balance reports (TB / P&amp;L / BS);
+    /// the Day Book always shows the real books. Empty of scenarios ⇒ only the Actual option is offered.
+    /// </summary>
+    public ObservableCollection<ScenarioOption> Scenarios { get; } = new();
+
+    /// <summary>The chosen scenario option; changing it rebuilds the current report under that scenario.</summary>
+    [ObservableProperty] private ScenarioOption? _selectedScenario;
+
+    /// <summary>True when this report kind can be viewed under a scenario (TB / P&amp;L / Balance Sheet).</summary>
+    public bool SupportsScenario => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet or ReportKind.ProfitAndLoss;
+
+    /// <summary>The scenario currently applied (null = actual books).</summary>
+    private Scenario? CurrentScenario => SupportsScenario ? SelectedScenario?.Scenario : null;
+
     /// <summary>The company display name (for the header line).</summary>
     public string CompanyName => _company.Name;
 
@@ -44,13 +60,23 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _asOf = ComputeAsOf(company);
+
+        Scenarios.Add(ScenarioOption.Actual);
+        foreach (var s in company.Scenarios.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+            Scenarios.Add(new ScenarioOption(s));
+        _selectedScenario = Scenarios[0];
+
         Show(kind);
     }
 
-    /// <summary>Switches the displayed report and rebuilds its rows.</summary>
+    /// <summary>Rebuilds the current report whenever the scenario picker changes.</summary>
+    partial void OnSelectedScenarioChanged(ScenarioOption? value) => Show(Kind);
+
+    /// <summary>Switches the displayed report and rebuilds its rows (under the selected scenario, if any).</summary>
     public void Show(ReportKind kind)
     {
         Kind = kind;
+        OnPropertyChanged(nameof(SupportsScenario));
         Rows.Clear();
 
         switch (kind)
@@ -62,13 +88,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
     }
 
+    /// <summary>" under scenario <name>" suffix for the subtitle, or empty when showing the actual books.</summary>
+    private string ScenarioSuffix =>
+        CurrentScenario is { } s ? $"  —  under scenario “{s.Name}”" : string.Empty;
+
     // --------------------------------------------------------------- Trial Balance
 
     private void BuildTrialBalance()
     {
-        var tb = TrialBalance.Build(_company, _asOf);
+        var tb = TrialBalance.Build(_company, _asOf, CurrentScenario);
         Title = "Trial Balance";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}";
         IsTwoColumn = true;
 
         foreach (var row in tb.Rows.OrderBy(r => r.GroupName).ThenBy(r => r.LedgerName))
@@ -81,9 +111,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     private void BuildBalanceSheet()
     {
-        var bs = BalanceSheet.Build(_company, _asOf);
+        var bs = BalanceSheet.Build(_company, _asOf, CurrentScenario);
         Title = "Balance Sheet";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}";
         IsTwoColumn = false;
 
         Rows.Add(new ReportRow { Particulars = "Liabilities", IsHeader = true });
@@ -101,9 +131,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     private void BuildProfitAndLoss()
     {
-        var pl = ProfitAndLoss.Build(_company, _asOf);
+        var pl = ProfitAndLoss.Build(_company, _asOf, ClosingStockMode.AsPostedLedger, CurrentScenario);
         Title = "Profit & Loss A/c";
-        Subtitle = $"{CompanyName}  —  for the period ending {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  for the period ending {FormatDate(_asOf)}{ScenarioSuffix}";
         IsTwoColumn = false;
 
         Rows.Add(new ReportRow { Particulars = "Income", IsHeader = true });
@@ -163,4 +193,27 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy");
+}
+
+/// <summary>
+/// One entry in a report's scenario picker: either the actual books (<see cref="Scenario"/> is null,
+/// shown as "Actual (no scenario)") or a defined <see cref="Domain.Scenario"/>. The <see cref="Display"/>
+/// is what the combo shows.
+/// </summary>
+public sealed class ScenarioOption
+{
+    /// <summary>The wrapped scenario, or null for the real (actual-books) option.</summary>
+    public Scenario? Scenario { get; }
+
+    /// <summary>The combo label ("Actual (no scenario)" or the scenario name).</summary>
+    public string Display { get; }
+
+    public ScenarioOption(Scenario? scenario)
+    {
+        Scenario = scenario;
+        Display = scenario is null ? "Actual (no scenario)" : scenario.Name;
+    }
+
+    /// <summary>The shared "actual books" option (a null scenario).</summary>
+    public static ScenarioOption Actual { get; } = new((Scenario?)null);
 }

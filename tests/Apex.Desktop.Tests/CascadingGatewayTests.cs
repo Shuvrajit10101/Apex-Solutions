@@ -82,9 +82,12 @@ public sealed class CascadingGatewayTests : IDisposable
         Assert.Equal(1, vm.ActiveColumnIndex);
         Assert.Equal(GatewayMenu.Vouchers, vm.CurrentGatewayMenu);
 
-        // The submenu lists exactly the six accounting voucher types.
+        // The submenu lists the six accounting voucher types plus an "Other Vouchers" group
+        // (Reversing Journal / Memorandum nest under it — professional hierarchy).
         var items = vm.Columns[1].Items.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase" }, items);
+        Assert.Equal(
+            new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase", "Other Vouchers" },
+            items);
 
         // The root column's chosen row is still "Vouchers" (kept, shown inactive).
         Assert.Equal("Vouchers", vm.Columns[0].Selected!.Label);
