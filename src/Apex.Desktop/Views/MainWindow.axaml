@@ -34,6 +34,7 @@
         <conv:ColumnHeaderBrushConverter x:Key="ColHeaderBrush"/>
         <conv:BillRefTypeLabelConverter x:Key="BillRefLabel"/>
         <conv:BudgetTypeLabelConverter x:Key="BudgetTypeLabel"/>
+        <conv:BankTxTypeLabelConverter x:Key="BankTxTypeLabel"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -322,9 +323,9 @@
                         <DataTemplate x:DataType="vm:VoucherEntryViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto,Auto" Margin="4">
 
-                            <!-- Header: type + auto number + date -->
+                            <!-- Header: type + auto number + post-dated toggle + date -->
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}" Padding="10,6">
-                              <Grid ColumnDefinitions="*,Auto,Auto">
+                              <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                 <TextBlock Grid.Column="0" Text="{Binding TypeName}"
                                            Foreground="White" FontWeight="Bold" FontSize="15"
                                            VerticalAlignment="Center"/>
@@ -332,7 +333,11 @@
                                            VerticalAlignment="Center" Margin="0,0,18,0">
                                   <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                 </TextBlock>
-                                <TextBox Grid.Column="2" Width="140"
+                                <CheckBox Grid.Column="2" Content="Post-Dated (Ctrl+T)"
+                                          IsChecked="{Binding IsPostDated, Mode=TwoWay}"
+                                          Foreground="#CFE0FF" FontSize="11"
+                                          VerticalAlignment="Center" Margin="0,0,16,0"/>
+                                <TextBox Grid.Column="3" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -509,6 +514,44 @@
                                                          FontSize="10.5" Foreground="#555555"
                                                          VerticalAlignment="Center" TextAlignment="Right"
                                                          Margin="8,0,0,0"/>
+                                            </Grid>
+                                          </StackPanel>
+                                        </Border>
+
+                                        <!-- Bank Allocation sub-panel (only for a bank-account ledger) -->
+                                        <Border IsVisible="{Binding IsBankLine}"
+                                                Background="#EEF4FB"
+                                                BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                                Margin="18,4,4,2" Padding="8,6">
+                                          <StackPanel Spacing="4">
+                                            <TextBlock Text="Bank Allocation"
+                                                       FontWeight="SemiBold" FontSize="11"
+                                                       Foreground="{StaticResource BrandNavy}"/>
+                                            <Grid ColumnDefinitions="150,*,140">
+                                              <TextBlock Grid.Column="0" Text="Transaction Type" FontSize="10.5"
+                                                         Foreground="#6A6A6A"/>
+                                              <TextBlock Grid.Column="1" Text="Instrument No." FontSize="10.5"
+                                                         Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                              <TextBlock Grid.Column="2" Text="Instrument Date" FontSize="10.5"
+                                                         Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                            </Grid>
+                                            <Grid ColumnDefinitions="150,*,140">
+                                              <ComboBox Grid.Column="0" Width="144"
+                                                        ItemsSource="{Binding BankTransactionTypes}"
+                                                        SelectedItem="{Binding BankTransactionType, Mode=TwoWay}"
+                                                        FontSize="11">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource BankTxTypeLabel}}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <TextBox Grid.Column="1" Margin="4,0,0,0"
+                                                       Text="{Binding InstrumentNumber, Mode=TwoWay}"
+                                                       FontSize="11" PlaceholderText="Cheque / UTR / ref…"/>
+                                              <TextBox Grid.Column="2" Width="134" Margin="4,0,0,0"
+                                                       Text="{Binding InstrumentDateText, Mode=TwoWay}"
+                                                       FontSize="11" PlaceholderText="dd-MMM-yyyy"/>
                                             </Grid>
                                           </StackPanel>
                                         </Border>
@@ -1249,6 +1292,222 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Bank Reconciliation (pick bank → editable Bank Date → book-vs-bank) -->
+                    <ContentControl IsVisible="{Binding BankReconciliation, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BankReconciliation}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BankReconciliationViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+
+                            <!-- Bank ledger picker -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,8">
+                              <TextBlock Grid.Column="0" Text="Bank Ledger" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Margin="0,0,10,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding BankLedgers}"
+                                        SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
+                                        PlaceholderText="No bank ledgers defined…">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:Ledger">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Book-vs-Bank balance summary -->
+                            <Border Grid.Row="3" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="8,0,8,8">
+                              <Grid ColumnDefinitions="*,*,Auto">
+                                <StackPanel Grid.Column="0">
+                                  <TextBlock Text="Balance as per Company Books" FontSize="11" Foreground="#6A6A6A"/>
+                                  <TextBlock Text="{Binding BalanceAsPerBooksText}" FontSize="13" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                  <TextBlock Text="Balance as per Bank" FontSize="11" Foreground="#6A6A6A"/>
+                                  <TextBlock Text="{Binding BalanceAsPerBankText}" FontSize="13" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                  <TextBlock Text="Not reflected in bank" FontSize="11" Foreground="#6A6A6A"
+                                             TextAlignment="Right"/>
+                                  <TextBlock Text="{Binding AmountNotReflectedText}" FontSize="13" FontWeight="SemiBold"
+                                             TextAlignment="Right"/>
+                                </StackPanel>
+                              </Grid>
+                            </Border>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="4" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="90,60,*,90,110,130">
+                                <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="V.No" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Instrument / Type" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Dr/Cr" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Bank Date" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="5" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:BankReconRowViewModel">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="90,60,*,90,110,130" Height="28">
+                                        <TextBlock Grid.Column="0" Text="{Binding Date}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding VoucherNo}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#555555"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                                                    VerticalAlignment="Center">
+                                          <TextBlock Text="{Binding Instrument}" FontSize="12"/>
+                                          <TextBlock Text="{Binding Kind}" FontSize="10.5" Foreground="#8A8A8A"
+                                                     VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="3" Text="{Binding Direction}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Amount}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBox Grid.Column="5" Text="{Binding BankDateText, Mode=TwoWay}"
+                                                 Margin="4,2,6,2" FontSize="11" Height="22"
+                                                 VerticalContentAlignment="Center"
+                                                 PlaceholderText="dd-MMM-yyyy"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <!-- Reconcile bar -->
+                            <Border Grid.Row="6" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,4">
+                              <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Grid.Column="0"
+                                           Text="Type a Bank Date on each cleared transaction, then Reconcile (Ctrl+A)."
+                                           FontSize="11" Foreground="#6A6A6A" VerticalAlignment="Center"/>
+                                <Button Grid.Column="1" Content="Reconcile (Ctrl+A)" Padding="12,5"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        Click="OnReconcileBankClick"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="7" Text="{Binding Message}"
+                                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,2,0,2" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Import Bank Statement (CSV → auto-match → matched/unmatched) -->
+                    <ContentControl IsVisible="{Binding BankStatementImport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BankStatementImport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BankStatementImportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+
+                            <!-- Bank ledger picker -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,8">
+                              <TextBlock Grid.Column="0" Text="Bank Ledger" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Margin="0,0,10,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding BankLedgers}"
+                                        SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
+                                        PlaceholderText="No bank ledgers defined…">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:Ledger">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- CSV path + Import -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" Margin="8,0,8,8">
+                              <TextBlock Grid.Column="0" Text="Statement CSV" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Margin="0,0,10,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <TextBox Grid.Column="1" Text="{Binding StatementPath, Mode=TwoWay}"
+                                       PlaceholderText="path to bank-statement.csv (date, description, amount, instrument)"/>
+                              <Button Grid.Column="2" Content="Import (Ctrl+A)" Margin="8,0,0,0" Padding="12,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnImportBankStatementClick"/>
+                            </Grid>
+
+                            <!-- Summary -->
+                            <TextBlock Grid.Row="4" Text="{Binding SummaryText}"
+                                       IsVisible="{Binding SummaryText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                       Margin="8,0,8,6"/>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="5" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="150,90,*,120,110,100">
+                                <TextBlock Grid.Column="0" Text="Status" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Description" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Instrument" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Amount" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Bank Date" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="6" Background="White">
+                              <ItemsControl ItemsSource="{Binding Results}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:StatementResultRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            Background="{Binding Kind, Converter={x:Static conv:StatementRowBrushConverter.Instance}}">
+                                      <Grid ColumnDefinitions="150,90,*,120,110,100" Height="26">
+                                        <TextBlock Grid.Column="0" Text="{Binding StatusLabel}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="11"
+                                                   FontWeight="SemiBold"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Date}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Description}"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Instrument}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#333333"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Amount}"
+                                                   VerticalAlignment="Center" FontSize="11"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding BankDate}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#555555"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <TextBlock Grid.Row="7" Text="{Binding Message}"
+                                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,4,0,2" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

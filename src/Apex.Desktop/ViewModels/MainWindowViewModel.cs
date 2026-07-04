@@ -24,6 +24,8 @@ public enum Screen
     CostReport,
     BudgetMaster,
     BudgetVariance,
+    BankReconciliation,
+    BankStatementImport,
 }
 
 /// <summary>
@@ -40,6 +42,7 @@ public enum GatewayMenu
     StatementsOfAccounts,
     CostCentres,
     Budgets,
+    Banking,
 }
 
 /// <summary>
@@ -115,6 +118,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Budget Variance report view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private BudgetVarianceViewModel? _budgetVariance;
 
+    /// <summary>The Bank Reconciliation (BRS) view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private BankReconciliationViewModel? _bankReconciliation;
+
+    /// <summary>The Import Bank Statement view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private BankStatementImportViewModel? _bankStatementImport;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -122,7 +131,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsMenuScreen => !IsGatewayCascade
         && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
-        && CostReports is null && BudgetMaster is null && BudgetVariance is null;
+        && CostReports is null && BudgetMaster is null && BudgetVariance is null
+        && BankReconciliation is null && BankStatementImport is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -134,6 +144,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnCostReportsChanged(CostReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBudgetMasterChanged(BudgetMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBudgetVarianceChanged(BudgetVarianceViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBankReconciliationChanged(BankReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBankStatementImportChanged(BankStatementImportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -291,6 +303,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // ---- TRANSACTIONS ----
         col.Add(MenuItemViewModel.Header("Transactions"));
         col.Add(new MenuItemViewModel("Vouchers", () => { }, "F4–F9  ▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Banking", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Day Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         // ---- REPORTS ----
@@ -320,6 +333,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Journal", () => { }, "F7", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Banking" submenu column (Transactions → Banking): the Bank Reconciliation and Import
+    /// Bank Statement pages, each a page item under this Banking group (professional hierarchy).
+    /// </summary>
+    private GatewayColumn BuildBankingColumn()
+    {
+        var col = new GatewayColumn("Banking");
+        col.Add(MenuItemViewModel.Header("Banking"));
+        col.Add(new MenuItemViewModel("Bank Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -591,6 +617,60 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Gateway of Apex Solutions — Budgets");
     }
 
+    // =============================================================== screen: banking
+
+    /// <summary>
+    /// Opens the Bank Reconciliation page (Transactions → Banking → Bank Reconciliation) as a page column:
+    /// pick a bank ledger, edit each transaction's Bank Date, and see Balance-as-per-Books vs -Bank.
+    /// </summary>
+    public void OpenBankReconciliation()
+    {
+        if (Company is null) return;
+
+        var vm = new BankReconciliationViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.BankReconciliation, vm.Title,
+            () => BankReconciliation = vm);
+    }
+
+    /// <summary>
+    /// Opens the Import Bank Statement page (Transactions → Banking → Import Bank Statement) as a page
+    /// column: point to a CSV, run the engine auto-match, and review matched/unmatched rows.
+    /// </summary>
+    public void OpenBankStatementImport()
+    {
+        if (Company is null) return;
+
+        var vm = new BankStatementImportViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.BankStatementImport, vm.Title,
+            () => BankStatementImport = vm);
+    }
+
+    /// <summary>
+    /// Opens the "Transactions → Banking" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Banking] and focuses the submenu.
+    /// </summary>
+    public void ShowBankingMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Banking");
+        OpenSubmenuColumn(BuildBankingColumn(), GatewayMenu.Banking,
+            "Gateway of Apex Solutions — Banking");
+    }
+
+    /// <summary>Reconciles the current BRS page (page "Reconcile" button).</summary>
+    public void ReconcileBank()
+    {
+        if (CurrentScreen == Screen.BankReconciliation)
+            BankReconciliation?.Reconcile();
+    }
+
+    /// <summary>Runs the statement import on the current page (page "Import" button).</summary>
+    public void ImportBankStatement()
+    {
+        if (CurrentScreen == Screen.BankStatementImport)
+            BankStatementImport?.Import();
+    }
+
     // =============================================================== screen: outstandings
 
     /// <summary>
@@ -708,6 +788,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         CostReports = null;
         BudgetMaster = null;
         BudgetVariance = null;
+        BankReconciliation = null;
+        BankStatementImport = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -737,6 +819,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster)
             BackFromPage();
+    }
+
+    /// <summary>Ctrl+T: toggle the in-progress voucher as post-dated (post-dated cheque handling).</summary>
+    public void TogglePostDated()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.TogglePostDated();
     }
 
     /// <summary>Alt+C: open the Ledger-creation master whenever a company is open.</summary>
@@ -858,6 +947,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
+            case Screen.BankReconciliation:
+                BankReconciliation?.Reconcile();
+                return;
+            case Screen.BankStatementImport:
+                BankStatementImport?.Import();
+                return;
         }
 
         if (IsGatewayCascade)
@@ -908,6 +1003,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             "Vouchers" => (BuildVouchersColumn(), GatewayMenu.Vouchers,
                 "Gateway of Apex Solutions — Vouchers"),
+            "Banking" => (BuildBankingColumn(), GatewayMenu.Banking,
+                "Gateway of Apex Solutions — Banking"),
             "Create" => (BuildCreateColumn(), GatewayMenu.Create,
                 "Gateway of Apex Solutions — Create"),
             "Statements of Accounts" => (BuildStatementsOfAccountsColumn(), GatewayMenu.StatementsOfAccounts,
@@ -950,6 +1047,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
             case "Cost Centre Break-up": OpenCostReport(CostReportKind.CostCentreBreakup); break;
             case "Budget Variance": OpenBudgetVariance(); break;
+            case "Bank Reconciliation": OpenBankReconciliation(); break;
+            case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
             case "Payment": OpenVoucher(VoucherBaseType.Payment); break;
             case "Receipt": OpenVoucher(VoucherBaseType.Receipt); break;
@@ -1020,6 +1119,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return Columns[i].Title switch
                 {
                     "Vouchers" => GatewayMenu.Vouchers,
+                    "Banking" => GatewayMenu.Banking,
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
                     "Outstandings" => GatewayMenu.Outstandings,
@@ -1090,6 +1190,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
         ButtonBar.Add(new ButtonBarItem("O", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
+        ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
+        ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup), hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));

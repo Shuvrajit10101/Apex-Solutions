@@ -13,11 +13,14 @@ namespace Apex.Persistence.Sqlite;
 /// <c>entry_lines</c>, and a nullable <c>cost_applicable</c> column on <c>ledgers</c> (NULL = auto).
 /// <b>v4</b> adds budgets (catalog §7): a <c>budgets</c> master table and a <c>budget_lines</c> child
 /// table (each line targets a group OR a ledger, with a type and an amount in paisa).
+/// <b>v5</b> adds banking (catalog §8): a <c>bank_allocations</c> child table hung off
+/// <c>entry_lines</c> (one row per bank line — transaction type, instrument no./date, and the nullable
+/// cleared <c>bank_date</c>), plus two cheque-printing columns on <c>ledgers</c>.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v4 = budgets).</summary>
-    public const int CurrentVersion = 4;
+    /// <summary>The current schema version this adapter reads and writes (v5 = banking).</summary>
+    public const int CurrentVersion = 5;
 
     /// <summary>
     /// The full create DDL for a brand-new database at <see cref="CurrentVersion"/>. Executed inside a
@@ -76,7 +79,10 @@ public static class Schema
             maintain_bill_by_bill    INTEGER NOT NULL DEFAULT 0,   -- 0/1
             default_credit_period    INTEGER     NULL,             -- days, NULL = none
             -- v3 cost centres (catalog §6): NULL = auto (by nature), 0/1 = explicit override
-            cost_applicable          INTEGER     NULL
+            cost_applicable          INTEGER     NULL,
+            -- v5 banking (catalog §8): cheque-printing configuration (physical layout deferred)
+            enable_cheque_printing   INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            cheque_bank_name         TEXT        NULL
         );
 
         CREATE TABLE voucher_types (
@@ -170,6 +176,15 @@ public static class Schema
             amount_paisa  INTEGER NOT NULL    -- magnitude ≥ 0, in paisa
         );
 
+        CREATE TABLE bank_allocations (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id     INTEGER NOT NULL REFERENCES entry_lines(id),   -- one row per bank line
+            transaction_type  INTEGER NOT NULL,   -- BankTransactionType enum ordinal
+            instrument_number TEXT    NOT NULL,   -- cheque/DD/UTR reference ('' if none)
+            instrument_date   TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL
+            bank_date         TEXT        NULL    -- cleared date (BRS), or NULL when unreconciled
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -181,6 +196,7 @@ public static class Schema
         CREATE INDEX ix_cost_allocations_line   ON cost_allocations(entry_line_id);
         CREATE INDEX ix_budgets_company         ON budgets(company_id);
         CREATE INDEX ix_budget_lines_budget     ON budget_lines(budget_id);
+        CREATE INDEX ix_bank_allocations_line   ON bank_allocations(entry_line_id);
         """;
 
     /// <summary>
@@ -276,5 +292,27 @@ public static class Schema
 
         CREATE INDEX ix_budgets_company     ON budgets(company_id);
         CREATE INDEX ix_budget_lines_budget ON budget_lines(budget_id);
+        """;
+
+    /// <summary>
+    /// The v4→v5 migration (catalog §8): adds the two cheque-printing columns to <c>ledgers</c> and
+    /// creates the <c>bank_allocations</c> table + index. Run inside a transaction that also bumps
+    /// <c>schema_version</c> to 5. Existing v4 databases keep all their data — the new columns default to
+    /// "no cheque printing" and the new table starts empty.
+    /// </summary>
+    public const string MigrateV4ToV5 = """
+        ALTER TABLE ledgers ADD COLUMN enable_cheque_printing INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN cheque_bank_name TEXT NULL;
+
+        CREATE TABLE bank_allocations (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id     INTEGER NOT NULL REFERENCES entry_lines(id),
+            transaction_type  INTEGER NOT NULL,
+            instrument_number TEXT    NOT NULL,
+            instrument_date   TEXT        NULL,
+            bank_date         TEXT        NULL
+        );
+
+        CREATE INDEX ix_bank_allocations_line ON bank_allocations(entry_line_id);
         """;
 }

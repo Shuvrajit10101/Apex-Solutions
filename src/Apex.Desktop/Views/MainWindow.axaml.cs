@@ -87,6 +87,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+T toggles the in-progress voucher as post-dated (post-dated cheque handling).
+        if (e.Key == Key.T && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            vm.TogglePostDated();
+            e.Handled = true;
+            return;
+        }
+
         // Spacebar toggles the highlighted bill's multi-select on the Outstandings page (not while typing).
         if (e.Key == Key.Space && vm.IsOutstandingsScreen && !IsTyping(e))
         {
@@ -205,4 +213,10 @@ public partial class MainWindow : Window
 
     private void OnCreateBudgetClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.Create();
+
+    private void OnReconcileBankClick(object? sender, RoutedEventArgs e)
+        => Vm?.BankReconciliation?.Reconcile();
+
+    private void OnImportBankStatementClick(object? sender, RoutedEventArgs e)
+        => Vm?.BankStatementImport?.Import();
 }

@@ -88,4 +88,40 @@ public static class ClassificationRules
         }
         return false;
     }
+
+    /// <summary>
+    /// The two predefined bank groups (catalog §8 / seed §22): <b>Bank Accounts</b> (an asset) and
+    /// <b>Bank OD A/c</b> (a liability, alias "Bank OCC A/c"). A ledger under either — directly or via a
+    /// custom sub-group — is a bank ledger that can carry bank allocations and appear in Bank Reconciliation.
+    /// </summary>
+    public static readonly IReadOnlyList<string> BankGroupNames = new[]
+    {
+        "Bank Accounts",
+        "Bank OD A/c",
+        "Bank OCC A/c", // alias of Bank OD A/c
+    };
+
+    /// <summary>
+    /// True iff <paramref name="ledger"/> sits under (or below) one of the predefined bank groups
+    /// (catalog §8): Bank Accounts or Bank OD A/c (alias Bank OCC A/c). Walks the group's parent chain,
+    /// matching by group name or alias so a bank ledger under a custom sub-group is still recognised.
+    /// </summary>
+    public static bool IsBankLedger(Domain.Ledger ledger, Company company)
+    {
+        var group = company.FindGroup(ledger.GroupId);
+        var guard = 0;
+        while (group is not null)
+        {
+            foreach (var name in BankGroupNames)
+            {
+                if (string.Equals(group.Name, name, StringComparison.OrdinalIgnoreCase) ||
+                    (group.Alias is not null && string.Equals(group.Alias, name, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+            }
+            group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException($"Cycle detected walking parents of ledger '{ledger.Name}'.");
+        }
+        return false;
+    }
 }

@@ -1,4 +1,5 @@
 using Apex.Ledger;
+using Apex.Ledger.Banking;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
@@ -10,71 +11,72 @@ using Domain = Apex.Ledger.Domain;
 namespace Apex.Persistence.Sqlite.Tests;
 
 /// <summary>
-/// Budget persistence contract (task §7): a company with a budget master (group + ledger lines, both
-/// OnClosingBalance and OnNettTransactions, an optional Under group) SAVES and RELOADS with
-/// schema_version = 4, preserving every line and reproducing the variance report; and a legacy v3
-/// database still opens (auto-migrated to v4) with its data intact and then accepts budget data.
+/// Banking persistence contract (task §5; catalog §8): a company with a bank ledger, cheque-printing
+/// configuration, and bank-allocated voucher lines (one cleared, one still uncleared) SAVES and RELOADS
+/// with schema_version = 5, preserving the transaction type / instrument / bank date on every line and
+/// reproducing the Bank Reconciliation book-vs-bank figures; and a legacy v4 database still opens
+/// (auto-migrated to v5) and then accepts bank data.
 /// </summary>
-public sealed class BudgetRoundTripTests
+public sealed class BankingRoundTripTests
 {
-    private static (Company Company, Budget Budget) SeedWithBudget()
+    private static (Company Company, Domain.Ledger Hdfc, Guid ClearedVoucherId, Guid UnclearedVoucherId) SeedWithBanking()
     {
-        // Books begin 2024-03-01 so a pre-period voucher is valid; budget window is Apr–Jun.
-        var c = CompanyFactory.CreateSeeded("Budget Persist Co", new DateOnly(2024, 3, 1));
+        var c = CompanyFactory.CreateSeeded("Bank Persist Co", new DateOnly(2024, 4, 1));
 
         var cash = c.FindLedgerByName("Cash")!;
         cash.OpeningBalance = Money.FromRupees(1000000m);
         cash.OpeningIsDebit = true;
 
-        var indirect = c.FindGroupByName("Indirect Expenses")!;
-        var salaries = new Domain.Ledger(Guid.NewGuid(), "Salaries", indirect.Id, Money.Zero, openingIsDebit: true);
-        var rent = new Domain.Ledger(Guid.NewGuid(), "Rent", indirect.Id, Money.Zero, openingIsDebit: true);
-        c.AddLedger(salaries);
+        var hdfc = new Domain.Ledger(Guid.NewGuid(), "HDFC Bank", c.FindGroupByName("Bank Accounts")!.Id,
+            Money.FromRupees(500000m), openingIsDebit: true)
+        {
+            EnableChequePrinting = true,
+            ChequePrintingBankName = "HDFC Bank",
+        };
+        c.AddLedger(hdfc);
+
+        var rent = new Domain.Ledger(Guid.NewGuid(), "Rent", c.FindGroupByName("Indirect Expenses")!.Id,
+            Money.Zero, openingIsDebit: true);
         c.AddLedger(rent);
 
-        var journal = c.FindVoucherTypeByName("Journal")!;
+        var payment = c.FindVoucherTypeByName("Payment")!;
         var svc = new LedgerService(c);
-        void Expense(Domain.Ledger led, decimal amt, DateOnly date) =>
-            svc.Post(new Voucher(Guid.NewGuid(), journal.Id, date, new[]
-            {
-                new EntryLine(led.Id, Money.FromRupees(amt), DrCr.Debit),
-                new EntryLine(cash.Id, Money.FromRupees(amt), DrCr.Credit),
-            }));
 
-        Expense(salaries, 1000m, new DateOnly(2024, 3, 20)); // pre-period → in closing, not in nett
-        Expense(salaries, 6000m, new DateOnly(2024, 4, 5));
-        Expense(rent, 3000m, new DateOnly(2024, 4, 10));
-        Expense(salaries, 2000m, new DateOnly(2024, 5, 15));
+        // Cleared cheque: 40,000 out on 2024-04-05, reconciled on 2024-04-28.
+        var cleared = svc.Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 4, 5), new[]
+        {
+            new EntryLine(rent.Id, Money.FromRupees(40000m), DrCr.Debit),
+            new EntryLine(hdfc.Id, Money.FromRupees(40000m), DrCr.Credit,
+                bankAllocation: new BankAllocation(BankTransactionType.ChequeOrDD, "100200",
+                    instrumentDate: new DateOnly(2024, 4, 5), bankDate: new DateOnly(2024, 4, 28))),
+        }));
 
-        // Under = the "Indirect Expenses" group (an optional Primary reference).
-        var budget = new Budget(Guid.NewGuid(), "Q1 Budget",
-            new DateOnly(2024, 4, 1), new DateOnly(2024, 6, 30), underId: indirect.Id, lines: new[]
-            {
-                BudgetLine.ForLedger(salaries.Id, BudgetType.OnNettTransactions, Money.FromRupees(10000m)),
-                BudgetLine.ForLedger(salaries.Id, BudgetType.OnClosingBalance, Money.FromRupees(9000m)),
-                BudgetLine.ForGroup(indirect.Id, BudgetType.OnNettTransactions, Money.FromRupees(12000m)),
-            });
-        c.AddBudget(budget);
+        // Uncleared cheque: 15,000 out on 2024-04-20, no bank date yet.
+        var uncleared = svc.Post(new Voucher(Guid.NewGuid(), payment.Id, new DateOnly(2024, 4, 20), new[]
+        {
+            new EntryLine(rent.Id, Money.FromRupees(15000m), DrCr.Debit),
+            new EntryLine(hdfc.Id, Money.FromRupees(15000m), DrCr.Credit,
+                bankAllocation: new BankAllocation(BankTransactionType.NEFT, "UTR7788")),
+        }));
 
-        return (c, budget);
+        return (c, hdfc, cleared.Id, uncleared.Id);
     }
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Budgets_survive_save_reload_with_schema_version_4()
+    public void Bank_allocations_and_cheque_config_survive_save_reload_with_schema_version_5()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-budget-{Guid.NewGuid():N}.db");
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-bank-{Guid.NewGuid():N}.db");
         try
         {
-            var (original, budget) = SeedWithBudget();
-            var before = BudgetVarianceReport.Build(original, budget);
+            var (original, hdfc, clearedId, unclearedId) = SeedWithBanking();
+            var asOf = new DateOnly(2024, 4, 30);
+            var beforeBrs = BankReconciliation.Build(original, hdfc, asOf);
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
                 write.Save(original);
-                // Schema has since advanced past v4 (banking = v5); a fresh DB is stamped to the current
-                // version. This test still guarantees the v4 budget data survives round-trip.
-                Assert.True(Schema.CurrentVersion >= 4);
+                Assert.Equal(5, Schema.CurrentVersion);
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
@@ -83,34 +85,37 @@ public sealed class BudgetRoundTripTests
             using (var read = new SqliteCompanyStore(dbPath))
                 reloaded = read.Load(original.Id)!;
 
-            // Budget master survived, including the optional Under reference and the period.
-            var rBudget = Assert.Single(reloaded.Budgets);
-            Assert.Equal("Q1 Budget", rBudget.Name);
-            Assert.Equal(reloaded.FindGroupByName("Indirect Expenses")!.Id, rBudget.UnderId);
-            Assert.Equal(new DateOnly(2024, 4, 1), rBudget.PeriodFrom);
-            Assert.Equal(new DateOnly(2024, 6, 30), rBudget.PeriodTo);
+            // Cheque-printing config survived on the bank ledger.
+            var rHdfc = reloaded.FindLedgerByName("HDFC Bank")!;
+            Assert.True(rHdfc.EnableChequePrinting);
+            Assert.Equal("HDFC Bank", rHdfc.ChequePrintingBankName);
 
-            // All three lines survived, in order, with target/type/amount intact.
-            Assert.Equal(3, rBudget.Lines.Count);
-            Assert.True(rBudget.Lines[0].IsLedgerTarget);
-            Assert.Equal(BudgetType.OnNettTransactions, rBudget.Lines[0].Type);
-            Assert.Equal(Money.FromRupees(10000m), rBudget.Lines[0].Amount);
-            Assert.True(rBudget.Lines[2].IsGroupTarget);
-            Assert.Equal(reloaded.FindGroupByName("Indirect Expenses")!.Id, rBudget.Lines[2].GroupId);
+            // The cleared cheque line kept its type, instrument, instrument date AND bank date.
+            var clearedLine = reloaded.FindVoucher(clearedId)!.Lines.Single(l => l.LedgerId == rHdfc.Id);
+            Assert.NotNull(clearedLine.BankAllocation);
+            Assert.Equal(BankTransactionType.ChequeOrDD, clearedLine.BankAllocation!.TransactionType);
+            Assert.Equal("100200", clearedLine.BankAllocation.InstrumentNumber);
+            Assert.Equal(new DateOnly(2024, 4, 5), clearedLine.BankAllocation.InstrumentDate);
+            Assert.Equal(new DateOnly(2024, 4, 28), clearedLine.BankAllocation.BankDate);
+            Assert.True(clearedLine.BankAllocation.IsReconciled);
 
-            // The variance report reproduces on the reloaded company.
-            var after = BudgetVarianceReport.Build(reloaded, rBudget);
-            Assert.Equal(before.Lines.Count, after.Lines.Count);
-            for (var i = 0; i < before.Lines.Count; i++)
-            {
-                Assert.Equal(before.Lines[i].Actual, after.Lines[i].Actual);
-                Assert.Equal(before.Lines[i].Variance, after.Lines[i].Variance);
-                Assert.Equal(before.Lines[i].VariancePercent, after.Lines[i].VariancePercent);
-            }
-            // Sanity: Salaries nett 8,000 vs 10,000 budget → variance −2,000; group closing not asserted here.
-            Assert.Equal(Money.FromRupees(8000m), after.Lines[0].Actual);
-            Assert.Equal(Money.FromRupees(-2000m), after.Lines[0].Variance);
-            Assert.Equal(Money.FromRupees(9000m), after.Lines[1].Actual); // Salaries closing incl. pre-period
+            // The uncleared cheque line kept its details and stayed unreconciled (bank date null).
+            var unclearedLine = reloaded.FindVoucher(unclearedId)!.Lines.Single(l => l.LedgerId == rHdfc.Id);
+            Assert.Equal(BankTransactionType.NEFT, unclearedLine.BankAllocation!.TransactionType);
+            Assert.Equal("UTR7788", unclearedLine.BankAllocation.InstrumentNumber);
+            Assert.Null(unclearedLine.BankAllocation.BankDate);
+            Assert.False(unclearedLine.BankAllocation.IsReconciled);
+
+            // The BRS reproduces on the reloaded company: books 4,45,000 Dr; bank reflects only the
+            // cleared cheque → 4,60,000 Dr; the 15,000 uncleared cheque is the difference.
+            var afterBrs = BankReconciliation.Build(reloaded, rHdfc, asOf);
+            Assert.Equal(beforeBrs.BalanceAsPerBooks, afterBrs.BalanceAsPerBooks);
+            Assert.Equal(beforeBrs.BalanceAsPerBank, afterBrs.BalanceAsPerBank);
+            Assert.Equal(Money.FromRupees(445000m), afterBrs.BalanceAsPerBooks.Amount);
+            Assert.Equal(Money.FromRupees(460000m), afterBrs.BalanceAsPerBank.Amount);
+            Assert.Single(afterBrs.Unreconciled);
+            Assert.Single(afterBrs.Reconciled);
+            Assert.Equal(Money.FromRupees(-15000m), afterBrs.AmountNotReflectedInBank);
         }
         finally
         {
@@ -120,23 +125,22 @@ public sealed class BudgetRoundTripTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Legacy_v3_database_opens_and_auto_migrates_to_v4()
+    public void Legacy_v4_database_opens_and_auto_migrates_to_v5()
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v3legacy-{Guid.NewGuid():N}.db");
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v4legacy-{Guid.NewGuid():N}.db");
         try
         {
             var companyId = Guid.NewGuid();
             var connStr = new SqliteConnectionStringBuilder
             {
-                DataSource = dbPath,
-                Mode = SqliteOpenMode.ReadWriteCreate,
+                DataSource = dbPath, Mode = SqliteOpenMode.ReadWriteCreate,
             }.ToString();
 
             using (var conn = new SqliteConnection(connStr))
             {
                 conn.Open();
-                Exec(conn, LegacyV3Ddl);
-                Exec(conn, "INSERT INTO schema_version(version) VALUES (3);");
+                Exec(conn, LegacyV4Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (4);");
                 Exec(conn,
                     """
                     INSERT INTO companies
@@ -145,7 +149,7 @@ public sealed class BudgetRoundTripTests
                        base_currency_name, decimal_places, decimal_unit_name,
                        primary_cost_category, main_location, profit_and_loss_head_id)
                     VALUES
-                      ($id, 'Legacy V3 Co', 'Legacy V3 Co', NULL, 'India', NULL, NULL,
+                      ($id, 'Legacy V4 Co', 'Legacy V4 Co', NULL, 'India', NULL, NULL,
                        '2024-04-01', '2024-04-01', '₹', 'INR', 2, 'Paisa',
                        'Primary Cost Category', 'Main Location', NULL);
                     """,
@@ -153,19 +157,19 @@ public sealed class BudgetRoundTripTests
                 SqliteConnection.ClearPool(conn);
             }
 
-            Assert.Equal(3L, ReadSchemaVersion(dbPath));
+            Assert.Equal(4L, ReadSchemaVersion(dbPath));
 
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var loaded = store.Load(companyId);
                 Assert.NotNull(loaded);
-                Assert.Equal("Legacy V3 Co", loaded!.Name);
-                Assert.Empty(loaded.Budgets); // no budgets existed in v3
+                Assert.Equal("Legacy V4 Co", loaded!.Name);
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
-            Assert.True(TableExists(dbPath, "budgets"), "budgets table was not created.");
-            Assert.True(TableExists(dbPath, "budget_lines"), "budget_lines table was not created.");
+            Assert.True(TableExists(dbPath, "bank_allocations"), "bank_allocations table was not created.");
+            Assert.True(ColumnExists(dbPath, "ledgers", "enable_cheque_printing"));
+            Assert.True(ColumnExists(dbPath, "ledgers", "cheque_bank_name"));
         }
         finally
         {
@@ -175,10 +179,9 @@ public sealed class BudgetRoundTripTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void Migrated_v3_database_then_accepts_and_round_trips_budget_data()
+    public void Migrated_v4_database_then_accepts_and_round_trips_bank_data()
     {
-        // Guard: after auto-migrating a v3 db, saving a company with budgets and reloading still works.
-        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v3then4-{Guid.NewGuid():N}.db");
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-v4then5-{Guid.NewGuid():N}.db");
         try
         {
             var connStr = new SqliteConnectionStringBuilder
@@ -188,14 +191,15 @@ public sealed class BudgetRoundTripTests
             using (var conn = new SqliteConnection(connStr))
             {
                 conn.Open();
-                Exec(conn, LegacyV3Ddl);
-                Exec(conn, "INSERT INTO schema_version(version) VALUES (3);");
+                Exec(conn, LegacyV4Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (4);");
                 SqliteConnection.ClearPool(conn);
             }
 
-            var (original, budget) = SeedWithBudget();
+            var (original, _, _, _) = SeedWithBanking();
+            var asOf = new DateOnly(2024, 4, 30);
 
-            using (var store = new SqliteCompanyStore(dbPath)) // opens v3 → migrates (chained) to current
+            using (var store = new SqliteCompanyStore(dbPath)) // opens v4 → migrates to current
             {
                 Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
                 store.Save(original);
@@ -204,10 +208,10 @@ public sealed class BudgetRoundTripTests
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var reloaded = store.Load(original.Id)!;
-                var rBudget = Assert.Single(reloaded.Budgets);
-                Assert.Equal(3, rBudget.Lines.Count);
-                var report = BudgetVarianceReport.Build(reloaded, rBudget);
-                Assert.Equal(Money.FromRupees(8000m), report.Lines[0].Actual);
+                var hdfc = reloaded.FindLedgerByName("HDFC Bank")!;
+                var brs = BankReconciliation.Build(reloaded, hdfc, asOf);
+                Assert.Equal(Money.FromRupees(460000m), brs.BalanceAsPerBank.Amount);
+                Assert.Single(brs.Unreconciled);
             }
         }
         finally
@@ -239,12 +243,22 @@ public sealed class BudgetRoundTripTests
         return exists;
     }
 
+    private static bool ColumnExists(string dbPath, string table, string column)
+    {
+        using var conn = Open(dbPath);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name=$c;";
+        cmd.Parameters.AddWithValue("$c", column);
+        var exists = Convert.ToInt64(cmd.ExecuteScalar()) > 0;
+        SqliteConnection.ClearPool(conn);
+        return exists;
+    }
+
     private static SqliteConnection Open(string dbPath)
     {
         var conn = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = dbPath,
-            Mode = SqliteOpenMode.ReadWrite,
+            DataSource = dbPath, Mode = SqliteOpenMode.ReadWrite,
         }.ToString());
         conn.Open();
         return conn;
@@ -258,10 +272,10 @@ public sealed class BudgetRoundTripTests
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>The pre-budgets v3 DDL (the tables the migration/load touches), kept in the test so it
-    /// does not drift when the production <see cref="Schema"/> advances past v3. It includes the cost-centre
-    /// tables and the <c>cost_applicable</c> ledger column, but NOT <c>budgets</c>/<c>budget_lines</c>.</summary>
-    private const string LegacyV3Ddl = """
+    /// <summary>The pre-banking v4 DDL (the tables the migration/load touches), kept in the test so it does
+    /// not drift when the production <see cref="Schema"/> advances past v4. Ledgers carry the v2/v3 columns
+    /// but NOT the v5 cheque-printing columns; there is no bank_allocations table.</summary>
+    private const string LegacyV4Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (
             id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,
@@ -312,5 +326,13 @@ public sealed class BudgetRoundTripTests
             id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, entry_line_id INTEGER NOT NULL REFERENCES entry_lines(id),
             alloc_order INTEGER NOT NULL, category_id TEXT NOT NULL REFERENCES cost_categories(id),
             centre_id TEXT NOT NULL REFERENCES cost_centres(id), amount_paisa INTEGER NOT NULL);
+        CREATE TABLE budgets (
+            id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
+            name TEXT NOT NULL, under_id TEXT NULL REFERENCES groups(id),
+            period_from TEXT NOT NULL, period_to TEXT NOT NULL);
+        CREATE TABLE budget_lines (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, budget_id TEXT NOT NULL REFERENCES budgets(id),
+            line_order INTEGER NOT NULL, group_id TEXT NULL REFERENCES groups(id),
+            ledger_id TEXT NULL REFERENCES ledgers(id), budget_type INTEGER NOT NULL, amount_paisa INTEGER NOT NULL);
         """;
 }

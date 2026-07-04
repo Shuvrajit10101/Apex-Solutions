@@ -47,6 +47,9 @@ public static class VoucherValidator
 
             if (line.HasCostAllocations)
                 EnsureCostAllocationsValid(line, ledger, c);
+
+            if (line.HasBankAllocation)
+                EnsureBankAllocationValid(line, ledger, c);
         }
 
         // §6.9 date within books.
@@ -104,5 +107,18 @@ public static class VoucherValidator
             throw new InvalidVoucherException(
                 $"Cost allocations on the line for '{ledger.Name}' sum to {line.CostAllocationTotal} " +
                 $"but the line amount is {line.Amount}; they must be equal (split across centres).");
+    }
+
+    /// <summary>
+    /// §8 banking integrity for one line: a bank allocation is only permitted on a bank ledger
+    /// (a ledger under Bank Accounts / Bank OD A/c). The allocation carries no amount of its own — it
+    /// annotates the whole line — so there is no split-sum check; it is enough that the ledger is a bank.
+    /// Throws otherwise.
+    /// </summary>
+    public static void EnsureBankAllocationValid(Domain.EntryLine line, Domain.Ledger ledger, Company c)
+    {
+        if (!ClassificationRules.IsBankLedger(ledger, c))
+            throw new InvalidVoucherException(
+                $"Ledger '{ledger.Name}' is not a bank account; it cannot carry a bank allocation.");
     }
 }
