@@ -50,6 +50,17 @@ public sealed class Company
     public int DecimalPlaces { get; set; } = 2;
     public string DecimalUnitName { get; set; } = "Paisa";
 
+    /// <summary>
+    /// The company GST configuration (catalog §12; phase4 RQ-1/RQ-2). <c>null</c> (or a config with
+    /// <see cref="GstConfig.Enabled"/> false) means GST is off — the default for every existing company, so
+    /// the Phase-1/2/3 paths are byte-for-byte unchanged (ER-10). Set (and its tax ledgers auto-created) by
+    /// <c>GstService.EnableGst</c>.
+    /// </summary>
+    public GstConfig? Gst { get; set; }
+
+    /// <summary>True iff GST is enabled for this company.</summary>
+    public bool GstEnabled => Gst is { Enabled: true };
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

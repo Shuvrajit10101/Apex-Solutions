@@ -69,9 +69,9 @@ public sealed class InventoryVoucherRoundTripTests
             using (var write = new SqliteCompanyStore(dbPath))
             {
                 // The current version has advanced past v10 (v11 added the per-item standard-cost column; v12
-                // added item-invoice stock lines); a fresh DB is stamped straight to it and inventory-voucher
-                // round-trip is unaffected.
-                Assert.Equal(12, Schema.CurrentVersion);
+                // added item-invoice stock lines; v13 added core GST); a fresh DB is stamped straight to it and
+                // inventory-voucher round-trip is unaffected.
+                Assert.Equal(13, Schema.CurrentVersion);
                 write.Save(original);
                 write.Save(original); // re-save (upsert) must not trip an inventory-voucher FK
             }
@@ -295,6 +295,57 @@ public sealed class InventoryVoucherRoundTripTests
             """);
         Exec(conn, "DROP TABLE stock_items;");
         Exec(conn, "ALTER TABLE stock_items_v9 RENAME TO stock_items;");
+
+        // Strip the v13 core-GST artifacts (table + columns on companies/ledgers/entry_lines) so this is a
+        // faithful pre-GST shape and the reopen's MigrateV12ToV13 does not collide with an existing table/column.
+        // stock_items is already rebuilt (above) without GST columns, so only these three tables + the table remain.
+        Exec(conn, "DROP TABLE IF EXISTS gst_rate_slabs;");
+        Exec(conn, """
+            CREATE TABLE companies_v12 (
+                id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,
+                address TEXT NULL, country TEXT NOT NULL, state TEXT NULL, pin TEXT NULL,
+                financial_year_start TEXT NOT NULL, books_begin_from TEXT NOT NULL,
+                base_currency_symbol TEXT NOT NULL, base_currency_name TEXT NOT NULL,
+                decimal_places INTEGER NOT NULL, decimal_unit_name TEXT NOT NULL,
+                primary_cost_category TEXT NOT NULL, main_location TEXT NOT NULL,
+                profit_and_loss_head_id TEXT NULL);
+            INSERT INTO companies_v12 SELECT id, name, mailing_name, address, country, state, pin,
+                financial_year_start, books_begin_from, base_currency_symbol, base_currency_name,
+                decimal_places, decimal_unit_name, primary_cost_category, main_location, profit_and_loss_head_id
+                FROM companies;
+            DROP TABLE companies;
+            ALTER TABLE companies_v12 RENAME TO companies;
+            """);
+        Exec(conn, """
+            CREATE TABLE ledgers_v12 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, group_id TEXT NOT NULL,
+                opening_balance_paisa INTEGER NOT NULL, opening_is_debit INTEGER NOT NULL, alias TEXT NULL,
+                is_predefined INTEGER NOT NULL, maintain_bill_by_bill INTEGER NOT NULL DEFAULT 0,
+                default_credit_period INTEGER NULL, cost_applicable INTEGER NULL,
+                enable_cheque_printing INTEGER NOT NULL DEFAULT 0, cheque_bank_name TEXT NULL,
+                interest_enabled INTEGER NULL, interest_rate_millis INTEGER NULL, interest_per INTEGER NULL,
+                interest_on_balance INTEGER NULL, interest_applicability INTEGER NULL, interest_calc_from TEXT NULL,
+                interest_style INTEGER NULL, interest_round_method INTEGER NULL, interest_round_decimals INTEGER NULL,
+                currency_id TEXT NULL);
+            INSERT INTO ledgers_v12 SELECT id, company_id, name, group_id, opening_balance_paisa, opening_is_debit,
+                alias, is_predefined, maintain_bill_by_bill, default_credit_period, cost_applicable,
+                enable_cheque_printing, cheque_bank_name, interest_enabled, interest_rate_millis, interest_per,
+                interest_on_balance, interest_applicability, interest_calc_from, interest_style,
+                interest_round_method, interest_round_decimals, currency_id FROM ledgers;
+            DROP TABLE ledgers;
+            ALTER TABLE ledgers_v12 RENAME TO ledgers;
+            """);
+        Exec(conn, """
+            CREATE TABLE entry_lines_v12 (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL,
+                ledger_id TEXT NOT NULL, amount_paisa INTEGER NOT NULL, side INTEGER NOT NULL,
+                forex_currency_id TEXT NULL, forex_amount_micro INTEGER NULL, forex_rate_micro INTEGER NULL);
+            INSERT INTO entry_lines_v12 SELECT id, voucher_id, line_order, ledger_id, amount_paisa, side,
+                forex_currency_id, forex_amount_micro, forex_rate_micro FROM entry_lines;
+            DROP TABLE entry_lines;
+            ALTER TABLE entry_lines_v12 RENAME TO entry_lines;
+            """);
+
         Exec(conn, "UPDATE schema_version SET version = 9;");
         SqliteConnection.ClearPool(conn);
     }

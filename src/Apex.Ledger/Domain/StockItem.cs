@@ -68,6 +68,14 @@ public sealed class StockItem
     /// </summary>
     public decimal? MinimumOrderQuantity { get; set; }
 
+    /// <summary>
+    /// The active GST details for the item (catalog §12; phase4 RQ-8) — HSN/SAC, taxability, integrated rate,
+    /// supply type. <c>null</c> ⇒ no GST details (the Phase-3 <see cref="HsnSacCode"/>/<see cref="IsTaxable"/>
+    /// placeholders remain the only captured GST data). Rate resolution reads this block first (most granular,
+    /// DP-6).
+    /// </summary>
+    public StockItemGstDetails? Gst { get; set; }
+
     public StockItem(
         Guid id,
         string name,
@@ -80,7 +88,8 @@ public sealed class StockItem
         bool isTaxable = false,
         decimal? reorderLevel = null,
         decimal? minimumOrderQuantity = null,
-        Money? standardCost = null)
+        Money? standardCost = null,
+        StockItemGstDetails? gst = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Stock item name is required.", nameof(name));
@@ -115,5 +124,6 @@ public sealed class StockItem
         ReorderLevel = reorderLevel;
         MinimumOrderQuantity = minimumOrderQuantity;
         StandardCost = standardCost;
+        Gst = gst;
     }
 }

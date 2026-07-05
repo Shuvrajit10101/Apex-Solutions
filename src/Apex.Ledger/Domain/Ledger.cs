@@ -81,6 +81,25 @@ public sealed class Ledger
     /// </summary>
     public Guid? CurrencyId { get; set; }
 
+    /// <summary>
+    /// Optional GST details on a <b>party</b> ledger (Sundry Debtor/Creditor) — Registration Type, GSTIN/UIN
+    /// and State (catalog §12; phase4 RQ-7). Drives place of supply and B2B/B2C. <c>null</c> ⇒ no GST party
+    /// details (treated as B2C for GST). The default for every existing ledger.
+    /// </summary>
+    public PartyGstDetails? PartyGst { get; set; }
+
+    /// <summary>
+    /// Optional GST details on a <b>sales/purchase</b> ledger — HSN/SAC, taxability, rate (catalog §12; phase4
+    /// RQ-9). Lets a service or accounting-only supply resolve a GST rate (DP-10). <c>null</c> ⇒ none.
+    /// </summary>
+    public StockItemGstDetails? SalesPurchaseGst { get; set; }
+
+    /// <summary>
+    /// Marks this ledger as a GST <b>tax ledger</b> (Output/Input CGST/SGST/IGST) under Duties &amp; Taxes
+    /// (catalog §12; phase4 RQ-4). Auto-set by <c>GstService.EnableGst</c>. <c>null</c> ⇒ ordinary ledger.
+    /// </summary>
+    public LedgerGstClassification? GstClassification { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -95,7 +114,10 @@ public sealed class Ledger
         bool enableChequePrinting = false,
         string? chequePrintingBankName = null,
         InterestParameters? interest = null,
-        Guid? currencyId = null)
+        Guid? currencyId = null,
+        PartyGstDetails? partyGst = null,
+        StockItemGstDetails? salesPurchaseGst = null,
+        LedgerGstClassification? gstClassification = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -119,6 +141,9 @@ public sealed class Ledger
         ChequePrintingBankName = string.IsNullOrWhiteSpace(chequePrintingBankName) ? null : chequePrintingBankName.Trim();
         Interest = interest;
         CurrencyId = currencyId;
+        PartyGst = partyGst;
+        SalesPurchaseGst = salesPurchaseGst;
+        GstClassification = gstClassification;
     }
 
     /// <summary>True iff this ledger holds balances in a foreign (non-base) currency.</summary>

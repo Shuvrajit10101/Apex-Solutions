@@ -90,6 +90,28 @@ public static class ClassificationRules
     }
 
     /// <summary>
+    /// True iff <paramref name="ledger"/> sits under (or below) the <b>Duties &amp; Taxes</b> group
+    /// (catalog §12; phase4 ER-8). A GST tax ledger lives here, so it is <b>excluded</b> from the item-invoice
+    /// stock-leg pairing sum (whose primary ancestor must be Sales/Purchase Accounts or Stock-in-Hand) — this
+    /// is exactly why additive GST tax preserves the pairing invariant unchanged. Walks the group's parent
+    /// chain, matching by group name.
+    /// </summary>
+    public static bool IsDutiesAndTaxesLedger(Domain.Ledger ledger, Company company)
+    {
+        var group = company.FindGroup(ledger.GroupId);
+        var guard = 0;
+        while (group is not null)
+        {
+            if (string.Equals(group.Name, "Duties & Taxes", StringComparison.OrdinalIgnoreCase))
+                return true;
+            group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException($"Cycle detected walking parents of ledger '{ledger.Name}'.");
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The two predefined bank groups (catalog §8 / seed §22): <b>Bank Accounts</b> (an asset) and
     /// <b>Bank OD A/c</b> (a liability, alias "Bank OCC A/c"). A ledger under either — directly or via a
     /// custom sub-group — is a bank ledger that can carry bank allocations and appear in Bank Reconciliation.

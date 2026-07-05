@@ -318,6 +318,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 12;
         }
 
+        // v12 → v13: apply the core-GST migration, then bump the marker. Existing v12 data survives (GST off).
+        if (version == 12)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV12ToV13;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 13);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 13;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -334,7 +355,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, mailing_name, address, country, state, pin,
                    financial_year_start, books_begin_from, base_currency_symbol,
                    base_currency_name, decimal_places, decimal_unit_name,
-                   primary_cost_category, main_location, profit_and_loss_head_id
+                   primary_cost_category, main_location, profit_and_loss_head_id,
+                   gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -363,7 +385,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 MainLocationName = r.GetString(14),
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
+
+            // v13 core GST config. A company is GST-enabled iff gst_enabled = 1; when off (default for every
+            // pre-v13 company) Gst stays null and no GST path activates (ER-10).
+            if (r.GetInt64(16) != 0)
+            {
+                company.Gst = new GstConfig
+                {
+                    Enabled = true,
+                    Gstin = r.IsDBNull(17) ? null : r.GetString(17),
+                    HomeStateCode = r.IsDBNull(18) ? null : r.GetString(18),
+                    RegistrationType = r.IsDBNull(19) ? GstRegistrationType.Regular : (GstRegistrationType)(int)r.GetInt64(19),
+                    ApplicableFrom = r.IsDBNull(20) ? (DateOnly?)null : ParseDate(r.GetString(20)),
+                    Periodicity = r.IsDBNull(21) ? GstReturnPeriodicity.Monthly : (GstReturnPeriodicity)(int)r.GetInt64(21),
+                };
+            }
         }
+
+        // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
+        if (company.Gst is not null)
+            foreach (var slab in ReadGstRateSlabs(companyId))
+                company.Gst.AddRateSlab(slab);
 
         // Groups: the reserved P&L head (is_pl_head = 1) is registered via SetProfitAndLossHead and
         // kept OUT of Company.Groups; the 28 (and any custom) groups go into Company.Groups. Load
@@ -619,7 +661,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    enable_cheque_printing, cheque_bank_name,
                    interest_enabled, interest_rate_millis, interest_per, interest_on_balance,
                    interest_applicability, interest_calc_from, interest_style,
-                   interest_round_method, interest_round_decimals, currency_id
+                   interest_round_method, interest_round_decimals, currency_id,
+                   party_gst_reg_type, party_gstin, party_gst_state,
+                   sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
+                   gst_tax_head, gst_tax_direction
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -641,9 +686,45 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 enableChequePrinting: r.GetInt64(10) != 0,
                 chequePrintingBankName: r.IsDBNull(11) ? null : r.GetString(11),
                 interest: ReadInterest(r),
-                currencyId: r.IsDBNull(21) ? (Guid?)null : Guid.Parse(r.GetString(21))));
+                currencyId: r.IsDBNull(21) ? (Guid?)null : Guid.Parse(r.GetString(21)),
+                partyGst: ReadPartyGst(r),
+                salesPurchaseGst: ReadSalesPurchaseGst(r),
+                gstClassification: ReadLedgerGstClassification(r)));
         }
         return list;
+    }
+
+    /// <summary>Reads the party GST block (columns 22–24), or <c>null</c> when the ledger has no party GST.</summary>
+    private static PartyGstDetails? ReadPartyGst(SqliteDataReader r)
+    {
+        // Present iff any of reg-type / gstin / state is set.
+        if (r.IsDBNull(22) && r.IsDBNull(23) && r.IsDBNull(24)) return null;
+        return new PartyGstDetails
+        {
+            RegistrationType = r.IsDBNull(22) ? GstRegistrationType.Unregistered : (GstRegistrationType)(int)r.GetInt64(22),
+            Gstin = r.IsDBNull(23) ? null : r.GetString(23),
+            StateCode = r.IsDBNull(24) ? null : r.GetString(24),
+        };
+    }
+
+    /// <summary>Reads the sales/purchase GST block (columns 25–28), or <c>null</c> when taxability is NULL.</summary>
+    private static StockItemGstDetails? ReadSalesPurchaseGst(SqliteDataReader r)
+    {
+        if (r.IsDBNull(26)) return null; // sp_gst_taxability NULL = no block
+        return new StockItemGstDetails
+        {
+            HsnSac = r.IsDBNull(25) ? null : r.GetString(25),
+            Taxability = (GstTaxability)(int)r.GetInt64(26),
+            RateBasisPoints = r.IsDBNull(27) ? (int?)null : (int)r.GetInt64(27),
+            SupplyType = r.IsDBNull(28) ? GstSupplyType.Goods : (GstSupplyType)(int)r.GetInt64(28),
+        };
+    }
+
+    /// <summary>Reads the tax-ledger classification (columns 29–30), or <c>null</c> for an ordinary ledger.</summary>
+    private static LedgerGstClassification? ReadLedgerGstClassification(SqliteDataReader r)
+    {
+        if (r.IsDBNull(29) || r.IsDBNull(30)) return null;
+        return new LedgerGstClassification((GstTaxHead)(int)r.GetInt64(29), (GstTaxDirection)(int)r.GetInt64(30));
     }
 
     /// <summary>
@@ -691,6 +772,25 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 affectsAccounts: r.GetInt64(8) != 0,
                 affectsStock: r.GetInt64(9) != 0));
         }
+        return list;
+    }
+
+    private IEnumerable<GstRateSlab> ReadGstRateSlabs(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, rate_bp, label, is_predefined
+            FROM gst_rate_slabs WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstRateSlab>();
+        while (r.Read())
+            list.Add(new GstRateSlab(
+                Guid.Parse(r.GetString(0)),
+                (int)r.GetInt64(1),
+                r.GetString(2),
+                isPredefined: r.GetInt64(3) != 0));
         return list;
     }
 
@@ -882,7 +982,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
-                   hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa
+                   hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
+                   gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -902,9 +1003,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 isTaxable: r.GetInt64(8) != 0,
                 reorderLevel: r.IsDBNull(9) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(9)),
                 minimumOrderQuantity: r.IsDBNull(10) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(10)),
-                standardCost: r.IsDBNull(11) ? (Money?)null : Paisa.ToMoney(r.GetInt64(11))));
+                standardCost: r.IsDBNull(11) ? (Money?)null : Paisa.ToMoney(r.GetInt64(11)),
+                gst: ReadStockItemGst(r)));
         }
         return list;
+    }
+
+    /// <summary>Reads the item GST block (columns 12–15), or <c>null</c> when gst_taxability is NULL.</summary>
+    private static StockItemGstDetails? ReadStockItemGst(SqliteDataReader r)
+    {
+        if (r.IsDBNull(13)) return null; // gst_taxability NULL = no GST block
+        return new StockItemGstDetails
+        {
+            HsnSac = r.IsDBNull(12) ? null : r.GetString(12),
+            Taxability = (GstTaxability)(int)r.GetInt64(13),
+            RateBasisPoints = r.IsDBNull(14) ? (int?)null : (int)r.GetInt64(14),
+            SupplyType = r.IsDBNull(15) ? GstSupplyType.Goods : (GstSupplyType)(int)r.GetInt64(15),
+        };
     }
 
     private IEnumerable<StockOpeningBalance> ReadStockOpeningBalances(Guid companyId)
@@ -1218,12 +1333,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     private List<EntryLine> ReadEntryLines(Guid voucherId)
     {
         // Read the raw line rows first (capturing the id), then load each line's bill allocations.
-        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side, ForexInfo? Forex)>();
+        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side, ForexInfo? Forex, GstLineTax? Gst)>();
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, ledger_id, amount_paisa, side,
-                       forex_currency_id, forex_amount_micro, forex_rate_micro
+                       forex_currency_id, forex_amount_micro, forex_rate_micro,
+                       gst_tax_head, gst_rate_bp, gst_taxable_value_paisa
                 FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
                 """;
             cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -1238,17 +1354,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         Money.FromRupees(MicroToDecimal(r.GetInt64(5))),
                         MicroToDecimal(r.GetInt64(6)));
                 }
+
+                // v13 GST tax-line detail: present iff gst_tax_head is set.
+                GstLineTax? gst = null;
+                if (!r.IsDBNull(7))
+                {
+                    gst = new GstLineTax(
+                        (GstTaxHead)(int)r.GetInt64(7),
+                        (int)r.GetInt64(8),
+                        Paisa.ToMoney(r.GetInt64(9)));
+                }
+
                 raw.Add((
                     r.GetInt64(0),
                     Guid.Parse(r.GetString(1)),
                     r.GetInt64(2),
                     (DrCr)(int)r.GetInt64(3),
-                    forex));
+                    forex,
+                    gst));
             }
         }
 
         var lines = new List<EntryLine>(raw.Count);
-        foreach (var (id, ledgerId, amountPaisa, side, forex) in raw)
+        foreach (var (id, ledgerId, amountPaisa, side, forex, gst) in raw)
         {
             var allocs = ReadBillAllocations(id);
             var costAllocs = ReadCostAllocations(id);
@@ -1260,7 +1388,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 allocs.Count > 0 ? allocs : null,
                 costAllocs.Count > 0 ? costAllocs : null,
                 bankAlloc,
-                forex));
+                forex,
+                gst));
         }
         return lines;
     }
@@ -1400,6 +1529,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM godowns WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM units WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
+        // v13 GST rate slabs FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM gst_rate_slabs WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
 
@@ -1412,10 +1543,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (id, name, mailing_name, address, country, state, pin,
                  financial_year_start, books_begin_from, base_currency_symbol,
                  base_currency_name, decimal_places, decimal_unit_name,
-                 primary_cost_category, main_location, profit_and_loss_head_id)
+                 primary_cost_category, main_location, profit_and_loss_head_id,
+                 gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
-                 $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL);
+                 $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
+                 $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -1432,7 +1565,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$unit", c.DecimalUnitName);
         cmd.Parameters.AddWithValue("$pcc", c.PrimaryCostCategoryName);
         cmd.Parameters.AddWithValue("$loc", c.MainLocationName);
+
+        // v13 core GST config: all NULL / 0 for a non-GST company (default), so existing companies are unchanged.
+        var gst = c.Gst;
+        cmd.Parameters.AddWithValue("$gsten", gst is { Enabled: true } ? 1 : 0);
+        cmd.Parameters.AddWithValue("$gstin", (object?)gst?.Gstin ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$gsthome", (object?)gst?.HomeStateCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstreg", gst is null ? (object)DBNull.Value : (int)gst.RegistrationType);
+        cmd.Parameters.AddWithValue("$gstfrom", gst?.ApplicableFrom is { } af ? FormatDate(af) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstper", gst is null ? (object)DBNull.Value : (int)gst.Periodicity);
         cmd.ExecuteNonQuery();
+
+        // v13 GST rate slabs (the seeded config-driven slabs), if any.
+        if (gst is not null)
+            foreach (var slab in gst.RateSlabs)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO gst_rate_slabs (id, company_id, rate_bp, label, is_predefined)
+                    VALUES ($id, $cid, $bp, $label, $pre);
+                    """;
+                s.Parameters.AddWithValue("$id", slab.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$bp", slab.RateBasisPoints);
+                s.Parameters.AddWithValue("$label", slab.Label);
+                s.Parameters.AddWithValue("$pre", slab.IsPredefined ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
     }
 
     private void InsertGroups(SqliteTransaction tx, Company c)
@@ -1485,9 +1645,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      enable_cheque_printing, cheque_bank_name,
                      interest_enabled, interest_rate_millis, interest_per, interest_on_balance,
                      interest_applicability, interest_calc_from, interest_style,
-                     interest_round_method, interest_round_decimals, currency_id)
+                     interest_round_method, interest_round_decimals, currency_id,
+                     party_gst_reg_type, party_gstin, party_gst_state,
+                     sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
+                     gst_tax_head, gst_tax_direction)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
-                        $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid);
+                        $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
+                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1518,6 +1682,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
             // v8 multi-currency: the ledger's currency (NULL = base).
             cmd.Parameters.AddWithValue("$curid", (object?)l.CurrencyId?.ToString("D") ?? DBNull.Value);
+
+            // v13 party GST details (NULL when the ledger has no party GST block).
+            var pg = l.PartyGst;
+            cmd.Parameters.AddWithValue("$pgreg", pg is null ? (object)DBNull.Value : (int)pg.RegistrationType);
+            cmd.Parameters.AddWithValue("$pgstin", (object?)pg?.Gstin ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pgstate", (object?)pg?.StateCode ?? DBNull.Value);
+
+            // v13 sales/purchase-ledger GST block (NULL taxability = no block).
+            var sp = l.SalesPurchaseGst;
+            cmd.Parameters.AddWithValue("$sphsn", (object?)sp?.HsnSac ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$sptax", sp is null ? (object)DBNull.Value : (int)sp.Taxability);
+            cmd.Parameters.AddWithValue("$sprate", sp?.RateBasisPoints is { } sprbp ? sprbp : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$spsup", sp is null ? (object)DBNull.Value : (int)sp.SupplyType);
+
+            // v13 tax-ledger classification (NULL for an ordinary ledger).
+            var gc = l.GstClassification;
+            cmd.Parameters.AddWithValue("$gthead", gc is null ? (object)DBNull.Value : (int)gc.TaxHead);
+            cmd.Parameters.AddWithValue("$gtdir", gc is null ? (object)DBNull.Value : (int)gc.Direction);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1737,8 +1919,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO stock_items
                     (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
-                     hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa)
-                VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std);
+                     hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+                VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
+                        $ghsn, $gtax, $grate, $gsup);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1753,6 +1937,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$rol", item.ReorderLevel is { } rol ? QtyMicroFromDecimal(rol) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$moq", item.MinimumOrderQuantity is { } moq ? QtyMicroFromDecimal(moq) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$std", item.StandardCost is { } std ? Paisa.FromMoney(std) : (object)DBNull.Value);
+
+            // v13 item GST block (all NULL when the item has no GST block).
+            var g = item.Gst;
+            cmd.Parameters.AddWithValue("$ghsn", (object?)g?.HsnSac ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$gtax", g is null ? (object)DBNull.Value : (int)g.Taxability);
+            cmd.Parameters.AddWithValue("$grate", g?.RateBasisPoints is { } grbp ? grbp : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$gsup", g is null ? (object)DBNull.Value : (int)g.SupplyType);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1997,8 +2188,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.CommandText = """
                     INSERT INTO entry_lines
                         (voucher_id, line_order, ledger_id, amount_paisa, side,
-                         forex_currency_id, forex_amount_micro, forex_rate_micro)
-                    VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate)
+                         forex_currency_id, forex_amount_micro, forex_rate_micro,
+                         gst_tax_head, gst_rate_bp, gst_taxable_value_paisa)
+                    VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate, $gthead, $grate, $gtax)
                     RETURNING id;
                     """;
                 cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
@@ -2012,6 +2204,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$fxcur", (object?)fx?.CurrencyId.ToString("D") ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$fxamt", fx is null ? (object)DBNull.Value : MicroFromDecimal(fx.ForexAmount.Amount));
                 cmd.Parameters.AddWithValue("$fxrate", fx is null ? (object)DBNull.Value : MicroFromDecimal(fx.Rate));
+
+                // v13 GST tax-line detail: all NULL for a non-tax line.
+                var gt = line.Gst;
+                cmd.Parameters.AddWithValue("$gthead", gt is null ? (object)DBNull.Value : (int)gt.TaxHead);
+                cmd.Parameters.AddWithValue("$grate", gt is null ? (object)DBNull.Value : gt.RateBasisPoints);
+                cmd.Parameters.AddWithValue("$gtax", gt is null ? (object)DBNull.Value : Paisa.FromMoney(gt.TaxableValue));
                 lineId = Convert.ToInt64(cmd.ExecuteScalar());
             }
 

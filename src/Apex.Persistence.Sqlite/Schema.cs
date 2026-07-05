@@ -56,8 +56,8 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v12 = item-invoice stock lines).</summary>
-    public const int CurrentVersion = 12;
+    /// <summary>The current schema version this adapter reads and writes (v13 = core GST).</summary>
+    public const int CurrentVersion = 13;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -95,7 +95,22 @@ public static class Schema
             main_location            TEXT    NOT NULL,
             -- The reserved Profit & Loss head (NOT one of the 28 groups); persisted as its own group row
             -- and pointed at here so the P&L A/c ledger's group resolves on reload.
-            profit_and_loss_head_id  TEXT        NULL REFERENCES groups(id)
+            profit_and_loss_head_id  TEXT        NULL REFERENCES groups(id),
+            -- v13 core GST (catalog §12): company GST config; gst_enabled = 0 for every existing company.
+            gst_enabled          INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            gstin                TEXT        NULL,             -- 15-char GSTIN, NULL when unset
+            gst_home_state       TEXT        NULL,             -- 2-digit GST state code
+            gst_reg_type         INTEGER     NULL,             -- GstRegistrationType enum ordinal
+            gst_applicable_from  TEXT        NULL,             -- ISO yyyy-MM-dd, or NULL
+            gst_periodicity      INTEGER     NULL              -- GstReturnPeriodicity enum ordinal
+        );
+
+        CREATE TABLE gst_rate_slabs (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            rate_bp       INTEGER NOT NULL,   -- integrated GST rate in basis points (1800 = 18%)
+            label         TEXT    NOT NULL,
+            is_predefined INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE groups (
@@ -139,7 +154,19 @@ public static class Schema
             interest_round_method    INTEGER     NULL,             -- InterestRoundingMethod enum ordinal
             interest_round_decimals  INTEGER     NULL,             -- decimal places for rounding
             -- v8 multi-currency (catalog §2/§20): the ledger's currency, NULL = base ₹/INR
-            currency_id              TEXT        NULL REFERENCES currencies(id)
+            currency_id              TEXT        NULL REFERENCES currencies(id),
+            -- v13 core GST (catalog §12): party GST details (Sundry Debtor/Creditor), all NULL for a
+            -- non-party ledger; sales/purchase-ledger GST; and the tax-ledger classification for the
+            -- auto-created Output/Input CGST/SGST/IGST ledgers.
+            party_gst_reg_type   INTEGER     NULL,             -- GstRegistrationType enum ordinal (party)
+            party_gstin          TEXT        NULL,             -- party GSTIN, NULL when B2C/unset
+            party_gst_state      TEXT        NULL,             -- party 2-digit GST state code
+            sp_gst_hsn           TEXT        NULL,             -- sales/purchase ledger HSN/SAC
+            sp_gst_taxability    INTEGER     NULL,             -- GstTaxability enum ordinal (NULL = no S/P GST block)
+            sp_gst_rate_bp       INTEGER     NULL,             -- sales/purchase ledger rate in basis points
+            sp_gst_supply_type   INTEGER     NULL,             -- GstSupplyType enum ordinal
+            gst_tax_head         INTEGER     NULL,             -- GstTaxHead enum ordinal (tax ledger only)
+            gst_tax_direction    INTEGER     NULL              -- GstTaxDirection enum ordinal (tax ledger only)
         );
 
         CREATE TABLE currencies (
@@ -201,7 +228,11 @@ public static class Schema
             -- v8 multi-currency (catalog §2/§20): forex detail, all NULL for a base-currency line
             forex_currency_id  TEXT    NULL REFERENCES currencies(id),
             forex_amount_micro INTEGER NULL,   -- forex magnitude × 1,000,000 (exact, no float)
-            forex_rate_micro   INTEGER NULL    -- rate (base per foreign) × 1,000,000 (exact, no float)
+            forex_rate_micro   INTEGER NULL,   -- rate (base per foreign) × 1,000,000 (exact, no float)
+            -- v13 core GST (catalog §12): tax-line detail, all NULL for a non-tax line
+            gst_tax_head          INTEGER NULL,   -- GstTaxHead enum ordinal (Central/State/Integrated)
+            gst_rate_bp           INTEGER NULL,   -- applied head rate in basis points (900 = 9% CGST half)
+            gst_taxable_value_paisa INTEGER NULL  -- the taxable value the tax was computed on, in paisa
         );
 
         CREATE TABLE bill_allocations (
@@ -334,11 +365,16 @@ public static class Schema
             base_unit_id        TEXT    NOT NULL REFERENCES units(id),
             alias               TEXT        NULL,
             valuation_method    INTEGER NOT NULL DEFAULT 0,   -- StockValuationMethod ordinal (0 = AverageCost)
-            hsn_sac_code        TEXT        NULL,             -- GST placeholder, inert until the GST slice
-            is_taxable          INTEGER NOT NULL DEFAULT 0,   -- GST placeholder 0/1
+            hsn_sac_code        TEXT        NULL,             -- Phase-3 HSN/SAC placeholder (now backed by the GST block)
+            is_taxable          INTEGER NOT NULL DEFAULT 0,   -- Phase-3 taxability placeholder 0/1
             reorder_level_micro INTEGER     NULL,             -- simple reorder level, qty × 1,000,000
             min_order_qty_micro INTEGER     NULL,             -- minimum order qty, qty × 1,000,000
-            standard_cost_paisa INTEGER     NULL              -- Standard-Cost valuation rate in paisa (NULL = unset)
+            standard_cost_paisa INTEGER     NULL,             -- Standard-Cost valuation rate in paisa (NULL = unset)
+            -- v13 core GST (catalog §12): the active item GST block; gst_taxability NULL = no GST block
+            gst_hsn_sac         TEXT        NULL,             -- HSN/SAC (4/6/8 digits)
+            gst_taxability      INTEGER     NULL,             -- GstTaxability enum ordinal (NULL = no GST block)
+            gst_rate_bp         INTEGER     NULL,             -- integrated GST rate in basis points
+            gst_supply_type     INTEGER     NULL              -- GstSupplyType enum ordinal (Goods/Services)
         );
 
         CREATE TABLE stock_opening_balances (
@@ -833,5 +869,52 @@ public static class Schema
         );
 
         CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
+        """;
+
+    /// <summary>
+    /// v12 → v13: <b>core GST</b> (catalog §12; phase4 ER-1). Adds the company GST config columns, the
+    /// <c>gst_rate_slabs</c> table, party/sales-purchase/tax-ledger GST columns on <c>ledgers</c>, the item
+    /// GST block columns on <c>stock_items</c>, and the tax-line detail columns on <c>entry_lines</c> — all as
+    /// <c>ALTER TABLE … ADD COLUMN</c> with GST-off / NULL defaults plus one new <c>CREATE TABLE</c>. It never
+    /// rewrites an existing row: an existing v12 company reloads GST-off (byte-for-byte unchanged, ER-10). Run
+    /// inside a transaction that also bumps <c>schema_version</c> to 13. A fresh DB is stamped straight to v13
+    /// via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV12ToV13 = """
+        ALTER TABLE companies ADD COLUMN gst_enabled         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gstin               TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN gst_home_state      TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN gst_reg_type        INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN gst_applicable_from TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN gst_periodicity     INTEGER     NULL;
+
+        CREATE TABLE gst_rate_slabs (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            rate_bp       INTEGER NOT NULL,
+            label         TEXT    NOT NULL,
+            is_predefined INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE INDEX ix_gst_rate_slabs_company ON gst_rate_slabs(company_id);
+
+        ALTER TABLE ledgers ADD COLUMN party_gst_reg_type INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN party_gstin        TEXT    NULL;
+        ALTER TABLE ledgers ADD COLUMN party_gst_state    TEXT    NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_gst_hsn         TEXT    NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_gst_taxability  INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_gst_rate_bp     INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_gst_supply_type INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN gst_tax_head       INTEGER NULL;
+        ALTER TABLE ledgers ADD COLUMN gst_tax_direction  INTEGER NULL;
+
+        ALTER TABLE stock_items ADD COLUMN gst_hsn_sac     TEXT    NULL;
+        ALTER TABLE stock_items ADD COLUMN gst_taxability  INTEGER NULL;
+        ALTER TABLE stock_items ADD COLUMN gst_rate_bp     INTEGER NULL;
+        ALTER TABLE stock_items ADD COLUMN gst_supply_type INTEGER NULL;
+
+        ALTER TABLE entry_lines ADD COLUMN gst_tax_head            INTEGER NULL;
+        ALTER TABLE entry_lines ADD COLUMN gst_rate_bp             INTEGER NULL;
+        ALTER TABLE entry_lines ADD COLUMN gst_taxable_value_paisa INTEGER NULL;
         """;
 }

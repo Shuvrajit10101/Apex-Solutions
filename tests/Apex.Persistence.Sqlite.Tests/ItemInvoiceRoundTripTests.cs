@@ -74,7 +74,9 @@ public sealed class ItemInvoiceRoundTripTests
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
-                Assert.Equal(12, Schema.CurrentVersion);
+                // Item-invoice stock lines were added at v12; the current version has since advanced (v13 added
+                // core GST). A fresh DB is stamped straight to the current version and the round-trip is unaffected.
+                Assert.Equal(13, Schema.CurrentVersion);
                 write.Save(original);
                 write.Save(original); // re-save (upsert) must not trip an FK
             }
@@ -207,15 +209,92 @@ public sealed class ItemInvoiceRoundTripTests
 
     // ---- helpers ----
 
-    /// <summary>Downgrades a freshly-saved database to a clean v11 shape: drop the v12 table and set the
-    /// version marker back to 11, modelling a store that predates this slice.</summary>
+    /// <summary>Downgrades a freshly-saved database to a clean v11 shape: drop the v12 table + every later
+    /// (v13 GST) artifact and set the version marker back to 11, modelling a store that predates this slice.
+    /// The re-open then migrates v11→v12→v13 cleanly (its bare CREATE TABLE / ADD COLUMN steps must not collide
+    /// with a table/column a fresh save at the current version already created).</summary>
     private static void DowngradeToV11(string dbPath)
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
         Exec(conn, "DROP TABLE IF EXISTS voucher_inventory_lines;");
+        DowngradeStripV13(conn);
         Exec(conn, "UPDATE schema_version SET version = 11;");
         SqliteConnection.ClearPool(conn);
+    }
+
+    /// <summary>Strips the v13 core-GST artifacts (the gst_rate_slabs table + the GST columns on companies /
+    /// ledgers / stock_items / entry_lines) so a downgraded DB is a faithful pre-GST shape and the reopen's
+    /// MigrateV12ToV13 (bare CREATE TABLE + ADD COLUMN) does not collide. SQLite pre-3.35 has no DROP COLUMN,
+    /// so tables that gained columns via ALTER are rebuilt to their pre-v13 shape.</summary>
+    internal static void DowngradeStripV13(SqliteConnection conn)
+    {
+        Exec(conn, "DROP TABLE IF EXISTS gst_rate_slabs;");
+
+        // companies: rebuild without the 6 GST config columns (keep the FK-nullable pl-head as-is).
+        Exec(conn, """
+            CREATE TABLE companies_v12 (
+                id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,
+                address TEXT NULL, country TEXT NOT NULL, state TEXT NULL, pin TEXT NULL,
+                financial_year_start TEXT NOT NULL, books_begin_from TEXT NOT NULL,
+                base_currency_symbol TEXT NOT NULL, base_currency_name TEXT NOT NULL,
+                decimal_places INTEGER NOT NULL, decimal_unit_name TEXT NOT NULL,
+                primary_cost_category TEXT NOT NULL, main_location TEXT NOT NULL,
+                profit_and_loss_head_id TEXT NULL);
+            INSERT INTO companies_v12 SELECT id, name, mailing_name, address, country, state, pin,
+                financial_year_start, books_begin_from, base_currency_symbol, base_currency_name,
+                decimal_places, decimal_unit_name, primary_cost_category, main_location, profit_and_loss_head_id
+                FROM companies;
+            DROP TABLE companies;
+            ALTER TABLE companies_v12 RENAME TO companies;
+            """);
+
+        // ledgers: rebuild without the 9 GST columns.
+        Exec(conn, """
+            CREATE TABLE ledgers_v12 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, group_id TEXT NOT NULL,
+                opening_balance_paisa INTEGER NOT NULL, opening_is_debit INTEGER NOT NULL, alias TEXT NULL,
+                is_predefined INTEGER NOT NULL, maintain_bill_by_bill INTEGER NOT NULL DEFAULT 0,
+                default_credit_period INTEGER NULL, cost_applicable INTEGER NULL,
+                enable_cheque_printing INTEGER NOT NULL DEFAULT 0, cheque_bank_name TEXT NULL,
+                interest_enabled INTEGER NULL, interest_rate_millis INTEGER NULL, interest_per INTEGER NULL,
+                interest_on_balance INTEGER NULL, interest_applicability INTEGER NULL, interest_calc_from TEXT NULL,
+                interest_style INTEGER NULL, interest_round_method INTEGER NULL, interest_round_decimals INTEGER NULL,
+                currency_id TEXT NULL);
+            INSERT INTO ledgers_v12 SELECT id, company_id, name, group_id, opening_balance_paisa, opening_is_debit,
+                alias, is_predefined, maintain_bill_by_bill, default_credit_period, cost_applicable,
+                enable_cheque_printing, cheque_bank_name, interest_enabled, interest_rate_millis, interest_per,
+                interest_on_balance, interest_applicability, interest_calc_from, interest_style,
+                interest_round_method, interest_round_decimals, currency_id FROM ledgers;
+            DROP TABLE ledgers;
+            ALTER TABLE ledgers_v12 RENAME TO ledgers;
+            """);
+
+        // stock_items: rebuild without the 4 GST columns.
+        Exec(conn, """
+            CREATE TABLE stock_items_v12 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                stock_group_id TEXT NOT NULL, category_id TEXT NULL, base_unit_id TEXT NOT NULL, alias TEXT NULL,
+                valuation_method INTEGER NOT NULL DEFAULT 0, hsn_sac_code TEXT NULL, is_taxable INTEGER NOT NULL DEFAULT 0,
+                reorder_level_micro INTEGER NULL, min_order_qty_micro INTEGER NULL, standard_cost_paisa INTEGER NULL);
+            INSERT INTO stock_items_v12 SELECT id, company_id, name, stock_group_id, category_id, base_unit_id,
+                alias, valuation_method, hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro,
+                standard_cost_paisa FROM stock_items;
+            DROP TABLE stock_items;
+            ALTER TABLE stock_items_v12 RENAME TO stock_items;
+            """);
+
+        // entry_lines: rebuild without the 3 GST columns.
+        Exec(conn, """
+            CREATE TABLE entry_lines_v12 (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL,
+                ledger_id TEXT NOT NULL, amount_paisa INTEGER NOT NULL, side INTEGER NOT NULL,
+                forex_currency_id TEXT NULL, forex_amount_micro INTEGER NULL, forex_rate_micro INTEGER NULL);
+            INSERT INTO entry_lines_v12 SELECT id, voucher_id, line_order, ledger_id, amount_paisa, side,
+                forex_currency_id, forex_amount_micro, forex_rate_micro FROM entry_lines;
+            DROP TABLE entry_lines;
+            ALTER TABLE entry_lines_v12 RENAME TO entry_lines;
+            """);
     }
 
     private static long ReadSchemaVersion(string dbPath)
