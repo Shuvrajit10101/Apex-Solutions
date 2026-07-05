@@ -1247,6 +1247,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.ToggleOptional();
     }
 
+    /// <summary>Ctrl+I: toggle the in-progress Purchase/Sales voucher between plain accounting and item-invoice mode.</summary>
+    public void ToggleItemInvoice()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ToggleItemInvoice();
+    }
+
+    /// <summary>True while a Purchase/Sales voucher-entry page is active (drives the Ctrl+I item-invoice action).</summary>
+    public bool IsInvoiceableEntry =>
+        CurrentScreen == Screen.VoucherEntry && VoucherEntry?.CanBeItemInvoice == true;
+
     /// <summary>True while a Memorandum voucher-entry page is the active screen (drives the Convert action).</summary>
     public bool IsMemorandumEntry =>
         CurrentScreen == Screen.VoucherEntry && VoucherEntry?.Type.BaseType == VoucherBaseType.Memorandum;
@@ -1298,6 +1309,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.AddLine();
+    }
+
+    /// <summary>Adds a fresh blank item line to the current item-invoice's inventory grid ("+ Add item").</summary>
+    public void AddItemInvoiceLine()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.AddInventoryLine();
     }
 
     /// <summary>Adds a fresh blank line to the current inventory voucher's primary grid ("+ Add line").</summary>
@@ -1724,6 +1742,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
+        // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
 
         // Create master + report quick-jumps (enabled once a company is open).
         ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));

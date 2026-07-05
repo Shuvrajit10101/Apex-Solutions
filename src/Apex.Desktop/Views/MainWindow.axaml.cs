@@ -103,6 +103,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+I toggles a Purchase/Sales voucher between plain accounting and item-invoice ("as invoice") mode.
+        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            vm.ToggleItemInvoice();
+            e.Handled = true;
+            return;
+        }
+
         // Spacebar toggles the highlighted bill's multi-select on the Outstandings page (not while typing).
         if (e.Key == Key.Space && vm.IsOutstandingsScreen && !IsTyping(e))
         {
@@ -214,6 +222,9 @@ public partial class MainWindow : Window
 
     private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddVoucherLine();
+
+    private void OnAddItemInvoiceLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AddItemInvoiceLine();
 
     private void OnAcceptInventoryVoucherClick(object? sender, RoutedEventArgs e)
         => Vm?.InventoryVoucherEntry?.Accept();
