@@ -360,12 +360,20 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **Goals:** complete the report surface and I/O.
 - **Modules (catalog §16, §17):** report families (Account/Inventory Books, Statements of Accounts/Inventory,
   Exception reports, Ratio Analysis, Cash/Funds Flow, comparative/columnar), cross-cutting report actions
-  (Alt+F1/F2/C/N/F12, Enter, F12 config, **Save View**), **print** (invoice/report config), **export**
-  (PDF/Excel/XML/JSON/HTML), **import** (XML), **email** (offline-composed), graphical **dashboard**, Go To
-  multi-tasking, More Details.
-- **Agents:** per-feature pipeline.
-- **Deliverables:** printable invoices & statements; round-trip XML export/import; saved report views.
+  (Alt+F1/F2/C/N/F12, Enter, F12 config, **Save View**), **print** (render-to-PDF + on-screen preview;
+  OS-native spooler deferred), **export** (**PDF / XLSX / CSV / JSON / XML**; *HTML export deferred —
+  tracked*), **import** (JSON / CSV / XML), **email** (compose + `.eml`/mail-client hand-off; SMTP profile
+  captured, no secret; live SMTP send deferred — tracked), graphical **dashboard**, Go To multi-tasking,
+  More Details.
+- **Agents:** per-feature pipeline (+ **A15 Reporting & I/O Engineer** owns the print/export/import/email IO layer).
+- **Deliverables:** printable invoices & statements; **lossless round-trip in BOTH JSON and XML** export/import;
+  saved report views.
 - **Exit gate:** R9; export/import round-trips losslessly.
+
+> **Phase 5 — deferred (tracked):** (1) **HTML export** — deferred this phase; the other five export formats
+> (PDF/XLSX/CSV/JSON/XML) ship now. (2) **Wire live SMTP email send** — this phase composes + hands off
+> `.eml`/mail-client and captures the SMTP profile (no secret in repo, R13); the live SMTP send is deferred to
+> revisit in a later phase.
 
 ### Phase 6 — Advanced inventory
 - **Goals:** the deep inventory features.

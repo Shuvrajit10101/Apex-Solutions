@@ -310,6 +310,35 @@
 - **Outputs:** a structured audit verdict (complete / gaps-found-with-list), which blocks or unblocks
   the phase gate independent of QA's own sign-off.
 
+### 15. Reporting & I/O Engineer
+
+- **Classic role mapping:** Programmer/Developer, domain-specialized on the report-output & data-interchange
+  layer — the "documents and files leave the building here" role pulled out of the Programmer, distinct from
+  the Frontend Engineer who only presents on screen.
+- **Mandate / responsibilities:** Owns the **framework-agnostic reporting / I/O layer** — a new
+  **`Apex.Ledger.Io`** project — that turns report projections and domain data into files and back:
+  the **hand-rolled minimal PDF writer** (no NuGet), the **hand-rolled XLSX OPC package** built on the
+  built-in `System.IO.Compression.ZipArchive` (no NuGet), **RFC-4180 CSV** (UTF-8-with-BOM), the
+  **canonical JSON and XML round-trip serializers** (both lossless — the PR-4 hard gate), the
+  **RFC-5322/MIME `.eml` composer**, and the **engine-routed importer** that creates masters / posts
+  vouchers **through the existing domain services & validators (`LedgerService`/`GstService`/etc.), never a
+  raw SQLite back-door**. Also owns paisa-accurate Indian (lakh/crore) amount-in-words in this pure IO layer.
+- **Constraints (hard):** **no Avalonia, no file dialogs / message boxes, no OS-print calls, no clock, no
+  RNG**; **culture-invariant**, **byte-stable / deterministic** output; **de-branded — never emits the word
+  "Tally"**; **paisa-exact via `Money.cs`**. All device/OS/UI concerns (file pickers, on-screen preview,
+  spooler) live in a thin Avalonia layer owned by A8, not here.
+- **When dispatched:** any phase (from **Phase 5** onward) touching print/export/import/email, canonical
+  serialization, or amount-in-words; whenever a new report needs a file-output path or a new interchange
+  format is added.
+- **Key tools:** Read/Edit/Write on `src/Apex.Ledger.Io/` and its tests, Bash (run IO unit tests locally —
+  no git), `context7` for format-spec (OPC/RFC) lookups. Same tool access as the other engineer agents.
+- **Inputs:** report projections from **A4** (Accounting-Engine) and the other report owners, the domain
+  services/validators the importer routes through, format specs (PDF/OPC/RFC-4180/RFC-5322).
+- **Outputs:** the `Apex.Ledger.Io` writers/serializers/composer/importer + deterministic golden-file tests
+  (round-trip + byte-stability), a structured pass/fail report to CA. **Collaborates with A4** (report
+  projections it renders), **A8** (the thin Avalonia file-picker / preview / spooler layer that calls into
+  it), **A10** (adversarial review of round-trip losslessness & determinism), and **A12** (commits).
+
 ---
 
 ## Dispatch conventions

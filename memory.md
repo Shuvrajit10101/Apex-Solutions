@@ -508,6 +508,33 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   **DEFERRED to Phase 9 per approved DPs:** RCM, composition, cess, e-invoice/e-way, GSTR-2A/2B, Rule-88A ITC set-off +
   Alt+J/Ctrl+F posting. **Next: Phase 5** per plan.md.
 
+### Phase 5 kickoff — reports depth + print/export/import/email (2026-07-05)
+- **Session resumed** on branch `claude/interesting-mirzakhani-30e51e` @ `cfc2b1d`. **Baseline re-verified GREEN by
+  the orchestrator itself:** `dotnet build -c Release` = **0 warn / 0 err**; `dotnet test -c Release` =
+  **570 passed / 0 failed** (Apex.Ledger 339 · Apex.Persistence.Sqlite 46 · Apex.Desktop 185), SQLite **schema v13**.
+- **Phase 5 (reports depth + print/export/import/email) STARTED.** The **10 requirements-doc decision points** were
+  resolved with the user:
+  - **DP-3 Export formats → PDF + XLSX + CSV + JSON + XML** (5 formats). **HTML export DEFERRED (tracked).**
+    CSV = **RFC-4180, UTF-8-with-BOM**.
+  - **DP-4 Canonical round-trip → BOTH JSON and XML** are lossless round-trip formats (both must pass the **PR-4 hard
+    gate**; the importer therefore accepts **JSON + CSV + XML**).
+  - **DP-6 Email → compose + `.eml`/mail-client hand-off NOW; capture SMTP profile (no password in repo, R13). LIVE
+    SMTP SEND DEFERRED** — tracked on the checklist to wire in a later phase.
+  - **DP-8 Print → render-to-PDF + on-screen preview** (reuses the PDF writer; OS-native print spooler deferred).
+  - **DPs adopted at the requirements-doc recommended defaults** (author's discretion, no user conflict):
+    **DP-1** hand-rolled minimal PDF writer (no NuGet); **DP-2** hand-rolled XLSX OPC via built-in
+    `System.IO.Compression.ZipArchive` (no NuGet); **DP-5** import scope = core masters (groups / ledgers / stock
+    items / parties / voucher types) + accounting & item vouchers, **engine-routed**, duplicate policy
+    skip / merge-opening-balance / reject-batch; **DP-7** Saved Views persist config-tuple only, per company
+    (**schema v14**); **DP-9** single built-in tax-invoice template + paisa-accurate Indian (lakh/crore)
+    amount-in-words in the pure IO layer; **DP-10** comparatives span periods (+ scenarios via `SupportsScenario`);
+    multi-company comparatives wait for Phase 10.
+- **Deviations from LITERAL plan.md text (R6, recorded):** **HTML export deferred**; **live SMTP send deferred**
+  (both tracked). Everything else matches or exceeds the plan text (**XML kept per user**).
+- **R3:** added agent **A15 "Reporting & I/O Engineer"** to `agents.md` to own the print / export / import / email
+  IO layer (a new `Apex.Ledger.Io` project) — no prior agent covered it.
+- **Next:** Phase 5 **slice 1 = report config & depth (RQ-1 / 2 / 6)** under way via the gated workflow.
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
