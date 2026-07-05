@@ -363,3 +363,147 @@ on-hand engine + hard no-negative-stock guard; six valuation methods + derived S
 (BS balances to the paisa); item-invoice mode (accounts+stock atomic, pairing invariant); the full inventory report
 suite (Stock Summary w/ drill, Godown Summary, Movement, registers, Reorder Status). **Next: Phase 4 (GST)** per
 `plan.md` — CA/A14-led, web-verify current GST law/rates.
+
+## Phase 4 slice 4a — CORE GST ENGINE (engine + persistence only, no UI) — DONE (green)
+Implemented per `docs/phase4-gst-requirements.md` (RQ-1..RQ-19) with the USER-APPROVED DPs. **Schema v13.**
+Tests: Apex.Ledger 303 (was 271; +32 GST), Apex.Persistence.Sqlite 46 (+4 GST round-trip/migration),
+Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "Tally" in code. No scratch.
+
+- **Domain (new):** `GstEnums.cs` (RegistrationType/Taxability/ReturnPeriodicity/TaxHead/TaxDirection/SupplyType),
+  `IndianState.cs` (official 2-digit GST state codes + UT flag → UTGST folds into the State head), `Gstin.cs`
+  (15-char + state-code + PAN + 'Z' + **Luhn-mod-36** checksum, pure/fail-fast; verified against real GSTINs),
+  `GstRateSlab.cs` (bp), `GstConfig.cs` (company config on `Company.Gst`, seeds slabs), `PartyGstDetails.cs`
+  (on `Ledger.PartyGst`, IsB2C), `StockItemGstDetails.cs` (on `StockItem.Gst`/`Ledger.SalesPurchaseGst`),
+  `LedgerGstClassification.cs` (tax-ledger head+direction), `GstLineTax.cs` (on `EntryLine.Gst`). All additive
+  nullable trailing ctor params — existing ctors unbroken.
+- **Service:** `GstService.cs` — `EnableGst` (idempotent: seeds 0/5/18/40, auto-creates 6 Output/Input tax
+  ledgers under Duties & Taxes + a "Round Off" ledger under Indirect Expenses), `ResolveRate` (item→S/P
+  ledger→unresolved, most-granular-wins; exempt short-circuits; taxable-unresolved = fail-fast sentinel),
+  `IsInterState` (home vs party state), `ComputeInvoiceTax` (per-line CGST=SGST=round_paisa(V*halfBp/10000)
+  intra / IGST full inter; optional invoice round-off nearest-rupee via Round Off line). `SeedGstRates.cs`.
+- **Additive/pairing (ER-8):** tax posts ONLY to Duties & Taxes ledgers; `ClassificationRules.IsDutiesAndTaxesLedger`
+  added; `VoucherValidator.EnsureItemInvoiceValid` UNCHANGED — its stock-leg sum already excludes non
+  Sales/Purchase/Stock-in-Hand ledgers, so the invariant holds (proven by `GstTests.Intra_state_gst_sales_item_invoice_is_additive_and_pairing_invariant_holds` asserting stock leg == Σ item value == ₹1000, tax excluded).
+- **Persistence v13 (`MigrateV12ToV13`, idempotent):** company GST cols + `gst_rate_slabs` table; ledger
+  party/S-P/tax-classification cols; stock_item GST cols; entry_line tax-line cols. Dual-written (CreateV1 +
+  migration ALTERs). Full round-trip + v12→v13 data-intact tests green. Bumped 3 existing schema-version-literal
+  asserts 12→13; extended `DowngradeToV9`/`DowngradeToV11` test helpers to strip v13 artifacts (they save-at-
+  current-then-downgrade, so re-migration would otherwise collide on the bare CREATE TABLE gst_rate_slabs).
+- **Judgment calls:** (a) UTGST folded into single State head (RQ-6, documented on IndianState). (b) Round-Off
+  ledger auto-created under Indirect Expenses (P&L; round-off can be Dr or Cr); side derived from voucher
+  direction. (c) Company-level rate resolution = unresolved fail-fast (no single "company default rate" field
+  in Phase 4; item/ledger cover real invoices). (d) null/blank party state ⇒ treated inter-state (safe full IGST).
+
+### Phase 4 slice 4a — Core GST Engine (2026-07-05)
+- Committed by the GitHub Expert (branch `claude/interesting-mirzakhani-30e51e`; **no PR yet**). **514 tests green**
+  (Apex.Ledger 313 + Apex.Persistence.Sqlite 46 + Apex.Desktop 155). SQLite schema **v12 → v13** (idempotent
+  `MigrateV12ToV13`: GST columns on company/ledger/stock-item/entry-line + `gst_rate_slabs` table). Requirements
+  doc `docs/phase4-gst-requirements.md` (**29 RQ / 12 ER / 11 DP**) committed with the slice.
+- **User-approved DPs:** GST 2.0 slabs **0/5/18/40%** (web-verified current: 12% & 28% removed 22-Sep-2025, 56th
+  GST Council/CBIC); Rule-88A ITC set-off engine + Alt+J/Ctrl+F posting **DEFERRED to Phase 9** (Phase 4
+  computes/displays ITC + net payable). Also: auto-create 6 tax ledgers on F11-enable; per-line paisa rounding +
+  optional invoice round-off; HSN/SAC validated text; rate resolution item→ledger→company; place of supply = party
+  State; no/blank GSTIN ⇒ B2C; support both item-invoice & as-voucher GST; tax direction from base type.
+  RCM/composition/cess/e-invoice/GSTR-2A-2B = **Phase 9**.
+- **Engine (`src/Apex.Ledger/`):** `GstConfig`/`GstEnums`/`IndianState`/`Gstin` (15-char Luhn-mod-36)/`GstRateSlab`/
+  `PartyGstDetails`/`StockItemGstDetails`/`LedgerGstClassification`/`GstLineTax` domain + `GstService` (EnableGst
+  idempotent, ResolveRate, IsInterState, ComputeInvoiceTax/ComputeLineTax) + `SeedGstRates`. GST is **opt-in / off
+  by default** so Robert/Bright + all existing companies are byte-unchanged. Tax is **additive** — posts only to
+  Duties & Taxes ledgers, so the item-invoice pairing invariant (stock leg = Σ taxable value) holds unchanged;
+  party total = taxable + tax.
+- **Adversarial review (A10) found + fixed 2 confirmed defects:** (1) **CRITICAL** CGST+SGST ≠ IGST to the paisa —
+  halves were rounded independently (280k breaking values, e.g. ₹1.05@5% gave 0.06 vs IGST 0.05); fixed to
+  **compute-total-then-split** (`total=round(V×rate)`, `CGST=round(total/2)`, `SGST=total−CGST`) so CGST+SGST ==
+  IGST == round(V×rate) by construction (CGST==SGST except a forced 1-paisa on odd totals), verified by an
+  exhaustive paise sweep at 5/18/40%; (2) **HIGH** blank/unknown party State defaulted to IGST — mis-taxed B2C
+  local sales; fixed to default unknown place-of-supply to the company home State ⇒ intra (CGST+SGST). A10 cleared
+  rounding sides, GSTIN checksum, additivity/pairing, rate resolution, exempt/nil handling, Output/Input direction,
+  non-GST-untouched.
+- **Phase 4 slice 4b — GST REPORT PROJECTIONS (pure, `src/Apex.Ledger/Reports/`, no UI):** DONE, green. Three
+  read-only projections over already-posted GST vouchers, each = row record(s) + root record + pure
+  `Build(Company, DateOnly from, DateOnly to)` + a `Report.*` façade wrapper (`BuildTaxAnalysis`/`BuildGstr1`/
+  `BuildGstr3b`). New files: `TaxAnalysis.cs`, `Gstr1.cs`, `Gstr3b.cs`, shared `GstReportSupport.cs`; modified
+  `Reports.cs` (façade). Key design (matches slice-4a intent — **reads posted tax, never recomputes**): every
+  figure is read off each tax `EntryLine`'s `GstLineTax` (TaxHead, applied RateBasisPoints, TaxableValue) + the
+  line's `Amount` (the tax); direction = `GstReportSupport.DirectionOf(baseType)` (Sales/CreditNote⇒Output,
+  Purchase/DebitNote⇒Input, DP-11); cancelled/optional/provisional/post-dated-after-`to` filtered via
+  `LedgerBalances.CountsAsOf`. **(1) TaxAnalysis** — outward+inward sides, per-head totals + rate-wise rows
+  (by head + head-rate); **(2) GSTR-1** — B2B (one row per registered-party invoice, party has GSTIN vs B2C
+  by `PartyGst.IsB2C`, DP-8), B2C consolidated rate-wise, rate-wise summary, HSN summary (from item-invoice
+  stock lines; invoice's posted tax apportioned to lines by value share, last line absorbs remainder =
+  paisa-exact, UQC from Unit.UnitQuantityCode; exempt outward = no-tax outward vouchers' stock value);
+  **(3) GSTR-3B** — §3.1 outward by head, taxable vs exempt/nil/non-GST outward value, §4 ITC by head, and
+  **net payable = output − ITC per head, DISPLAY-ONLY (DP-9)** — negative head = carried-forward credit, XML doc
+  labels it indicative; NO Rule-88A set-off / Alt+J-Ctrl+F posting (Phase 9). **Reconciliation asserted to the
+  paisa:** Σ GSTR-1/TaxAnalysis/GSTR-3B output tax by head == Σ Output tax-ledger postings for the period;
+  GSTR-3B ITC == Σ Input postings; CGST==SGST foot. Tests: `tests/Apex.Ledger.Tests/GstReportsTests.cs` (+17):
+  synthetic GST co (home MH 27; in-state B2B, Gujarat B2B, B2C consumer, in-state supplier) posts intra B2B
+  (CGST+SGST), inter B2B (IGST), B2C intra, exempt sale, purchase (ITC) — with opening stock for the B2C/exempt
+  items; asserts every reconciliation + cancelled/post-dated excluded + non-GST company empty/no-crash + façade.
+  **Gate green:** `dotnet build -c Release` + `dotnet test -c Release` = **531 tests** (Ledger 330, Sqlite 46,
+  Desktop 155), 0 fail (514 baseline + 17). Schema unchanged (**v13** — reports read existing data). No "Tally"
+  in new code/tests. `git status`: only the 5 new/modified legit files + memory.md. **Judgment calls:**
+  (a) HSN per-line tax on multi-item invoices = apportion the invoice's *posted* head totals by line-value share
+  (never re-derive from rate) — exact for the single-item Phase-4 fixtures; (b) intra vs inter inferred per tax
+  line from the head (Central/State⇒intra, Integrated⇒inter) so no re-routing; (c) invoice taxable value =
+  max over the tax lines' TaxableValue (CGST & SGST each carry the whole-invoice taxable, so summing would
+  double-count).
+- **Next:** GST UI (F11 config screen, party/item GST fields, GST reports UI cascading Miller-column, item-invoice
+  tax display / Alt+A). Then Phase 5.
+- **Phase 4 slice 4c — GST CONFIG + MASTER GST FIELDS UI:** DONE, green. Committed by the GitHub Expert (branch
+  `claude/interesting-mirzakhani-30e51e`; no PR yet). New `GstConfigViewModel` + **"GST — Statutory Configuration"**
+  screen reachable via **F11 (Features)** and a **Statutory → GST** menu item: Enable-GST toggle; GSTIN (Luhn-validated,
+  auto-fills Home State from the leading 2 digits); Home State/UT dropdown (`IndianState`); Regular reg-type +
+  Monthly/Quarterly periodicity. On Enable → `GstService.EnableGst` (creates the 6 Output/Input CGST/SGST/IGST tax
+  ledgers + Round-Off, seeds slabs 0/5/18/40) + persists, then shows the created-ledgers list. Verified by headless Skia
+  render (all fields + the "7 tax ledgers ready; slabs 0/5/18/40 seeded" confirmation render clean).
+- **Master GST fields:** Party GST fields (GSTIN / reg-type / State) added to the **Ledger master** (gated on GST-on AND
+  party group); HSN/SAC + GST-rate + taxability added to the **Stock Item master** — both pre-validated (GSTIN/HSN),
+  hidden/no-op when GST is off so existing masters are byte-unchanged.
+- **Gate green:** **551 tests** (Apex.Ledger 339 + Apex.Persistence.Sqlite 46 + Apex.Desktop 166, +11 Desktop over the
+  531 baseline), 0 fail. Schema unchanged (**v13**).
+- **Known minor UI nit (fix in 4d):** the GST config **GSTIN textbox is a touch narrow** — clips the last ~3 of 15 chars
+  in the render (value + validation are correct); widen it.
+- **Next:** slice 4d = GST reports UI (Tax Analysis / GSTR-1 / GSTR-3B into the Miller-column nav under a GST/Statutory
+  reports section) + item-invoice GST tax display (show computed CGST/SGST/IGST on the Purchase/Sales item-invoice screen
+  when GST is enabled) + the GSTIN-width fix — closes Phase 4's UI. Then Phase 4 wrap + Phase 5.
+- **Phase 4 slice 4d — GST REPORTS UI:** DONE, green. Committed by the GitHub Expert (branch
+  `claude/interesting-mirzakhani-30e51e`; no PR yet). Three `ReportKind`s (TaxAnalysis, Gstr1, Gstr3b) wired into the
+  Miller-column nav under a **"GST Reports"** submenu (Reports section), with per-kind DataTemplates + section headers,
+  reading the slice-4b report engine (reconciled to the tax ledgers): **Tax Analysis** (Outward/Inward, rate×head grid),
+  **GSTR-1** (B2B / B2C / rate-wise / HSN sections), **GSTR-3B** (§3.1 outward + exempt, eligible ITC, net payable per
+  head — display-only, no set-off). GST-off opens a friendly empty state.
+- **Visual verification (headless Skia render) caught + fixed real layout defects:** the GST reports are wider than the
+  report pane, so wide statutory reports now get a **horizontal ScrollViewer** (Tally-like) — Tax Analysis first
+  "Rate/Head" column no longer collapses to zero (fixed 170px), GSTR-1's Taxable/CGST/SGST/IGST amount columns are
+  reachable via h-scroll, GSTR-3B "Particulars" labels show in full. Also widened the GST-config **GSTIN textbox** (from
+  slice 4c) so the full 15-char GSTIN shows. De-branded.
+- **Gate green:** **561 tests** (Apex.Ledger 339 + Apex.Persistence.Sqlite 46 + Apex.Desktop 176, +10 Desktop over the
+  551 baseline), 0 fail. Schema unchanged (**v13**).
+- **Next:** slice 4e = item-invoice GST tax display — when GST is enabled, the Purchase/Sales item-invoice (Ctrl+I) screen
+  computes + shows CGST/SGST/IGST and posts the tax lines (party total = taxable + tax) via `GstService`/`LedgerService`,
+  so GST invoices created in the UI flow through to the GST reports. Then Phase 4 wrap (commit memory.md, tag/PR decision)
+  + Phase 5.
+- **Phase 4 slice 4e — ITEM-INVOICE GST INTEGRATION:** DONE, green. Committed by the GitHub Expert (branch
+  `claude/interesting-mirzakhani-30e51e`; no PR yet). **570 tests** (Apex.Ledger 339 + Apex.Persistence.Sqlite 46 +
+  Apex.Desktop 185, +9 Desktop over the 561 baseline), 0 fail. Schema unchanged (**v13**). **Closed the GST-in-UI gap:**
+  when GST is enabled (`IsGstInvoice`), the Purchase/Sales item-invoice (Ctrl+I) screen resolves each line's
+  rate/taxability (item→ledger→company), determines intra/inter (party `PartyGst.State` vs `Company.Gst.HomeStateCode`),
+  computes tax via `GstService.ComputeInvoiceTax` (per head+rate — multi-rate splits correctly), **DISPLAYS a GST Summary
+  band** (Taxable, CGST, SGST, IGST, Party Total = taxable+tax; verified by headless render — e.g. 15 Widget @₹100 @18% →
+  CGST 135 / SGST 135 / Party Total 1,770), and on Accept posts the voucher = stock leg (Σ taxable) + additive tax
+  `EntryLine`s (Output/Input CGST/SGST/IGST, direction from base type, `GstLineTax` metadata) + party leg (taxable+tax) +
+  inventory lines via `LedgerService`. So UI-created GST invoices now flow into GSTR-1/3B/Tax Analysis (tests assert a UI
+  purchase shows ITC in GSTR-3B, a UI sale a GSTR-1 B2B row). Multi-rate, inter-state (IGST), B2C all handled; pairing
+  invariant intact; **GST-off unchanged** (Phase-3 two-leg behavior). A render caught + fixed a display defect (the GST
+  amounts were computed but not bound to any control — added the summary band + wrapped the derived line).
+
+- **✅ PHASE 4 (GST — core) COMPLETE (2026-07-05)** — 5 slices: **4a** core GST engine (schema v13; GST 2.0 slabs
+  0/5/18/40; CGST/SGST/IGST compute-total-then-split; GSTIN Luhn validation; rate resolution; place of supply), **4b** GST
+  reports engine (Tax Analysis, GSTR-1, GSTR-3B, reconciled to tax ledgers, per-(head,rate) multi-rate lines), **4c** GST
+  config + master GST fields UI (F11/Statutory), **4d** GST reports UI (h-scroll statutory layouts), **4e** item-invoice
+  GST integration + display. Commits `d9ef005`(4a) → `be58ab4`(4b) → `24b04e9`(4c) → `cdd06f0`(4d) → 4e (this). **570
+  tests green, schema v13, de-branded, adversarially verified** — A10 caught ~7 real GST defects across the phase incl. a
+  CRITICAL CGST+SGST≠IGST parity bug, a B2C place-of-supply mis-classification, and a multi-rate rate-attribution bug.
+  **DEFERRED to Phase 9 per approved DPs:** RCM, composition, cess, e-invoice/e-way, GSTR-2A/2B, Rule-88A ITC set-off +
+  Alt+J/Ctrl+F posting. **Next: Phase 5** per plan.md.
