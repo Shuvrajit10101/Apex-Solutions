@@ -298,6 +298,9 @@ public partial class MainWindow : Window
     private void OnCreateStockItemClick(object? sender, RoutedEventArgs e)
         => Vm?.StockItemMaster?.Create();
 
+    private void OnApplyGstClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.Apply();
+
     private void OnUnitSimpleClick(object? sender, RoutedEventArgs e)
     {
         if (Vm?.UnitMaster is { } m) m.IsCompound = false;

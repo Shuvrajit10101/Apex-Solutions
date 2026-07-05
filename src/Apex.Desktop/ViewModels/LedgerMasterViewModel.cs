@@ -139,6 +139,38 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     /// <summary>The chosen "Currency of ledger" — base by default; a foreign currency holds forex balances.</summary>
     [ObservableProperty] private CurrencyChoice? _selectedCurrency;
 
+    // --------------------------------------------------------------- party GST (catalog §12; phase4 RQ-7)
+
+    /// <summary>True iff GST is enabled for the company — the party-GST sub-form is only offered then.</summary>
+    public bool GstEnabled => _company.GstEnabled;
+
+    /// <summary>
+    /// True iff the party-GST sub-form should be shown: GST is enabled AND the chosen group is a party
+    /// group (Sundry Debtors/Creditors). Off ⇒ no party-GST fields captured (a B2C/unregistered party).
+    /// </summary>
+    public bool ShowPartyGst => GstEnabled && IsPartyGroup;
+
+    /// <summary>The party GSTIN/UIN (validated on Create when set); blank ⇒ a B2C party.</summary>
+    [ObservableProperty] private string _partyGstin = string.Empty;
+
+    /// <summary>The party's registration type (Regular / Composition / Unregistered / Consumer).</summary>
+    [ObservableProperty] private GstRegistrationTypeOption? _partyRegistrationType;
+
+    /// <summary>The party's State/UT (its place of supply for goods); null ⇒ unset.</summary>
+    [ObservableProperty] private IndianStateOption? _partyState;
+
+    /// <summary>The registration-type options for a party (default Unregistered — a plain B2C party).</summary>
+    public IReadOnlyList<GstRegistrationTypeOption> PartyRegistrationTypes { get; } = new[]
+    {
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Regular, Display = "Regular" },
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Composition, Display = "Composition" },
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Unregistered, Display = "Unregistered" },
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Consumer, Display = "Consumer" },
+    };
+
+    /// <summary>The State/UT options for the party place-of-supply picker (the GST state-code list).</summary>
+    public IReadOnlyList<IndianStateOption> PartyStates { get; }
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -155,6 +187,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
 
         CurrencyChoices = BuildCurrencyChoices(company);
         _selectedCurrency = CurrencyChoices[0]; // base currency
+
+        PartyStates = IndianState.All.Select(s => new IndianStateOption { State = s }).ToList();
+        _partyRegistrationType = PartyRegistrationTypes[2]; // Unregistered (a plain B2C party) by default
 
         RefreshList();
     }
@@ -191,6 +226,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     {
         MaintainBillByBill = value is not null && IsUnderParty(value);
         OnPropertyChanged(nameof(IsPartyGroup));
+        OnPropertyChanged(nameof(ShowPartyGst));
     }
 
     private bool IsUnderParty(Group group)
@@ -266,6 +302,39 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
                 style: (SelectedStyle ?? StyleChoices[0]).Value);
         }
 
+        // Party GST details (only for a party ledger while GST is enabled). Pre-validate the GSTIN so the
+        // engine's domain error never fires; a Regular party requires a GSTIN.
+        PartyGstDetails? partyGst = null;
+        if (ShowPartyGst)
+        {
+            var pGstin = (PartyGstin ?? string.Empty).Trim().ToUpperInvariant();
+            var pGstinOrNull = string.IsNullOrEmpty(pGstin) ? null : pGstin;
+            var regType = (PartyRegistrationType ?? PartyRegistrationTypes[2]).Value;
+
+            if (pGstinOrNull is not null && !Gstin.IsValid(pGstinOrNull))
+            {
+                Message = $"'{pGstinOrNull}' is not a valid party GSTIN (15 chars, checksum failed).";
+                return false;
+            }
+            if (regType == GstRegistrationType.Regular && pGstinOrNull is null)
+            {
+                Message = "A Regular GST party requires a GSTIN (or pick Unregistered/Consumer).";
+                return false;
+            }
+
+            // Attach a details block only when something meaningful was captured (a GSTIN, a non-default
+            // registration type, or a state) — otherwise leave it null (a plain B2C party).
+            if (pGstinOrNull is not null || regType != GstRegistrationType.Unregistered || PartyState is not null)
+            {
+                partyGst = new PartyGstDetails
+                {
+                    Gstin = pGstinOrNull,
+                    RegistrationType = regType,
+                    StateCode = PartyState?.Code,
+                };
+            }
+        }
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
@@ -276,7 +345,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
             interest: interest,
             // "Currency of ledger" — null (base ₹/INR) for every existing ledger; a foreign currency
             // makes this a forex ledger whose lines carry forex amounts + rates.
-            currencyId: SelectedCurrency?.CurrencyId);
+            currencyId: SelectedCurrency?.CurrencyId,
+            partyGst: partyGst);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -290,6 +360,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         EnableInterest = false;
         InterestRateText = string.Empty;
         SelectedCurrency = CurrencyChoices[0]; // reset to base for the next entry
+        PartyGstin = string.Empty;
+        PartyRegistrationType = PartyRegistrationTypes[2]; // back to Unregistered
+        PartyState = null;
         _onChanged();
         return true;
     }

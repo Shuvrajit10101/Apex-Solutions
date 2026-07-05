@@ -108,6 +108,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Stock-Item master (non-null only for the Stock-Item creation column).</summary>
     public StockItemMasterViewModel? StockItemMaster => Page as StockItemMasterViewModel;
 
+    /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
+    public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

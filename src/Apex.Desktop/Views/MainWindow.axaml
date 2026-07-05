@@ -1459,6 +1459,52 @@
                                   </Grid>
                                 </StackPanel>
 
+                                <!-- Party GST details (shown for a party group while GST is enabled; catalog §12) -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowPartyGst}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="GST Details (party)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="110,*">
+                                      <TextBlock Grid.Column="0" Text="GSTIN/UIN" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding PartyGstin, Mode=TwoWay}"
+                                               PlaceholderText="15-char GSTIN (blank ⇒ B2C)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="110,*">
+                                      <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding PartyRegistrationTypes}"
+                                                SelectedItem="{Binding PartyRegistrationType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:GstRegistrationTypeOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="110,*">
+                                      <TextBlock Grid.Column="0" Text="State/UT" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding PartyStates}"
+                                                SelectedItem="{Binding PartyState, Mode=TwoWay}"
+                                                PlaceholderText="place of supply…">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:IndianStateOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Interest Calculation parameters (catalog §7) -->
                                 <Border Background="#FBF7EE"
                                         BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -2859,6 +2905,41 @@
                                              PlaceholderText="Min order qty"/>
                                   </Grid>
 
+                                  <!-- GST details (shown when GST is enabled; catalog §12) -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding GstEnabled}">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="GST Details" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="90,*,90,*">
+                                        <TextBlock Grid.Column="0" Text="Taxability" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding Taxabilities}"
+                                                  SelectedItem="{Binding Taxability, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:GstTaxabilityOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Grid.Column="2" Text="GST rate" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding GstRates}"
+                                                  SelectedItem="{Binding GstRate, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:GstRateOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
+
                                   <!-- Opening balance (optional) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -2943,6 +3024,116 @@
                                         <TextBlock Grid.Column="4" Text="{Binding OpeningValue}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
                                                    VerticalAlignment="Center" FontSize="11.5" Foreground="#555555"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: GST — Statutory configuration (F11 Features → GST) -->
+                    <ContentControl IsVisible="{Binding GstConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding GstConfig}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GstConfigViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="GST — Statutory Configuration"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Enable + config form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8">
+                              <StackPanel Spacing="12">
+                                <CheckBox Content="Enable GST for this company"
+                                          IsChecked="{Binding GstEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <StackPanel Spacing="10" IsVisible="{Binding GstEnabled}">
+                                  <Grid ColumnDefinitions="130,*,130,220">
+                                    <TextBlock Grid.Column="0" Text="GSTIN / UIN" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Gstin, Mode=TwoWay}"
+                                             PlaceholderText="15-char GSTIN, e.g. 27ABCDE1234F1Z5"/>
+                                    <TextBlock Grid.Column="2" Text="Home State/UT" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding HomeStates}"
+                                              SelectedItem="{Binding HomeState, Mode=TwoWay}"
+                                              PlaceholderText="state…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:IndianStateOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="130,*,130,*">
+                                    <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding RegistrationTypes}"
+                                              SelectedItem="{Binding RegistrationType, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GstRegistrationTypeOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Periodicity" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Periodicities}"
+                                              SelectedItem="{Binding Periodicity, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GstPeriodicityOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyGstClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Created tax-ledgers header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}"
+                                    IsVisible="{Binding GstEnabled}">
+                              <Grid ColumnDefinitions="*,200">
+                                <TextBlock Grid.Column="0" Text="GST Tax Ledger" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White" IsVisible="{Binding GstEnabled}">
+                              <ItemsControl ItemsSource="{Binding TaxLedgers}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstTaxLedgerRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>

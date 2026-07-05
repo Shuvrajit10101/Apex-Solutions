@@ -38,6 +38,25 @@ public sealed class ValuationMethodOption
     public string Display { get; init; } = string.Empty;
 }
 
+/// <summary>A GST taxability option for the picker (label + the enum value).</summary>
+public sealed class GstTaxabilityOption
+{
+    public GstTaxability Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A GST rate-slab option for the item's rate picker: a seeded slab (0/5/18/40%) or the "(none)" entry
+/// that leaves the item's rate unresolved (resolved from the sales/purchase ledger or company instead).
+/// </summary>
+public sealed class GstRateOption
+{
+    /// <summary>The integrated rate in basis points, or null for "(none) — unresolved here".</summary>
+    public int? RateBasisPoints { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => RateBasisPoints is null;
+}
+
 /// <summary>
 /// The Stock-Item creation master ("Masters → Create → Inventory Masters → Stock Item", catalog §9; RQ-6).
 /// Captures a name + optional alias, a required <b>Under</b> stock group, an optional <b>Category</b>, a
@@ -90,6 +109,19 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase
     [ObservableProperty] private string _reorderLevelText = string.Empty;
     [ObservableProperty] private string _minimumOrderQtyText = string.Empty;
 
+    // ---- GST details (catalog §12; phase4 RQ-8) — only offered when GST is enabled ----
+    [ObservableProperty] private GstTaxabilityOption? _taxability;
+    [ObservableProperty] private GstRateOption? _gstRate;
+
+    /// <summary>The GST taxability options (Taxable / Exempt / Nil-Rated / Non-GST).</summary>
+    public ObservableCollection<GstTaxabilityOption> Taxabilities { get; } = new();
+
+    /// <summary>The GST rate options: "(none)" plus the company's seeded slabs (0/5/18/40%).</summary>
+    public ObservableCollection<GstRateOption> GstRates { get; } = new();
+
+    /// <summary>True iff GST is enabled for the company — the item-GST sub-form is only offered then.</summary>
+    public bool GstEnabled => _company.GstEnabled;
+
     // ---- Opening balance (all optional) ----
     [ObservableProperty] private Godown? _openingGodown;
     [ObservableProperty] private string _openingQuantityText = string.Empty;
@@ -111,6 +143,18 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastPurchaseCost, Display = "Last Purchase Cost" });
         ValuationMethods.Add(new ValuationMethodOption { Method = StockValuationMethod.LastSaleCost, Display = "Last Sale Cost" });
         SelectedValuation = ValuationMethods.First();
+
+        Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.Taxable, Display = "Taxable" });
+        Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.Exempt, Display = "Exempt" });
+        Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.NilRated, Display = "Nil-Rated" });
+        Taxabilities.Add(new GstTaxabilityOption { Value = GstTaxability.NonGst, Display = "Non-GST" });
+        Taxability = Taxabilities.First();
+
+        GstRates.Add(new GstRateOption { RateBasisPoints = null, Display = "◦ (none)" });
+        var slabs = _company.Gst?.RateSlabs ?? Array.Empty<GstRateSlab>();
+        foreach (var slab in slabs.OrderBy(s => s.RateBasisPoints))
+            GstRates.Add(new GstRateOption { RateBasisPoints = slab.RateBasisPoints, Display = slab.Label });
+        GstRate = GstRates.First();
 
         RefreshPickers();
         RefreshList();
@@ -186,12 +230,44 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase
         var hsn = string.IsNullOrWhiteSpace(HsnSacCode) ? null : HsnSacCode.Trim();
         var valuation = SelectedValuation?.Method ?? StockValuationMethod.AverageCost;
 
+        // GST details (only offered when GST is enabled). Pre-validate the HSN length + taxable/rate pairing
+        // BEFORE the engine so a bad value is a friendly message, not a crash.
+        StockItemGstDetails? gstBlock = null;
+        var isTaxableFlag = IsTaxable;
+        if (GstEnabled)
+        {
+            var taxability = (Taxability ?? Taxabilities.First()).Value;
+            var rateBp = GstRate?.RateBasisPoints;
+
+            if (hsn is not null && (hsn.Length is not (4 or 6 or 8) || !hsn.All(char.IsDigit)))
+            {
+                Message = $"HSN/SAC '{hsn}' must be 4, 6 or 8 digits (numeric).";
+                return false;
+            }
+            // A non-taxable item carries no positive rate (the engine rejects that pairing).
+            if (taxability != GstTaxability.Taxable) rateBp = null;
+
+            gstBlock = new StockItemGstDetails
+            {
+                HsnSac = hsn,
+                Taxability = taxability,
+                RateBasisPoints = rateBp,
+                SupplyType = GstSupplyType.Goods,
+            };
+            isTaxableFlag = taxability == GstTaxability.Taxable; // keep the Phase-3 placeholder consistent
+        }
+
         StockItem item;
         try
         {
             var service = new InventoryService(_company);
             item = service.CreateStockItem(name, SelectedGroup.Id, SelectedUnit.Id, categoryId, alias,
-                valuation, hsn, IsTaxable, reorderLevel, minimumOrderQty);
+                valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty);
+            if (gstBlock is not null)
+            {
+                gstBlock.EnsureValid();  // backstop; already pre-validated above
+                item.Gst = gstBlock;
+            }
 
             if (wantsOpening && openingQty > 0m)
             {
@@ -222,6 +298,8 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase
         OpeningQuantityText = string.Empty;
         OpeningRateText = string.Empty;
         OpeningBatchLabel = string.Empty;
+        Taxability = Taxabilities.First();
+        GstRate = GstRates.First();
         _onChanged();
         return true;
     }

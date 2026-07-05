@@ -36,6 +36,7 @@ public enum Screen
     UnitMaster,
     GodownMaster,
     StockItemMaster,
+    GstConfig,
 }
 
 /// <summary>
@@ -168,6 +169,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Stock-Item master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private StockItemMasterViewModel? _stockItemMaster;
 
+    /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private GstConfigViewModel? _gstConfig;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -180,7 +184,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
-        && GodownMaster is null && StockItemMaster is null;
+        && GodownMaster is null && StockItemMaster is null && GstConfig is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -204,6 +208,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnUnitMasterChanged(UnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -357,6 +362,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Masters"));
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // ---- STATUTORY (GST) ----
+        col.Add(MenuItemViewModel.Header("Statutory"));
+        col.Add(new MenuItemViewModel("GST", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
 
         // ---- TRANSACTIONS ----
         col.Add(MenuItemViewModel.Header("Transactions"));
@@ -928,6 +937,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Stock Item Creation", () => StockItemMaster = master);
     }
 
+    // =============================================================== screen: statutory (GST config)
+
+    /// <summary>
+    /// Opens the company GST-configuration page (F11 Features → GST; Masters → Statutory → GST) as a page
+    /// column: an Enable-GST toggle, the GSTIN (validated, auto-filling the Home State), Home State/UT,
+    /// registration type and return periodicity. Enabling calls the engine (seeds slabs + creates the six
+    /// tax ledgers) and persists (catalog §12; phase4 slice 4c).
+    /// </summary>
+    public void ShowGstConfig()
+    {
+        if (Company is null) return;
+
+        var page = new GstConfigViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("GST — Statutory", page), Screen.GstConfig,
+            "GST — Statutory Configuration", () => GstConfig = page);
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -1184,6 +1210,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         UnitMaster = null;
         GodownMaster = null;
         StockItemMaster = null;
+        GstConfig = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -1215,7 +1242,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
-                 or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster)
+                 or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+                 or Screen.GstConfig)
             BackFromPage();
     }
 
@@ -1461,6 +1489,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.CurrencyMaster:
                 CurrencyMaster?.CreateCurrency();
                 return;
+            case Screen.GstConfig:
+                GstConfig?.Apply();
+                return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
                 return;
@@ -1571,6 +1602,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
+            case "GST": ShowGstConfig(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
@@ -1761,7 +1793,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));
         ButtonBar.Add(new ButtonBarItem("D", "Day Book", () => OpenReport(ReportKind.DayBook), hasCompany));
 
-        ButtonBar.Add(new ButtonBarItem("F11", "Features", () => Message = "F11 Features — configured per company (Phase 1 defaults)."));
+        // F11 Features → the company GST (Statutory) configuration page (slice 4c).
+        ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));
         ButtonBar.Add(new ButtonBarItem("F12", "Configure", () => Message = "F12 Configure — display options (Phase 1 defaults)."));
     }
 }

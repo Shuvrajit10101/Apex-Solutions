@@ -44,17 +44,18 @@ public sealed class GatewayHierarchyTests : IDisposable
     // ---------------------------------------------------------------- sections
 
     [Fact]
-    public void Gateway_exposes_the_three_sections_with_their_items_nested()
+    public void Gateway_exposes_the_sections_with_their_items_nested()
     {
         var vm = NewSeededCompany("Sections Co");
 
-        // Exactly the three section headers, in order.
-        Assert.Equal(new[] { "Masters", "Transactions", "Reports" }, HeaderLabels(vm));
+        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there).
+        Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports" }, HeaderLabels(vm));
 
         // Each section's items are present and reachable as selectable rows.
         var items = ItemLabels(vm);
         Assert.Contains("Create", items);              // Masters
         Assert.Contains("Chart of Accounts", items);   // Masters
+        Assert.Contains("GST", items);                 // Statutory
         Assert.Contains("Vouchers", items);            // Transactions
         Assert.Contains("Day Book", items);            // Transactions
         Assert.Contains("Balance Sheet", items);       // Reports
