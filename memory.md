@@ -569,18 +569,29 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **703 passed / 0 failed** (Ledger 392 · Sqlite 46 · Desktop 265). Schema v13 unchanged. Robert & Bright green.
 - **Next:** Phase 5 slice 5 — Exception reports (Negative Stock, Negative Cash/Bank, Memorandum register, Reversing-Journal register).
 
+### Phase 5 slice 5 — Exception reports (RQ-5 pt.2) ✅ (2026-07-05)
+- **Delivered 4 exception reports** (engine projections composed from the inventory on-hand engine + LedgerBalances + voucher-type filters; nested under Reports → Exception Reports):
+  - **Negative Stock** — items with negative on-hand (as-at): item/godown/qty/value; shortfall valued at best-available unit cost incl. item-invoice purchase rates.
+  - **Negative Cash/Bank** — cash/bank ASSET-nature ledgers with a credit (negative) balance; Bank OD/OCC (liability-nature) correctly EXCLUDED (their credit balance is by design).
+  - **Memorandum Register** — Memorandum vouchers over a period (date/no/party/amount + Total).
+  - **Reversing Journal Register** — Reversing Journal vouchers with ApplicableUpto (effective date) + Total.
+- **Render-check ALL PASS** (headless Skia): each renders cleanly under Reports → Exception Reports, empty-state clean, no overlap, zero "Tally".
+- **Adversarial review (A10, 4 lenses): fidelity/de-brand/regression PASS.** Fixed 2 MEDIUM + 2 LOW: (MED) Negative Cash/Bank false-positive on Bank OD/OCC → nature-based exclusion (only asset-nature credit balances are exceptions); (MED) Negative Stock valued item-invoice-purchased items at ₹0 → `ReferenceUnitCost` now includes item-invoice inward rates; (LOW) wrong catalog §17→§16 doc refs + stripped 2 stray "Tally" mentions from comments; (LOW) batch-level negative masking documented as a Phase 6 limitation. Each locked with a test.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **729 passed / 0 failed** (Ledger 405 · Sqlite 46 · Desktop 278). Schema v13 unchanged. Robert & Bright green. **RQ-5 (new report families) COMPLETE.**
+- **Next:** Phase 5 slice 6 — RQ-7 universal drill-down (Enter on TB/BS/P&L rows → ledger vouchers → voucher).
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v13, 703 tests green** (Ledger 392 · Sqlite 46 · Desktop 265), de-branded, working
+  SINGLE live workspace now), **schema v13, 729 tests green** (Ledger 405 · Sqlite 46 · Desktop 278), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
-  RQ-4) COMPLETE** and ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, committed &
-  pushed (no PR yet).
-- **Resume at Phase 5 slice 5** — Exception reports (Negative Stock, Negative Cash/Bank, Memorandum register,
-  Reversing-Journal register); then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
+  RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE** and ✅ **Phase 5
+  slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 6** — RQ-7 universal drill-down (Enter on TB/BS/P&L rows → ledger vouchers → voucher);
+  then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

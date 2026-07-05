@@ -39,6 +39,12 @@ public enum ReportKind
     CashFlow,
     FundsFlow,
     RatioAnalysis,
+
+    // ---- exception reports (RQ-5 part 2 — Reports → Exception Reports) ----
+    NegativeStock,
+    NegativeCashBank,
+    MemorandumRegister,
+    ReversingJournalRegister,
 }
 
 /// <summary>
@@ -374,6 +380,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.CashFlow: BuildCashFlow(); break;
             case ReportKind.FundsFlow: BuildFundsFlow(); break;
             case ReportKind.RatioAnalysis: BuildRatioAnalysis(); break;
+
+            case ReportKind.NegativeStock: BuildNegativeStock(); break;
+            case ReportKind.NegativeCashBank: BuildNegativeCashBank(); break;
+            case ReportKind.MemorandumRegister: BuildMemorandumRegister(); break;
+            case ReportKind.ReversingJournalRegister: BuildReversingJournalRegister(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -1447,6 +1458,114 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Formats a nullable ratio to 2 dp, or "N/A" when null (a guarded divide-by-zero).</summary>
     private static string FormatRatio(decimal? ratio)
         => ratio is { } v ? v.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) : "N/A";
+
+    // =============================================================== exception reports (RQ-5 part 2)
+    //   All four render through the single-amount accounting grid (Particulars | Secondary | Amount): the
+    //   extra columns (godown / dates / voucher no.) ride in Particulars + Secondary, the money/quantity in
+    //   the Amount cell. Grounded in the catalog §17 Exception Reports. Keyboard-first (the grid is the same
+    //   focusable report grid the other reports use). No print/export/drill — per slice scope.
+
+    // --------------------------------------------------------------- Negative Stock  (Item | Godown | Qty | Value, as-at)
+
+    private void BuildNegativeStock()
+    {
+        var report = NegativeStock.Build(_company, _asOf);
+        Title = "Negative Stock";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        IsTwoColumn = false;
+
+        foreach (var r in report.Rows)
+        {
+            // Particulars = item; Secondary = godown + negative qty; Amount = (negative) value.
+            Rows.Add(new ReportRow
+            {
+                Particulars = r.ItemName,
+                Secondary = $"{r.GodownName}  ·  Qty {IndianFormat.Quantity(r.Quantity)}",
+                Amount = IndianFormat.Amount(r.Value),
+            });
+        }
+
+        if (report.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No negative stock as at this date.", IsHeader = true });
+    }
+
+    // --------------------------------------------------------------- Negative Cash / Bank  (Ledger | As-At | Balance)
+
+    private void BuildNegativeCashBank()
+    {
+        var report = NegativeCashBank.Build(_company, _asOf);
+        Title = "Negative Cash / Bank";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        IsTwoColumn = false;
+
+        foreach (var r in report.Rows)
+        {
+            // The balance is on the credit side (negative cash / bank OD); show the magnitude with a "Cr" side.
+            var side = r.Balance.Side == DrCr.Debit ? "Dr" : "Cr";
+            Rows.Add(new ReportRow
+            {
+                Particulars = r.LedgerName,
+                Secondary = $"as at {FormatDate(r.AsOf)}",
+                Amount = $"{IndianFormat.Amount(r.Balance.Amount)} {side}",
+            });
+        }
+
+        if (report.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No negative cash / bank balances as at this date.", IsHeader = true });
+    }
+
+    // --------------------------------------------------------------- Memorandum Register  (Date | Vch No | Party | Amount)
+
+    private void BuildMemorandumRegister()
+    {
+        var period = StatementPeriod;
+        var report = MemorandumRegister.Build(_company, period.From, period.To);
+        Title = "Memorandum Register";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  Memo No. {r.Number}",
+                Secondary = r.PartyOrParticulars ?? string.Empty,
+                Amount = IndianFormat.Amount(r.Amount),
+            });
+
+        if (report.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No memorandum vouchers in this period.", IsHeader = true });
+        else
+            Rows.Add(ReportRow.Total("Total", report.Total));
+    }
+
+    // --------------------------------------------------------------- Reversing Journal Register
+    //   Date | Applicable Upto | Vch No | Particulars | Amount
+
+    private void BuildReversingJournalRegister()
+    {
+        var period = StatementPeriod;
+        var report = ReversingJournalRegister.Build(_company, period.From, period.To);
+        Title = "Reversing Journal Register";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        foreach (var r in report.Rows)
+        {
+            var applicable = r.ApplicableUpto is { } d ? $"Applicable upto {FormatDate(d)}" : "Applicable upto —";
+            var particulars = string.IsNullOrEmpty(r.Particulars) ? applicable : $"{r.Particulars}  ·  {applicable}";
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  Rev. Jrnl No. {r.Number}",
+                Secondary = particulars,
+                Amount = IndianFormat.Amount(r.Amount),
+            });
+        }
+
+        if (report.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No reversing journals in this period.", IsHeader = true });
+        else
+            Rows.Add(ReportRow.Total("Total", report.Total));
+    }
 
     // --------------------------------------------------------------- helpers
 

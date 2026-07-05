@@ -64,6 +64,7 @@ public enum GatewayMenu
     InventoryReports,
     GstReports,
     Statements,
+    ExceptionReports,
 }
 
 /// <summary>
@@ -405,6 +406,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -706,6 +708,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("Statements");
         OpenSubmenuColumn(BuildStatementsColumn(), GatewayMenu.Statements,
             "Gateway of Apex Solutions — Statements");
+    }
+
+    /// <summary>
+    /// Builds the "Exception Reports" submenu column (Reports → Exception Reports; RQ-5 part 2): the four
+    /// exception surfacers nested under a single <b>Exception Reports</b> section — <b>Negative Stock</b>
+    /// (items with a negative on-hand quantity), <b>Negative Cash / Bank</b> (cash/bank ledgers that have
+    /// gone credit / overdrawn), the <b>Memorandum Register</b> (non-accounting memo vouchers) and the
+    /// <b>Reversing Journal Register</b> (reversing journals with their applicable-upto date). Each is a page
+    /// item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind, Guid?)"/>; Negative Stock
+    /// and Negative Cash / Bank honour the F2 as-of, the two registers honour the F2/Alt+F2 period.
+    /// </summary>
+    private GatewayColumn BuildExceptionReportsColumn()
+    {
+        var col = new GatewayColumn("Exception Reports");
+        col.Add(MenuItemViewModel.Header("Exception Reports"));
+        col.Add(new MenuItemViewModel("Negative Stock", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Negative Cash / Bank", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Memorandum Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Reversing Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Exception Reports" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Exception Reports] and focuses the submenu.
+    /// </summary>
+    public void ShowExceptionReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Exception Reports");
+        OpenSubmenuColumn(BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
+            "Gateway of Apex Solutions — Exception Reports");
     }
 
     /// <summary>
@@ -1808,6 +1842,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — GST Reports"),
             "Statements" => (BuildStatementsColumn(), GatewayMenu.Statements,
                 "Gateway of Apex Solutions — Statements"),
+            "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
+                "Gateway of Apex Solutions — Exception Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -1871,6 +1907,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Cash Flow": OpenReport(ReportKind.CashFlow); break;
             case "Funds Flow": OpenReport(ReportKind.FundsFlow); break;
             case "Ratio Analysis": OpenReport(ReportKind.RatioAnalysis); break;
+            case "Negative Stock": OpenReport(ReportKind.NegativeStock); break;
+            case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
+            case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
+            case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -1986,6 +2026,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Inventory Reports" => GatewayMenu.InventoryReports,
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
+                    "Exception Reports" => GatewayMenu.ExceptionReports,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
