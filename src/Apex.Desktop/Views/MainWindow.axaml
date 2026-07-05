@@ -282,7 +282,7 @@
                         </Grid>
 
                         <!-- ============ ACCOUNTING reports (TB / BS / P&L / Day Book): Particulars | Dr | Cr | Amount ============ -->
-                        <Grid Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*" IsVisible="{Binding IsAccountingReport}">
+                        <Grid Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*" IsVisible="{Binding ShowSingleAccountingGrid}">
                         <!-- Column header band (navy) -->
                         <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
                             <Grid ColumnDefinitions="*,150,150">
@@ -341,7 +341,7 @@
 
                         <!-- ============ INVENTORY reports (slice 3.4b): wide per-report grids ============ -->
                         <Grid Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*"
-                              IsVisible="{Binding IsInventoryReport}">
+                              IsVisible="{Binding ShowSingleInventoryGrid}">
 
                           <!-- == Stock Summary: Item | Inward | Outward | Closing Qty | Rate | Value (drill: dbl-click / Enter) == -->
                           <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsStockSummary}">
@@ -819,6 +819,82 @@
                           </ScrollViewer>
 
                         </Grid>
+
+                        <!-- ============ COMPARATIVE / columnar report (RQ-4): Particulars + N value columns ============
+                             Shown when one or more comparison columns are added (Alt+C / Alt+N). The label column is
+                             fixed; the value columns scroll HORIZONTALLY (reusing the GST-report h-scroll pattern) so
+                             many periods/scenarios never overflow the pane. Header row, per-column totals row and each
+                             data row are laid out as a fixed-width label cell + a horizontal ItemsControl of equal-width
+                             value cells, so columns line up across rows. A blank cell = the key is absent in that column. -->
+                        <Grid Grid.Row="3" Grid.RowSpan="2" x:Name="ComparativePane"
+                              RowDefinitions="Auto,Auto,*" IsVisible="{Binding IsComparative}">
+
+                          <!-- Column-header band: fixed "Particulars" label + one navy header cell per column -->
+                          <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                            <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                                          Offset="{Binding #ComparativeBodyScroller.Offset, Mode=OneWay}">
+                              <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Particulars" Classes="colHdr" Width="220"/>
+                                <ItemsControl ItemsSource="{Binding ComparativeColumns}">
+                                  <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                      <StackPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                  </ItemsControl.ItemsPanel>
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ComparativeColumnVM">
+                                      <StackPanel Width="150" Margin="0,0,0,0">
+                                        <TextBlock Text="{Binding Label}" Classes="colHdr"
+                                                   TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding TotalText}" Foreground="#CBD5E8"
+                                                   FontSize="10" TextAlignment="Right"
+                                                   Margin="0,1,8,0" TextTrimming="CharacterEllipsis"/>
+                                      </StackPanel>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Border>
+
+                          <!-- Data rows: label + horizontally-scrolling value cells (scroll drives the header offset) -->
+                          <ScrollViewer Grid.Row="2" x:Name="ComparativeBodyScroller" Background="White"
+                                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding ComparativeRows}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ComparativeRowVM">
+                                  <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                    <StackPanel Orientation="Horizontal" Height="24">
+                                      <StackPanel Orientation="Horizontal" Spacing="6" Width="220"
+                                                  VerticalAlignment="Center" Margin="8,0">
+                                        <TextBlock Text="{Binding Label}" FontSize="12.5"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding GroupName}" FontSize="10.5"
+                                                   Foreground="#8A8A8A" VerticalAlignment="Center"/>
+                                      </StackPanel>
+                                      <ItemsControl ItemsSource="{Binding Cells}">
+                                        <ItemsControl.ItemsPanel>
+                                          <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal"/>
+                                          </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="x:String">
+                                            <TextBlock Text="{Binding}" Width="150" FontSize="12.5"
+                                                       TextAlignment="Right" Margin="0,0,8,0"
+                                                       VerticalAlignment="Center"/>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                    </StackPanel>
+                                  </Border>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </ScrollViewer>
+                        </Grid>
+
                         </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -3523,6 +3599,138 @@
                                   <Button Grid.Column="2" Content="Apply (Ctrl+A)" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnApplyReportSortFilterClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Alt+C "Add Comparison Column" panel (RQ-4 comparative/columnar reports) -->
+                    <ContentControl IsVisible="{Binding AddComparisonColumn, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AddComparisonColumn}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AddComparisonColumnViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="300">
+
+                                <TextBlock Text="Add one comparison column" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Label" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Label, Mode=TwoWay}"
+                                           PlaceholderText="(blank = from period / scenario)"/>
+                                </Grid>
+
+                                <!-- Period window -->
+                                <CheckBox Content="Use an explicit period [From, To] (unchecked = as-at / whole books)"
+                                          IsChecked="{Binding UsePeriod, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding UsePeriod}">
+                                  <TextBlock Grid.Column="0" Text="From" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding UsePeriod}">
+                                  <TextBlock Grid.Column="0" Text="To" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding PeriodToText, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+
+                                <!-- Scenario -->
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Scenario" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Scenarios}"
+                                            SelectedItem="{Binding SelectedScenario, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ScenarioOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Single Column" Padding="14,6" Margin="0,0,8,0"
+                                          Click="OnClearComparativeClick"/>
+                                  <Button Grid.Column="2" Content="Add (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyAddComparisonColumnClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Alt+N "Auto Columns" chooser (RQ-4 comparative axis: by month / by scenario) -->
+                    <ContentControl IsVisible="{Binding AutoColumns, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AutoColumns}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AutoColumnsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="300">
+
+                                <TextBlock Text="Generate columns across an axis" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+
+                                <RadioButton GroupName="AutoColumnAxis"
+                                             Content="By month (one column per calendar month of the period)"
+                                             IsChecked="{Binding ByMonth, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="AutoColumnAxis"
+                                             Content="By scenario (one column per defined scenario)"
+                                             IsChecked="{Binding ByScenario, Mode=TwoWay}"
+                                             IsEnabled="{Binding HasScenarios}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="No scenarios are defined for this company."
+                                           IsVisible="{Binding !HasScenarios}"
+                                           FontSize="11" Foreground="#8A8A8A" Margin="24,0,0,0"/>
+
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Single Column" Padding="14,6" Margin="0,0,8,0"
+                                          Click="OnClearComparativeClick"/>
+                                  <Button Grid.Column="2" Content="Generate (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyAutoColumnsClick"/>
                                 </Grid>
                               </StackPanel>
                             </Border>

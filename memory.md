@@ -551,16 +551,25 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **650 passed / 0 failed** (Ledger 375 · Sqlite 46 · Desktop 229). Schema v13 unchanged. Robert & Bright green.
 - **Next:** Phase 5 slice 3 — comparative/columnar (Alt+C add column, Alt+N auto-columns across periods & scenarios) (RQ-4).
 
+### Phase 5 slice 3 — Comparative/columnar reports (RQ-4) ✅ (2026-07-05)
+- **Delivered RQ-4:** Alt+C add a comparison column (period and/or scenario) + Alt+N auto-columns (By month over the current period, or By scenario) for Trial Balance, Balance Sheet, P&L, Stock Summary. Engine: new `ComparativeReport` (composes the existing single-column builders per `ColumnSpec`; merges rows by stable key aligned to column order — a null cell = key absent, distinct from a real zero; per-column totals; `MonthlyColumns` clamps partial months; `ScenarioColumns` prepends "Actual"). UI: `AddComparisonColumnViewModel` + `AutoColumnsViewModel` panels (cascade Miller-column), multi-column grid reusing the GST-report horizontal-scroll pattern (header offset OneWay-synced to the body scroller), "Single Column" reset. Zero-extra-column path leaves the single-column report untouched.
+- **Render-check PASS** (headless Skia, base + 12 monthly columns): columns render side by side with h-scroll, header scrolls in lockstep with data, aligned rows, no overlap, zero "Tally".
+- **Adversarial review (A10, 4 lenses): fidelity + de-brand PASS.** Found + fixed 3: (HIGH) comparative BASE column used the engine FY-end default as-of instead of the report's actual as-of → dropped vouchers dated after FY-end; (MED) base column dropped the slice-1/F12 options (Detailed/HideZero/%/ClosingStock basis); (MED) header ScrollViewer "Auto" duplicated/fought the body scrollbar. Fix: `ColumnSpec` now carries the report's full `ReportOptions` (`OptionsFor` threads as-of + flags + ClosingStock); `BaseColumnSpec` passes `_options`; added/auto columns inherit display flags; header ScrollViewer → "Hidden". Each locked with a regression test (incl. the Rent-after-FY-end repro). A stray implementer scratch file was caught & removed during review.
+- **Recorded (won't-fix, catalog-unspecified):** Alt+N monthly keeps the base column alongside the month columns (defensible); Tally's other Alt+N axes (Company/Currency/Quarter/Stock Item) are out of this slice's scope.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **686 passed / 0 failed** (Ledger 385 · Sqlite 46 · Desktop 255). Schema v13 unchanged. Robert & Bright green.
+- **Next:** Phase 5 slice 4 — new report families part 1: Cash Flow, Funds Flow, Ratio Analysis (RQ-5); slice 5 = Exception reports.
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 1)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v13, 650 tests green** (Ledger 375 · Sqlite 46 · Desktop 229), de-branded, working
+  SINGLE live workspace now), **schema v13, 686 tests green** (Ledger 385 · Sqlite 46 · Desktop 255), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
-  COMPLETE** and ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 3** — comparative/columnar (Alt+C add column, Alt+N auto-columns across periods & scenarios)
-  (RQ-4); then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
+  COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE** and ✅ **Phase 5 slice 3 (comparative/columnar —
+  RQ-4) COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 4** — new report families part 1: Cash Flow, Funds Flow, Ratio Analysis (RQ-5); then slice 5 =
+  Exception reports; then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

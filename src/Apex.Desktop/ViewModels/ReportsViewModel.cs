@@ -96,6 +96,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// inventory nor GST (TB / BS / P&amp;L / Day Book).</summary>
     public bool IsAccountingReport => !IsInventoryReport && !IsGstReport;
 
+    // The three single-column grids hide when the comparative (RQ-4) multi-column grid is showing; these
+    // composite flags keep the XAML visibility bindings simple (a plain flag rather than an "A && !B" expression).
+
+    /// <summary>Show the single-column accounting grid — an accounting report NOT currently in comparative mode.</summary>
+    public bool ShowSingleAccountingGrid => IsAccountingReport && !IsComparative;
+
+    /// <summary>Show the single-column inventory grids — an inventory report NOT currently in comparative mode.</summary>
+    public bool ShowSingleInventoryGrid => IsInventoryReport && !IsComparative;
+
+    /// <summary>Show the GST grids — a GST report (GST reports are never comparative).</summary>
+    public bool ShowGstGrid => IsGstReport;
+
     public bool IsStockSummary => Kind == ReportKind.StockSummary;
     public bool IsGodownSummary => Kind == ReportKind.GodownSummary;
     public bool IsStockMovement => Kind == ReportKind.StockItemMovement;
@@ -129,6 +141,42 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>The chosen scenario option; changing it rebuilds the current report under that scenario.</summary>
     [ObservableProperty] private ScenarioOption? _selectedScenario;
+
+    // =============================================================== RQ-4 comparative / columnar report
+
+    /// <summary>
+    /// The extra comparison-column specs added on top of the report's own base column (RQ-4). Empty in the
+    /// normal single-column state; each entry is one added period/scenario column (Alt+C) or one member of an
+    /// auto-generated axis (Alt+N by month / by scenario). When non-empty the report renders as a horizontal
+    /// multi-column comparative grid via <see cref="ComparativeColumns"/> + <see cref="ComparativeRows"/>.
+    /// </summary>
+    private readonly List<ComparativeReport.ColumnSpec> _extraColumns = new();
+
+    /// <summary>The built comparative columns (header + per-column total text), aligned left→right; empty in
+    /// single-column mode. The base column is always first, then the added/auto columns.</summary>
+    public ObservableCollection<ComparativeColumnVM> ComparativeColumns { get; } = new();
+
+    /// <summary>The built comparative rows (line label + one formatted value cell per column), aligned to
+    /// <see cref="ComparativeColumns"/>; empty in single-column mode. A blank cell = the key is absent there.</summary>
+    public ObservableCollection<ComparativeRowVM> ComparativeRows { get; } = new();
+
+    /// <summary>True once at least one extra column has been added — the report renders as the comparative
+    /// multi-column grid instead of the plain single-column grid. Clearing all extra columns flips it back.</summary>
+    public bool IsComparative => _extraColumns.Count > 0;
+
+    /// <summary>True for the report kinds that can be shown comparatively (TB / BS / P&amp;L / Stock Summary) —
+    /// the four families the engine <see cref="ComparativeReport"/> composes. Alt+C / Alt+N are inert elsewhere.</summary>
+    public bool SupportsComparative => ComparativeKind is not null;
+
+    /// <summary>The engine comparative kind for the current report, or null when this kind is not comparative.</summary>
+    private ComparativeReportKind? ComparativeKind => Kind switch
+    {
+        ReportKind.TrialBalance => ComparativeReportKind.TrialBalance,
+        ReportKind.BalanceSheet => ComparativeReportKind.BalanceSheet,
+        ReportKind.ProfitAndLoss => ComparativeReportKind.ProfitAndLoss,
+        ReportKind.StockSummary => ComparativeReportKind.StockSummary,
+        _ => null,
+    };
 
     /// <summary>True when this report kind can be viewed under a scenario (TB / P&amp;L / Balance Sheet).</summary>
     public bool SupportsScenario => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet or ReportKind.ProfitAndLoss;
@@ -291,6 +339,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsTaxAnalysis));
         OnPropertyChanged(nameof(IsGstr1));
         OnPropertyChanged(nameof(IsGstr3b));
+        OnPropertyChanged(nameof(SupportsComparative));
+        OnPropertyChanged(nameof(ShowGstGrid));
+        // A kind change can invalidate the extra columns (e.g. switching to a non-comparative kind); the base
+        // report always rebuilds below and, if comparative, the multi-column grid rebuilds after it.
         Rows.Clear();
 
         switch (kind)
@@ -314,7 +366,178 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.Gstr1: BuildGstr1(); break;
             case ReportKind.Gstr3b: BuildGstr3b(); break;
         }
+
+        // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
+        // extra columns are present. This composes the engine ComparativeReport over [base spec, …extras]; the
+        // plain Rows above stay intact so a switch back to single column is instant and byte-for-byte the same.
+        RebuildComparative();
     }
+
+    // =============================================================== RQ-4 comparative build / mutate
+
+    /// <summary>
+    /// The base column spec for the comparative report — the report's OWN current period/scenario, so the
+    /// first comparative column always equals the plain single-column report the user is looking at.
+    /// </summary>
+    private ComparativeReport.ColumnSpec BaseColumnSpec()
+    {
+        var label = _options.Period is { } p
+            ? $"{FormatDate(p.From)}–{FormatDate(p.To)}"
+            : $"as at {FormatDate(_asOf)}";
+        if (CurrentScenario is { } s) label += $" · {s.Name}";
+        // Carry the report's OWN full options (as-of, Detailed/HideZero/%/ClosingStock, period, scenario) so the base
+        // column reproduces the exact single-column report. Period/Scenario ride inside Options; leaving the spec's
+        // own Period/Scenario null means OptionsFor starts from _options verbatim rather than the FY-end fallback.
+        return new ComparativeReport.ColumnSpec(label, Period: null, Scenario: null, Options: _options);
+    }
+
+    /// <summary>
+    /// Rebuilds <see cref="ComparativeColumns"/> + <see cref="ComparativeRows"/> from the base column spec plus
+    /// the added extra columns. A no-op (clears both collections) when there are no extras or the current kind is
+    /// not comparative, so the report stays single-column. Signed engine values are formatted per kind here.
+    /// </summary>
+    private void RebuildComparative()
+    {
+        ComparativeColumns.Clear();
+        ComparativeRows.Clear();
+        NotifyComparativeVisibility();
+
+        if (_extraColumns.Count == 0 || ComparativeKind is not { } kind) return;
+
+        var specs = new List<ComparativeReport.ColumnSpec> { BaseColumnSpec() };
+        specs.AddRange(_extraColumns);
+
+        var comparative = ComparativeReport.Build(_company, kind, specs);
+
+        foreach (var c in comparative.Columns)
+            ComparativeColumns.Add(new ComparativeColumnVM(c.Label, ColumnTotalText(kind, c)));
+
+        foreach (var row in comparative.Rows)
+        {
+            var cells = new List<string>(row.Values.Count);
+            foreach (var v in row.Values)
+                cells.Add(v is { } m ? FormatSignedByKind(kind, m) : string.Empty);
+            ComparativeRows.Add(new ComparativeRowVM(row.Label, row.GroupName, cells));
+        }
+
+        NotifyComparativeVisibility();
+    }
+
+    /// <summary>Notifies the comparative-mode flags so the view swaps between the single-column and multi-column grids.</summary>
+    private void NotifyComparativeVisibility()
+    {
+        OnPropertyChanged(nameof(IsComparative));
+        OnPropertyChanged(nameof(ShowSingleAccountingGrid));
+        OnPropertyChanged(nameof(ShowSingleInventoryGrid));
+    }
+
+    /// <summary>The per-column total text appropriate to the kind (TB: Dr/Cr; BS: Liab/Assets; P&amp;L: net;
+    /// Stock: closing value). Shown under each column header as a bold total line.</summary>
+    private static string ColumnTotalText(ComparativeReportKind kind, ComparativeReport.Column c) => kind switch
+    {
+        ComparativeReportKind.TrialBalance =>
+            $"Dr {IndianFormat.AmountAlways(c.TotalDebit)} · Cr {IndianFormat.AmountAlways(c.TotalCredit)}",
+        ComparativeReportKind.BalanceSheet =>
+            $"Liab {IndianFormat.AmountAlways(c.TotalLiabilities)} · Assets {IndianFormat.AmountAlways(c.TotalAssets)}",
+        ComparativeReportKind.ProfitAndLoss =>
+            (c.NetProfit.Amount >= 0m ? "Net Profit " : "Net Loss ")
+                + IndianFormat.AmountAlways(new Money(Math.Abs(c.NetProfit.Amount))),
+        ComparativeReportKind.StockSummary =>
+            IndianFormat.AmountAlways(c.StockClosingValue),
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// Formats a SIGNED engine value for a comparative cell. The sign carries the side (TB +Dr/−Cr, P&amp;L
+    /// +income/−expense, BS +liability/−asset, Stock = closing value ≥ 0). The magnitude is shown Indian-style;
+    /// a Dr/Cr suffix is appended for the balance kinds so the side reads without a separate column.
+    /// </summary>
+    private static string FormatSignedByKind(ComparativeReportKind kind, Money value)
+    {
+        var magnitude = IndianFormat.Amount(new Money(Math.Abs(value.Amount)));
+        return kind switch
+        {
+            ComparativeReportKind.TrialBalance => value.Amount >= 0m ? $"{magnitude} Dr" : $"{magnitude} Cr",
+            ComparativeReportKind.BalanceSheet => magnitude, // side implied by the row's group; keep it clean
+            ComparativeReportKind.ProfitAndLoss => magnitude,
+            _ => magnitude,
+        };
+    }
+
+    /// <summary>
+    /// Alt+C — appends one comparison column (a period window and/or a scenario with a display label) and
+    /// re-renders the report as a multi-column comparative grid. A no-op on a non-comparative report kind or on
+    /// an inverted period window (rejected, matching the single-column period-set behaviour). Returns whether the
+    /// column was actually added, so the panel can surface a validation failure instead of a false success.
+    /// </summary>
+    public bool AddComparisonColumn(string label, PeriodRange? period, Scenario? scenario)
+    {
+        if (!SupportsComparative) return false;
+        if (period is { } p && !p.IsValid) return false; // reject an inverted window
+
+        var text = string.IsNullOrWhiteSpace(label) ? DefaultColumnLabel(period, scenario) : label.Trim();
+        // Carry the report's OWN display options (Detailed/HideZero/%/ClosingStock) so every column renders
+        // consistently with the base; the spec's own period/scenario are overlaid on top of them by the engine.
+        _extraColumns.Add(new ComparativeReport.ColumnSpec(text, period, scenario, Options: _options));
+        RebuildComparative();
+        return true;
+    }
+
+    /// <summary>A sensible default label for an added column when the user leaves the label blank.</summary>
+    private string DefaultColumnLabel(PeriodRange? period, Scenario? scenario)
+    {
+        var label = period is { } p ? $"{FormatDate(p.From)}–{FormatDate(p.To)}" : $"as at {FormatDate(_asOf)}";
+        if (scenario is { } s) label += $" · {s.Name}";
+        return label;
+    }
+
+    /// <summary>
+    /// Alt+N (by month) — replaces the extra columns with one column per calendar month across the current
+    /// period (or books-begin → as-of when no explicit period is set). The base column stays first, so the
+    /// months read alongside the whole-period base. A no-op on a non-comparative kind.
+    /// </summary>
+    public bool AutoColumnsByMonth()
+    {
+        if (!SupportsComparative) return false;
+        var period = _options.Period ?? new PeriodRange(_company.BooksBeginFrom, _asOf);
+        _extraColumns.Clear();
+        // Inherit the report's display flags on every monthly column (each month overlays its own period).
+        foreach (var spec in ComparativeReport.MonthlyColumns(period))
+            _extraColumns.Add(spec with { Options = _options });
+        RebuildComparative();
+        return true;
+    }
+
+    /// <summary>
+    /// Alt+N (by scenario) — replaces the extra columns with one column per scenario defined on the company,
+    /// over the current period/as-of window. Returns false (and adds nothing) when the company has no scenarios,
+    /// so the panel can report that there is nothing to compare. A no-op on a non-comparative kind.
+    /// </summary>
+    public bool AutoColumnsByScenario()
+    {
+        if (!SupportsComparative) return false;
+        if (_company.Scenarios.Count == 0) return false;
+
+        var period = _options.Period ?? new PeriodRange(_company.BooksBeginFrom, _asOf);
+        _extraColumns.Clear();
+        // The base column already carries the actual books, so generate the scenario columns WITHOUT the engine's
+        // leading "Actual" column (it would duplicate the base). One extra column per scenario. Inherit the
+        // report's display flags on each (each column overlays its own period + scenario).
+        foreach (var spec in ComparativeReport.ScenarioColumns(_company, period, includeActualColumn: false))
+            _extraColumns.Add(spec with { Options = _options });
+        RebuildComparative();
+        return true;
+    }
+
+    /// <summary>Clears every extra column, returning the report to its plain single-column view (Alt+C/Alt+N reset).</summary>
+    public void ClearComparative()
+    {
+        _extraColumns.Clear();
+        RebuildComparative();
+    }
+
+    /// <summary>The number of extra (non-base) comparison columns currently added — for the shell/tests.</summary>
+    public int ExtraColumnCount => _extraColumns.Count;
 
     /// <summary>
     /// Drills a Stock-Summary item row into that item's Stock Item Movement report — the keyboard-first
@@ -1117,4 +1340,41 @@ public sealed class ScenarioOption
 
     /// <summary>The shared "actual books" option (a null scenario).</summary>
     public static ScenarioOption Actual { get; } = new((Scenario?)null);
+}
+
+/// <summary>
+/// One header of a comparative (RQ-4) report grid: the column's display <see cref="Label"/> (its period and/or
+/// scenario) plus a pre-formatted <see cref="TotalText"/> total line for that column. Presentation-only.
+/// </summary>
+public sealed class ComparativeColumnVM
+{
+    public string Label { get; }
+    public string TotalText { get; }
+
+    public ComparativeColumnVM(string label, string totalText)
+    {
+        Label = label;
+        TotalText = totalText;
+    }
+}
+
+/// <summary>
+/// One row of a comparative (RQ-4) report grid: the line's display <see cref="Label"/> (ledger / group / item),
+/// its optional <see cref="GroupName"/>, and one pre-formatted value <see cref="Cells"/> string per column
+/// (aligned to the grid's columns; a blank string marks a column where the key is absent). Presentation-only.
+/// </summary>
+public sealed class ComparativeRowVM
+{
+    public string Label { get; }
+    public string? GroupName { get; }
+
+    /// <summary>The formatted value cells, left→right, aligned to <see cref="ReportsViewModel.ComparativeColumns"/>.</summary>
+    public System.Collections.Generic.IReadOnlyList<string> Cells { get; }
+
+    public ComparativeRowVM(string label, string? groupName, System.Collections.Generic.IReadOnlyList<string> cells)
+    {
+        Label = label;
+        GroupName = groupName;
+        Cells = cells;
+    }
 }

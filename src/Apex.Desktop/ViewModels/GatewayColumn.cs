@@ -117,6 +117,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Alt+F12 report Sort/Filter panel (non-null only for the sort/filter column).</summary>
     public ReportSortFilterViewModel? ReportSortFilter => Page as ReportSortFilterViewModel;
 
+    /// <summary>The hosted Alt+C "Add Comparison Column" panel (non-null only for that RQ-4 column).</summary>
+    public AddComparisonColumnViewModel? AddComparisonColumn => Page as AddComparisonColumnViewModel;
+
+    /// <summary>The hosted Alt+N "Auto Columns" chooser (non-null only for that RQ-4 column).</summary>
+    public AutoColumnsViewModel? AutoColumns => Page as AutoColumnsViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

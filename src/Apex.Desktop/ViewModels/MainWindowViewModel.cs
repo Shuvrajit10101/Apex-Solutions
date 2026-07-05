@@ -17,6 +17,8 @@ public enum Screen
     Report,
     ReportConfig,
     ReportSortFilter,
+    AddComparisonColumn,
+    AutoColumns,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -181,6 +183,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
     [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
 
+    /// <summary>The Alt+C "Add Comparison Column" panel view model, non-null only while that panel column is open (RQ-4).</summary>
+    [ObservableProperty] private AddComparisonColumnViewModel? _addComparisonColumn;
+
+    /// <summary>The Alt+N "Auto Columns" chooser view model, non-null only while that panel column is open (RQ-4).</summary>
+    [ObservableProperty] private AutoColumnsViewModel? _autoColumns;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -194,7 +202,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
-        && ReportSortFilter is null;
+        && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -221,6 +229,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -865,6 +875,77 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Alt+F1 on a report — toggles detailed↔summary in place (RQ-2). A no-op on reports that do not roll up.</summary>
     public void ReportToggleDetailed() => Reports?.ToggleDetailed();
 
+    // =============================================================== screen: comparative columns (Alt+C / Alt+N)
+
+    /// <summary>
+    /// Alt+C — opens the "Add Comparison Column" panel (RQ-4) as its own cascading column to the RIGHT of the open
+    /// report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live beneath the
+    /// panel so applying appends a comparison column and re-renders the report in place. A no-op unless a
+    /// comparative-capable report is open; re-pressing Alt+C while the panel is open is a no-op.
+    /// </summary>
+    public void OpenAddComparisonColumn()
+    {
+        if (Reports is null || !Reports.SupportsComparative) return; // only over a comparative-capable report
+        if (AddComparisonColumn is not null) return;                 // panel already open — don't stack a second
+        CloseComparativePanelsExcept(null);                          // the two panels are mutually exclusive
+
+        var panel = new AddComparisonColumnViewModel(Reports);
+        AddComparisonColumn = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AddComparisonColumn;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Add button on the Alt+C panel: append the comparison column and re-render.</summary>
+    public void ApplyAddComparisonColumn() => AddComparisonColumn?.Apply();
+
+    /// <summary>
+    /// Alt+N — opens the "Auto Columns" chooser (RQ-4) as its own cascading column to the RIGHT of the open
+    /// report, never a stacked overlay, mirroring <see cref="OpenAddComparisonColumn"/>. Applying generates the
+    /// chosen axis (by month / by scenario) on the live report. A no-op unless a comparative-capable report is
+    /// open; re-pressing Alt+N while the panel is open is a no-op.
+    /// </summary>
+    public void OpenAutoColumns()
+    {
+        if (Reports is null || !Reports.SupportsComparative) return;
+        if (AutoColumns is not null) return;
+        CloseComparativePanelsExcept(null);
+
+        var panel = new AutoColumnsViewModel(Reports);
+        AutoColumns = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AutoColumns;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Generate button on the Alt+N panel: generate the chosen axis and re-render.</summary>
+    public void ApplyAutoColumns() => AutoColumns?.Apply();
+
+    /// <summary>Resets the active report back to a single column (the Clear action on either comparative panel).</summary>
+    public void ClearComparative() => Reports?.ClearComparative();
+
+    /// <summary>
+    /// Pops any open Alt+C / Alt+N comparative panel column so only one panel is ever stacked beside the report.
+    /// The <paramref name="keep"/> argument is reserved for future use; currently both panels are closed.
+    /// </summary>
+    private void CloseComparativePanelsExcept(object? keep)
+    {
+        // Only one comparative panel is ever open at a time (opening the other pops this one). Pop the rightmost
+        // column if it hosts a comparative panel, so switching Alt+C ↔ Alt+N replaces rather than stacks.
+        if (Columns.Count > 0 && Columns[^1].Page is AddComparisonColumnViewModel or AutoColumnsViewModel)
+        {
+            Columns.RemoveAt(Columns.Count - 1);
+            AddComparisonColumn = null;
+            AutoColumns = null;
+        }
+    }
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -1339,6 +1420,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstConfig = null;
         ReportConfig = null;
         ReportSortFilter = null;
+        AddComparisonColumn = null;
+        AutoColumns = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>

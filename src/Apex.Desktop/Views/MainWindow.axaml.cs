@@ -63,6 +63,10 @@ public partial class MainWindow : Window
                 vm.ApplyReportConfig();
             else if (vm.CurrentScreen == Screen.ReportSortFilter)
                 vm.ApplyReportSortFilter();
+            else if (vm.CurrentScreen == Screen.AddComparisonColumn)
+                vm.ApplyAddComparisonColumn();
+            else if (vm.CurrentScreen == Screen.AutoColumns)
+                vm.ApplyAutoColumns();
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -75,6 +79,20 @@ public partial class MainWindow : Window
             vm.CancelVoucher();
             e.Handled = true;
             return;
+        }
+
+        // RQ-4 comparative shortcuts take priority while a report is the active page: Alt+C opens the "Add
+        // Comparison Column" panel, Alt+N opens the "Auto Columns" chooser. Checked BEFORE the global Alt+C
+        // (Create Ledger) so on a report page Alt+C compares columns rather than creating a ledger. Only fires
+        // on a comparative-capable report (TB / BS / P&L / Stock Summary); otherwise it falls through.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsReportContext && vm.Reports is { SupportsComparative: true })
+        {
+            switch (e.Key)
+            {
+                case Key.C: vm.OpenAddComparisonColumn(); e.Handled = true; return;
+                case Key.N: vm.OpenAutoColumns(); e.Handled = true; return;
+            }
         }
 
         // Alt+C opens the Ledger-creation master whenever a company is open.
@@ -342,6 +360,15 @@ public partial class MainWindow : Window
 
     private void OnClearReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ClearReportSortFilter();
+
+    private void OnApplyAddComparisonColumnClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyAddComparisonColumn();
+
+    private void OnApplyAutoColumnsClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyAutoColumns();
+
+    private void OnClearComparativeClick(object? sender, RoutedEventArgs e)
+        => Vm?.ClearComparative();
 
     private void OnUnitSimpleClick(object? sender, RoutedEventArgs e)
     {
