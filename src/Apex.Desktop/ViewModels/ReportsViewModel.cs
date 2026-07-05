@@ -58,6 +58,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// </summary>
     private ReportOptions _options;
 
+    /// <summary>
+    /// The Phase-5 slice-2 report VIEW (RQ-3 sort &amp; filter). It is a pure view carried alongside the
+    /// already-built rows: sort re-orders the row-bearing sections and filter hides out-of-range/name-mismatched
+    /// rows, but neither adds, drops, nor recomputes any figure and it never touches a report's Grand Total
+    /// (which is computed by the engine <c>Build</c> over the FULL set, then rendered untouched). It starts at
+    /// <see cref="ReportSortFilter.None"/>, so an untouched report is byte-for-byte the pre-slice output.
+    /// </summary>
+    private ReportSortFilter _sortFilter = ReportSortFilter.None;
+
     /// <summary>The effective as-of upper bound for the current report — the chosen period end, or the default.</summary>
     private DateOnly _asOf => _options.Period?.To ?? _options.AsOfDate;
 
@@ -170,9 +179,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Closing-stock valuation basis for P&amp;L / Balance Sheet (RQ-6 F12).</summary>
     public ClosingStockMode ClosingStock => _options.ClosingStock;
 
+    /// <summary>The active sort/filter VIEW (RQ-3 Alt+F12). <see cref="ReportSortFilter.None"/> = the default view.</summary>
+    public ReportSortFilter SortFilter => _sortFilter;
+
     /// <summary>True for the reports RQ-2 detailed↔summary applies to (TB / BS / P&amp;L / Stock Summary).</summary>
     public bool SupportsDetailToggle => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
+
+    /// <summary>True for the reports the RQ-3 sort/filter VIEW acts on (the row-bearing accounting + Stock
+    /// Summary reports). On any other report kind the Alt+F12 view is inert (rows pass through unchanged).</summary>
+    public bool SupportsSortFilter => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.DayBook;
 
     /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
     public void SetAsOf(DateOnly asOf)
@@ -221,6 +238,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
         NotifyParameterChanged();
         Show(Kind);
     }
+
+    /// <summary>
+    /// Alt+F12 — apply the RQ-3 sort/filter VIEW and re-project. The view is applied to the row-bearing
+    /// sections after they are built; the figures and the Grand Total stay engine-computed over the full set.
+    /// </summary>
+    public void ApplySortFilter(ReportSortFilter view)
+    {
+        _sortFilter = view ?? ReportSortFilter.None;
+        OnPropertyChanged(nameof(SortFilter));
+        Show(Kind);
+    }
+
+    /// <summary>Clears the sort/filter VIEW back to the identity (Alt+F12 Clear) and re-projects.</summary>
+    public void ClearSortFilter() => ApplySortFilter(ReportSortFilter.None);
 
     /// <summary>Notifies the parameter read-props so a bound status/header line refreshes after a change.</summary>
     private void NotifyParameterChanged()
@@ -336,9 +367,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
         if (_options.Detailed)
         {
             // RQ-6: hide exact-zero rows (net Dr − Cr == 0). RQ-6: percentage of the Dr column total.
-            var shown = _options.HideZeroBalances
+            var kept = _options.HideZeroBalances
                 ? ReportConfig.HideZeroBalances(detailRows, r => Net(r.Debit, r.Credit))
                 : (IReadOnlyList<TrialBalanceRow>)detailRows;
+
+            // RQ-3: the sort/filter VIEW re-orders/hides these ledger rows (magnitude = |Dr − Cr|). Percentages
+            // are computed over what the view keeps, so a filtered view's shares still sum to 100%.
+            var shown = _sortFilter.Apply(kept, r => r.LedgerName, r => Magnitude(r.Debit, r.Credit));
 
             var pct = _options.ShowPercentages
                 ? ReportConfig.Percentages(shown, r => Magnitude(r.Debit, r.Credit))
@@ -358,7 +393,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             // legacy detailed TB suppresses zero rows, so the summary roll-up suppresses net-zero groups too,
             // regardless of the RQ-6 hide-zero flag (Grand Total is unaffected; it stays balanced).
             var groups = ReportGrouping.RollUp(detailRows, r => r.GroupName, r => Net(r.Debit, r.Credit));
-            var shown = ReportConfig.HideZeroBalances(groups, g => g.Amount);
+            var kept = ReportConfig.HideZeroBalances(groups, g => g.Amount);
+            // RQ-3: the view re-orders/hides the group rows too (magnitude = |net|).
+            var shown = _sortFilter.Apply(kept, g => g.Key, g => new Money(Math.Abs(g.Amount.Amount)));
             foreach (var g in shown)
             {
                 var (dr, cr) = SplitSigned(g.Amount);
@@ -396,7 +433,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         if (_options.Detailed)
         {
             // Legacy view hides the exact-zero lines; RQ-6 hide-zero is therefore already the default here.
-            var shown = all.Where(l => l.Amount != Money.Zero).ToList();
+            var kept = all.Where(l => l.Amount != Money.Zero).ToList();
+            // RQ-3: the sort/filter VIEW acts within this side, so the group structure (Liabilities vs Assets)
+            // is preserved. Percentages are computed over the kept rows.
+            var shown = _sortFilter.Apply(kept, l => l.Name, l => l.Amount);
             var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, l => l.Amount) : null;
             for (var i = 0; i < shown.Count; i++)
             {
@@ -408,9 +448,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             // RQ-2: roll each side up to one row per group.
             var groups = ReportGrouping.RollUp(all, l => l.GroupName, l => l.Amount);
-            var shown = _options.HideZeroBalances
+            var kept = _options.HideZeroBalances
                 ? ReportConfig.HideZeroBalances(groups, g => g.Amount)
                 : groups.Where(g => g.Amount != Money.Zero).ToList();
+            // RQ-3: view within the side (magnitude = |group amount|).
+            var shown = _sortFilter.Apply(kept, g => g.Key, g => new Money(Math.Abs(g.Amount.Amount)));
             var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, g => g.Amount) : null;
             for (var i = 0; i < shown.Count; i++)
             {
@@ -463,6 +505,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         if (_options.HideZeroBalances)
             shown = ReportConfig.HideZeroBalances(shown, l => l.Amount);
 
+        // RQ-3: the sort/filter VIEW acts within this side (Income vs Expenses), preserving the two-section
+        // structure. Magnitude = |amount|.
+        shown = _sortFilter.Apply(shown, l => l.Name, l => new Money(Math.Abs(l.Amount.Amount)));
+
         var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, l => l.Amount) : null;
         for (var i = 0; i < shown.Count; i++)
         {
@@ -491,27 +537,50 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         // RQ-1: the Day Book already filters [from,to]; feed the chosen period (else books-begin → as-of).
         var from = _options.Period?.From ?? _company.BooksBeginFrom;
-        var rows = DayBook.Build(_company, from, _asOf);
+        var built = DayBook.Build(_company, from, _asOf);
         Title = "Day Book";
         Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
         IsTwoColumn = false;
 
+        // RQ-3: the sort/filter VIEW acts on the Day Book entries. The Name filter/sort must match the SAME text
+        // the row RENDERS as its particulars ("{VoucherTypeName} No. {Number}") — matching a hidden internal
+        // string would hide rows whose visible text matches (e.g. "No.") and match text that is never shown. We
+        // also fold in the party/particulars so a party-name filter still works. Magnitude = the voucher amount;
+        // cancelled rows carry Money.Zero so a positive range filter naturally excludes them; the default view
+        // leaves the date-ordered list untouched.
+        var rows = _sortFilter.Apply(
+            built,
+            r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
+            r => new Money(Math.Abs(r.Amount.Amount)));
+
         foreach (var r in rows)
         {
-            var particulars = $"{r.VoucherTypeName} No. {r.Number}";
             var secondary = r.PartyOrParticulars ?? string.Empty;
             var amt = IndianFormat.Amount(r.Amount);
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  {particulars}",
+                Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",
                 Secondary = r.IsCancelled ? "(Cancelled) " + secondary : secondary,
                 Amount = amt,
             });
         }
 
+        // Distinguish a genuinely empty period from a period whose vouchers were all removed by the current
+        // filter view: pre-filter count 0 → the period is empty; pre-filter > 0 with post-filter 0 → the filter
+        // emptied it (a different, accurate message).
         if (rows.Count == 0)
-            Rows.Add(new ReportRow { Particulars = "No vouchers in this period.", IsHeader = true });
+            Rows.Add(new ReportRow
+            {
+                Particulars = built.Count == 0
+                    ? "No vouchers in this period."
+                    : "No rows match the current filter.",
+                IsHeader = true,
+            });
     }
+
+    /// <summary>The particulars text a Day Book row renders (voucher type + number) — the SAME string used for
+    /// the RQ-3 name filter/sort so a filter on visible text matches what the user actually sees.</summary>
+    private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.Number}";
 
     // =============================================================== inventory reports (slice 3.4b)
 
@@ -532,9 +601,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         if (_options.Detailed)
         {
             // RQ-6: hide exact-zero closing-value rows; percentages of the total closing value.
-            var shown = _options.HideZeroBalances
+            var kept = _options.HideZeroBalances
                 ? ReportConfig.HideZeroBalances(ss.Rows, r => r.ClosingValue)
                 : (IReadOnlyList<StockSummaryRow>)ss.Rows;
+            // RQ-3: the sort/filter VIEW re-orders/hides the item rows (magnitude = closing value).
+            var shown = _sortFilter.Apply(kept, r => r.ItemName, r => r.ClosingValue);
             var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, r => r.ClosingValue) : null;
 
             for (var i = 0; i < shown.Count; i++)
@@ -561,9 +632,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             // RQ-2: roll up to one row per stock group by closing value (Σ == the detailed total).
             var groups = ReportGrouping.RollUp(ss.Rows, r => r.GroupName, r => r.ClosingValue);
-            var shown = _options.HideZeroBalances
+            var kept = _options.HideZeroBalances
                 ? ReportConfig.HideZeroBalances(groups, g => g.Amount)
                 : groups;
+            // RQ-3: view the group rows (magnitude = |group closing value|).
+            var shown = _sortFilter.Apply(kept, g => g.Key, g => new Money(Math.Abs(g.Amount.Amount)));
             var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, g => g.Amount) : null;
             for (var i = 0; i < shown.Count; i++)
             {

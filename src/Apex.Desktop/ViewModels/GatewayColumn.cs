@@ -114,6 +114,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted F12 report-Configuration panel (non-null only for the report-config column).</summary>
     public ReportConfigViewModel? ReportConfig => Page as ReportConfigViewModel;
 
+    /// <summary>The hosted Alt+F12 report Sort/Filter panel (non-null only for the sort/filter column).</summary>
+    public ReportSortFilterViewModel? ReportSortFilter => Page as ReportSortFilterViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

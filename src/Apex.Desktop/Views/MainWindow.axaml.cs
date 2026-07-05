@@ -61,6 +61,8 @@ public partial class MainWindow : Window
         {
             if (vm.CurrentScreen == Screen.ReportConfig)
                 vm.ApplyReportConfig();
+            else if (vm.CurrentScreen == Screen.ReportSortFilter)
+                vm.ApplyReportSortFilter();
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -147,6 +149,9 @@ public partial class MainWindow : Window
                 {
                     case Key.F1: vm.ReportToggleDetailed(); e.Handled = true; return;
                     case Key.F2: vm.ReportSetPeriod(); e.Handled = true; return;
+                    // Alt+F12 opens the RQ-3 Sort/Filter panel. Placed with the report shortcuts and before
+                    // the inventory Alt+F block so it never collides with the inventory voucher hotkeys.
+                    case Key.F12: vm.OpenReportSortFilter(); e.Handled = true; return;
                 }
             }
 
@@ -331,6 +336,12 @@ public partial class MainWindow : Window
 
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();
+
+    private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyReportSortFilter();
+
+    private void OnClearReportSortFilterClick(object? sender, RoutedEventArgs e)
+        => Vm?.ClearReportSortFilter();
 
     private void OnUnitSimpleClick(object? sender, RoutedEventArgs e)
     {

@@ -542,16 +542,25 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** `dotnet build -c Release` 0/0; `dotnet test -c Release` = **614 passed / 0 failed** (Ledger 356 · Sqlite 46 · Desktop 212). Robert & Bright green. No schema change (still v13).
 - **Next:** Phase 5 slice 2 — sort/filter (Alt+F12) + comparative/columnar (Alt+C/Alt+N across periods & scenarios) (RQ-3, RQ-4).
 
+### Phase 5 slice 2 — Report sort & filter (RQ-3) ✅ (2026-07-05)
+- **Delivered RQ-3:** Alt+F12 Sort/Filter panel (cascading Miller-column column) — sort by Name (ordinal, case-insensitive) or Amount (magnitude), asc/desc, stable; value-range filter [min,max] (either bound optional) + name-substring filter. Engine: new `ReportSortFilter` (immutable; `Apply<T>` = filter-then-sort; identity = source unchanged) + `ReportConfig.SortRows`/`FilterRows`. UI: `ReportSortFilterViewModel` + panel mirroring the slice-1 F12 pattern; validates bounds (rejects unparseable/negative/inverted; no false "Applied"). Applied to TB/BS/P&L/Stock Summary/Day Book row sections AFTER build+hide-zero; **filter is a VIEW — Grand Totals stay engine-computed over the FULL set** (a filtered view may not itself balance, by design).
+- **Outage note:** an API ConnectionRefused outage killed the original workflow's render+review stages (the build stages had already completed and their edits persisted). Recovered by re-running a review-only workflow after re-gating. Lesson: verify the tree and re-run only the missing stages.
+- **Render-check PASS** (headless Skia): panel is a clean column beside the live report; filter/sort visibly applied; Grand Total stays full/balanced; zero "Tally".
+- **Adversarial review (A10, 4 lenses): no critical/high.** Fixed 2 confirmed LOW Day Book UX defects (+3 regression tests): (a) filter/sort now targets the DISPLAYED particulars ("{type} No. {number}" + party), not a hidden internal string; (b) distinct empty-state — "No rows match the current filter." for a filtered-empty non-empty period vs "No vouchers in this period." for a genuinely empty period.
+- **Recorded decisions (won't-fix, documented):** amount filter uses MAGNITUDE (|amount|), not signed — catalog-silent, defensible as a row-weight view. **Model correction:** `Money.cs` stores EXACT decimal RUPEES in-memory (integer paisa only at the SQLite persistence boundary) — `decimal` is exact, no float; the "integer-paisa via Money.cs" phrasing was aspirational. Use exact decimal-rupees Money; never double/float.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **650 passed / 0 failed** (Ledger 375 · Sqlite 46 · Desktop 229). Schema v13 unchanged. Robert & Bright green.
+- **Next:** Phase 5 slice 3 — comparative/columnar (Alt+C add column, Alt+N auto-columns across periods & scenarios) (RQ-4).
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 1)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v13, 614 tests green** (Ledger 356 · Sqlite 46 · Desktop 212), de-branded, working
+  SINGLE live workspace now), **schema v13, 650 tests green** (Ledger 375 · Sqlite 46 · Desktop 229), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
-  COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 2** — sort/filter (Alt+F12) + comparative/columnar (Alt+C/Alt+N across periods & scenarios)
-  (RQ-3, RQ-4); then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
+  COMPLETE** and ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 3** — comparative/columnar (Alt+C add column, Alt+N auto-columns across periods & scenarios)
+  (RQ-4); then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

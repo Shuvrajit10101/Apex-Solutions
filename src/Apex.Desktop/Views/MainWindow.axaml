@@ -3451,6 +3451,86 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Alt+F12 report Sort/Filter panel (RQ-3 sort & value/range/name filter) -->
+                    <ContentControl IsVisible="{Binding ReportSortFilter, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ReportSortFilter}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ReportSortFilterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="300">
+
+                                <!-- Sort -->
+                                <TextBlock Text="Sort" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="By" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding SortKeys}"
+                                            SelectedItem="{Binding SelectedSortKey, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:SortKeyOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <CheckBox Content="Ascending (unchecked = descending)"
+                                          IsChecked="{Binding Ascending, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Filter: amount range + name -->
+                                <TextBlock Text="Filter" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Min" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding MinText, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="rupees (blank = no lower bound)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Max" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding MaxText, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="rupees (blank = no upper bound)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Name has" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding NameContains, Mode=TwoWay}"
+                                           PlaceholderText="substring (blank = all)"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Clear" Padding="14,6" Margin="0,0,8,0"
+                                          Click="OnClearReportSortFilterClick"/>
+                                  <Button Grid.Column="2" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyReportSortFilterClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Forex Gain/Loss (unrealized revaluation) report -->
                     <ContentControl IsVisible="{Binding ForexReport, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ForexReport}">

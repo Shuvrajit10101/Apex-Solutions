@@ -464,7 +464,287 @@ public sealed class ReportOptionsViewModelTests : IDisposable
         Assert.True(vm.IsReportContext);
     }
 
+    // =============================================================== RQ-3: sort & filter (Alt+F12)
+
+    [Fact]
+    public void Default_report_has_the_identity_sort_filter_view()
+    {
+        var vm = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        Assert.True(vm.SortFilter.IsIdentity);
+        Assert.True(vm.SupportsSortFilter);
+    }
+
+    [Fact]
+    public void ApplySortFilter_sort_by_amount_desc_orders_ledger_rows_by_magnitude()
+    {
+        var vm = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+
+        vm.ApplySortFilter(ReportSortFilter.None.WithSort(ReportSortKey.Amount, ascending: false));
+
+        // The ledger rows (non-header, non-total) must be in non-increasing magnitude order (|Dr − Cr|).
+        var magnitudes = LedgerLineMagnitudes(vm);
+        Assert.NotEmpty(magnitudes);
+        for (var i = 1; i < magnitudes.Count; i++)
+            Assert.True(magnitudes[i - 1] >= magnitudes[i],
+                $"row {i - 1} ({magnitudes[i - 1]}) should be ≥ row {i} ({magnitudes[i]})");
+    }
+
+    [Fact]
+    public void ApplySortFilter_sort_by_name_asc_orders_ledger_rows_alphabetically()
+    {
+        var vm = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+
+        vm.ApplySortFilter(ReportSortFilter.None.WithSort(ReportSortKey.Name, ascending: true));
+
+        var names = vm.Rows.Where(r => !r.IsTotal && !r.IsHeader).Select(r => r.Particulars).ToList();
+        var sorted = names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        Assert.Equal(sorted, names);
+    }
+
+    [Fact]
+    public void ApplySortFilter_range_filter_hides_out_of_range_rows_and_clear_restores()
+    {
+        var vm = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var fullRows = LedgerLineCount(vm);
+        Assert.True(fullRows > 1);
+
+        // Keep only rows whose magnitude is at least a large threshold — some rows must drop out.
+        var big = LedgerLineMagnitudes(vm).Max();
+        vm.ApplySortFilter(ReportSortFilter.None.WithRange(Money.FromRupees(big), null));
+        Assert.True(LedgerLineCount(vm) < fullRows);           // out-of-range rows are hidden
+        // Every surviving row is at/above the threshold.
+        Assert.All(LedgerLineMagnitudes(vm), m => Assert.True(m >= big));
+
+        // Grand Total is computed over the FULL set, so it is unaffected by the filter view.
+        vm.ClearSortFilter();
+        Assert.True(vm.SortFilter.IsIdentity);
+        Assert.Equal(fullRows, LedgerLineCount(vm));           // Clear restores every row
+    }
+
+    [Fact]
+    public void ApplySortFilter_name_contains_keeps_only_matching_rows()
+    {
+        var vm = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var firstName = vm.Rows.First(r => !r.IsTotal && !r.IsHeader).Particulars;
+        var needle = firstName.Substring(0, Math.Min(3, firstName.Length));
+
+        vm.ApplySortFilter(ReportSortFilter.None.WithNameContains(needle));
+
+        Assert.All(vm.Rows.Where(r => !r.IsTotal && !r.IsHeader),
+            r => Assert.Contains(needle, r.Particulars, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- Day Book filter/sort matches the DISPLAYED particulars, not a hidden internal string (Fix 1) ----
+
+    [Fact]
+    public void DayBook_name_filter_on_displayed_particulars_keeps_the_matching_rows()
+    {
+        // Every Day Book row RENDERS its particulars as "{VoucherTypeName} No. {Number}". "No." is present in the
+        // displayed text of every row but never in the old internal "{type} {party}" string, so it is the exact
+        // discriminator for the defect: the old selector hid every row; the fixed selector keeps them.
+        var vm = new ReportsViewModel(Robert(), ReportKind.DayBook);
+        var fullDataRows = DayBookDataRows(vm);
+        Assert.NotEmpty(fullDataRows);
+
+        vm.ApplySortFilter(ReportSortFilter.None.WithNameContains("No."));
+
+        var kept = DayBookDataRows(vm);
+        Assert.NotEmpty(kept);                                   // Fix 1: visible-text match no longer hides rows
+        Assert.Equal(fullDataRows.Count, kept.Count);            // "No." is in every row's displayed particulars
+        Assert.All(kept, r => Assert.Contains("No.", r.Particulars, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- Day Book empty-state message tells the period-empty case apart from the filter-empty case (Fix 2) ----
+
+    [Fact]
+    public void DayBook_filter_that_removes_every_row_says_no_rows_match_the_filter_not_no_vouchers()
+    {
+        // The period is FULL of vouchers, but a name filter that matches nothing empties the view. The message
+        // must NOT claim the period is empty — that would be false.
+        var vm = new ReportsViewModel(Robert(), ReportKind.DayBook);
+        Assert.NotEmpty(DayBookDataRows(vm));                    // the period genuinely has vouchers
+
+        vm.ApplySortFilter(ReportSortFilter.None.WithNameContains("zzz-no-such-voucher"));
+
+        Assert.Empty(DayBookDataRows(vm));
+        Assert.Contains(vm.Rows, r => r.IsHeader && r.Particulars == "No rows match the current filter.");
+        Assert.DoesNotContain(vm.Rows, r => r.Particulars == "No vouchers in this period.");
+    }
+
+    [Fact]
+    public void DayBook_genuinely_empty_period_still_says_no_vouchers_in_this_period()
+    {
+        // A period entirely before the books have any vouchers (Robert's vouchers are all April 2020) is truly
+        // empty — the original, accurate message must stand.
+        var vm = new ReportsViewModel(Robert(), ReportKind.DayBook);
+        vm.SetPeriod(new DateOnly(2019, 1, 1), new DateOnly(2019, 12, 31));
+
+        Assert.Empty(DayBookDataRows(vm));
+        Assert.Contains(vm.Rows, r => r.IsHeader && r.Particulars == "No vouchers in this period.");
+        Assert.DoesNotContain(vm.Rows, r => r.Particulars == "No rows match the current filter.");
+    }
+
+    [Fact]
+    public void Filter_does_not_change_the_grand_total_which_is_computed_over_the_full_set()
+    {
+        // The Grand Total belongs to the unfiltered report — a row-hiding view must never move it.
+        var vm = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var fullTotal = GrandTotalDebit(vm);
+
+        vm.ApplySortFilter(ReportSortFilter.None.WithRange(Money.FromRupees(1_000_000_000m), null)); // drop ~all rows
+        Assert.Equal(fullTotal, GrandTotalDebit(vm));
+    }
+
+    // ---- ReportSortFilterViewModel panel ----
+
+    [Fact]
+    public void SortFilterPanel_seeds_from_the_report_and_a_noop_apply_changes_nothing()
+    {
+        var report = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var rowsBefore = report.Rows.Count;
+        var panel = new ReportSortFilterViewModel(report);
+
+        Assert.Equal(ReportSortKey.None, panel.SelectedSortKey!.Key);
+        Assert.True(panel.Ascending);
+        Assert.Equal(string.Empty, panel.MinText);
+
+        panel.Apply(); // no edits
+        Assert.True(report.SortFilter.IsIdentity);
+        Assert.Equal(rowsBefore, report.Rows.Count);
+    }
+
+    [Fact]
+    public void SortFilterPanel_apply_pushes_a_range_filter_into_the_report()
+    {
+        var report = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var fullRows = LedgerLineCount(report);
+        var big = LedgerLineMagnitudes(report).Max();
+
+        var panel = new ReportSortFilterViewModel(report)
+        {
+            MinText = big.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+        panel.Apply();
+
+        Assert.Equal(Money.FromRupees(big), report.SortFilter.Min);
+        Assert.True(LedgerLineCount(report) < fullRows);
+        Assert.Contains("Applied", panel.Status);
+    }
+
+    [Fact]
+    public void SortFilterPanel_clear_resets_the_view_and_restores_rows()
+    {
+        var report = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var fullRows = LedgerLineCount(report);
+
+        var panel = new ReportSortFilterViewModel(report) { NameContains = "zzz-no-such-ledger" };
+        panel.Apply();
+        Assert.True(LedgerLineCount(report) < fullRows); // filtered to (likely) nothing
+
+        panel.Clear();
+        Assert.True(report.SortFilter.IsIdentity);
+        Assert.Equal(fullRows, LedgerLineCount(report));
+        Assert.Equal(string.Empty, panel.MinText);
+        Assert.Contains("Cleared", panel.Status);
+    }
+
+    [Fact]
+    public void SortFilterPanel_rejects_an_unparseable_amount_without_falsely_claiming_success()
+    {
+        var report = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var panel = new ReportSortFilterViewModel(report) { MinText = "not-a-number" };
+
+        panel.Apply();
+
+        Assert.True(report.SortFilter.IsIdentity);            // the report's view was NOT mutated
+        Assert.DoesNotContain("Applied", panel.Status);       // no false success
+        Assert.Contains("Unrecognized minimum amount", panel.Status);
+    }
+
+    [Fact]
+    public void SortFilterPanel_rejects_an_inverted_range()
+    {
+        var report = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
+        var panel = new ReportSortFilterViewModel(report) { MinText = "5000", MaxText = "1000" };
+
+        panel.Apply();
+
+        Assert.True(report.SortFilter.IsIdentity);
+        Assert.DoesNotContain("Applied", panel.Status);
+        Assert.Contains("minimum must be less than or equal to maximum", panel.Status);
+    }
+
+    // ---- shell shortcut plumbing (Alt+F12) ----
+
+    [Fact]
+    public void AltF12_opens_the_sort_filter_panel_as_a_column_beside_the_live_report()
+    {
+        var vm = OpenReportShell(ReportKind.TrialBalance, out var columnsBefore);
+
+        vm.OpenReportSortFilter();
+
+        Assert.Equal(Screen.ReportSortFilter, vm.CurrentScreen);
+        Assert.NotNull(vm.ReportSortFilter);
+        Assert.NotNull(vm.Reports);                             // the report stays live beneath the panel
+        Assert.Equal(columnsBefore + 1, vm.Columns.Count);      // opened as an EXTRA column, not a replacement
+        Assert.True(vm.Columns[^1].Page is ReportSortFilterViewModel);
+
+        // Re-pressing Alt+F12 does not stack a second panel.
+        vm.OpenReportSortFilter();
+        Assert.Equal(columnsBefore + 1, vm.Columns.Count);
+    }
+
+    [Fact]
+    public void Closing_the_sort_filter_panel_leaves_the_report_live()
+    {
+        var vm = OpenReportShell(ReportKind.TrialBalance, out _);
+        vm.OpenReportSortFilter();
+        Assert.Equal(Screen.ReportSortFilter, vm.CurrentScreen);
+
+        vm.Back(); // Esc / Left pops the sort/filter column
+
+        Assert.Null(vm.ReportSortFilter);
+        Assert.NotNull(vm.Reports);                             // the report survived
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+    }
+
+    [Fact]
+    public void ApplyReportSortFilter_from_the_shell_sorts_by_amount_descending()
+    {
+        var vm = OpenReportShell(ReportKind.TrialBalance, out _);
+        vm.OpenReportSortFilter();
+        vm.ReportSortFilter!.SelectedSortKey =
+            vm.ReportSortFilter.SortKeys.Single(o => o.Key == ReportSortKey.Amount);
+        vm.ReportSortFilter.Ascending = false;
+
+        vm.ApplyReportSortFilter();
+
+        Assert.Equal(ReportSortKey.Amount, vm.Reports!.SortFilter.SortKey);
+        var magnitudes = LedgerLineMagnitudes(vm.Reports);
+        for (var i = 1; i < magnitudes.Count; i++)
+            Assert.True(magnitudes[i - 1] >= magnitudes[i]);
+    }
+
     // =============================================================== helpers
+
+    /// <summary>The Day Book voucher rows (excludes headers/totals and the empty-state message, which is a header).</summary>
+    private static System.Collections.Generic.List<ReportRow> DayBookDataRows(ReportsViewModel vm) =>
+        vm.Rows.Where(r => !r.IsTotal && !r.IsHeader).ToList();
+
+    /// <summary>The per-ledger-row magnitudes (|Dr − Cr| in rupees) of a Trial Balance, in row order.</summary>
+    private static System.Collections.Generic.List<decimal> LedgerLineMagnitudes(ReportsViewModel vm) =>
+        vm.Rows.Where(r => !r.IsTotal && !r.IsHeader)
+            .Select(r => Math.Abs(ParseAmount(r.Debit) - ParseAmount(r.Credit)))
+            .ToList();
+
+    /// <summary>Parses an Indian-formatted amount cell back to a decimal (empty cell → 0).</summary>
+    private static decimal ParseAmount(string cell)
+    {
+        var digits = new string(cell.Where(c => char.IsDigit(c) || c == '.' || c == '-').ToArray());
+        return digits.Length == 0
+            ? 0m
+            : decimal.Parse(digits, System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     private MainWindowViewModel OpenReportShell(ReportKind kind, out int columnsBefore)
     {

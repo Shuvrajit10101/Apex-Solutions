@@ -38,4 +38,74 @@ public static class ReportConfig
             result.Add(amountOf(r).Amount / total * 100m);
         return result;
     }
+
+    /// <summary>
+    /// Re-orders <paramref name="rows"/> for a report VIEW (RQ-3 sort). <see cref="ReportSortKey.None"/>
+    /// returns the source list unchanged (source order, reference-identical items). <see cref="ReportSortKey.Name"/>
+    /// orders by <paramref name="nameOf"/> ordinally, culture-invariantly and case-insensitively;
+    /// <see cref="ReportSortKey.Amount"/> orders by the <b>magnitude</b> (absolute paisa) of
+    /// <paramref name="amountOf"/>. Both are STABLE — rows with an equal key keep their source order (LINQ
+    /// <c>OrderBy</c>/<c>OrderByDescending</c> are documented stable). Sorting is a pure view: it never adds,
+    /// drops, nor recomputes rows, and never touches a report's Grand Total.
+    /// </summary>
+    public static IReadOnlyList<T> SortRows<T>(
+        IEnumerable<T> rows,
+        ReportSortKey key,
+        bool ascending,
+        Func<T, string> nameOf,
+        Func<T, Money> amountOf)
+    {
+        switch (key)
+        {
+            case ReportSortKey.Name:
+                return ascending
+                    ? rows.OrderBy(nameOf, StringComparer.OrdinalIgnoreCase).ToList()
+                    : rows.OrderByDescending(nameOf, StringComparer.OrdinalIgnoreCase).ToList();
+            case ReportSortKey.Amount:
+                return ascending
+                    ? rows.OrderBy(r => Math.Abs(amountOf(r).Amount)).ToList()
+                    : rows.OrderByDescending(r => Math.Abs(amountOf(r).Amount)).ToList();
+            case ReportSortKey.None:
+            default:
+                return rows as IReadOnlyList<T> ?? rows.ToList();
+        }
+    }
+
+    /// <summary>
+    /// Filters <paramref name="rows"/> for a report VIEW (RQ-3 filter): keeps a row when its
+    /// <b>magnitude</b> (<c>|<paramref name="amountOf"/>|</c>) is within the inclusive range
+    /// <c>[<paramref name="min"/>, <paramref name="max"/>]</c> (either bound optional) AND its
+    /// <paramref name="nameOf"/> contains <paramref name="nameContains"/> (case-insensitive,
+    /// culture-invariant). An empty/whitespace <paramref name="nameContains"/> and two <c>null</c> bounds
+    /// mean "no filter" — every row is kept in source order. Filtering is a pure view: it only HIDES rows,
+    /// it never recomputes figures nor rebalances a report's Grand Total, so a filtered view may itself no
+    /// longer balance — the totals belong to the unfiltered report.
+    /// </summary>
+    public static IReadOnlyList<T> FilterRows<T>(
+        IEnumerable<T> rows,
+        Money? min,
+        Money? max,
+        string? nameContains,
+        Func<T, string> nameOf,
+        Func<T, Money> amountOf)
+    {
+        var hasName = !string.IsNullOrWhiteSpace(nameContains);
+        var needle = nameContains ?? string.Empty;
+
+        // No active predicate → identity view (keep everything, source order).
+        if (min is null && max is null && !hasName)
+            return rows as IReadOnlyList<T> ?? rows.ToList();
+
+        var result = new List<T>();
+        foreach (var r in rows)
+        {
+            var mag = Math.Abs(amountOf(r).Amount);
+            if (min is { } lo && mag < lo.Amount) continue;
+            if (max is { } hi && mag > hi.Amount) continue;
+            if (hasName &&
+                nameOf(r).IndexOf(needle, StringComparison.InvariantCultureIgnoreCase) < 0) continue;
+            result.Add(r);
+        }
+        return result;
+    }
 }

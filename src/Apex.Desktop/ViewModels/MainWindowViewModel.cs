@@ -16,6 +16,7 @@ public enum Screen
     Gateway,
     Report,
     ReportConfig,
+    ReportSortFilter,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -177,6 +178,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
+    /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
+    [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -189,7 +193,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
-        && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null;
+        && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
+        && ReportSortFilter is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -215,6 +220,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -802,6 +808,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Apply button on the F12 config panel: apply the settings and re-run the report.</summary>
     public void ApplyReportConfig() => ReportConfig?.Apply();
 
+    /// <summary>
+    /// Alt+F12 — opens the report Sort/Filter panel (RQ-3) as its own cascading column to the RIGHT of the open
+    /// report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live beneath
+    /// the panel so applying re-projects it in place. A no-op unless a report is open; re-pressing Alt+F12 while
+    /// the panel is open is a no-op (there is already a sort/filter column).
+    /// </summary>
+    public void OpenReportSortFilter()
+    {
+        if (Reports is null) return;                 // only meaningful over an open report
+        if (ReportSortFilter is not null) return;    // panel already open — don't stack a second one
+
+        var panel = new ReportSortFilterViewModel(Reports);
+        ReportSortFilter = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ReportSortFilter;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the Alt+F12 sort/filter panel: apply the view and re-run the report.</summary>
+    public void ApplyReportSortFilter() => ReportSortFilter?.Apply();
+
+    /// <summary>The Clear button on the Alt+F12 sort/filter panel: reset the view to the identity and re-run.</summary>
+    public void ClearReportSortFilter() => ReportSortFilter?.Clear();
+
     /// <summary>True while a report is the active page (or its F12 config panel is open) — F2/Alt+F2/Alt+F1 act on it.</summary>
     public bool IsReportContext => Reports is not null;
 
@@ -1305,6 +1338,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         StockItemMaster = null;
         GstConfig = null;
         ReportConfig = null;
+        ReportSortFilter = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
