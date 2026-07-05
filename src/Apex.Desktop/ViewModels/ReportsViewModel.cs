@@ -10,8 +10,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
-/// <summary>The report kinds surfaced in the reports viewer — the four Phase-1 accounting reports plus the
-/// nine Phase-3 inventory reports (slice 3.4b).</summary>
+/// <summary>The report kinds surfaced in the reports viewer — the four Phase-1 accounting reports, the
+/// nine Phase-3 inventory reports (slice 3.4b), and the three Phase-4 GST reports (slice 4d).</summary>
 public enum ReportKind
 {
     TrialBalance,
@@ -29,6 +29,11 @@ public enum ReportKind
     PhysicalStockRegister,
     OrderRegister,
     ReorderStatus,
+
+    // ---- GST reports (slice 4d) ----
+    TaxAnalysis,
+    Gstr1,
+    Gstr3b,
 }
 
 /// <summary>
@@ -61,8 +66,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
         or ReportKind.RejectionRegister or ReportKind.PhysicalStockRegister or ReportKind.OrderRegister
         or ReportKind.ReorderStatus;
 
-    /// <summary>True to show the accounting (Particulars/Dr/Cr/Amount) grid — every non-inventory report.</summary>
-    public bool IsAccountingReport => !IsInventoryReport;
+    /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
+    public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
+
+    /// <summary>True to show the accounting (Particulars/Dr/Cr/Amount) grid — a report that is neither
+    /// inventory nor GST (TB / BS / P&amp;L / Day Book).</summary>
+    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport;
 
     public bool IsStockSummary => Kind == ReportKind.StockSummary;
     public bool IsGodownSummary => Kind == ReportKind.GodownSummary;
@@ -70,6 +79,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool IsReorderStatus => Kind == ReportKind.ReorderStatus;
     public bool IsPhysicalStockRegister => Kind == ReportKind.PhysicalStockRegister;
     public bool IsOrderRegister => Kind == ReportKind.OrderRegister;
+
+    // ---- GST-report layout flags (drive which GST DataTemplate the view shows; slice 4d) ----
+    public bool IsTaxAnalysis => Kind == ReportKind.TaxAnalysis;
+    public bool IsGstr1 => Kind == ReportKind.Gstr1;
+    public bool IsGstr3b => Kind == ReportKind.Gstr3b;
 
     /// <summary>True for the three allocation registers (Receipt Note / Delivery Note / Rejection), which
     /// share the same wide Date | No. | Party | Item | Godown | Qty | Rate | Value | Batch layout.</summary>
@@ -131,6 +145,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(SupportsScenario));
         // The layout flags are computed from Kind; notify the view so the right DataTemplate shows.
         OnPropertyChanged(nameof(IsInventoryReport));
+        OnPropertyChanged(nameof(IsGstReport));
         OnPropertyChanged(nameof(IsAccountingReport));
         OnPropertyChanged(nameof(IsStockSummary));
         OnPropertyChanged(nameof(IsGodownSummary));
@@ -139,6 +154,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
+        OnPropertyChanged(nameof(IsTaxAnalysis));
+        OnPropertyChanged(nameof(IsGstr1));
+        OnPropertyChanged(nameof(IsGstr3b));
         Rows.Clear();
 
         switch (kind)
@@ -157,6 +175,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.PhysicalStockRegister: BuildPhysicalStockRegister(); break;
             case ReportKind.OrderRegister: BuildOrderRegister(); break;
             case ReportKind.ReorderStatus: BuildReorderStatus(); break;
+
+            case ReportKind.TaxAnalysis: BuildTaxAnalysis(); break;
+            case ReportKind.Gstr1: BuildGstr1(); break;
+            case ReportKind.Gstr3b: BuildGstr3b(); break;
         }
     }
 
@@ -480,6 +502,253 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         if (rs.Rows.Count == 0)
             Rows.Add(new ReportRow { Col1 = "All items are above their reorder levels.", IsHeader = true });
+    }
+
+    // =============================================================== GST reports (slice 4d)
+
+    /// <summary>Formats GST basis points as a percent label (1800 → "18%", 900 → "9%", 0 → "0%").</summary>
+    private static string RatePercent(int basisPoints)
+    {
+        var pct = basisPoints / 100m;
+        return pct.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%";
+    }
+
+    /// <summary>The head name for a Tax-Analysis rate row (CGST / SGST / IGST / Cess).</summary>
+    private static string HeadName(GstTaxHead head) => head switch
+    {
+        GstTaxHead.Central => "CGST",
+        GstTaxHead.State => "SGST",
+        GstTaxHead.Integrated => "IGST",
+        GstTaxHead.Cess => "Cess",
+        _ => head.ToString(),
+    };
+
+    /// <summary>The empty-state row shown when GST is off (no crash — the returns are simply empty).</summary>
+    private bool GstOffGuard(string title)
+    {
+        Title = title;
+        Subtitle = $"{CompanyName}  —  GST is not enabled for this company";
+        if (!_company.GstEnabled)
+        {
+            Rows.Add(new ReportRow { Col1 = "GST is not enabled. Enable it under F11 Features → GST.", IsHeader = true });
+            return true;
+        }
+        Subtitle = $"{CompanyName}  —  {FormatDate(BooksFrom)} to {FormatDate(_asOf)}";
+        return false;
+    }
+
+    // --------------------------------------------------------------- Tax Analysis
+    //   Outward then Inward section; each rows by (rate, head): Rate | CGST | SGST | IGST | Taxable | Tax.
+
+    private void BuildTaxAnalysis()
+    {
+        if (GstOffGuard("Tax Analysis")) return;
+
+        var ta = Report.BuildTaxAnalysis(_company, BooksFrom, _asOf);
+        Title = "Tax Analysis";
+
+        AddTaxAnalysisSide("Outward Supplies (Output Tax)", ta.Outward);
+        AddTaxAnalysisSide("Inward Supplies (Input Tax / ITC)", ta.Inward);
+
+        // Grand total across both sides.
+        var grandTax = new Money(ta.Outward.TotalTax.Amount + ta.Inward.TotalTax.Amount);
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total (Output + Input)",
+            Col2 = IndianFormat.AmountAlways(ta.Outward.TotalCgst.Amount + ta.Inward.TotalCgst.Amount),
+            Col3 = IndianFormat.AmountAlways(ta.Outward.TotalSgst.Amount + ta.Inward.TotalSgst.Amount),
+            Col4 = IndianFormat.AmountAlways(ta.Outward.TotalIgst.Amount + ta.Inward.TotalIgst.Amount),
+            Col6 = IndianFormat.AmountAlways(grandTax),
+            IsTotal = true,
+        });
+    }
+
+    /// <summary>Adds one Tax-Analysis side (Outward/Inward): a section header, its rate/head rows and a subtotal.</summary>
+    private void AddTaxAnalysisSide(string sectionTitle, TaxAnalysisSide side)
+    {
+        // Col1 Rate/Head | Col2 CGST | Col3 SGST | Col4 IGST | Col5 Taxable | Col6 Tax.
+        Rows.Add(new ReportRow { Col1 = sectionTitle, IsHeader = true });
+
+        foreach (var r in side.RateRows)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = $"{RatePercent(r.RateBasisPoints)}  {HeadName(r.Head)}",
+                // Place the head's tax under its own column so the grid reads as a rate×head matrix.
+                Col2 = r.Head == GstTaxHead.Central ? IndianFormat.Amount(r.Tax) : string.Empty,
+                Col3 = r.Head == GstTaxHead.State ? IndianFormat.Amount(r.Tax) : string.Empty,
+                Col4 = r.Head == GstTaxHead.Integrated ? IndianFormat.Amount(r.Tax) : string.Empty,
+                Col5 = IndianFormat.Amount(r.TaxableValue),
+                Col6 = IndianFormat.Amount(r.Tax),
+            });
+        }
+
+        if (side.RateRows.Count == 0)
+            Rows.Add(new ReportRow { Col1 = "No supplies in this period.", Col6 = string.Empty });
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Sub-total",
+            Col2 = IndianFormat.AmountAlways(side.TotalCgst),
+            Col3 = IndianFormat.AmountAlways(side.TotalSgst),
+            Col4 = IndianFormat.AmountAlways(side.TotalIgst),
+            Col6 = IndianFormat.AmountAlways(side.TotalTax),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- GSTR-1 (outward supplies)
+    //   Sections: B2B, B2C, Rate-wise summary, HSN/SAC summary, plus Exempt line + grand totals.
+
+    private void BuildGstr1()
+    {
+        if (GstOffGuard("GSTR-1")) return;
+
+        var r = Report.BuildGstr1(_company, BooksFrom, _asOf);
+        Title = "GSTR-1";
+
+        // --- B2B: Party/GSTIN | Invoice No/Date | POS | Rate | Taxable | CGST | SGST | IGST ---
+        Rows.Add(new ReportRow { Col1 = "B2B — Registered (party-wise invoices)", IsHeader = true });
+        foreach (var b in r.B2B)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = b.PartyName,
+                Col2 = b.PartyGstin ?? string.Empty,
+                Col3 = $"No. {b.InvoiceNumber}  {FormatDate(b.InvoiceDate)}",
+                Col4 = b.PlaceOfSupplyStateCode ?? string.Empty,
+                Col5 = IndianFormat.Amount(b.TaxableValue),
+                Col6 = IndianFormat.Amount(b.Cgst),
+                Col7 = IndianFormat.Amount(b.Sgst),
+                Col8 = IndianFormat.Amount(b.Igst),
+            });
+        }
+        if (r.B2B.Count == 0)
+            Rows.Add(new ReportRow { Col1 = "No B2B invoices.", Col2 = string.Empty });
+
+        // --- B2C: rate-wise consolidation | Taxable | CGST | SGST | IGST ---
+        Rows.Add(new ReportRow { Col1 = "B2C — Consumer (rate-wise)", IsHeader = true });
+        foreach (var b in r.B2C)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = $"At {RatePercent(b.RateBasisPoints)}",
+                Col5 = IndianFormat.Amount(b.TaxableValue),
+                Col6 = IndianFormat.Amount(b.Cgst),
+                Col7 = IndianFormat.Amount(b.Sgst),
+                Col8 = IndianFormat.Amount(b.Igst),
+            });
+        }
+        if (r.B2C.Count == 0)
+            Rows.Add(new ReportRow { Col1 = "No B2C supplies.", Col2 = string.Empty });
+
+        // --- Rate-wise summary | Taxable | Tax ---
+        Rows.Add(new ReportRow { Col1 = "Rate-wise summary", IsHeader = true });
+        foreach (var rr in r.RateSummary)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = $"At {RatePercent(rr.RateBasisPoints)}",
+                Col5 = IndianFormat.Amount(rr.TaxableValue),
+                Col8 = IndianFormat.Amount(rr.TotalTax),   // total tax shown in the last amount column
+            });
+        }
+
+        // --- HSN/SAC summary: HSN | Description | UQC | Qty | Taxable | CGST | SGST | IGST ---
+        Rows.Add(new ReportRow { Col1 = "HSN / SAC summary", IsHeader = true });
+        foreach (var h in r.HsnSummary)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = h.HsnSac,
+                Col2 = h.Description,
+                Col3 = h.Uqc ?? string.Empty,
+                Col4 = IndianFormat.Quantity(h.Quantity),
+                Col5 = IndianFormat.Amount(h.TaxableValue),
+                Col6 = IndianFormat.Amount(h.Cgst),
+                Col7 = IndianFormat.Amount(h.Sgst),
+                Col8 = IndianFormat.Amount(h.Igst),
+            });
+        }
+
+        // --- Exempt/Nil/Non-GST outward value line ---
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Exempt / Nil-rated / Non-GST outward",
+            Col5 = IndianFormat.AmountAlways(r.ExemptNilNonGstValue),
+        });
+
+        // --- Grand totals (output tax by head) ---
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total (Output Tax)",
+            Col6 = IndianFormat.AmountAlways(r.TotalCgst),
+            Col7 = IndianFormat.AmountAlways(r.TotalSgst),
+            Col8 = IndianFormat.AmountAlways(r.TotalIgst),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- GSTR-3B (summary return)
+    //   3.1 Outward supplies; 4 Eligible ITC; Net tax payable per head (display-only, no set-off).
+
+    private void BuildGstr3b()
+    {
+        if (GstOffGuard("GSTR-3B")) return;
+
+        var r = Report.BuildGstr3b(_company, BooksFrom, _asOf);
+        Title = "GSTR-3B";
+
+        // Col1 label | Col2 Taxable value | Col3 CGST | Col4 SGST | Col5 IGST.
+        Rows.Add(new ReportRow { Col1 = "3.1  Details of outward supplies", IsHeader = true });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(a) Taxable outward supplies",
+            Col2 = IndianFormat.Amount(r.TaxableOutwardValue),
+            Col3 = IndianFormat.Amount(r.OutwardCgst),
+            Col4 = IndianFormat.Amount(r.OutwardSgst),
+            Col5 = IndianFormat.Amount(r.OutwardIgst),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(c) Exempt / Nil-rated / Non-GST outward",
+            Col2 = IndianFormat.Amount(r.ExemptNilNonGstOutward),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total output tax",
+            Col3 = IndianFormat.AmountAlways(r.OutwardCgst),
+            Col4 = IndianFormat.AmountAlways(r.OutwardSgst),
+            Col5 = IndianFormat.AmountAlways(r.OutwardIgst),
+            IsTotal = true,
+        });
+
+        Rows.Add(new ReportRow { Col1 = "4  Eligible ITC", IsHeader = true });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(A) ITC available (inward supplies)",
+            Col3 = IndianFormat.Amount(r.ItcCgst),
+            Col4 = IndianFormat.Amount(r.ItcSgst),
+            Col5 = IndianFormat.Amount(r.ItcIgst),
+        });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total eligible ITC",
+            Col3 = IndianFormat.AmountAlways(r.ItcCgst),
+            Col4 = IndianFormat.AmountAlways(r.ItcSgst),
+            Col5 = IndianFormat.AmountAlways(r.ItcIgst),
+            IsTotal = true,
+        });
+
+        Rows.Add(new ReportRow { Col1 = "Net tax payable  (output − ITC; indicative, no set-off)", IsHeader = true });
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Net payable / (credit carried forward)",
+            Col3 = IndianFormat.AmountAlways(r.NetCgst),
+            Col4 = IndianFormat.AmountAlways(r.NetSgst),
+            Col5 = IndianFormat.AmountAlways(r.NetIgst),
+            IsTotal = true,
+        });
     }
 
     // --------------------------------------------------------------- helpers

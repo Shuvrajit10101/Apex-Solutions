@@ -653,6 +653,172 @@
                           </Grid>
 
                         </Grid>
+
+                        <!-- ============ GST reports (slice 4d): Tax Analysis / GSTR-1 / GSTR-3B ============ -->
+                        <Grid x:Name="GstReportPane" Grid.Row="3" Grid.RowSpan="2"
+                              IsVisible="{Binding IsGstReport}">
+
+                          <!-- == Tax Analysis: Rate / Head | CGST | SGST | IGST | Taxable | Tax ==
+                               Wide statutory grid — horizontal scroll so no column collapses/clips;
+                               first "Rate / Head" column FIXED (never collapses); header + rows share
+                               the SAME explicit width so they scroll together and line up. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsTaxAnalysis}">
+                          <Grid RowDefinitions="Auto,*" Width="830" HorizontalAlignment="Left"
+                                Height="{Binding #GstReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="170,120,120,120,150,150">
+                                <TextBlock Grid.Column="0" Text="Rate / Head" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Tax" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="170,120,120,120,150,150" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                          <!-- == GSTR-1: Party/HSN | GSTIN/Desc | Invoice/UQC | POS/Qty | Taxable | CGST | SGST | IGST ==
+                               8-column statutory grid (~1030px) wider than the pane — horizontal scroll
+                               reveals the right-hand amount columns (Taxable/CGST/SGST/IGST); header + rows
+                               share the SAME explicit width so they scroll together and stay aligned. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsGstr1}">
+                          <Grid RowDefinitions="Auto,*" Width="1030" HorizontalAlignment="Left"
+                                Height="{Binding #GstReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="180,150,150,90,130,110,110,110">
+                                <TextBlock Grid.Column="0" Text="Party / HSN" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="GSTIN / Description" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Invoice / UQC" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="POS / Qty" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="7" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="180,150,150,90,130,110,110,110" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="7" Text="{Binding Col8}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST ==
+                               Wide "Particulars" (MinWidth) so labels like "3.1 Details of outward
+                               supplies…" / "Net payable / (credit carried forward)" show in full;
+                               numeric columns trimmed. The grid stretches to fill the pane but has a
+                               floor width — a horizontal scrollbar appears only if the pane is narrower
+                               than that floor, so labels are never clipped. Header + rows share the same
+                               widths and scroll together. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsGstr3b}">
+                          <Grid RowDefinitions="Auto,*" MinWidth="700"
+                                Width="{Binding #GstReportPane.Bounds.Width}"
+                                Height="{Binding #GstReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Taxable Value" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                        </Grid>
                         </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -3055,10 +3221,11 @@
                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
 
                                 <StackPanel Spacing="10" IsVisible="{Binding GstEnabled}">
-                                  <Grid ColumnDefinitions="130,*,130,220">
+                                  <Grid ColumnDefinitions="130,2*,130,*">
                                     <TextBlock Grid.Column="0" Text="GSTIN / UIN" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                     <TextBox Grid.Column="1" Text="{Binding Gstin, Mode=TwoWay}"
+                                             MinWidth="220" FontFamily="Consolas,Menlo,monospace"
                                              PlaceholderText="15-char GSTIN, e.g. 27ABCDE1234F1Z5"/>
                                     <TextBlock Grid.Column="2" Text="Home State/UT" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Margin="10,0,0,0"

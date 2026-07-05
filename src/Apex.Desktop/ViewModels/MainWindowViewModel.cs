@@ -58,6 +58,7 @@ public enum GatewayMenu
     OrderVouchers,
     InventoryVouchers,
     InventoryReports,
+    GstReports,
 }
 
 /// <summary>
@@ -380,6 +381,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -635,6 +637,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("Inventory Reports");
         OpenSubmenuColumn(BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
             "Gateway of Apex Solutions — Inventory Reports");
+    }
+
+    /// <summary>
+    /// Builds the "GST Reports" submenu column (Reports → GST Reports; slice 4d): the three Phase-4 GST returns
+    /// nested under a single <b>GST</b> section — <b>Tax Analysis</b> (period tax by rate/head), <b>GSTR-1</b>
+    /// (outward supplies: B2B/B2C, rate-wise, HSN) and <b>GSTR-3B</b> (summary: outward, ITC, net payable). Each
+    /// is a page item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>. Shown whether
+    /// or not GST is enabled; a GST-off company opens the report to a friendly empty state (never crashes).
+    /// </summary>
+    private GatewayColumn BuildGstReportsColumn()
+    {
+        var col = new GatewayColumn("GST Reports");
+        col.Add(MenuItemViewModel.Header("GST"));
+        col.Add(new MenuItemViewModel("Tax Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-1", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-3B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → GST Reports" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → GST Reports] and focuses the submenu.
+    /// </summary>
+    public void ShowGstReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("GST Reports");
+        OpenSubmenuColumn(BuildGstReportsColumn(), GatewayMenu.GstReports,
+            "Gateway of Apex Solutions — GST Reports");
     }
 
     /// <summary>
@@ -1562,6 +1593,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Statements of Accounts"),
             "Inventory Reports" => (BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
                 "Gateway of Apex Solutions — Inventory Reports"),
+            "GST Reports" => (BuildGstReportsColumn(), GatewayMenu.GstReports,
+                "Gateway of Apex Solutions — GST Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -1619,6 +1652,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Rejection Register": OpenReport(ReportKind.RejectionRegister); break;
             case "Physical Stock Register": OpenReport(ReportKind.PhysicalStockRegister); break;
             case "Order Register": OpenReport(ReportKind.OrderRegister); break;
+            case "Tax Analysis": OpenReport(ReportKind.TaxAnalysis); break;
+            case "GSTR-1": OpenReport(ReportKind.Gstr1); break;
+            case "GSTR-3B": OpenReport(ReportKind.Gstr3b); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -1708,6 +1744,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
                     "Inventory Reports" => GatewayMenu.InventoryReports,
+                    "GST Reports" => GatewayMenu.GstReports,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
