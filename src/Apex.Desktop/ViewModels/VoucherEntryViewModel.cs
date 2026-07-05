@@ -29,6 +29,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly LedgerService _service;
+    private readonly GstService _gst;
     private readonly CompanyStorage _storage;
     private readonly Action _onSaved;
     private readonly Action _onCancelled;
@@ -99,6 +100,29 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     /// <summary>The derived-Dr/Cr summary line shown under the items total (e.g. "Dr Purchases 5,000.00 · Cr Acme 5,000.00").</summary>
     [ObservableProperty] private string _derivedSummary = string.Empty;
+
+    // =============================================================== GST on the item-invoice (catalog §12; slice 4e)
+
+    /// <summary>
+    /// True when this Purchase/Sales <b>item invoice</b> is GST-aware — i.e. item-invoice mode is on AND the
+    /// company has GST enabled (<see cref="Company.GstEnabled"/>). Only then does the screen resolve each line's
+    /// GST rate, split intra CGST/SGST vs inter IGST, DISPLAY the tax + party total, and POST the additive tax
+    /// lines. On a GST-off company this stays <c>false</c> and the invoice behaves exactly as the Phase-3
+    /// item-invoice (two accounting legs, no tax).
+    /// </summary>
+    public bool IsGstInvoice => IsItemInvoice && _company.GstEnabled;
+
+    /// <summary>The invoice CGST total (paisa-exact display); "0.00" when off/inter-state/exempt.</summary>
+    [ObservableProperty] private string _gstCgstText = "0.00";
+
+    /// <summary>The invoice SGST total (paisa-exact display); "0.00" when off/inter-state/exempt.</summary>
+    [ObservableProperty] private string _gstSgstText = "0.00";
+
+    /// <summary>The invoice IGST total (paisa-exact display); "0.00" when off/intra-state/exempt.</summary>
+    [ObservableProperty] private string _gstIgstText = "0.00";
+
+    /// <summary>The invoice party total = Σ taxable + Σ tax (what the customer pays / supplier is owed).</summary>
+    [ObservableProperty] private string _partyTotalText = "0.00";
 
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private DateOnly _date;
@@ -187,6 +211,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         _onCancelled = onCancelled ?? throw new ArgumentNullException(nameof(onCancelled));
 
         _service = new LedgerService(company);
+        _gst = new GstService(company);
         Ledgers = company.Ledgers;
 
         // Item-invoice masters (only meaningful on a Purchase/Sales, but always populated so the toggle is cheap).
@@ -491,7 +516,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     partial void OnIsItemInvoiceChanged(bool value)
     {
-        // Turning the mode on/off changes which grid gates Accept; recompute both indicators.
+        // Turning the mode on/off changes which grid gates Accept AND whether GST is wired in; recompute both.
+        OnPropertyChanged(nameof(IsGstInvoice));
         RecalculateItemInvoice();
         Recalculate();
     }
@@ -528,9 +554,64 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// The GST direction for this invoice's nature: a Purchase claims Input tax (ITC), a Sales charges Output tax.
+    /// (In item-invoice mode <see cref="CanBeItemInvoice"/> restricts the nature to Purchase/Sales.)
+    /// </summary>
+    private GstTaxDirection GstDirection =>
+        IsPurchaseInvoice ? GstTaxDirection.Input : GstTaxDirection.Output;
+
+    /// <summary>The outcome of computing GST over the current complete item lines (for both display and posting).</summary>
+    private readonly record struct ItemInvoiceGst(
+        GstService.InvoiceTax Tax, bool InterState, StockItem? UnresolvedItem)
+    {
+        public bool HasUnresolved => UnresolvedItem is not null;
+    }
+
+    /// <summary>
+    /// Resolves each complete item line's GST rate + taxability (item → value-ledger → company, most-granular-wins),
+    /// routes intra vs inter from the party's recorded State vs the company home State, and computes the additive
+    /// per-(head,rate) tax via <see cref="GstService.ComputeInvoiceTax"/>. Exempt/Nil/Non-GST lines contribute no
+    /// taxable value (zero tax). A taxable line with no resolvable rate is flagged in
+    /// <see cref="ItemInvoiceGst.UnresolvedItem"/> so the caller fails fast with a friendly message (never a
+    /// silent zero, never a crash). Returns <c>null</c> when GST is not wired in (<see cref="IsGstInvoice"/> false).
+    /// </summary>
+    private ItemInvoiceGst? ComputeItemInvoiceGst()
+    {
+        if (!IsGstInvoice) return null;
+
+        var valueLedger = SelectedStockLedger;
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+
+        var taxable = new List<GstService.TaxableLine>();
+        foreach (var l in InventoryLines.Where(l => l.IsComplete))
+        {
+            if (l.ParsedRate is not { } rate || rate <= 0m) continue;
+            var lineValue = Money.ForexBase(new Money(rate), l.ParsedQuantity);
+
+            var res = _gst.ResolveRate(l.SelectedItem, valueLedger);
+            if (GstService.IsUnresolved(res))
+                return new ItemInvoiceGst(EmptyInvoiceTax(), interState, l.SelectedItem);
+            if (!res.IsTaxable) continue; // Exempt/Nil/Non-GST ⇒ no tax
+            taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints));
+        }
+
+        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
+        return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
+    }
+
+    /// <summary>An empty (no-tax) <see cref="GstService.InvoiceTax"/> used when a line is unresolved.</summary>
+    private static GstService.InvoiceTax EmptyInvoiceTax() => new()
+    {
+        TaxLines = Array.Empty<EntryLine>(),
+        LineBreakdown = Array.Empty<GstService.LineTax>(),
+    };
+
+    /// <summary>
     /// Recomputes the item-invoice indicators: the running items total, the derived Dr/Cr summary line, and —
     /// while in item-invoice mode — whether Accept is allowed (a party + a value ledger picked, ≥ 1 complete
-    /// item line each with a positive rate, and no half-filled row).
+    /// item line each with a positive rate, and no half-filled row). When GST is enabled it also recomputes the
+    /// live tax totals (CGST/SGST/IGST) and the party total (taxable + tax) so the screen reflects the tax.
     /// </summary>
     public void RecalculateItemInvoice()
     {
@@ -538,9 +619,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         ItemsTotalText = IndianFormat.AmountAlways(total);
 
         var party = SelectedParty?.Ledger?.Name ?? "party";
-        DerivedSummary = IsPurchaseInvoice
-            ? $"Dr {StockLedgerCaption} {IndianFormat.AmountAlways(total)}  ·  Cr {party} {IndianFormat.AmountAlways(total)}"
-            : $"Dr {party} {IndianFormat.AmountAlways(total)}  ·  Cr {StockLedgerCaption} {IndianFormat.AmountAlways(total)}";
+
+        // GST summary (only when wired in) — computed once, shown as CGST/SGST/IGST + party total, and folded
+        // into the derived-Dr/Cr summary so it reflects the additive tax legs.
+        var gst = ComputeItemInvoiceGst();
+        var cgst = gst?.Tax.TotalCgst.Amount ?? 0m;
+        var sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
+        var igst = gst?.Tax.TotalIgst.Amount ?? 0m;
+        var taxTotal = cgst + sgst + igst;
+        var partyTotal = total + taxTotal;
+
+        GstCgstText = IndianFormat.AmountAlways(cgst);
+        GstSgstText = IndianFormat.AmountAlways(sgst);
+        GstIgstText = IndianFormat.AmountAlways(igst);
+        PartyTotalText = IndianFormat.AmountAlways(partyTotal);
+
+        DerivedSummary = BuildDerivedSummary(party, total, cgst, sgst, igst, partyTotal);
 
         if (!IsItemInvoice) return; // plain-mode Accept is governed by Recalculate()
 
@@ -557,6 +651,32 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             && !hasHalfFilled
             && everyLineHasPositiveRate
             && total > 0m;
+    }
+
+    /// <summary>
+    /// Builds the derived-Dr/Cr summary line. Without GST it is the plain two-leg summary (Dr Purchases/Cr party,
+    /// or Dr party/Cr Sales). With GST the additive tax leg(s) are inserted — Input CGST/SGST on a purchase,
+    /// Output CGST/SGST (or IGST) on a sale — and the party leg carries taxable + tax, e.g.
+    /// "Dr Purchases 1,000.00 · Dr Input CGST 90.00 · Dr Input SGST 90.00 · Cr Supplier 1,180.00".
+    /// </summary>
+    private string BuildDerivedSummary(string party, decimal taxable, decimal cgst, decimal sgst, decimal igst, decimal partyTotal)
+    {
+        string A(decimal v) => IndianFormat.AmountAlways(v);
+        var stock = StockLedgerCaption;
+        var side = IsPurchaseInvoice ? "Dr" : "Cr"; // tax follows the value leg's side (Input Dr / Output Cr)
+
+        var taxLegs = new List<string>();
+        if (igst != 0m) taxLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} IGST {A(igst)}");
+        else
+        {
+            if (cgst != 0m) taxLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} CGST {A(cgst)}");
+            if (sgst != 0m) taxLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} SGST {A(sgst)}");
+        }
+        var taxPart = taxLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", taxLegs) : string.Empty;
+
+        return IsPurchaseInvoice
+            ? $"Dr {stock} {A(taxable)}{taxPart}  ·  Cr {party} {A(partyTotal)}"
+            : $"Dr {party} {A(partyTotal)}{taxPart}  ·  Cr {stock} {A(taxable)}";
     }
 
     /// <summary>
@@ -615,19 +735,50 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 batchLabel: l.Batch));
         }
 
-        // Σ item value — the amount BOTH auto-derived legs carry, so Σ Dr == Σ Cr AND the pairing invariant
-        // (value leg == Σ item value) both hold by construction.
-        var total = Money.Zero;
-        foreach (var il in inventoryLines) total += il.Value;
+        // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant
+        // (value leg == Σ item value) holds by construction; GST is additive on top of it.
+        var taxable = Money.Zero;
+        foreach (var il in inventoryLines) taxable += il.Value;
 
-        // Auto-derive the two accounting legs (no hand-balancing): Purchase → Dr Purchases / Cr Supplier;
-        // Sales → Dr Customer / Cr Sales.
-        var (drLedger, crLedger) = IsPurchaseInvoice ? (valueLedger, party) : (party, valueLedger);
-        var entryLines = new[]
+        // GST (only when enabled): resolve each line's rate + taxability, split intra CGST/SGST vs inter IGST, and
+        // build the additive tax entry lines (posted to the correct Output/Input ledgers, carrying GstLineTax so
+        // the invoice flows into GSTR-1/3B/Tax Analysis). A taxable line with no resolvable rate fails fast.
+        var taxLines = new List<EntryLine>();
+        var partyAmount = taxable;
+        if (IsGstInvoice)
         {
-            new EntryLine(drLedger.Id, total, DrCr.Debit),
-            new EntryLine(crLedger.Id, total, DrCr.Credit),
-        };
+            ItemInvoiceGst gst;
+            try
+            {
+                gst = ComputeItemInvoiceGst()!.Value;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot accept: {ex.Message}";
+                return false;
+            }
+            if (gst.HasUnresolved)
+            {
+                Message = $"Item '{gst.UnresolvedItem!.Name}' is taxable but no GST rate is set on the item, " +
+                          $"the {StockLedgerCaption} ledger, or the company. Set a rate before accepting.";
+                return false;
+            }
+            taxLines.AddRange(gst.Tax.TaxLines);
+            partyAmount = new Money(taxable.Amount + gst.Tax.TotalTax.Amount); // party = taxable + tax
+        }
+
+        // Auto-derive the accounting legs (no hand-balancing): the party carries taxable + tax; the stock/value
+        // leg carries taxable only; the tax lines are additive. Purchase → Dr Purchases (taxable) / Dr Input tax /
+        // Cr Supplier (taxable+tax); Sales → Dr Customer (taxable+tax) / Cr Sales (taxable) / Cr Output tax.
+        var partyLine = IsPurchaseInvoice
+            ? new EntryLine(party.Id, partyAmount, DrCr.Credit)
+            : new EntryLine(party.Id, partyAmount, DrCr.Debit);
+        var stockLine = IsPurchaseInvoice
+            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit)
+            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit);
+
+        var entryLines = new List<EntryLine>(2 + taxLines.Count) { stockLine, partyLine };
+        entryLines.AddRange(taxLines);
 
         var voucher = new Voucher(
             Guid.NewGuid(),

@@ -1294,7 +1294,8 @@
                                 </StackPanel>
                               </ScrollViewer>
 
-                              <!-- Items total + derived Dr/Cr summary -->
+                              <!-- Items total + derived Dr/Cr summary. The derived string wraps (no ellipsis)
+                                   so it can never clip; the authoritative GST numbers live in the band below. -->
                               <Border Grid.Row="3" Background="{StaticResource Cream}"
                                       BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                       Padding="10,6" Margin="0,2">
@@ -1302,13 +1303,59 @@
                                   <TextBlock Grid.Column="0" Text="Derived:" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="0,0,6,0"/>
                                   <TextBlock Grid.Column="1" Text="{Binding DerivedSummary}"
-                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold"
-                                             FontSize="13" Foreground="{StaticResource BrandNavy}">
+                                             FontSize="13" Foreground="{StaticResource BrandNavy}" Margin="8,0,0,0">
                                     <Run Text="Items Total ₹ "/><Run Text="{Binding ItemsTotalText}"/>
                                   </TextBlock>
                                 </Grid>
+                              </Border>
+
+                              <!-- GST summary band (shown only when GST is on — IsGstInvoice). Carries the
+                                   authoritative tax breakdown (CGST/SGST/IGST) + the party total so nothing
+                                   is lost to ellipsis in the Derived line at any report/voucher-pane width. -->
+                              <Border Grid.Row="4" IsVisible="{Binding IsGstInvoice}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,6" Margin="0,2,0,0">
+                                <StackPanel Spacing="4">
+                                  <TextBlock Text="GST Summary" FontWeight="Bold" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <Grid ColumnDefinitions="*,Auto,24,*,Auto">
+                                    <!-- Left column: Taxable + CGST -->
+                                    <TextBlock Grid.Column="0" Text="Taxable Value ₹" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding ItemsTotalText}" TextAlignment="Right"
+                                               VerticalAlignment="Center" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="3" Text="CGST ₹" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding GstCgstText}" TextAlignment="Right"
+                                               VerticalAlignment="Center" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="*,Auto,24,*,Auto">
+                                    <!-- Right pair: SGST + IGST -->
+                                    <TextBlock Grid.Column="0" Text="SGST ₹" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding GstSgstText}" TextAlignment="Right"
+                                               VerticalAlignment="Center" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="3" Text="IGST ₹" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding GstIgstText}" TextAlignment="Right"
+                                               VerticalAlignment="Center" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </Grid>
+                                  <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                          Padding="0,4,0,0" Margin="0,2,0,0">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                      <TextBlock Grid.Column="0" Text="Party Total (Taxable + Tax) ₹"
+                                                 FontWeight="Bold" VerticalAlignment="Center"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding PartyTotalText}" TextAlignment="Right"
+                                                 FontWeight="Bold" FontSize="14" VerticalAlignment="Center"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                    </Grid>
+                                  </Border>
+                                </StackPanel>
                               </Border>
                             </Grid>
 
