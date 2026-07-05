@@ -258,12 +258,18 @@ public sealed class GstService
 
     /// <summary>
     /// Computes the additive GST for an invoice (RQ-12/13/19): per-line CGST/SGST split (intra) or IGST (inter),
-    /// aggregated into one entry line per non-zero tax head (posted to the correct Output/Input tax ledger by
-    /// <paramref name="direction"/>, DP-11), with paisa-exact per-line rounding. When
-    /// <paramref name="applyInvoiceRoundOff"/> is set, the grand total (taxable + tax) is rounded to the
-    /// nearest rupee and the difference is returned as a Round-Off entry line so the voucher can stay balanced
-    /// (RQ-17). The caller assembles the full voucher: party (Dr/Cr taxable+tax±roundoff), stock/sales legs,
-    /// these tax lines and the round-off line.
+    /// posted as <b>one entry line per (tax head, GST rate) group</b> (to the correct Output/Input tax ledger by
+    /// <paramref name="direction"/>, DP-11), with paisa-exact per-line rounding. Lines are grouped by their
+    /// resolved integrated rate; each rate group's tax is computed on that group's taxable subtotal with the
+    /// same <b>compute-total-then-split</b> rule (so per group CGST+SGST == IGST == round(subtotal × rate), CGST
+    /// == SGST bar a forced 1-paisa remainder on an odd total). A single-rate invoice therefore collapses to one
+    /// line per head exactly as before; a multi-rate invoice keeps per-rate identity so GSTR-1 rate/HSN and Tax
+    /// Analysis attribute the tax to the correct rate — each tax line carries its OWN group's correct
+    /// <see cref="GstLineTax.RateBasisPoints"/> (the head's half-rate for CGST/SGST, the full rate for IGST) and
+    /// that group's taxable subtotal (never a blended 0%). When <paramref name="applyInvoiceRoundOff"/> is set,
+    /// the grand total (taxable + tax) is rounded to the nearest rupee and the difference is returned as a
+    /// Round-Off entry line so the voucher can stay balanced (RQ-17). The caller assembles the full voucher:
+    /// party (Dr/Cr taxable+tax±roundoff), stock/sales legs, these tax lines and the round-off line.
     /// </summary>
     public InvoiceTax ComputeInvoiceTax(
         IReadOnlyList<TaxableLine> lines,
@@ -274,24 +280,36 @@ public sealed class GstService
         ArgumentNullException.ThrowIfNull(lines);
 
         var breakdown = new List<LineTax>(lines.Count);
-        var cgst = 0m; var sgst = 0m; var igst = 0m;
         var taxableTotal = 0m;
+
+        // Accumulate the taxable subtotal per integrated rate (in the input line order of first appearance), so a
+        // multi-rate invoice posts one (head, rate) tax line per rate group — each on its own subtotal.
+        var rateOrder = new List<int>();
+        var taxableByRate = new Dictionary<int, decimal>();
+
         foreach (var line in lines)
         {
-            var lt = ComputeLineTax(line.TaxableValue, line.IntegratedBasisPoints, interState);
-            breakdown.Add(lt);
-            cgst += lt.Cgst.Amount;
-            sgst += lt.Sgst.Amount;
-            igst += lt.Igst.Amount;
+            // Per-line breakdown feeds Tax Analysis' LineBreakdown display; the posted tax, however, is computed
+            // ONCE per rate group below (compute-total-then-split on the group subtotal), so a multi-line same-rate
+            // group foots to round(subtotal × rate), not Σ round(line × rate).
+            breakdown.Add(ComputeLineTax(line.TaxableValue, line.IntegratedBasisPoints, interState));
             taxableTotal += line.TaxableValue.Amount;
+
+            if (!taxableByRate.ContainsKey(line.IntegratedBasisPoints))
+            {
+                taxableByRate[line.IntegratedBasisPoints] = 0m;
+                rateOrder.Add(line.IntegratedBasisPoints);
+            }
+            taxableByRate[line.IntegratedBasisPoints] += line.TaxableValue.Amount;
         }
 
-        // Aggregate per head, on the correct side: Output tax is a credit (liability) on a sale; Input tax is a
-        // debit (ITC asset) on a purchase. The tax-ledger side mirrors the party side.
+        // Aggregate per (head, rate) group, on the correct side: Output tax is a credit (liability) on a sale;
+        // Input tax is a debit (ITC asset) on a purchase. The tax-ledger side mirrors the party side.
         var taxSide = direction == GstTaxDirection.Output ? DrCr.Credit : DrCr.Debit;
         var taxLines = new List<EntryLine>();
+        var cgst = 0m; var sgst = 0m; var igst = 0m;
 
-        void AddHead(GstTaxHead head, decimal amount, int headBp)
+        void AddHead(GstTaxHead head, decimal amount, int headBp, decimal groupTaxable)
         {
             if (amount == 0m) return;
             var ledger = FindTaxLedger(head, direction)
@@ -299,19 +317,30 @@ public sealed class GstService
                     $"GST tax ledger for {head}/{direction} not found — enable GST first (EnableGst auto-creates it).");
             taxLines.Add(new EntryLine(
                 ledger.Id, new Money(amount), taxSide,
-                gst: new GstLineTax(head, headBp, new Money(taxableTotal).RoundToPaisa())));
+                gst: new GstLineTax(head, headBp, new Money(groupTaxable).RoundToPaisa())));
         }
 
-        if (interState)
+        // One tax line per (head, rate) group. Each group re-runs the compute-total-then-split on its own subtotal
+        // so CGST+SGST == IGST == round(subtotal × rate) per rate, carrying that rate's correct head basis points.
+        // The head totals are summed from the POSTED group amounts so TotalCgst/Sgst/Igst == Σ posted tax lines
+        // (they reconcile to the tax-ledger postings to the paisa, even across a multi-line same-rate group).
+        foreach (var integratedBp in rateOrder)
         {
-            // A mixed-rate invoice aggregates one IGST head line; its "rate" is only meaningful per line, so we
-            // record the taxable total and leave the head bp as 0 (per-line rates live in LineBreakdown).
-            AddHead(GstTaxHead.Integrated, igst, HeadRateForReport(breakdown, inter: true));
-        }
-        else
-        {
-            AddHead(GstTaxHead.Central, cgst, HeadRateForReport(breakdown, inter: false, half: true));
-            AddHead(GstTaxHead.State, sgst, HeadRateForReport(breakdown, inter: false, half: true));
+            var groupTaxable = taxableByRate[integratedBp];
+            var groupTax = ComputeLineTax(new Money(groupTaxable), integratedBp, interState);
+            var halfBp = integratedBp / 2;
+            if (interState)
+            {
+                AddHead(GstTaxHead.Integrated, groupTax.Igst.Amount, integratedBp, groupTaxable);
+                igst += groupTax.Igst.Amount;
+            }
+            else
+            {
+                AddHead(GstTaxHead.Central, groupTax.Cgst.Amount, halfBp, groupTaxable);
+                AddHead(GstTaxHead.State, groupTax.Sgst.Amount, halfBp, groupTaxable);
+                cgst += groupTax.Cgst.Amount;
+                sgst += groupTax.Sgst.Amount;
+            }
         }
 
         // Optional invoice round-off on the grand total (taxable + tax).
@@ -359,19 +388,5 @@ public sealed class GstService
             return totalRoseToRupee ? DrCr.Credit : DrCr.Debit;
         // purchase: party Cr
         return totalRoseToRupee ? DrCr.Debit : DrCr.Credit;
-    }
-
-    /// <summary>
-    /// A representative head rate for the aggregated head line, used only for display on a single-rate invoice.
-    /// For a mixed-rate invoice the aggregated line's rate is not a single number (the per-line rates live in
-    /// <see cref="InvoiceTax.LineBreakdown"/>), so this returns 0 to signal "see per-line".
-    /// </summary>
-    private static int HeadRateForReport(IReadOnlyList<LineTax> breakdown, bool inter, bool half = false)
-    {
-        if (breakdown.Count == 0) return 0;
-        var first = breakdown[0].IntegratedBasisPoints;
-        var uniform = breakdown.All(b => b.IntegratedBasisPoints == first);
-        if (!uniform) return 0;
-        return half ? first / 2 : first;
     }
 }

@@ -70,4 +70,18 @@ public static class Report
     /// <summary>The Reorder Status report as of a date (catalog §16; RQ-33).</summary>
     public static ReorderStatus BuildReorderStatus(Company c, DateOnly asOf)
         => ReorderStatus.Build(c, asOf);
+
+    // ------------------------------------------------------------------ GST reports (slice 4b)
+
+    /// <summary>The GST Tax Analysis period summary (catalog §12; RQ-20) — outward + inward tax by rate/head.</summary>
+    public static TaxAnalysis BuildTaxAnalysis(Company c, DateOnly from, DateOnly to)
+        => TaxAnalysis.Build(c, from, to);
+
+    /// <summary>GSTR-1 (outward supplies) over a period (catalog §12; RQ-21): B2B/B2C, rate-wise, HSN summary.</summary>
+    public static Gstr1 BuildGstr1(Company c, DateOnly from, DateOnly to)
+        => Gstr1.Build(c, from, to);
+
+    /// <summary>GSTR-3B (summary return) over a period (catalog §12; RQ-22; DP-9): outward tax, ITC, net payable.</summary>
+    public static Gstr3b BuildGstr3b(Company c, DateOnly from, DateOnly to)
+        => Gstr3b.Build(c, from, to);
 }
