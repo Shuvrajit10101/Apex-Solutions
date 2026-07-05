@@ -15,6 +15,7 @@ public enum Screen
     CreateCompany,
     Gateway,
     Report,
+    ReportConfig,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -173,6 +174,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
+    /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
+    [ObservableProperty] private ReportConfigViewModel? _reportConfig;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -185,7 +189,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
-        && GodownMaster is null && StockItemMaster is null && GstConfig is null;
+        && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -210,6 +214,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -770,6 +775,63 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void DrillReport(ReportRow? row) => Reports?.Drill(row);
 
+    // =============================================================== screen: report configuration (F12)
+
+    /// <summary>
+    /// F12 — opens the report Configuration panel (RQ-1/2/6) as its own cascading column to the RIGHT of the
+    /// open report, never a stacked overlay. Unlike the other page-openers it does NOT trim the report page
+    /// column: the report stays live (its <see cref="Reports"/> binding intact) so applying the panel
+    /// re-projects the same report in place. A no-op unless a report is currently open. Re-pressing F12 while
+    /// the panel is open is a no-op (there is already a config column).
+    /// </summary>
+    public void OpenReportConfig()
+    {
+        if (Reports is null) return;                 // only meaningful over an open report
+        if (ReportConfig is not null) return;        // panel already open — don't stack a second one
+
+        var config = new ReportConfigViewModel(Reports);
+        ReportConfig = config;
+        Columns.Add(new GatewayColumn(config.Title, config));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ReportConfig;
+        ScreenTitle = config.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the F12 config panel: apply the settings and re-run the report.</summary>
+    public void ApplyReportConfig() => ReportConfig?.Apply();
+
+    /// <summary>True while a report is the active page (or its F12 config panel is open) — F2/Alt+F2/Alt+F1 act on it.</summary>
+    public bool IsReportContext => Reports is not null;
+
+    /// <summary>
+    /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
+    /// the keyboard-first date-entry surface (there is no modal date dialog); it opens seeded from the report's
+    /// current as-of with the period window off, so accepting sets the as-of.
+    /// </summary>
+    public void ReportSetAsOf()
+    {
+        if (Reports is null) return;
+        OpenReportConfig();
+        if (ReportConfig is { } cfg) cfg.UsePeriod = false;
+    }
+
+    /// <summary>
+    /// Alt+F2 on a report — opens the Configuration panel focused on the [from,to] period window (RQ-1), with
+    /// the window enabled so accepting sets an explicit period. Seeded from the report's current window (or the
+    /// as-of when none is set yet).
+    /// </summary>
+    public void ReportSetPeriod()
+    {
+        if (Reports is null) return;
+        OpenReportConfig();
+        if (ReportConfig is { } cfg) cfg.UsePeriod = true;
+    }
+
+    /// <summary>Alt+F1 on a report — toggles detailed↔summary in place (RQ-2). A no-op on reports that do not roll up.</summary>
+    public void ReportToggleDetailed() => Reports?.ToggleDetailed();
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -1242,6 +1304,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GodownMaster = null;
         StockItemMaster = null;
         GstConfig = null;
+        ReportConfig = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -1722,11 +1785,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Columns.RemoveAt(Columns.Count - 1);
         ClearSubScreens();
         ActiveColumnIndex = Columns.Count - 1;
-        CurrentScreen = Screen.Gateway;
+        // If a page column survives (e.g. the report under a just-closed F12 config column), re-bind its
+        // page view model and screen so the surviving page stays live — otherwise fall to the Gateway.
+        RehydratePageFromRightmostColumn();
         CurrentGatewayMenu = RightmostMenuKind();
         ScreenTitle = Columns[ActiveColumnIndex].Title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// After a column pop, re-binds the surviving rightmost column's page view model to its shell property
+    /// and restores <see cref="CurrentScreen"/> so a page that sat to the LEFT of a just-closed column (e.g.
+    /// a report under its F12 config panel) is not left orphaned. When the rightmost column is a menu, the
+    /// shell returns to the Gateway. Only the page kinds that can sit beneath another page column need be
+    /// handled here; the rest fall through to the Gateway (unchanged behaviour).
+    /// </summary>
+    private void RehydratePageFromRightmostColumn()
+    {
+        var col = Columns[ActiveColumnIndex];
+        switch (col.Page)
+        {
+            case ReportsViewModel r:
+                Reports = r;
+                CurrentScreen = Screen.Report;
+                break;
+            default:
+                CurrentScreen = Screen.Gateway;
+                break;
+        }
     }
 
     /// <summary>The submenu kind of the rightmost menu column (Root when it is the root Gateway).</summary>

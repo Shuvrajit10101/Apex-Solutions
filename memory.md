@@ -535,14 +535,23 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   IO layer (a new `Apex.Ledger.Io` project) — no prior agent covered it.
 - **Next:** Phase 5 **slice 1 = report config & depth (RQ-1 / 2 / 6)** under way via the gated workflow.
 
-### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 4)
+### Phase 5 slice 1 — Report config & depth (RQ-1/2/6) ✅ (2026-07-05)
+- **Workspace consolidated:** the session worktree `keen-albattani-a09dfd` (branch `claude/keen-albattani-a09dfd`) was fast-forwarded to the Phase-4 tip `cfc2b1d` (lossless; `main` was its ancestor) and is now the SINGLE live workspace at schema v13, with governance commit `6bb6bc3` on top. The `interesting-mirzakhani-30e51e` worktree is left clean as a snapshot. **Lesson:** workflow subagents operate in the SESSION's own worktree cwd — the first slice-1 attempt wrote to the wrong base (main/v8); fixed by consolidating. Point agents at their own cwd and have them verify the branch before editing.
+- **Delivered:** RQ-1 period (F2 as-of / Alt+F2 [from,to]), RQ-2 detailed/summary (Alt+F1) on BS/P&L/TB/Stock Summary, RQ-6 F12 config column (hide-zero, show-%, closing-stock valuation basis). Engine: new `ReportOptions`/`PeriodRange`/`ReportConfig`/`ReportGrouping` (immutable options; defaults reproduce legacy exactly) + overloads on TrialBalance/ProfitAndLoss/BalanceSheet. UI: `ReportConfigViewModel` + F12 panel as a cascading Miller-column column (report stays live to the left); keyboard-first; de-branded (headless Skia render verified — "Gateway of Apex Solutions", zero "Tally").
+- **Adversarial review (A10, 4 lenses) caught 4 confirmed defects, all fixed + regression-tested:** (HIGH) windowed P&L ignored `period.From` → now windows income/expense via `SignedMovement`, opening stock @From−1, closing @To; (HIGH, fidelity) period Trial Balance used in-window movement dropping opening-only ledgers → now closing-as-at `period.To` (opening carried forward, like Balance Sheet), TB clause relabeled "as at {To}", `period.From` has no effect on TB by design; (LOW) summary TB blank row for net-zero groups → suppressed to match legacy detailed; (LOW) F12 Apply falsely reported success on inverted/unparseable dates → now a validation-error status.
+- **Gate (orchestrator-re-run):** `dotnet build -c Release` 0/0; `dotnet test -c Release` = **614 passed / 0 failed** (Ledger 356 · Sqlite 46 · Desktop 212). Robert & Bright green. No schema change (still v13).
+- **Next:** Phase 5 slice 2 — sort/filter (Alt+F12) + comparative/columnar (Alt+C/Alt+N across periods & scenarios) (RQ-3, RQ-4).
+
+### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 1)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
-- **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/interesting-mirzakhani-30e51e`
-  @ `8812d72`, **schema v13, 570 tests green**, de-branded, working tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core)
+- **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
+  SINGLE live workspace now), **schema v13, 614 tests green** (Ledger 356 · Sqlite 46 · Desktop 212), de-branded, working
+  tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5** (reports depth + printing / export / import / email) per `plan.md`.
+- **Resume at Phase 5 slice 2** — sort/filter (Alt+F12) + comparative/columnar (Alt+C/Alt+N across periods & scenarios)
+  (RQ-3, RQ-4); then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

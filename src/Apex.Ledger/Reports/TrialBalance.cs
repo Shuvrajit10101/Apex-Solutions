@@ -47,4 +47,21 @@ public sealed record TrialBalance(IReadOnlyList<TrialBalanceRow> Rows, Money Tot
 
         return new TrialBalance(rows, new Money(totalDr), new Money(totalCr));
     }
+
+    /// <summary>
+    /// Builds the Trial Balance under <see cref="ReportOptions"/> (RQ-1). The Trial Balance is a
+    /// <b>closing-balance</b> statement — each ledger's balance carried forward (opening + movements)
+    /// AS AT the report date — exactly like its sibling Balance Sheet.
+    /// <para>When <see cref="ReportOptions.Period"/> is <c>null</c> this is the plain as-of Trial Balance
+    /// at <see cref="ReportOptions.AsOfDate"/> — byte-for-byte the legacy behaviour, so nothing regresses.</para>
+    /// <para>When a period is set (Alt+F2) the Trial Balance is built as CLOSING balances AS AT the
+    /// period-end <c>To</c> — opening balances are carried forward, NOT dropped. <c>From</c> selects the
+    /// as-at date's upper bound only; it does not turn the statement into in-window movement. So an
+    /// opening-only ledger (e.g. a Capital account with no vouchers) still appears in a period Trial
+    /// Balance, matching Tally. The scenario is honoured.</para>
+    /// </summary>
+    public static TrialBalance Build(Company company, ReportOptions options)
+        => options.Period is { } p
+            ? Build(company, p.To, options.Scenario)
+            : Build(company, options.AsOfDate, options.Scenario);
 }

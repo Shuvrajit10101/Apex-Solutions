@@ -38,6 +38,23 @@ public sealed record BalanceSheet(
         ClosingStockMode mode = ClosingStockMode.AsPostedLedger,
         Scenario? scenario = null)
     {
+        return BuildCore(company, asOf, mode, scenario);
+    }
+
+    /// <summary>
+    /// Builds the Balance Sheet under <see cref="ReportOptions"/> (RQ-1 as-of, RQ-6 closing-stock basis).
+    /// The closing-stock valuation basis (<see cref="ReportOptions.ClosingStock"/>) and the scenario pass
+    /// through unchanged. Default options reproduce the legacy build exactly.
+    /// </summary>
+    public static BalanceSheet Build(Company company, DateOnly asOf, ReportOptions options)
+        => BuildCore(company, asOf, options.ClosingStock, options.Scenario);
+
+    private static BalanceSheet BuildCore(
+        Company company,
+        DateOnly asOf,
+        ClosingStockMode mode,
+        Scenario? scenario)
+    {
         var inventoryDerived = mode == ClosingStockMode.InventoryDerived;
 
         var liabilities = new List<BalanceSheetLine>();

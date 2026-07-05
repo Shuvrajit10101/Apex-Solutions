@@ -3359,6 +3359,98 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: F12 report Configuration panel (RQ-1 period/as-of, RQ-2 detail, RQ-6 display) -->
+                    <ContentControl IsVisible="{Binding ReportConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ReportConfig}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ReportConfigViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="300">
+
+                                <!-- RQ-1: period / as-of -->
+                                <TextBlock Text="Period (F2 as-of · Alt+F2 range)" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="As at" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding AsOfText, Mode=TwoWay}"
+                                           IsEnabled="{Binding !UsePeriod}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+                                <CheckBox Content="Use an explicit period [From, To]"
+                                          IsChecked="{Binding UsePeriod, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding UsePeriod}">
+                                  <TextBlock Grid.Column="0" Text="From" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding UsePeriod}">
+                                  <TextBlock Grid.Column="0" Text="To" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding PeriodToText, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+
+                                <!-- RQ-2: detailed / summary -->
+                                <CheckBox Content="Detailed (ledger/item-level; unchecked = group summary)"
+                                          IsChecked="{Binding Detailed, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsDetailToggle}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- RQ-6: display config -->
+                                <TextBlock Text="Display" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <CheckBox Content="Hide zero balances"
+                                          IsChecked="{Binding HideZeroBalances, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Content="Show percentages (of section/column total)"
+                                          IsChecked="{Binding ShowPercentages, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="130,*">
+                                  <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ClosingStockOptions}"
+                                            SelectedItem="{Binding SelectedClosingStock, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ClosingStockOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyReportConfigClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Forex Gain/Loss (unrealized revaluation) report -->
                     <ContentControl IsVisible="{Binding ForexReport, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ForexReport}">

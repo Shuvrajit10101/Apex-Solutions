@@ -55,10 +55,14 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
-        // Ctrl+A saves/accepts (accept shortcut) — create company, accept voucher, or create ledger.
+        // Ctrl+A saves/accepts (accept shortcut) — apply the F12 report config, else create company /
+        // accept voucher / create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            vm.ActivateSelected();
+            if (vm.CurrentScreen == Screen.ReportConfig)
+                vm.ApplyReportConfig();
+            else
+                vm.ActivateSelected();
             e.Handled = true;
             return;
         }
@@ -134,11 +138,35 @@ public partial class MainWindow : Window
         }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
+            // Report parameter shortcuts (RQ-1/RQ-2) take priority while a report is the active page: Alt+F1
+            // toggles detailed↔summary, Alt+F2 sets the period window. Checked before the inventory Alt+F
+            // shortcuts so they never fire on a report page.
+            if (vm.IsReportContext)
+            {
+                switch (e.Key)
+                {
+                    case Key.F1: vm.ReportToggleDetailed(); e.Handled = true; return;
+                    case Key.F2: vm.ReportSetPeriod(); e.Handled = true; return;
+                }
+            }
+
             switch (e.Key)
             {
                 case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.ReceiptNote); e.Handled = true; return;
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.DeliveryNote); e.Handled = true; return;
                 case Key.F7: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.StockJournal); e.Handled = true; return;
+            }
+        }
+
+        // Bare F2 / F12 on a report page act on the report (RQ-1 as-of, RQ-6 configuration) rather than the
+        // global button bar. Checked before the general switch. Ctrl+A on the open F12 panel applies it.
+        if (vm.IsReportContext && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            switch (e.Key)
+            {
+                case Key.F2: vm.ReportSetAsOf(); e.Handled = true; return;
+                case Key.F12: vm.OpenReportConfig(); e.Handled = true; return;
             }
         }
 
@@ -300,6 +328,9 @@ public partial class MainWindow : Window
 
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.Apply();
+
+    private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyReportConfig();
 
     private void OnUnitSimpleClick(object? sender, RoutedEventArgs e)
     {

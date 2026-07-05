@@ -44,6 +44,40 @@ public sealed record ProfitAndLoss(
         ClosingStockMode mode = ClosingStockMode.AsPostedLedger,
         Scenario? scenario = null)
     {
+        return BuildCore(company, to, mode, scenario);
+    }
+
+    /// <summary>
+    /// Builds the P&amp;L under <see cref="ReportOptions"/> (RQ-1 as-of/period, RQ-6 closing-stock basis).
+    /// <para>When <see cref="ReportOptions.Period"/> is <c>null</c> the P&amp;L is the cumulative
+    /// books-begin→<paramref name="to"/> statement — byte-for-byte the legacy build.</para>
+    /// <para>When a period is set (Alt+F2 window) each income/expense line reflects ONLY the in-window
+    /// movement over <c>[From, To]</c> (not books-begin→To); opening stock is valued as-at the day
+    /// <b>before</b> <c>From</c> and closing stock as-at <c>To</c>, so the trading account covers exactly
+    /// the window. The closing-stock valuation basis and scenario pass through unchanged.</para>
+    /// </summary>
+    public static ProfitAndLoss Build(Company company, DateOnly to, ReportOptions options)
+        => BuildCore(company, to, options.ClosingStock, options.Scenario, options.Period);
+
+    private static ProfitAndLoss BuildCore(
+        Company company,
+        DateOnly to,
+        ClosingStockMode mode,
+        Scenario? scenario,
+        PeriodRange? period = null)
+    {
+        // When a period window is set, income/expense figures are the in-window MOVEMENT over [From, To]
+        // (not the cumulative books-begin→To closing); opening stock is valued as-at From-1 and closing
+        // stock as-at To. With no period every figure keeps its cumulative as-of-'to' meaning.
+        DateOnly? windowFrom = period is { } pr ? pr.From : null;
+        var openingAsOf = windowFrom is { } wf ? wf.AddDays(-1) : (DateOnly?)null;
+
+        // A ledger's P&L contribution: cumulative signed closing (no window) or in-window signed movement.
+        decimal SignedFor(Domain.Ledger ledger) =>
+            windowFrom is { } from
+                ? LedgerBalances.SignedMovement(company, ledger, from, to)
+                : LedgerBalances.SignedClosing(company, ledger, to, scenario);
+
         var inventoryDerived = mode == ClosingStockMode.InventoryDerived;
 
         var income = new List<ProfitAndLossLine>();
@@ -64,11 +98,21 @@ public sealed record ProfitAndLoss(
                 ?? throw new InvalidOperationException($"Ledger '{ledger.Name}' has unknown group {ledger.GroupId}.");
 
             // Stock-in-Hand ledgers get the trading treatment, not the P&L-group treatment.
-            // Opening stock (opening debit balance) is a charge to the trading account.
+            // Opening stock (opening debit balance) is a charge to the trading account. In a period window
+            // the opening stock is the stock ON HAND as-at the day BEFORE From (books opening + any stock
+            // movements before the window), not merely the ledger's book-opening figure.
             if (ClassificationRules.IsStockInHandLedger(ledger, company))
             {
-                if (ledger.OpeningIsDebit && ledger.OpeningBalance != Money.Zero)
+                if (openingAsOf is { } oa)
+                {
+                    // Value the stock-in-hand ledger's closing as-at From-1 (carried into the window).
+                    var openingSigned = LedgerBalances.SignedClosing(company, ledger, oa, scenario);
+                    if (openingSigned > 0m) openingStock += openingSigned;
+                }
+                else if (ledger.OpeningIsDebit && ledger.OpeningBalance != Money.Zero)
+                {
                     openingStock += ledger.OpeningBalance.Amount;
+                }
 
                 // AsPostedLedger: closing stock is injected via a paired income-side adjustment ledger (Dr
                 // asset / Cr Direct-Income adjustment), so the income arm already carries the closing-stock
@@ -77,8 +121,13 @@ public sealed record ProfitAndLoss(
                 // the derived Σ computed above (so no manual closing-stock ledger is required).
                 if (!inventoryDerived)
                 {
+                    // Closing stock as-at To. With a window the opening baseline is From-1 (as-at) rather
+                    // than the ledger's book-opening, so only the in-window build-up counts.
                     var closingSigned = LedgerBalances.SignedClosing(company, ledger, to, scenario);
-                    var movement = closingSigned - ledger.SignedOpening;
+                    var baseline = openingAsOf is { } oa2
+                        ? LedgerBalances.SignedClosing(company, ledger, oa2, scenario)
+                        : ledger.SignedOpening;
+                    var movement = closingSigned - baseline;
                     if (movement > 0m) closingStock += movement;
                 }
                 continue;
@@ -88,7 +137,7 @@ public sealed record ProfitAndLoss(
                 continue; // Balance-Sheet ledger
 
             var nature = ClassificationRules.PrimaryNatureOf(group, company);
-            var signed = LedgerBalances.SignedClosing(company, ledger, to, scenario);
+            var signed = SignedFor(ledger);
 
             if (nature == GroupNature.Income)
             {
@@ -118,7 +167,7 @@ public sealed record ProfitAndLoss(
 
         // Gross profit (periodic inventory): sales + direct income − opening − purchases − direct expenses,
         // with closing stock either already in direct income (AsPostedLedger) or added here (InventoryDerived).
-        var gross = ComputeGrossProfit(company, to, openingStock, scenario)
+        var gross = ComputeGrossProfit(company, to, openingStock, scenario, windowFrom)
             + (inventoryDerived ? closingStock : 0m);
 
         return new ProfitAndLoss(
@@ -132,7 +181,8 @@ public sealed record ProfitAndLoss(
             new Money(net));
     }
 
-    private static decimal ComputeGrossProfit(Company company, DateOnly to, decimal openingStock, Scenario? scenario = null)
+    private static decimal ComputeGrossProfit(
+        Company company, DateOnly to, decimal openingStock, Scenario? scenario = null, DateOnly? windowFrom = null)
     {
         decimal salesAndDirectIncome = 0m; // Sales + Direct Incomes (the latter includes the closing-stock adjustment)
         decimal purchasesAndDirectExpense = 0m;
@@ -145,7 +195,10 @@ public sealed record ProfitAndLoss(
             if (group is null || !ClassificationRules.IsProfitAndLossGroup(group, company)) continue;
 
             var primary = ClassificationRules.PrimaryAncestorOf(group, company);
-            var signed = LedgerBalances.SignedClosing(company, ledger, to, scenario);
+            // In a window, trading figures are the in-window movement; otherwise cumulative closing.
+            var signed = windowFrom is { } from
+                ? LedgerBalances.SignedMovement(company, ledger, from, to)
+                : LedgerBalances.SignedClosing(company, ledger, to, scenario);
 
             switch (primary.Name)
             {

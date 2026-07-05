@@ -45,7 +45,21 @@ public enum ReportKind
 public sealed partial class ReportsViewModel : ViewModelBase
 {
     private readonly Company _company;
-    private readonly DateOnly _asOf;
+
+    /// <summary>The books-begin default as-of (last voucher date, or FY end when empty). Used to reset the
+    /// period back to the legacy default (RQ-1) and as the fallback whenever no period is chosen.</summary>
+    private readonly DateOnly _defaultAsOf;
+
+    /// <summary>
+    /// The Phase-5 report parameters (RQ-1 as-of/period, RQ-2 detailed↔summary, RQ-6 F12 config). Every Build*
+    /// method reads from here, so changing it and re-running <see cref="Show"/> re-projects the report. It
+    /// starts at the legacy default (as-of = last voucher date, detailed, nothing hidden, no percentages,
+    /// closing stock as-posted), so an untouched report is byte-for-byte the pre-slice behaviour.
+    /// </summary>
+    private ReportOptions _options;
+
+    /// <summary>The effective as-of upper bound for the current report — the chosen period end, or the default.</summary>
+    private DateOnly _asOf => _options.Period?.To ?? _options.AsOfDate;
 
     /// <summary>The stock item a Stock Item Movement report is scoped to (null for the other reports).</summary>
     private Guid? _movementItemId;
@@ -124,7 +138,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public ReportsViewModel(Company company, ReportKind kind, Guid? stockItemId = null)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
-        _asOf = ComputeAsOf(company);
+        _defaultAsOf = ComputeAsOf(company);
+        _options = ReportOptions.AsOf(_defaultAsOf);
         _movementItemId = stockItemId;
 
         Scenarios.Add(ScenarioOption.Actual);
@@ -135,14 +150,102 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Show(kind);
     }
 
+    // =============================================================== RQ-1 / RQ-2 / RQ-6 report parameters
+
+    /// <summary>The as-of / period-end date currently driving the report (RQ-1). Read-only; set via F2 / Alt+F2.</summary>
+    public DateOnly AsOf => _asOf;
+
+    /// <summary>The explicit period window when one is chosen (Alt+F2), else <c>null</c> (RQ-1).</summary>
+    public PeriodRange? Period => _options.Period;
+
+    /// <summary>True when a report shows ledger/item-level detail; false for the group-level summary (RQ-2).</summary>
+    public bool Detailed => _options.Detailed;
+
+    /// <summary>Hide exact-zero-balance rows (RQ-6 F12).</summary>
+    public bool HideZeroBalances => _options.HideZeroBalances;
+
+    /// <summary>Show each row's percentage of its section/column total (RQ-6 F12).</summary>
+    public bool ShowPercentages => _options.ShowPercentages;
+
+    /// <summary>Closing-stock valuation basis for P&amp;L / Balance Sheet (RQ-6 F12).</summary>
+    public ClosingStockMode ClosingStock => _options.ClosingStock;
+
+    /// <summary>True for the reports RQ-2 detailed↔summary applies to (TB / BS / P&amp;L / Stock Summary).</summary>
+    public bool SupportsDetailToggle => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
+
+    /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
+    public void SetAsOf(DateOnly asOf)
+    {
+        _options = _options with { AsOfDate = asOf, Period = null };
+        NotifyParameterChanged();
+        Show(Kind);
+    }
+
+    /// <summary>Alt+F2 — sets the explicit period window (ignored if inverted) and re-projects (RQ-1).</summary>
+    public void SetPeriod(DateOnly from, DateOnly to)
+    {
+        var range = new PeriodRange(from, to);
+        if (!range.IsValid) return; // reject an inverted window rather than corrupt the projection
+        _options = _options.WithPeriod(range);
+        NotifyParameterChanged();
+        Show(Kind);
+    }
+
+    /// <summary>Clears the period window, restoring the default as-of (RQ-1).</summary>
+    public void ClearPeriod()
+    {
+        _options = _options with { Period = null, AsOfDate = _defaultAsOf };
+        NotifyParameterChanged();
+        Show(Kind);
+    }
+
+    /// <summary>Alt+F1 — flips detailed↔summary and re-projects (RQ-2). A no-op on reports that do not roll up.</summary>
+    public void ToggleDetailed()
+    {
+        if (!SupportsDetailToggle) return;
+        _options = _options.WithDetailed(!_options.Detailed);
+        NotifyParameterChanged();
+        Show(Kind);
+    }
+
+    /// <summary>F12 — apply the hide-zero / percentages / closing-stock configuration and re-project (RQ-6).</summary>
+    public void ApplyConfiguration(bool hideZero, bool showPercentages, ClosingStockMode closingStock)
+    {
+        _options = _options with
+        {
+            HideZeroBalances = hideZero,
+            ShowPercentages = showPercentages,
+            ClosingStock = closingStock,
+        };
+        NotifyParameterChanged();
+        Show(Kind);
+    }
+
+    /// <summary>Notifies the parameter read-props so a bound status/header line refreshes after a change.</summary>
+    private void NotifyParameterChanged()
+    {
+        OnPropertyChanged(nameof(AsOf));
+        OnPropertyChanged(nameof(Period));
+        OnPropertyChanged(nameof(Detailed));
+        OnPropertyChanged(nameof(HideZeroBalances));
+        OnPropertyChanged(nameof(ShowPercentages));
+        OnPropertyChanged(nameof(ClosingStock));
+    }
+
     /// <summary>Rebuilds the current report whenever the scenario picker changes.</summary>
-    partial void OnSelectedScenarioChanged(ScenarioOption? value) => Show(Kind);
+    partial void OnSelectedScenarioChanged(ScenarioOption? value)
+    {
+        _options = _options.WithScenario(CurrentScenario);
+        Show(Kind);
+    }
 
     /// <summary>Switches the displayed report and rebuilds its rows (under the selected scenario, if any).</summary>
     public void Show(ReportKind kind)
     {
         Kind = kind;
         OnPropertyChanged(nameof(SupportsScenario));
+        OnPropertyChanged(nameof(SupportsDetailToggle));
         // The layout flags are computed from Kind; notify the view so the right DataTemplate shows.
         OnPropertyChanged(nameof(IsInventoryReport));
         OnPropertyChanged(nameof(IsGstReport));
@@ -199,17 +302,69 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private string ScenarioSuffix =>
         CurrentScenario is { } s ? $"  —  under scenario “{s.Name}”" : string.Empty;
 
+    /// <summary>The RQ-2 detailed/summary suffix for the subtitle ("(Summary)" when rolled up).</summary>
+    private string DetailSuffix => _options.Detailed ? string.Empty : "  —  (Summary)";
+
+    /// <summary>
+    /// The "as at DATE" clause for the closing-balance statements (Trial Balance). The Trial Balance is a
+    /// CLOSING-balance statement as-at the report date (opening carried forward): with a period window it
+    /// closes as-at Period.To, so Period.From has no effect on the figures. The clause therefore always reads
+    /// "as at {To}" (like the Balance Sheet) — never "for the period …", which would misleadingly imply an
+    /// in-window movement. See TrialBalance.Build's closing-as-at-To dispatch.
+    /// </summary>
+    private string AsOfOrPeriodClause => $"as at {FormatDate(_asOf)}";
+
+    /// <summary>Formats a percentage share (RQ-6) rounded to 2 dp — e.g. " (42.86%)".</summary>
+    private static string PercentSuffix(decimal share) =>
+        $"  ({share.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}%)";
+
     // --------------------------------------------------------------- Trial Balance
 
     private void BuildTrialBalance()
     {
-        var tb = TrialBalance.Build(_company, _asOf, CurrentScenario);
+        // RQ-1: the Trial Balance is a CLOSING-balance statement as-at the report date (opening carried
+        // forward), like the Balance Sheet. With a period window (Alt+F2) it closes as-at Period.To; with
+        // no window it closes as-at the as-of date. The engine ReportOptions dispatcher picks the date; the
+        // scenario rides along.
+        var tb = TrialBalance.Build(_company, _options);
         Title = "Trial Balance";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}";
+        Subtitle = $"{CompanyName}  —  {AsOfOrPeriodClause}{ScenarioSuffix}{DetailSuffix}";
         IsTwoColumn = true;
 
-        foreach (var row in tb.Rows.OrderBy(r => r.GroupName).ThenBy(r => r.LedgerName))
-            Rows.Add(ReportRow.DrCrLine(row.LedgerName, row.Debit, row.Credit, row.GroupName));
+        var detailRows = tb.Rows.OrderBy(r => r.GroupName).ThenBy(r => r.LedgerName).ToList();
+
+        if (_options.Detailed)
+        {
+            // RQ-6: hide exact-zero rows (net Dr − Cr == 0). RQ-6: percentage of the Dr column total.
+            var shown = _options.HideZeroBalances
+                ? ReportConfig.HideZeroBalances(detailRows, r => Net(r.Debit, r.Credit))
+                : (IReadOnlyList<TrialBalanceRow>)detailRows;
+
+            var pct = _options.ShowPercentages
+                ? ReportConfig.Percentages(shown, r => Magnitude(r.Debit, r.Credit))
+                : null;
+
+            for (var i = 0; i < shown.Count; i++)
+            {
+                var r = shown[i];
+                var particulars = pct is null ? r.LedgerName : r.LedgerName + PercentSuffix(pct[i]);
+                Rows.Add(ReportRow.DrCrLine(particulars, r.Debit, r.Credit, r.GroupName));
+            }
+        }
+        else
+        {
+            // RQ-2: group-level roll-up. Sum the signed (Dr − Cr) net per group, then place in the Dr/Cr column.
+            // Defect C: a group whose ledgers net to exactly zero must NOT render a blank Dr/Cr row — the
+            // legacy detailed TB suppresses zero rows, so the summary roll-up suppresses net-zero groups too,
+            // regardless of the RQ-6 hide-zero flag (Grand Total is unaffected; it stays balanced).
+            var groups = ReportGrouping.RollUp(detailRows, r => r.GroupName, r => Net(r.Debit, r.Credit));
+            var shown = ReportConfig.HideZeroBalances(groups, g => g.Amount);
+            foreach (var g in shown)
+            {
+                var (dr, cr) = SplitSigned(g.Amount);
+                Rows.Add(ReportRow.DrCrLine(g.Key, dr, cr));
+            }
+        }
 
         Rows.Add(ReportRow.DrCrTotal("Grand Total", tb.TotalDebit, tb.TotalCredit));
     }
@@ -218,40 +373,72 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     private void BuildBalanceSheet()
     {
-        var bs = BalanceSheet.Build(_company, _asOf, scenario: CurrentScenario);
+        // RQ-1 as-of + RQ-6 closing-stock basis pass through ReportOptions; scenario rides along.
+        var bs = BalanceSheet.Build(_company, _asOf, _options);
         Title = "Balance Sheet";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}{ScenarioSuffix}{DetailSuffix}";
         IsTwoColumn = false;
 
-        Rows.Add(new ReportRow { Particulars = "Liabilities", IsHeader = true });
-        foreach (var l in bs.Liabilities.Where(l => l.Amount != Money.Zero))
-            Rows.Add(ReportRow.Line(l.Name, l.Amount, l.GroupName));
-        Rows.Add(ReportRow.Total("Total Liabilities", bs.TotalLiabilities));
+        AddBalanceSheetSide("Liabilities", "Total Liabilities",
+            bs.Liabilities.Select(l => (l.Name, l.GroupName, l.Amount)), bs.TotalLiabilities);
+        AddBalanceSheetSide("Assets", "Total Assets",
+            bs.Assets.Select(a => (a.Name, a.GroupName, a.Amount)), bs.TotalAssets);
+    }
 
-        Rows.Add(new ReportRow { Particulars = "Assets", IsHeader = true });
-        foreach (var a in bs.Assets.Where(a => a.Amount != Money.Zero))
-            Rows.Add(ReportRow.Line(a.Name, a.Amount, a.GroupName));
-        Rows.Add(ReportRow.Total("Total Assets", bs.TotalAssets));
+    /// <summary>Adds one Balance-Sheet side (Liabilities/Assets) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
+    private void AddBalanceSheetSide(
+        string header, string totalLabel,
+        IEnumerable<(string Name, string GroupName, Money Amount)> lines, Money total)
+    {
+        Rows.Add(new ReportRow { Particulars = header, IsHeader = true });
+
+        var all = lines.ToList();
+        if (_options.Detailed)
+        {
+            // Legacy view hides the exact-zero lines; RQ-6 hide-zero is therefore already the default here.
+            var shown = all.Where(l => l.Amount != Money.Zero).ToList();
+            var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, l => l.Amount) : null;
+            for (var i = 0; i < shown.Count; i++)
+            {
+                var particulars = pct is null ? shown[i].Name : shown[i].Name + PercentSuffix(pct[i]);
+                Rows.Add(ReportRow.Line(particulars, shown[i].Amount, shown[i].GroupName));
+            }
+        }
+        else
+        {
+            // RQ-2: roll each side up to one row per group.
+            var groups = ReportGrouping.RollUp(all, l => l.GroupName, l => l.Amount);
+            var shown = _options.HideZeroBalances
+                ? ReportConfig.HideZeroBalances(groups, g => g.Amount)
+                : groups.Where(g => g.Amount != Money.Zero).ToList();
+            var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, g => g.Amount) : null;
+            for (var i = 0; i < shown.Count; i++)
+            {
+                var particulars = pct is null ? shown[i].Key : shown[i].Key + PercentSuffix(pct[i]);
+                Rows.Add(ReportRow.Line(particulars, shown[i].Amount));
+            }
+        }
+
+        Rows.Add(ReportRow.Total(totalLabel, total));
     }
 
     // --------------------------------------------------------------- Profit & Loss
 
     private void BuildProfitAndLoss()
     {
-        var pl = ProfitAndLoss.Build(_company, _asOf, ClosingStockMode.AsPostedLedger, CurrentScenario);
+        // RQ-1 as-of/period-end + RQ-6 closing-stock basis pass through ReportOptions; scenario rides along.
+        var pl = ProfitAndLoss.Build(_company, _asOf, _options);
         Title = "Profit & Loss A/c";
-        Subtitle = $"{CompanyName}  —  for the period ending {FormatDate(_asOf)}{ScenarioSuffix}";
+        var plClause = _options.Period is { } p
+            ? $"for the period {FormatDate(p.From)} to {FormatDate(p.To)}"
+            : $"for the period ending {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  {plClause}{ScenarioSuffix}{DetailSuffix}";
         IsTwoColumn = false;
 
-        Rows.Add(new ReportRow { Particulars = "Income", IsHeader = true });
-        foreach (var i in pl.Income)
-            Rows.Add(ReportRow.Line(i.LedgerName, i.Amount));
-        Rows.Add(ReportRow.Total("Total Income", pl.TotalIncome));
-
-        Rows.Add(new ReportRow { Particulars = "Expenses", IsHeader = true });
-        foreach (var e in pl.Expenses)
-            Rows.Add(ReportRow.Line(e.LedgerName, e.Amount));
-        Rows.Add(ReportRow.Total("Total Expenses", pl.TotalExpenses));
+        AddProfitAndLossSide("Income", "Total Income",
+            pl.Income.Select(i => (i.LedgerName, i.Amount)), pl.TotalIncome);
+        AddProfitAndLossSide("Expenses", "Total Expenses",
+            pl.Expenses.Select(e => (e.LedgerName, e.Amount)), pl.TotalExpenses);
 
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
@@ -259,11 +446,51 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Rows.Add(ReportRow.Total(label, magnitude));
     }
 
+    /// <summary>Adds one P&amp;L side (Income/Expenses) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
+    private void AddProfitAndLossSide(
+        string header, string totalLabel,
+        IEnumerable<(string LedgerName, Money Amount)> lines, Money total)
+    {
+        Rows.Add(new ReportRow { Particulars = header, IsHeader = true });
+
+        // P&L lines carry no group key on the projection; the summary roll-up keys on the section header so a
+        // rolled-up side collapses to a single "Income"/"Expenses" total row (still Σ==detailed).
+        var all = lines.ToList();
+        IReadOnlyList<(string Name, Money Amount)> shown = _options.Detailed
+            ? all.Select(l => (l.LedgerName, l.Amount)).ToList()
+            : ReportGrouping.RollUp(all, _ => header, l => l.Amount).Select(g => (g.Key, g.Amount)).ToList();
+
+        if (_options.HideZeroBalances)
+            shown = ReportConfig.HideZeroBalances(shown, l => l.Amount);
+
+        var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, l => l.Amount) : null;
+        for (var i = 0; i < shown.Count; i++)
+        {
+            var particulars = pct is null ? shown[i].Name : shown[i].Name + PercentSuffix(pct[i]);
+            Rows.Add(ReportRow.Line(particulars, shown[i].Amount));
+        }
+
+        Rows.Add(ReportRow.Total(totalLabel, total));
+    }
+
+    // ---- Dr/Cr signed helpers (Money is unsigned magnitude + side; TB rows split across two columns) ----
+
+    /// <summary>The signed net of a Dr/Cr pair (Dr positive, Cr negative) as integer paisa.</summary>
+    private static Money Net(Money debit, Money credit) => new(debit.Amount - credit.Amount);
+
+    /// <summary>The magnitude (|Dr − Cr|) of a Dr/Cr pair — used for a percentage-of-total share.</summary>
+    private static Money Magnitude(Money debit, Money credit) => new(Math.Abs(debit.Amount - credit.Amount));
+
+    /// <summary>Splits a signed net back into (Dr, Cr) columns: positive → Dr, negative → Cr.</summary>
+    private static (Money Debit, Money Credit) SplitSigned(Money net) =>
+        net.Amount >= 0m ? (new Money(net.Amount), Money.Zero) : (Money.Zero, new Money(-net.Amount));
+
     // --------------------------------------------------------------- Day Book
 
     private void BuildDayBook()
     {
-        var from = _company.BooksBeginFrom;
+        // RQ-1: the Day Book already filters [from,to]; feed the chosen period (else books-begin → as-of).
+        var from = _options.Period?.From ?? _company.BooksBeginFrom;
         var rows = DayBook.Build(_company, from, _asOf);
         Title = "Day Book";
         Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
@@ -294,26 +521,55 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     private void BuildStockSummary()
     {
-        var ss = Report.BuildStockSummary(_company, _asOf);
+        // RQ-1: the engine Stock Summary already takes [from,to]; feed the chosen period (else books-begin → as-of).
+        var from = _options.Period?.From ?? BooksFrom;
+        var ss = Report.BuildStockSummary(_company, _asOf, from);
         Title = "Stock Summary";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        Subtitle = _options.Period is { } p
+            ? $"{CompanyName}  —  for the period {FormatDate(p.From)} to {FormatDate(p.To)}{DetailSuffix}"
+            : $"{CompanyName}  —  as at {FormatDate(_asOf)}{DetailSuffix}";
 
-        foreach (var r in ss.Rows)
+        if (_options.Detailed)
         {
-            var unitRate = r.ClosingQuantity != 0m
-                ? IndianFormat.Amount(r.ClosingValue.Amount / r.ClosingQuantity)
-                : string.Empty;
-            Rows.Add(new ReportRow
+            // RQ-6: hide exact-zero closing-value rows; percentages of the total closing value.
+            var shown = _options.HideZeroBalances
+                ? ReportConfig.HideZeroBalances(ss.Rows, r => r.ClosingValue)
+                : (IReadOnlyList<StockSummaryRow>)ss.Rows;
+            var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, r => r.ClosingValue) : null;
+
+            for (var i = 0; i < shown.Count; i++)
             {
-                // Col1 Item, Col2 Inward, Col3 Outward, Col4 Closing Qty, Col5 Rate, Col6 Closing Value.
-                Col1 = r.ItemName,
-                Col2 = IndianFormat.Quantity(r.InwardQuantity),
-                Col3 = IndianFormat.Quantity(r.OutwardQuantity),
-                Col4 = IndianFormat.Quantity(r.ClosingQuantity),
-                Col5 = unitRate,
-                Col6 = IndianFormat.Amount(r.ClosingValue),
-                DrillStockItemId = r.StockItemId,   // Enter / double-click → Stock Item Movement
-            });
+                var r = shown[i];
+                var unitRate = r.ClosingQuantity != 0m
+                    ? IndianFormat.Amount(r.ClosingValue.Amount / r.ClosingQuantity)
+                    : string.Empty;
+                var itemName = pct is null ? r.ItemName : r.ItemName + PercentSuffix(pct[i]);
+                Rows.Add(new ReportRow
+                {
+                    // Col1 Item, Col2 Inward, Col3 Outward, Col4 Closing Qty, Col5 Rate, Col6 Closing Value.
+                    Col1 = itemName,
+                    Col2 = IndianFormat.Quantity(r.InwardQuantity),
+                    Col3 = IndianFormat.Quantity(r.OutwardQuantity),
+                    Col4 = IndianFormat.Quantity(r.ClosingQuantity),
+                    Col5 = unitRate,
+                    Col6 = IndianFormat.Amount(r.ClosingValue),
+                    DrillStockItemId = r.StockItemId,   // Enter / double-click → Stock Item Movement
+                });
+            }
+        }
+        else
+        {
+            // RQ-2: roll up to one row per stock group by closing value (Σ == the detailed total).
+            var groups = ReportGrouping.RollUp(ss.Rows, r => r.GroupName, r => r.ClosingValue);
+            var shown = _options.HideZeroBalances
+                ? ReportConfig.HideZeroBalances(groups, g => g.Amount)
+                : groups;
+            var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, g => g.Amount) : null;
+            for (var i = 0; i < shown.Count; i++)
+            {
+                var label = pct is null ? shown[i].Key : shown[i].Key + PercentSuffix(pct[i]);
+                Rows.Add(new ReportRow { Col1 = label, Col6 = IndianFormat.Amount(shown[i].Amount) });
+            }
         }
 
         Rows.Add(new ReportRow
