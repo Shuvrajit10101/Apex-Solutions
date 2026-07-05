@@ -507,3 +507,24 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   CRITICAL CGST+SGST≠IGST parity bug, a B2C place-of-supply mis-classification, and a multi-rate rate-attribution bug.
   **DEFERRED to Phase 9 per approved DPs:** RCM, composition, cess, e-invoice/e-way, GSTR-2A/2B, Rule-88A ITC set-off +
   Alt+J/Ctrl+F posting. **Next: Phase 5** per plan.md.
+
+### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 4)
+- **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
+  `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
+  phase3/phase4 requirements docs for context).
+- **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/interesting-mirzakhani-30e51e`
+  @ `8812d72`, **schema v13, 570 tests green**, de-branded, working tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core)
+  COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5** (reports depth + printing / export / import / email) per `plan.md`.
+- **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
+  for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
+  gated, adversarially-verified finish.
+- **Operating model (CLAUDE.md R1/R2 — do the MAXIMUM work through agentic workflows + subagents; main loop only
+  decides/sequences/synthesizes):** per slice — CA/A14 requirements up front → engine TDD → cascade Miller-column UI →
+  A10 adversarial review (reproduce bugs with throwaway tests) → fix → full gate green (`dotnet test -c Release`, re-run
+  it yourself) → **GitHub Expert (A12) alone** commits+pushes → memory.md log. Verify UI by headless Skia render + Read
+  the PNG. Web-verify any tax/law (R7). **Kill any running `Apex.Desktop.exe` before building** (it locks the build).
+  Never write "Tally" in shipped app/code. **Checkpoint after every slice; stop at a clean committed checkpoint on any
+  usage-limit signal.**
+- **Deferred to Phase 9:** RCM, composition, cess, e-invoice/e-way, GSTR-2A/2B, Rule-88A ITC set-off + Alt+J/Ctrl+F
+  posting.
