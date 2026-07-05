@@ -63,6 +63,7 @@ public enum GatewayMenu
     InventoryVouchers,
     InventoryReports,
     GstReports,
+    Statements,
 }
 
 /// <summary>
@@ -400,6 +401,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Balance Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Profit & Loss A/c", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Statements", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
@@ -675,6 +677,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("GSTR-1", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-3B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
+    }
+
+    /// <summary>
+    /// Builds the "Statements" submenu column (Reports → Statements; RQ-5 part 1): the three financial-analysis
+    /// statements nested under a single <b>Financial Statements</b> section — <b>Cash Flow</b> (cash &amp; bank
+    /// inflows/outflows reconciling opening to closing), <b>Funds Flow</b> (sources &amp; applications of funds)
+    /// and <b>Ratio Analysis</b> (the standard accounting ratios). Each is a page item reusing
+    /// <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>; all three honour the F2/Alt+F2 period.
+    /// </summary>
+    private GatewayColumn BuildStatementsColumn()
+    {
+        var col = new GatewayColumn("Statements");
+        col.Add(MenuItemViewModel.Header("Financial Statements"));
+        col.Add(new MenuItemViewModel("Cash Flow", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Funds Flow", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Ratio Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Statements" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Statements] and focuses the submenu.
+    /// </summary>
+    public void ShowStatementsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statements");
+        OpenSubmenuColumn(BuildStatementsColumn(), GatewayMenu.Statements,
+            "Gateway of Apex Solutions — Statements");
     }
 
     /// <summary>
@@ -1775,6 +1806,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Inventory Reports"),
             "GST Reports" => (BuildGstReportsColumn(), GatewayMenu.GstReports,
                 "Gateway of Apex Solutions — GST Reports"),
+            "Statements" => (BuildStatementsColumn(), GatewayMenu.Statements,
+                "Gateway of Apex Solutions — Statements"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -1835,6 +1868,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Tax Analysis": OpenReport(ReportKind.TaxAnalysis); break;
             case "GSTR-1": OpenReport(ReportKind.Gstr1); break;
             case "GSTR-3B": OpenReport(ReportKind.Gstr3b); break;
+            case "Cash Flow": OpenReport(ReportKind.CashFlow); break;
+            case "Funds Flow": OpenReport(ReportKind.FundsFlow); break;
+            case "Ratio Analysis": OpenReport(ReportKind.RatioAnalysis); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -1949,6 +1985,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
                     "Inventory Reports" => GatewayMenu.InventoryReports,
                     "GST Reports" => GatewayMenu.GstReports,
+                    "Statements" => GatewayMenu.Statements,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,

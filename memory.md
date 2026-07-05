@@ -559,17 +559,28 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **686 passed / 0 failed** (Ledger 385 · Sqlite 46 · Desktop 255). Schema v13 unchanged. Robert & Bright green.
 - **Next:** Phase 5 slice 4 — new report families part 1: Cash Flow, Funds Flow, Ratio Analysis (RQ-5); slice 5 = Exception reports.
 
-### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 1)
+### Phase 5 slice 4 — New report families pt.1: Cash Flow / Funds Flow / Ratio Analysis (RQ-5) ✅ (2026-07-05)
+- **Delivered 3 new statement reports** (engine projections composed from BalanceSheet/ProfitAndLoss/LedgerBalances, no re-derivation; nested under Reports → Statements):
+  - **Cash Flow** — opening→closing cash+bank reconciliation over a period (Inflows/Outflows sections, Net Cash Flow); Opening+Net==Closing by double entry.
+  - **Funds Flow** — Sources vs Applications (Funds From Operations = balancing residual); Total Sources==Total Applications.
+  - **Ratio Analysis** — **Tally-faithful, web-verified against official TallyHelp**: Principal Groups (Working Capital, Cash-in-Hand, Bank, Sundry Debtors/Creditors, Sales/Purchase, Stock-in-Hand, Nett Profit, Capital) + Principal Ratios (Current, Quick, Debt/Equity, GP%, NP%, Operating Cost%, Receivables Turnover days, ROI% = NettProfit/(Capital+NettProfit), Return on Working Capital%, Inventory Turnover, Working Capital Turnover). All divide-by-zero guarded (→ "N/A").
+- **Render-check PASS** (headless Skia, Bright): all 3 render cleanly under Reports → Statements, figures reconcile on-screen, no overlap, zero "Tally".
+- **Adversarial review (A10, 4 lenses):** regression + de-brand PASS. Fidelity (R7) caught real Ratio-Analysis gaps → fixed: added 4 missing ratios (Working Capital Turnover, Operating Cost %, Receivables Turnover days, Return on Working Capital %), corrected ROI% denominator to Tally's definition, added the Principal-Groups breakdown; all formulas web-verified (TallyHelp, cited). Code-quality: classify by group ID not name (BalanceSheetLine gained GroupId), removed a dead branch, fixed a misleading test comment. Known limitation documented: scenario+period Sales uses SignedMovement (no scenario overload), same as P&L.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **703 passed / 0 failed** (Ledger 392 · Sqlite 46 · Desktop 265). Schema v13 unchanged. Robert & Bright green.
+- **Next:** Phase 5 slice 5 — Exception reports (Negative Stock, Negative Cash/Bank, Memorandum register, Reversing-Journal register).
+
+### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v13, 686 tests green** (Ledger 385 · Sqlite 46 · Desktop 255), de-branded, working
+  SINGLE live workspace now), **schema v13, 703 tests green** (Ledger 392 · Sqlite 46 · Desktop 265), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
-  COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE** and ✅ **Phase 5 slice 3 (comparative/columnar —
-  RQ-4) COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 4** — new report families part 1: Cash Flow, Funds Flow, Ratio Analysis (RQ-5); then slice 5 =
-  Exception reports; then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
+  COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
+  RQ-4) COMPLETE** and ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, committed &
+  pushed (no PR yet).
+- **Resume at Phase 5 slice 5** — Exception reports (Negative Stock, Negative Cash/Bank, Memorandum register,
+  Reversing-Journal register); then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

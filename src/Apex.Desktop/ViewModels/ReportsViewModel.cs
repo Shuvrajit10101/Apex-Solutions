@@ -34,6 +34,11 @@ public enum ReportKind
     TaxAnalysis,
     Gstr1,
     Gstr3b,
+
+    // ---- statements reports (RQ-5 part 1 — Reports → Statements) ----
+    CashFlow,
+    FundsFlow,
+    RatioAnalysis,
 }
 
 /// <summary>
@@ -365,6 +370,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.TaxAnalysis: BuildTaxAnalysis(); break;
             case ReportKind.Gstr1: BuildGstr1(); break;
             case ReportKind.Gstr3b: BuildGstr3b(); break;
+
+            case ReportKind.CashFlow: BuildCashFlow(); break;
+            case ReportKind.FundsFlow: BuildFundsFlow(); break;
+            case ReportKind.RatioAnalysis: BuildRatioAnalysis(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -1302,6 +1311,142 @@ public sealed partial class ReportsViewModel : ViewModelBase
             IsTotal = true,
         });
     }
+
+    // =============================================================== statements reports (RQ-5 part 1)
+
+    /// <summary>The period window driving a statement report: the chosen [From,To] (Alt+F2), else
+    /// books-begin → the effective as-of. The cash-flow / funds-flow statements are period movements,
+    /// so an unset window spans the whole books-to-date (matching the Day Book / Stock Summary default).</summary>
+    private PeriodRange StatementPeriod =>
+        _options.Period ?? new PeriodRange(BooksFrom, _asOf);
+
+    // --------------------------------------------------------------- Cash Flow
+    //   Opening Balance header · Inflows section (+ Total Inflows) · Outflows section (+ Total Outflows) ·
+    //   Net Cash Flow · Closing Balance.  Particulars = ledger, Secondary = group, single Amount column.
+
+    private void BuildCashFlow()
+    {
+        var period = StatementPeriod;
+        var cf = CashFlow.Build(_company, period);
+        Title = "Cash Flow";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        Rows.Add(ReportRow.Total("Opening Balance", cf.OpeningBalance));
+
+        Rows.Add(new ReportRow { Particulars = "Inflows", IsHeader = true });
+        foreach (var line in cf.Inflows)
+            Rows.Add(ReportRow.Line(line.Name, line.Amount, line.GroupName));
+        if (cf.Inflows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No inflows in this period.", IsHeader = true });
+        Rows.Add(ReportRow.Total("Total Inflows", cf.TotalInflows));
+
+        Rows.Add(new ReportRow { Particulars = "Outflows", IsHeader = true });
+        foreach (var line in cf.Outflows)
+            Rows.Add(ReportRow.Line(line.Name, line.Amount, line.GroupName));
+        if (cf.Outflows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No outflows in this period.", IsHeader = true });
+        Rows.Add(ReportRow.Total("Total Outflows", cf.TotalOutflows));
+
+        Rows.Add(ReportRow.Total("Net Cash Flow", cf.NetCashFlow));
+        Rows.Add(ReportRow.Total("Closing Balance", cf.ClosingBalance));
+    }
+
+    // --------------------------------------------------------------- Funds Flow
+    //   Sources of Funds section (+ Total Sources) · Applications of Funds section (+ Total Applications).
+    //   Funds From Operations / Funds Lost In Operations lead their side. Two-column statement that balances.
+
+    private void BuildFundsFlow()
+    {
+        var period = StatementPeriod;
+        var ff = FundsFlow.Build(_company, period);
+        Title = "Funds Flow";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        Rows.Add(new ReportRow { Particulars = "Sources of Funds", IsHeader = true });
+        foreach (var line in ff.Sources)
+            Rows.Add(ReportRow.Line(line.Name, line.Amount, line.GroupName));
+        if (ff.Sources.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No sources in this period.", IsHeader = true });
+        Rows.Add(ReportRow.Total("Total Sources", ff.TotalSources));
+
+        Rows.Add(new ReportRow { Particulars = "Applications of Funds", IsHeader = true });
+        foreach (var line in ff.Applications)
+            Rows.Add(ReportRow.Line(line.Name, line.Amount, line.GroupName));
+        if (ff.Applications.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No applications in this period.", IsHeader = true });
+        Rows.Add(ReportRow.Total("Total Applications", ff.TotalApplications));
+    }
+
+    // --------------------------------------------------------------- Ratio Analysis
+    //   A flat label/value dashboard grouped into Working-Capital / Capital-Structure / Profitability /
+    //   Efficiency blocks. Money via IndianFormat; decimal? ratios show their value or "N/A" (null).
+
+    private void BuildRatioAnalysis()
+    {
+        // Balances are as-at the effective as-of; the P&L / sales window follows the RQ-1 period (rides in _options).
+        var ra = RatioAnalysis.Build(_company, _asOf, _options);
+        Title = "Ratio Analysis";
+        Subtitle = _options.Period is { } p
+            ? $"{CompanyName}  —  as at {FormatDate(_asOf)}  (period {FormatDate(p.From)} to {FormatDate(p.To)})"
+            : $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        IsTwoColumn = false;
+
+        // Tally Prime's Ratio Analysis is a two-column report: Principal Groups (key figures) on the
+        // left, Principal Ratios (the ratios relating those figures) on the right. We render them as two
+        // labelled sections one under the other (the report grid is single-column here).
+        Rows.Add(new ReportRow { Particulars = "Principal Groups", IsHeader = true });
+        foreach (var g in ra.PrincipalGroups)
+            AddRatioMoney(g.Label, g.Value);
+
+        Rows.Add(new ReportRow { Particulars = "Principal Ratios", IsHeader = true });
+        foreach (var r in ra.PrincipalRatios)
+            AddRatioLine(r);
+    }
+
+    /// <summary>Adds a Principal-Ratio row, formatting per its unit (ratio / percent / days; null → "N/A").</summary>
+    private void AddRatioLine(PrincipalRatioLine ratio)
+    {
+        switch (ratio.Unit)
+        {
+            case RatioUnit.Percent: AddRatioPercent(ratio.Label, ratio.Value); break;
+            case RatioUnit.Days: AddRatioDays(ratio.Label, ratio.Value); break;
+            default: AddRatioValue(ratio.Label, ratio.Value); break;
+        }
+    }
+
+    /// <summary>Adds a label → days row; null renders "N/A", else 0 dp with a " days" suffix.</summary>
+    private void AddRatioDays(string label, decimal? days)
+        => Rows.Add(new ReportRow
+        {
+            Particulars = label,
+            Amount = days is { } v
+                ? Math.Round(v, MidpointRounding.AwayFromZero).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " days"
+                : "N/A",
+        });
+
+    /// <summary>Adds a label → money row to the Ratio-Analysis dashboard (always rendered, even zero).</summary>
+    private void AddRatioMoney(string label, Money value)
+        => Rows.Add(new ReportRow { Particulars = label, Amount = IndianFormat.AmountAlways(value) });
+
+    /// <summary>Adds a label → ratio row; a null (zero-denominator) ratio renders "N/A", else 2 dp.</summary>
+    private void AddRatioValue(string label, decimal? ratio)
+        => Rows.Add(new ReportRow { Particulars = label, Amount = FormatRatio(ratio) });
+
+    /// <summary>Adds a label → percentage row; null renders "N/A", else 2 dp with a "%" suffix (value is ×100 already).</summary>
+    private void AddRatioPercent(string label, decimal? percent)
+        => Rows.Add(new ReportRow
+        {
+            Particulars = label,
+            Amount = percent is { } v
+                ? v.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "%"
+                : "N/A",
+        });
+
+    /// <summary>Formats a nullable ratio to 2 dp, or "N/A" when null (a guarded divide-by-zero).</summary>
+    private static string FormatRatio(decimal? ratio)
+        => ratio is { } v ? v.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) : "N/A";
 
     // --------------------------------------------------------------- helpers
 

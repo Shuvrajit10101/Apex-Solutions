@@ -3,8 +3,13 @@ using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Reports;
 
-/// <summary>A Balance-Sheet line: a ledger (or synthetic head) at its statement magnitude.</summary>
-public sealed record BalanceSheetLine(string Name, string GroupName, Money Amount);
+/// <summary>
+/// A Balance-Sheet line: a ledger (or synthetic head) at its statement magnitude. <see cref="GroupId"/>
+/// is the ledger's actual immediate group id — the reliable key for group-membership tests (two distinct
+/// groups may share a name, so classifying by name alone is ambiguous). It is <c>null</c> only for the two
+/// synthetic heads (derived Stock-in-Hand, folded period Net Profit) that have no single owning ledger.
+/// </summary>
+public sealed record BalanceSheetLine(string Name, string GroupName, Money Amount, Guid? GroupId = null);
 
 /// <summary>
 /// The Balance Sheet (design §7.4). Every non-P&amp;L ledger's closing balance, split
@@ -83,12 +88,12 @@ public sealed record BalanceSheet(
                 var stockNature = ClassificationRules.PrimaryNatureOf(group, company);
                 if (stockNature == GroupNature.Asset)
                 {
-                    assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(signedStock)));
+                    assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(signedStock), group.Id));
                     totalAsset += signedStock;
                 }
                 else
                 {
-                    liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(-signedStock)));
+                    liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(-signedStock), group.Id));
                     totalLiab += -signedStock;
                 }
                 continue;
@@ -103,13 +108,13 @@ public sealed record BalanceSheet(
             {
                 // Assets sit on the debit side; magnitude = signed (positive when debit).
                 var magnitude = signed;
-                assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude)));
+                assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude), group.Id));
                 totalAsset += magnitude;
             }
             else // Liability (Capital, Loans, Current Liabilities, Suspense, …)
             {
                 var magnitude = -signed; // credit side positive
-                liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude)));
+                liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude), group.Id));
                 totalLiab += magnitude;
             }
         }
