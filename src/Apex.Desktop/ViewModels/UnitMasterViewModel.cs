@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -35,11 +36,21 @@ public sealed class UnitListRow
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable.</para>
 /// </summary>
-public sealed partial class UnitMasterViewModel : ViewModelBase
+public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Units",
+        new[]
+        {
+            MasterListColumn.Text("Symbol"), MasterListColumn.Text("Formal Name"),
+            MasterListColumn.Text("Kind"), MasterListColumn.Text("Detail"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Symbol, r.FormalName, r.Kind, r.Detail }).ToList());
 
     /// <summary>The existing simple units — the pool a compound unit's first/tail can be built from.</summary>
     public ObservableCollection<Unit> SimpleUnits { get; } = new();

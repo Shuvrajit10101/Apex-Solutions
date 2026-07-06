@@ -94,7 +94,7 @@
 
         <!-- ============ MENU ROW (navy dark) ============ -->
         <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Height="24">
-            <TextBlock Text="Gateway of Apex Solutions   —   K: Company   Y: Data   Z: Exchange   G: Go To   O: Import   E: Export   M: Share"
+            <TextBlock Text="Gateway of Apex Solutions   —   F3: Company   Y: Data   O: Import"
                        Foreground="#8FA9D6" FontSize="11" VerticalAlignment="Center" Margin="12,0"
                        TextTrimming="CharacterEllipsis"/>
         </Border>

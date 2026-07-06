@@ -196,11 +196,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        // E / Alt+E (RQ-14) opens the Export panel for the CURRENT report — choose CSV/XLSX/PDF, folder,
-        // filename and an optional timestamp; applying writes the file via Apex.Ledger.Io. Report context only
-        // (so the bare E never fires while a drill/voucher/master column is active), and not while typing.
-        // Accepts both the bare E and Alt+E (the header hint reads "E: Export"). No Ctrl (Ctrl+E is unused here).
-        if (e.Key == Key.E && vm.IsReportContext && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
+        // E / Alt+E (RQ-14/16) opens the Export panel for the CURRENT report OR master list (Chart of Accounts,
+        // ledgers, stock items) — choose CSV/XLSX/PDF, folder, filename and an optional timestamp; applying
+        // writes the file via Apex.Ledger.Io. Exportable-page context only (a report or a master list), and not
+        // while typing in a field (so a name-entry keystroke on a master screen goes to the field, not the
+        // export jump). Accepts both the bare E and Alt+E (the header hint reads "E: Export"). No Ctrl.
+        if (e.Key == Key.E && vm.IsExportablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExport();
             e.Handled = true;

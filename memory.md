@@ -643,12 +643,20 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **976 passed / 0 failed** (Apex.Ledger.Io 125 · Ledger 433 · Sqlite 59 · Desktop 359). Schema v15. Robert & Bright green.
 - **Next:** Phase 5 slice 13 — wire the live P/E/M/O shortcut bar + report-config shortcuts + Reports-nav completeness + master-list export (deferred from slice 10) + Phase-5 completeness audit (RQ-28..30) [A8/A15]. LAST Phase-5 slice; then pause + launch the app for user inspection.
 
+### Phase 5 slice 13 (final) — P/E/M/O bar + report-config shortcuts + Reports nav + master-list export (RQ-28..30) ✅ (2026-07-06) — PHASE 5 COMPLETE
+- **Finalization:** (RQ-28) verified the live P/E/M/O shortcut bar (P/Ctrl+P Print · E/Alt+E Export · M/Ctrl+M E-Mail · O/Alt+O Import) — each live in context; fixed a button-bar 'O' hint collision (Outstandings → "Outs" so bare-O = Import). (RQ-29) verified all report-config shortcuts (F2/Alt+F2/Alt+F1/Alt+F12/F12/Alt+C/Alt+N/Ctrl+S Save View/Enter drill), no collisions. (RQ-30) all report families nested under Reports; ADDED an "Account Books" family (Cash Book/Bank Book/Ledger) reusing the LedgerBook drill.
+- **Master-list export** (deferred from slice 10): generic `IMasterListExportSource` on 12 master VMs (Chart of Accounts, Ledgers, Stock Items, Groups, Cost Centres/Categories, Godowns, Units, Currencies, Scenarios, Budgets, Stock Groups/Categories) + Parties — E/Alt+E exports EVERY master screen to CSV/XLSX/PDF (amounts as summable Number cells, real captions).
+- **Render-check PASS** (headless Skia): master-list export on non-bespoke screens; corrected 'O' hint; Account Books nested; de-branded.
+- **A14 COMPLETENESS AUDIT:** all RQ-1..30 IMPLEMENTED + tested; §7 DoD + the 4 approved divergences (XML kept/HTML deferred, SMTP send deferred, print=to-PDF) satisfied; PR-1..5 hard gates each green (Robert & Bright reconcile; GST golden tax-invoice; lossless JSON+XML round-trip + corrupted-rejected; output writers headlessly validated). Minor deferrals noted (per-voucher Sales/Purchase registers; right-palette E/P buttons — top bar already has them) — non-blocking.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **989 passed / 0 failed** (Apex.Ledger.Io 125 · Ledger 433 · Sqlite 59 · Desktop 372). Schema v15. Robert & Bright green.
+- **✅ PHASE 5 (reports depth + printing/export/import/email) COMPLETE.** All of Phase 5 (slices 1–13) committed & pushed on `claude/keen-albattani-a09dfd`. Next (after the user's go-ahead following a live app inspection): **Phase 6 — Advanced inventory** (batches/expiry, BOM & Manufacturing Journal, additional cost of purchase, Price Levels/Lists, Reorder + status report, POS multi-tender, Job Work).
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v15, 976 tests green** (4 test projects: Apex.Ledger.Io 125 · Ledger 433 · Sqlite 59 · Desktop 359), de-branded, working
+  SINGLE live workspace now), **schema v15, 989 tests green** (4 test projects: Apex.Ledger.Io 125 · Ledger 433 · Sqlite 59 · Desktop 372), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
   RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
@@ -658,11 +666,12 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, ✅ **Phase 5 slice 10 (tabular
   export CSV RFC-4180 + XLSX hand-rolled OPC — RQ-14..18) COMPLETE**, and ✅ **Phase 5 slice 11 (canonical JSON+XML data
   export/import + lossless round-trip — RQ-19/20..24; PR-4 exit gate PASS) COMPLETE**, and ✅ **Phase 5 slice 12 (email
-  compose + .eml/mailto hand-off + SMTP profile — RQ-25..27; SQLite schema v15; live send deferred) COMPLETE**,
-  committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 13** — wire the live P/E/M/O shortcut bar + report-config shortcuts + Reports-nav
-  completeness + master-list export (deferred from slice 10) + Phase-5 completeness audit (RQ-28..30); LAST Phase-5
-  slice, then pause + launch the app for user inspection; then the rest of `plan.md`.
+  compose + .eml/mailto hand-off + SMTP profile — RQ-25..27; SQLite schema v15; live send deferred) COMPLETE**, and
+  ✅ **Phase 5 slice 13 (final — P/E/M/O bar + report-config shortcuts + Reports nav + master-list export — RQ-28..30)
+  COMPLETE**, committed & pushed (no PR yet). **✅ PHASE 5 (reports depth + printing/export/import/email) COMPLETE.**
+- **Resume at Phase 6 — Advanced inventory** (batches/expiry, BOM & Manufacturing Journal, additional cost of purchase,
+  Price Levels/Lists, Reorder + status report, POS multi-tender, Job Work) — ONLY after the user's go-ahead following a
+  live app inspection (Phase 5 is a gate; R9/R12). Then the rest of `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

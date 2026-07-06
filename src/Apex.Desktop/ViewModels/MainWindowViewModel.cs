@@ -77,6 +77,13 @@ public enum GatewayMenu
     GstReports,
     Statements,
     ExceptionReports,
+
+    // Account Books family (catalog §16 / RQ-30): Cash Book / Bank Book / Ledger, each drilling to a
+    // ledger picker that opens that ledger's LedgerBook (a pure reuse of the existing RQ-7 drill).
+    AccountBooks,
+    CashBook,
+    BankBook,
+    LedgerBooks,
 }
 
 /// <summary>
@@ -462,6 +469,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Balance Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Profit & Loss A/c", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Account Books", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Statements", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
@@ -768,6 +776,143 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("Statements");
         OpenSubmenuColumn(BuildStatementsColumn(), GatewayMenu.Statements,
             "Gateway of Apex Solutions — Statements");
+    }
+
+    // =============================================================== Account Books (catalog §16 / RQ-30)
+
+    /// <summary>
+    /// Builds the "Account Books" hub submenu column (Reports → Account Books; catalog §16 / RQ-30): the three
+    /// core books — <b>Cash Book</b>, <b>Bank Book</b> and <b>Ledger</b> — each a Group drilling into a picker
+    /// of the relevant ledgers. Each picked ledger opens that ledger's
+    /// <see cref="Apex.Ledger.Reports.LedgerBook"/> via the existing RQ-7 drill (<see cref="OpenLedgerVouchers"/>) —
+    /// a pure reuse of an existing projection, no new engine report. Cash Book / Bank Book are the Ledger book
+    /// filtered to a Cash-in-Hand / Bank ledger (<see cref="Apex.Ledger.Reports.ClassificationRules"/>). The
+    /// per-voucher registers (Sales / Purchase / … registers) reuse the Day Book filtered by voucher type and
+    /// are surfaced elsewhere; they are noted for a later slice.
+    /// </summary>
+    private GatewayColumn BuildAccountBooksColumn()
+    {
+        var col = new GatewayColumn("Account Books");
+        col.Add(MenuItemViewModel.Header("Account Books"));
+        col.Add(new MenuItemViewModel("Cash Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Bank Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Ledger", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Account Books" hub submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Account Books] and focuses the hub.
+    /// </summary>
+    public void ShowAccountBooksMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Account Books");
+        OpenSubmenuColumn(BuildAccountBooksColumn(), GatewayMenu.AccountBooks,
+            "Gateway of Apex Solutions — Account Books");
+    }
+
+    /// <summary>
+    /// Builds a ledger-picker submenu column for an Account Book: one page item per ledger matching
+    /// <paramref name="include"/> (all ledgers for Ledger, cash-only for Cash Book, bank-only for Bank Book),
+    /// name-sorted. Activating a ledger opens its <see cref="Apex.Ledger.Reports.LedgerBook"/> over the books
+    /// period via <see cref="OpenLedgerVouchers"/>. An empty match shows a single non-selectable note.
+    /// </summary>
+    private GatewayColumn BuildLedgerBookPickerColumn(string title, Func<Apex.Ledger.Domain.Ledger, bool> include)
+    {
+        var col = new GatewayColumn(title);
+        col.Add(MenuItemViewModel.Header(title));
+
+        var ledgers = Company is null
+            ? System.Array.Empty<Apex.Ledger.Domain.Ledger>()
+            : Company.Ledgers.Where(include)
+                .OrderBy(l => l.Name, System.StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+        if (ledgers.Length == 0)
+            col.Add(MenuItemViewModel.Header("(no matching ledgers)"));
+        else
+            foreach (var ledger in ledgers)
+                col.Add(new MenuItemViewModel(ledger.Name, () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        return col;
+    }
+
+    /// <summary>Opens the "Account Books → Cash Book" ledger picker (Cash-in-Hand ledgers only).</summary>
+    public void ShowCashBookMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowAccountBooksMenu();
+        SelectSubmenuItem("Cash Book");
+        OpenSubmenuColumn(
+            BuildLedgerBookPickerColumn("Cash Book",
+                l => Apex.Ledger.Reports.ClassificationRules.IsCashLedger(l, Company)),
+            GatewayMenu.CashBook, "Gateway of Apex Solutions — Cash Book");
+    }
+
+    /// <summary>Opens the "Account Books → Bank Book" ledger picker (Bank-Accounts / Bank-OD ledgers only).</summary>
+    public void ShowBankBookMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowAccountBooksMenu();
+        SelectSubmenuItem("Bank Book");
+        OpenSubmenuColumn(
+            BuildLedgerBookPickerColumn("Bank Book",
+                l => Apex.Ledger.Reports.ClassificationRules.IsBankLedger(l, Company)),
+            GatewayMenu.BankBook, "Gateway of Apex Solutions — Bank Book");
+    }
+
+    /// <summary>Opens the "Account Books → Ledger" picker (every ledger — the classic Ledger book).</summary>
+    public void ShowLedgerBooksMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowAccountBooksMenu();
+        SelectSubmenuItem("Ledger");
+        OpenSubmenuColumn(
+            BuildLedgerBookPickerColumn("Ledger", _ => true),
+            GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger");
+    }
+
+    /// <summary>
+    /// Opens a ledger's Account-Book (its <see cref="Apex.Ledger.Reports.LedgerBook"/>) by ledger NAME — the
+    /// action an Account-Books picker row triggers. Resolves the name to its ledger and drills to the book over
+    /// the books period (books-begin → default as-of), reusing <see cref="OpenLedgerVouchers"/>. A safe no-op on
+    /// an unknown name.
+    /// </summary>
+    public void OpenAccountBook(string ledgerName)
+    {
+        if (Company is null || string.IsNullOrWhiteSpace(ledgerName)) return;
+        var ledger = Company.Ledgers.FirstOrDefault(
+            l => string.Equals(l.Name, ledgerName, System.StringComparison.OrdinalIgnoreCase));
+        if (ledger is null) return;
+
+        var from = Company.BooksBeginFrom;
+        var to = AccountBooksAsOf();
+        OpenLedgerVouchers(ledger.Id, from, to);
+    }
+
+    /// <summary>The as-of upper bound an Account Book covers: the last voucher date, or the financial-year end
+    /// when the company has no vouchers (matching the report default; no clock).</summary>
+    private DateOnly AccountBooksAsOf()
+    {
+        DateOnly? last = null;
+        foreach (var v in Company!.Vouchers)
+            if (last is null || v.Date > last.Value) last = v.Date;
+        return last ?? Company.FinancialYearStart.AddYears(1).AddDays(-1);
+    }
+
+    /// <summary>Highlights the named item in the rightmost (just-opened) submenu column, if present, so the
+    /// drilled child column reads as its child (mirrors the Other-Vouchers drill helper).</summary>
+    private void SelectSubmenuItem(string label)
+    {
+        if (Columns.Count == 0) return;
+        var col = Columns[^1];
+        for (var i = 0; i < col.Items.Count; i++)
+            if (col.Items[i].IsSelectable && col.Items[i].Label == label)
+            {
+                col.SetSelected(i);
+                return;
+            }
     }
 
     /// <summary>
@@ -1315,19 +1460,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== screen: export
 
     /// <summary>
-    /// E / Alt+E (RQ-14) — opens the "Export" panel for the CURRENT report as its own cascading column to the
-    /// RIGHT of the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report
-    /// stays live beneath; applying projects the report into a <see cref="Apex.Ledger.Io.TabularExport"/> (money
-    /// as exact Number cells) and writes the chosen CSV/XLSX/PDF via <c>Apex.Ledger.Io</c>. A no-op unless a
-    /// report is open; re-pressing while the panel is open is a no-op (there is already an export column). All
-    /// IO stays in the Io project (ER-12).
+    /// True on a screen the E / Alt+E Export action can act on: a live report OR a master-list screen
+    /// (Chart of Accounts, the ledger-creation list, the stock-item-creation list; RQ-14/16, slice 13). Master
+    /// lists project through <see cref="MasterListTabularProjector"/>; reports through
+    /// <see cref="ReportTabularProjector"/>.
+    /// </summary>
+    public bool IsExportablePage =>
+        IsReportContext
+        || TopMasterExportSource() is not null;
+
+    /// <summary>
+    /// The master-list export source on top of the cascade, if any: the currently-displayed master-list page
+    /// column whose VM implements <see cref="IMasterListExportSource"/> (Chart of Accounts, Ledgers, Stock
+    /// Items, Groups, Cost Centres / Categories, Godowns, Units, Currencies, Scenarios, Budgets, Stock Groups /
+    /// Categories, …). Generalises slice-13 export from the original three bespoke screens to EVERY master list
+    /// (audit Fix 1). Returns <c>null</c> when the top column is not a master list.
+    /// </summary>
+    private IMasterListExportSource? TopMasterExportSource()
+        => Columns.Count > 0 ? Columns[^1].Page as IMasterListExportSource : null;
+
+    /// <summary>
+    /// E / Alt+E (RQ-14/16) — opens the "Export" panel for the CURRENT report OR master list as its own
+    /// cascading column to the RIGHT of the open page, never a stacked overlay, mirroring
+    /// <see cref="OpenReportConfig"/>. The page stays live beneath; applying projects it into a
+    /// <see cref="Apex.Ledger.Io.TabularExport"/> (money as exact Number cells) and writes the chosen
+    /// CSV/XLSX/PDF via <c>Apex.Ledger.Io</c>. A no-op unless an exportable page is open; re-pressing while the
+    /// panel is open is a no-op (there is already an export column). All IO stays in the Io project (ER-12).
     /// </summary>
     public void OpenExport()
     {
         if (ExportPanel is not null) return;   // panel already open — don't stack a second one
-        if (Reports is null) return;           // nothing to export
 
-        var panel = new ExportViewModel(Reports);
+        var panel = BuildExportPanel();
+        if (panel is null) return;             // nothing exportable on screen
+
         ExportPanel = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -1335,6 +1501,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = panel.Title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Builds the export panel for whatever exportable page is on top: a report (rich CSV/XLSX/PDF via the
+    /// report projectors) or a master list (Chart of Accounts / ledgers / stock items via
+    /// <see cref="MasterListTabularProjector"/>, with a generic tabular PDF). Returns <c>null</c> when nothing
+    /// on screen is exportable. The master-list branch is checked before the report branch so a master column
+    /// on top of a stale <see cref="Reports"/> still exports the master list.
+    /// </summary>
+    private ExportViewModel? BuildExportPanel()
+    {
+        // Chart of Accounts keeps its bespoke tree projector (indented names + a group's nature).
+        if (CurrentScreen == Screen.ChartOfAccounts && ChartOfAccounts is { } coa)
+            return new ExportViewModel(coa.Title,
+                () => MasterListTabularProjector.ProjectChartOfAccounts(coa),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        // Ledgers keeps its bespoke projector (it also splits the Dr/Cr side into its own column).
+        if (CurrentScreen == Screen.LedgerMaster && LedgerMaster is { } lm)
+            return new ExportViewModel("Ledgers",
+                () => MasterListTabularProjector.ProjectLedgers(lm),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        // Stock Items keeps its bespoke projector (exact Opening-Value column).
+        if (CurrentScreen == Screen.StockItemMaster && StockItemMaster is { } sim)
+            return new ExportViewModel("Stock Items",
+                () => MasterListTabularProjector.ProjectStockItems(sim),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        // EVERY other master-list screen (Groups, Cost Centres/Categories, Godowns, Units, Currencies,
+        // Scenarios, Budgets, Stock Groups/Categories, …) exports uniformly through the GENERIC source path
+        // (audit Fix 1): its VM implements IMasterListExportSource, so a snapshot of the on-screen grid becomes
+        // a TabularExport with numeric columns as summable Number cells.
+        if (TopMasterExportSource() is { } source)
+        {
+            var snapshotTitle = source.ToMasterListSnapshot().Title;
+            return new ExportViewModel(snapshotTitle,
+                () => MasterListTabularProjector.ProjectSource(source),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+        }
+
+        if (IsReportContext && Reports is { } report)
+            return new ExportViewModel(report);
+
+        return null;
+    }
+
+    /// <summary>The default export folder (the user's Documents), matching the report export ctor.</summary>
+    private static string ExportDefaultFolder()
+    {
+        try { return System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments); }
+        catch { return string.Empty; }
     }
 
     /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
@@ -2302,6 +2520,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — GST Reports"),
             "Statements" => (BuildStatementsColumn(), GatewayMenu.Statements,
                 "Gateway of Apex Solutions — Statements"),
+            "Account Books" => (BuildAccountBooksColumn(), GatewayMenu.AccountBooks,
+                "Gateway of Apex Solutions — Account Books"),
+            "Cash Book" => (BuildLedgerBookPickerColumn("Cash Book",
+                    l => Apex.Ledger.Reports.ClassificationRules.IsCashLedger(l, Company!)),
+                GatewayMenu.CashBook, "Gateway of Apex Solutions — Cash Book"),
+            "Bank Book" => (BuildLedgerBookPickerColumn("Bank Book",
+                    l => Apex.Ledger.Reports.ClassificationRules.IsBankLedger(l, Company!)),
+                GatewayMenu.BankBook, "Gateway of Apex Solutions — Bank Book"),
+            // "Ledger" is a Group ONLY under Account Books (elsewhere it is a Page → the ledger master); the
+            // Account-Books hub is the active parent here, so drilling it opens the all-ledgers book picker.
+            "Ledger" when CurrentGatewayMenu == GatewayMenu.AccountBooks => (
+                BuildLedgerBookPickerColumn("Ledger", _ => true),
+                GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
@@ -2325,6 +2556,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Opens the page column for a highlighted Page item (report / voucher / ledger / chart).</summary>
     private void OpenPageOf(MenuItemViewModel item)
     {
+        // Inside an Account-Books ledger picker (Cash Book / Bank Book / Ledger), every Page row is a LEDGER
+        // NAME — open that ledger's Account Book (its LedgerBook) rather than falling through the fixed switch.
+        if (CurrentGatewayMenu is GatewayMenu.CashBook or GatewayMenu.BankBook or GatewayMenu.LedgerBooks)
+        {
+            OpenAccountBook(item.Label);
+            return;
+        }
+
         switch (item.Label)
         {
             case "Chart of Accounts": ShowChartOfAccounts(); break;
@@ -2503,6 +2742,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
                     "Exception Reports" => GatewayMenu.ExceptionReports,
+                    "Account Books" => GatewayMenu.AccountBooks,
+                    "Cash Book" => GatewayMenu.CashBook,
+                    "Bank Book" => GatewayMenu.BankBook,
+                    "Ledger" => GatewayMenu.LedgerBooks,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
@@ -2577,7 +2820,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
         // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
-        ButtonBar.Add(new ButtonBarItem("O", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
+        // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
+        // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
+        // badge and is reached by click, never by a colliding "O" keystroke.
+        ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
         ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup), hasCompany));

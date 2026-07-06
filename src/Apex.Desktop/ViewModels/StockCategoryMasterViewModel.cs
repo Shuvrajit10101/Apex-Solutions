@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
@@ -35,11 +36,17 @@ public sealed class ParentStockCategoryOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="CostCentreMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class StockCategoryMasterViewModel : ViewModelBase
+public sealed partial class StockCategoryMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Stock Categories",
+        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Under") },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Under }).ToList());
 
     /// <summary>The parent options: "Primary" plus every existing category.</summary>
     public ObservableCollection<ParentStockCategoryOption> ParentOptions { get; } = new();

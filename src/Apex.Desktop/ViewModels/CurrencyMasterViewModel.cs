@@ -45,11 +45,23 @@ public sealed class ExchangeRateListRow
 /// refresh their lists. MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it
 /// is headlessly unit-testable. Mirrors <see cref="LedgerMasterViewModel"/> / <see cref="ScenarioMasterViewModel"/>.
 /// </summary>
-public sealed partial class CurrencyMasterViewModel : ViewModelBase
+public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    /// <remarks>Snapshots the <see cref="Currencies"/> master list (the screen's primary grid); the dated
+    /// Rates grid is a secondary sub-list, not exported here.</remarks>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Currencies",
+        new[]
+        {
+            MasterListColumn.Text("Symbol"), MasterListColumn.Text("Formal Name"),
+            MasterListColumn.Text("Decimals"), MasterListColumn.Text("Kind"),
+        },
+        Currencies.Select(r => (IReadOnlyList<string>)new[] { r.Symbol, r.FormalName, r.Decimals, r.Kind }).ToList());
 
     /// <summary>The existing currencies, refreshed after each create (base ₹/INR included).</summary>
     public ObservableCollection<CurrencyListRow> Currencies { get; } = new();

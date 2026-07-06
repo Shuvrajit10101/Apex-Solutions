@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -73,11 +74,30 @@ public sealed class GstRateOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable.</para>
 /// </summary>
-public sealed partial class StockItemMasterViewModel : ViewModelBase
+public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    /// <remarks>Stock-item export normally uses the bespoke
+    /// <see cref="Services.MasterListTabularProjector.ProjectStockItems"/>; this snapshot is the generic-path
+    /// equivalent (identical columns, Opening Value as a numeric cell).</remarks>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Stock Items",
+        new[]
+        {
+            MasterListColumn.Text("Name"),
+            MasterListColumn.Text("Under"),
+            MasterListColumn.Text("Unit"),
+            MasterListColumn.Text("Valuation"),
+            MasterListColumn.Number("Opening Value"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[]
+        {
+            r.Name, r.Under, r.Unit, r.Valuation, r.OpeningValue,
+        }).ToList());
 
     /// <summary>The stock groups an item can sit under (required — the item needs one).</summary>
     public ObservableCollection<StockGroup> Groups { get; } = new();

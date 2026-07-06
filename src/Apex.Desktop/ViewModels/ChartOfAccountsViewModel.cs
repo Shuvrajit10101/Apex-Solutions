@@ -47,7 +47,7 @@ public sealed class ChartRow
 /// Kept UI-toolkit-free so it can be asserted headlessly: a test walks <see cref="Rows"/> and checks
 /// each sub-group's row sits deeper than — and after — its primary parent's row.
 /// </summary>
-public sealed partial class ChartOfAccountsViewModel : ViewModelBase
+public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -55,6 +55,35 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase
     [ObservableProperty] private string _subtitle = string.Empty;
 
     public ObservableCollection<ChartRow> Rows { get; } = new();
+
+    /// <inheritdoc/>
+    /// <remarks>Chart of Accounts normally exports through its bespoke tree projector
+    /// (<see cref="Services.MasterListTabularProjector.ProjectChartOfAccounts"/>); this snapshot exists so the
+    /// shell can DETECT the screen as a master-list export source uniformly. It carries the same columns —
+    /// indented Name, Type, Nature, Opening (numeric), Dr/Cr — reading only the already-built tree rows.</remarks>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        Title,
+        new[]
+        {
+            MasterListColumn.Text("Name"), MasterListColumn.Text("Type"), MasterListColumn.Text("Nature"),
+            MasterListColumn.Number("Opening"), MasterListColumn.Text("Dr/Cr"),
+        },
+        Rows.Select(r =>
+        {
+            string indent = r.Depth <= 0 ? string.Empty : new string(' ', r.Depth * 2);
+            string type = r.Kind switch
+            {
+                ChartNodeKind.Primary => "Primary",
+                ChartNodeKind.SubGroup => "Sub-Group",
+                _ => "Ledger",
+            };
+            // A group row carries its nature (Detail) and no opening; a ledger row carries "<amount> Dr/Cr".
+            string nature = r.IsGroup ? r.Detail : string.Empty;
+            string opening = r.IsGroup ? string.Empty : r.Detail;     // "1,05,000.00 Dr" (side stripped by the projector)
+            string side = opening.EndsWith(" Dr", StringComparison.OrdinalIgnoreCase) ? "Dr"
+                        : opening.EndsWith(" Cr", StringComparison.OrdinalIgnoreCase) ? "Cr" : string.Empty;
+            return (IReadOnlyList<string>)new[] { indent + r.Name, type, nature, opening, side };
+        }).ToList());
 
     public ChartOfAccountsViewModel(Company company)
     {

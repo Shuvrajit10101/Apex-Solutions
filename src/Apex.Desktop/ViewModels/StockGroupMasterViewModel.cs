@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
@@ -36,11 +37,17 @@ public sealed class ParentStockGroupOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="CostCentreMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class StockGroupMasterViewModel : ViewModelBase
+public sealed partial class StockGroupMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Stock Groups",
+        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Under"), MasterListColumn.Text("Quantities") },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Under, r.Quantities }).ToList());
 
     /// <summary>The parent options: "Primary" plus every existing stock group.</summary>
     public ObservableCollection<ParentStockGroupOption> ParentOptions { get; } = new();

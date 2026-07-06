@@ -56,11 +56,31 @@ public sealed class CurrencyChoice
 /// the list. Persists the company to its <c>.db</c> via <see cref="CompanyStorage.Save"/> on create.
 /// Engine/DB logic stays here (no UI types) so it is headlessly testable.
 /// </summary>
-public sealed partial class LedgerMasterViewModel : ViewModelBase
+public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    /// <remarks>The generic snapshot (used only if this master is exported through the source-agnostic path).
+    /// Ledger export normally uses the bespoke <see cref="Services.MasterListTabularProjector.ProjectLedgers"/>,
+    /// which also splits the Dr/Cr side into its own column; here the numeric Opening carries the amount (its
+    /// side stripped by the projector).</remarks>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Ledgers",
+        new[]
+        {
+            MasterListColumn.Text("Name"),
+            MasterListColumn.Text("Under"),
+            MasterListColumn.Number("Opening"),
+            MasterListColumn.Text("Currency"),
+            MasterListColumn.Text("Interest"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[]
+        {
+            r.Name, r.Under, r.Opening, r.Currency, r.Interest,
+        }).ToList());
 
     /// <summary>The 28 groups (excluding the reserved P&amp;L head) the Under-picker offers, name-sorted.</summary>
     public IReadOnlyList<Group> Groups { get; }

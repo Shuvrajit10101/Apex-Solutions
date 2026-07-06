@@ -49,13 +49,19 @@ public sealed class PendingBudgetLineRow
 /// whole budget to the company's <c>.db</c> via <see cref="CompanyStorage.Save"/>. Existing budgets are
 /// listed below. Mirrors <see cref="CostCentreMasterViewModel"/>; no Avalonia types ⇒ headlessly testable.
 /// </summary>
-public sealed partial class BudgetMasterViewModel : ViewModelBase
+public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private const string DateFormat = "dd-MMM-yyyy";
 
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Budgets",
+        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Period"), MasterListColumn.Text("Lines") },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Period, r.Lines }).ToList());
 
     /// <summary>The Group-or-Ledger targets the line picker offers (groups first, then ledgers).</summary>
     public ObservableCollection<BudgetTargetOption> Targets { get; } = new();
