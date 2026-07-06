@@ -74,8 +74,32 @@ public sealed class ReportRow
     /// </summary>
     public Guid? DrillStockItemId { get; init; }
 
-    /// <summary>True when this row can be drilled into (has a <see cref="DrillStockItemId"/>).</summary>
-    public bool CanDrill => DrillStockItemId is not null;
+    /// <summary>
+    /// The ledger this row drills to (RQ-7 universal drill-down): Enter on a Trial-Balance / Balance-Sheet /
+    /// Profit-&amp;-Loss ledger row opens that ledger's vouchers (a <c>LedgerBook</c>) for the report period.
+    /// <see cref="Guid.Empty"/> on synthetic/total/heading rows (folded Net Profit, derived Stock-in-Hand,
+    /// section headers) so Enter is a safe no-op there. Mirrors the engine row's <c>LedgerId</c>.
+    /// </summary>
+    public Guid DrillLedgerId { get; init; }
+
+    /// <summary>
+    /// The voucher this row drills to (RQ-7): Enter on a Day Book row — or on a ledger-vouchers row inside a
+    /// drilled <c>LedgerBook</c> column — opens that voucher's read-only detail. <see cref="Guid.Empty"/> on
+    /// header/total/no-voucher rows. Mirrors the engine row's <c>VoucherId</c>.
+    /// </summary>
+    public Guid DrillVoucherId { get; init; }
+
+    /// <summary>
+    /// True when this row can be drilled into by any of the three drill keys (a stock item, a ledger, or a
+    /// voucher). Section headers, totals and computed/synthetic rows carry no drill key, so Enter is a safe
+    /// no-op on them (it never calls the engine with <see cref="Guid.Empty"/>).
+    /// </summary>
+    public bool CanDrill => DrillStockItemId is not null
+        || DrillLedgerId != Guid.Empty
+        || DrillVoucherId != Guid.Empty;
+
+    /// <summary>Alias of <see cref="CanDrill"/> for the RQ-7 accounting-report grid (Enter guard).</summary>
+    public bool IsDrillable => CanDrill;
 
     public static ReportRow Line(string particulars, Money amount, string secondary = "")
         => new() { Particulars = particulars, Secondary = secondary, Amount = IndianFormat.Amount(amount) };

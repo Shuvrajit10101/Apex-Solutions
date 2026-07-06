@@ -430,6 +430,92 @@ public sealed class HeadlessMainWindowTests
         }
     }
 
+    // ---------------------------------------------------------------- RQ-7 defect-1: keyboard Enter drills
+
+    /// <summary>
+    /// Defect 1: pressing Enter (real key input on the window) on a highlighted TB ledger row must DRILL —
+    /// the Window's tunnel-stage Enter handler now routes to the report drill when focus sits in the
+    /// Tag="drill" ListBox, BEFORE its generic cascade Enter handling consumes the key. Previously only mouse
+    /// double-click worked. This drives the real XAML + key pipeline, not the VM method directly.
+    /// </summary>
+    [AvaloniaFact]
+    public void Keyboard_enter_on_a_highlighted_trial_balance_row_drills_through_the_real_window()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.LoadRobertDemo();
+            vm.OpenReport(ReportKind.TrialBalance);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            window.UpdateLayout();
+
+            // Highlight the first drillable ledger row via the rendered accounting-report (Tag="drill") ListBox.
+            // Setting the ListBox SelectedItem propagates through the two-way SelectedRow binding the shell
+            // reads on Enter — the exact path a mouse click / arrow key produces at runtime.
+            var drillRow = vm.Reports!.Rows.First(r => r.IsDrillable);
+            var listBox = window.GetVisualDescendants()
+                .OfType<ListBox>()
+                .First(lb => Equals(lb.Tag, "drill") && ReferenceEquals(lb.ItemsSource, vm.Reports!.Rows));
+            listBox.SelectedItem = drillRow;
+            window.UpdateLayout();
+            Assert.Same(drillRow, vm.Reports!.SelectedRow);   // the two-way binding pushed the selection
+
+            var before = vm.Columns.Count;
+
+            // Real Enter key on the window — this is the mechanism render should verify manually too.
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+
+            // Enter DRILLED (not swallowed by cascade nav): a ledger-vouchers column opened for Cash.
+            Assert.Equal(Screen.LedgerVouchers, vm.CurrentScreen);
+            Assert.NotNull(vm.LedgerVouchers);
+            Assert.Equal(before + 1, vm.Columns.Count);
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Defect 3: while a drill column (ledger-vouchers) is the active pane, the report-parameter shortcuts
+    /// (here F12 and Alt+F2 pressed as real keys) must be INERT — they must not open the report config panel
+    /// nor change the underlying report's period — because IsReportContext is now false on a drill column.
+    /// </summary>
+    [AvaloniaFact]
+    public void Report_shortcuts_do_not_fire_while_a_drill_column_is_active_through_the_real_window()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.LoadRobertDemo();
+            vm.OpenReport(ReportKind.TrialBalance);
+            var drillRow = vm.Reports!.Rows.First(r => r.IsDrillable);
+            vm.DrillReport(drillRow);
+            Assert.Equal(Screen.LedgerVouchers, vm.CurrentScreen);
+            window.UpdateLayout();
+
+            var columnsBefore = vm.Columns.Count;
+
+            // F12 on a drill column must NOT open the report Configuration panel.
+            window.KeyPressQwerty(PhysicalKey.F12, RawInputModifiers.None);
+            Assert.Null(vm.ReportConfig);
+            Assert.Equal(Screen.LedgerVouchers, vm.CurrentScreen);
+
+            // Alt+F2 on a drill column must NOT open the report period panel / change the report.
+            window.KeyPressQwerty(PhysicalKey.F2, RawInputModifiers.Alt);
+            Assert.Null(vm.ReportConfig);
+            Assert.Equal(Screen.LedgerVouchers, vm.CurrentScreen);
+            Assert.Equal(columnsBefore, vm.Columns.Count);
+            Assert.False(vm.IsReportContext);
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
     private static DateOnly LastVoucherDate(Apex.Ledger.Domain.Company c)
     {
         DateOnly? last = null;

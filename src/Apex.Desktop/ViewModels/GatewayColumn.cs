@@ -123,6 +123,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Alt+N "Auto Columns" chooser (non-null only for that RQ-4 column).</summary>
     public AutoColumnsViewModel? AutoColumns => Page as AutoColumnsViewModel;
 
+    /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
+    public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
+
+    /// <summary>The hosted RQ-7 read-only voucher-detail drill column (non-null only for a drilled voucher).</summary>
+    public VoucherDetailViewModel? VoucherDetail => Page as VoucherDetailViewModel;
+
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 

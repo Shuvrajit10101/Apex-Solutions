@@ -91,6 +91,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     public ObservableCollection<ReportRow> Rows { get; } = new();
 
+    /// <summary>
+    /// The highlighted grid row (two-way bound to the accounting/Stock-Summary ListBox <c>SelectedItem</c>).
+    /// The shell reads this on Enter so the keyboard drill does not depend on which control holds focus (RQ-7
+    /// defect-1): pressing Enter drills <see cref="SelectedRow"/> when it is drillable.
+    /// </summary>
+    [ObservableProperty] private ReportRow? _selectedRow;
+
     // ---- inventory-report layout flags (drive which DataTemplate the view shows; slice 3.4b) ----
 
     /// <summary>True for any of the nine inventory reports (they use the wide inventory grids, not the
@@ -142,6 +149,30 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// owns opening a new page column, so the drill is surfaced as an event.
     /// </summary>
     public event Action<Guid>? DrillToMovementRequested;
+
+    /// <summary>
+    /// Raised when a Trial-Balance / Balance-Sheet / Profit-&amp;-Loss ledger row is drilled into (Enter /
+    /// double-click a drillable row): carries the owning ledger id, the report's current display window
+    /// [<c>From</c>,<c>To</c>], and a <c>movement</c> flag so the shell opens that ledger's vouchers (a
+    /// <c>LedgerBook</c>) reconciled to the clicked figure. <c>movement</c> is true for a Profit-&amp;-Loss
+    /// (flow) drill — the ledger-book then shows the in-window period movement (running balance from 0) that
+    /// equals the P&amp;L line — and false for a Trial-Balance / Balance-Sheet (point-in-time) drill, whose
+    /// cumulative closing-as-at-To equals the displayed closing balance. The shell owns opening the column.
+    /// </summary>
+    public event Action<Guid, DateOnly, DateOnly, bool>? DrillToLedgerRequested;
+
+    /// <summary>
+    /// Raised when a Day Book row — or a ledger-vouchers row inside a drilled <c>LedgerBook</c> column — is
+    /// drilled into (Enter): carries the underlying voucher id so the shell opens that voucher's read-only
+    /// detail as a new cascading column.
+    /// </summary>
+    public event Action<Guid>? DrillToVoucherRequested;
+
+    /// <summary>The report's effective display-window start — the chosen period's From, else books-begin (RQ-7).</summary>
+    public DateOnly DrillFrom => _options.Period?.From ?? _company.BooksBeginFrom;
+
+    /// <summary>The report's effective display-window end — the chosen period end or the as-of date (RQ-7).</summary>
+    public DateOnly DrillTo => _asOf;
 
     /// <summary>
     /// The scenario picker options: "Actual (no scenario)" first (a null <see cref="ScenarioOption.Scenario"/>),
@@ -560,16 +591,43 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public int ExtraColumnCount => _extraColumns.Count;
 
     /// <summary>
-    /// Drills a Stock-Summary item row into that item's Stock Item Movement report — the keyboard-first
-    /// drill (Enter on a highlighted item row) and the double-click drill both route here. Raises
-    /// <see cref="DrillToMovementRequested"/> so the shell opens the movement report as a new page column.
-    /// A no-op unless this is the Stock Summary and the row carries a drill item id.
+    /// The RQ-7 universal drill: Enter (or double-click) on the highlighted report row drills into the
+    /// appropriate target, dispatched by report kind. It is deliberately a SAFE NO-OP on any non-drillable row
+    /// (section headers, totals, folded Net Profit, derived Stock-in-Hand, ratio/statement computed lines) —
+    /// those carry no drill key, so the engine is never called with <see cref="Guid.Empty"/>:
+    /// <list type="bullet">
+    /// <item>Stock Summary → the existing <see cref="DrillToMovementRequested"/> (item's movement report).</item>
+    /// <item>Trial Balance / Balance Sheet / Profit &amp; Loss → <see cref="DrillToLedgerRequested"/> (that
+    /// ledger's vouchers, a <c>LedgerBook</c>, for the report's current period).</item>
+    /// <item>Day Book → <see cref="DrillToVoucherRequested"/> (that voucher's read-only detail).</item>
+    /// </list>
     /// </summary>
     public void Drill(ReportRow? row)
     {
-        if (Kind != ReportKind.StockSummary) return;
-        if (row?.DrillStockItemId is { } itemId)
-            DrillToMovementRequested?.Invoke(itemId);
+        if (row is null) return;
+
+        switch (Kind)
+        {
+            case ReportKind.StockSummary:
+                if (row.DrillStockItemId is { } itemId)
+                    DrillToMovementRequested?.Invoke(itemId);
+                break;
+
+            case ReportKind.TrialBalance:
+            case ReportKind.BalanceSheet:
+            case ReportKind.ProfitAndLoss:
+                if (row.DrillLedgerId != Guid.Empty)
+                    // A P&L line is a flow figure (period movement) — drill it as movement-in-window so the
+                    // opened ledger-book reconciles to the clicked figure; TB/BS lines are point-in-time.
+                    DrillToLedgerRequested?.Invoke(row.DrillLedgerId, DrillFrom, DrillTo,
+                        Kind == ReportKind.ProfitAndLoss);
+                break;
+
+            case ReportKind.DayBook:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+        }
     }
 
     /// <summary>" under scenario <name>" suffix for the subtitle, or empty when showing the actual books.</summary>
@@ -626,7 +684,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
             {
                 var r = shown[i];
                 var particulars = pct is null ? r.LedgerName : r.LedgerName + PercentSuffix(pct[i]);
-                Rows.Add(ReportRow.DrCrLine(particulars, r.Debit, r.Credit, r.GroupName));
+                // RQ-7: carry the owning ledger id so Enter drills into that ledger's vouchers (LedgerBook).
+                Rows.Add(DrCrLedgerLine(particulars, r.Debit, r.Credit, r.GroupName, r.LedgerId));
             }
         }
         else
@@ -660,15 +719,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         IsTwoColumn = false;
 
         AddBalanceSheetSide("Liabilities", "Total Liabilities",
-            bs.Liabilities.Select(l => (l.Name, l.GroupName, l.Amount)), bs.TotalLiabilities);
+            bs.Liabilities.Select(l => (l.Name, l.GroupName, l.Amount, l.LedgerId)), bs.TotalLiabilities);
         AddBalanceSheetSide("Assets", "Total Assets",
-            bs.Assets.Select(a => (a.Name, a.GroupName, a.Amount)), bs.TotalAssets);
+            bs.Assets.Select(a => (a.Name, a.GroupName, a.Amount, a.LedgerId)), bs.TotalAssets);
     }
 
     /// <summary>Adds one Balance-Sheet side (Liabilities/Assets) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
     private void AddBalanceSheetSide(
         string header, string totalLabel,
-        IEnumerable<(string Name, string GroupName, Money Amount)> lines, Money total)
+        IEnumerable<(string Name, string GroupName, Money Amount, Guid LedgerId)> lines, Money total)
     {
         Rows.Add(new ReportRow { Particulars = header, IsHeader = true });
 
@@ -684,7 +743,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
             for (var i = 0; i < shown.Count; i++)
             {
                 var particulars = pct is null ? shown[i].Name : shown[i].Name + PercentSuffix(pct[i]);
-                Rows.Add(ReportRow.Line(particulars, shown[i].Amount, shown[i].GroupName));
+                // RQ-7: carry the owning ledger id (Guid.Empty for the synthetic heads → not drillable).
+                Rows.Add(LedgerLine(particulars, shown[i].Amount, shown[i].GroupName, shown[i].LedgerId));
             }
         }
         else
@@ -721,9 +781,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         IsTwoColumn = false;
 
         AddProfitAndLossSide("Income", "Total Income",
-            pl.Income.Select(i => (i.LedgerName, i.Amount)), pl.TotalIncome);
+            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId)), pl.TotalIncome);
         AddProfitAndLossSide("Expenses", "Total Expenses",
-            pl.Expenses.Select(e => (e.LedgerName, e.Amount)), pl.TotalExpenses);
+            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId)), pl.TotalExpenses);
 
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
@@ -734,16 +794,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Adds one P&amp;L side (Income/Expenses) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
     private void AddProfitAndLossSide(
         string header, string totalLabel,
-        IEnumerable<(string LedgerName, Money Amount)> lines, Money total)
+        IEnumerable<(string LedgerName, Money Amount, Guid LedgerId)> lines, Money total)
     {
         Rows.Add(new ReportRow { Particulars = header, IsHeader = true });
 
         // P&L lines carry no group key on the projection; the summary roll-up keys on the section header so a
-        // rolled-up side collapses to a single "Income"/"Expenses" total row (still Σ==detailed).
+        // rolled-up side collapses to a single "Income"/"Expenses" total row (still Σ==detailed). A rolled-up
+        // row is NOT a single ledger, so it carries Guid.Empty (not drillable); a detailed row keeps its
+        // ledger id so Enter (RQ-7) drills into that ledger's vouchers.
         var all = lines.ToList();
-        IReadOnlyList<(string Name, Money Amount)> shown = _options.Detailed
-            ? all.Select(l => (l.LedgerName, l.Amount)).ToList()
-            : ReportGrouping.RollUp(all, _ => header, l => l.Amount).Select(g => (g.Key, g.Amount)).ToList();
+        IReadOnlyList<(string Name, Money Amount, Guid LedgerId)> shown = _options.Detailed
+            ? all.Select(l => (l.LedgerName, l.Amount, l.LedgerId)).ToList()
+            : ReportGrouping.RollUp(all, _ => header, l => l.Amount)
+                .Select(g => (g.Key, g.Amount, Guid.Empty)).ToList();
 
         if (_options.HideZeroBalances)
             shown = ReportConfig.HideZeroBalances(shown, l => l.Amount);
@@ -756,7 +819,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         for (var i = 0; i < shown.Count; i++)
         {
             var particulars = pct is null ? shown[i].Name : shown[i].Name + PercentSuffix(pct[i]);
-            Rows.Add(ReportRow.Line(particulars, shown[i].Amount));
+            Rows.Add(LedgerLine(particulars, shown[i].Amount, string.Empty, shown[i].LedgerId));
         }
 
         Rows.Add(ReportRow.Total(totalLabel, total));
@@ -773,6 +836,30 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Splits a signed net back into (Dr, Cr) columns: positive → Dr, negative → Cr.</summary>
     private static (Money Debit, Money Credit) SplitSigned(Money net) =>
         net.Amount >= 0m ? (new Money(net.Amount), Money.Zero) : (Money.Zero, new Money(-net.Amount));
+
+    // ---- RQ-7 drill-carrying row factories (mirror ReportRow.DrCrLine/Line but stamp the drill ledger id) ----
+
+    /// <summary>A Trial-Balance Dr/Cr row that carries its owning ledger id so Enter drills into its vouchers.</summary>
+    private static ReportRow DrCrLedgerLine(string particulars, Money debit, Money credit, string secondary, Guid ledgerId)
+        => new()
+        {
+            Particulars = particulars,
+            Secondary = secondary,
+            Debit = IndianFormat.Amount(debit),
+            Credit = IndianFormat.Amount(credit),
+            IsTwoColumn = true,
+            DrillLedgerId = ledgerId,
+        };
+
+    /// <summary>A single-amount (BS/P&amp;L) row that carries its owning ledger id so Enter drills into its vouchers.</summary>
+    private static ReportRow LedgerLine(string particulars, Money amount, string secondary, Guid ledgerId)
+        => new()
+        {
+            Particulars = particulars,
+            Secondary = secondary,
+            Amount = IndianFormat.Amount(amount),
+            DrillLedgerId = ledgerId,
+        };
 
     // --------------------------------------------------------------- Day Book
 
@@ -805,6 +892,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",
                 Secondary = r.IsCancelled ? "(Cancelled) " + secondary : secondary,
                 Amount = amt,
+                DrillVoucherId = r.VoucherId,   // RQ-7: Enter opens this voucher's read-only detail
             });
         }
 
@@ -1404,7 +1492,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             : $"{CompanyName}  —  as at {FormatDate(_asOf)}";
         IsTwoColumn = false;
 
-        // Tally Prime's Ratio Analysis is a two-column report: Principal Groups (key figures) on the
+        // The reference product's Ratio Analysis is a two-column report: Principal Groups (key figures) on the
         // left, Principal Ratios (the ratios relating those figures) on the right. We render them as two
         // labelled sections one under the other (the report grid is single-column here).
         Rows.Add(new ReportRow { Particulars = "Principal Groups", IsHeader = true });

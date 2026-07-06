@@ -13,18 +13,18 @@ public enum RatioUnit
     Days,
 }
 
-/// <summary>One <b>Principal Group</b> figure (left column of Tally's Ratio Analysis): a label and a Money amount.</summary>
+/// <summary>One <b>Principal Group</b> figure (left column of the reference product's Ratio Analysis): a label and a Money amount.</summary>
 public sealed record PrincipalGroupLine(string Label, Money Value);
 
 /// <summary>
-/// One <b>Principal Ratio</b> (right column of Tally's Ratio Analysis): a label, a nullable value
+/// One <b>Principal Ratio</b> (right column of the reference product's Ratio Analysis): a label, a nullable value
 /// (<c>null</c> = "N/A", i.e. a guarded zero denominator), and the <see cref="RatioUnit"/> that fixes how a
 /// UI renders it.
 /// </summary>
 public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit Unit);
 
 /// <summary>
-/// The <b>Ratio Analysis</b> report (catalog §16), modelled on Tally Prime's actual report which is split into
+/// The <b>Ratio Analysis</b> report (catalog §16), modelled on the reference product's actual report which is split into
 /// two columns: <see cref="PrincipalGroups"/> (the key figures) on the left and <see cref="PrincipalRatios"/>
 /// (the ratios that relate those figures) on the right. Every ratio guards against a zero denominator: its
 /// value is <c>null</c> ("N/A") when the denominator is zero, never a divide-by-zero throw.
@@ -32,7 +32,7 @@ public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit 
 /// ledger's actual <b>group id</b> (Current Assets / Current Liabilities / Loans / Capital / Stock-in-Hand /
 /// Sundry Debtors / Sundry Creditors). Profitability figures (gross/net profit, sales) come from the Trading &amp;
 /// P&amp;L. All money is exact decimal rupees; ratios are exact decimals (percentages are ×100).</para>
-/// <para><b>Verified against Tally Prime</b> (help.tallysolutions.com, Principal Ratios): Current Ratio
+/// <para><b>Verified against the reference product's official help documentation</b> (Principal Ratios): Current Ratio
 /// (CA:CL), Quick Ratio ((CA−Stock):CL), Debt/Equity (Loans:(Capital+NettProfit)), Gross Profit % (GP/Turnover),
 /// Nett Profit % (NP/Turnover), Operating Cost % (100 − NettProfit %, i.e. operating cost as a % of Sales),
 /// Receivables Turnover in days (Debtors ÷ Sales × days-in-period), Return on Investment %
@@ -65,7 +65,7 @@ public sealed record RatioAnalysis(
     decimal? ReturnOnWorkingCapitalPercent,
     decimal? InventoryTurnover,
     decimal? WorkingCapitalTurnover,
-    // ---- The two render-ready columns (Tally layout) ----
+    // ---- The two render-ready columns (reference-product layout) ----
     IReadOnlyList<PrincipalGroupLine> PrincipalGroups,
     IReadOnlyList<PrincipalRatioLine> PrincipalRatios)
 {
@@ -113,7 +113,7 @@ public sealed record RatioAnalysis(
         var sundryCreditors = 0m;
         var longTermDebt = 0m;
         var capitalAccount = 0m;   // Capital Account ledgers only (excludes folded Net Profit)
-        var proprietorsFunds = 0m; // Capital Account + folded period Net Profit (= Tally "Capital + Nett Profit")
+        var proprietorsFunds = 0m; // Capital Account + folded period Net Profit (= Capital + Nett Profit)
         foreach (var line in bs.Liabilities)
         {
             if (ClassificationRules.GroupIsUnder(line.GroupId, "Current Liabilities", company))
@@ -145,12 +145,12 @@ public sealed record RatioAnalysis(
         var grossProfit = pl.GrossProfit.Amount;
         var netProfit = pl.NetProfit.Amount;
 
-        // Tally Return-on-Investment denominator = Capital Account + Nett Profit (NOT capital-employed incl. loans).
+        // Return-on-Investment denominator = Capital Account + Nett Profit (NOT capital-employed incl. loans).
         // proprietorsFunds already equals (Capital Account + folded Net Profit), which is exactly that figure.
         var roiDenominator = proprietorsFunds;
 
         var netProfitPercent = Ratio(netProfit * 100m, sales);
-        // Operating Cost % = operating cost as a % of Sales = 100 − Nett Profit % (Tally definition). N/A when
+        // Operating Cost % = operating cost as a % of Sales = 100 − Nett Profit % (reference-product definition). N/A when
         // there are no sales (Nett Profit % itself is N/A).
         var operatingCostPercent = netProfitPercent is { } np ? 100m - np : (decimal?)null;
 

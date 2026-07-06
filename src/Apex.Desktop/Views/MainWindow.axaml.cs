@@ -55,6 +55,17 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
+        // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
+        // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
+        // it. This tunnel handler is on the Window, so it fires ahead of the report ListBox's own bubble
+        // KeyDown; the VM drills the ACTIVE pane's two-way-bound SelectedRow (focus-independent). A no-op on a
+        // non-drillable row / non-report screen, so Enter stays a safe no-op there. Double-click still drills.
+        if (e.Key == Key.Enter && vm.DrillSelectedRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+A saves/accepts (accept shortcut) — apply the F12 report config, else create company /
         // accept voucher / create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -400,6 +411,29 @@ public partial class MainWindow : Window
     /// (keyboard-first). Handled here (and marked handled) so it does not bubble to the cascade driver.
     /// </summary>
     private void OnStockSummaryKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        if (sender is ListBox { SelectedItem: ReportRow row } && row.CanDrill)
+        {
+            Vm?.DrillReport(row);
+            e.Handled = true;
+        }
+    }
+
+    // ---------------------------------------------------------------- RQ-7 accounting-report drill (TB/BS/P&L/Day Book)
+
+    /// <summary>Double-click an accounting-report row → drill (TB/BS/P&amp;L ledger → its vouchers; Day Book → the voucher).</summary>
+    private void OnAccountingReportDrill(object? sender, TappedEventArgs e)
+    {
+        if (sender is ListBox { SelectedItem: ReportRow row })
+            Vm?.DrillReport(row);
+    }
+
+    /// <summary>
+    /// Enter on the highlighted accounting-report row drills into the report's per-kind target (keyboard-first).
+    /// A no-op on a non-drillable row. Marked handled so it does not bubble to the cascade driver.
+    /// </summary>
+    private void OnAccountingReportKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter) return;
         if (sender is ListBox { SelectedItem: ReportRow row } && row.CanDrill)

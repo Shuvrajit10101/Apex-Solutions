@@ -13,8 +13,17 @@ public enum ClosingStockMode
     InventoryDerived,
 }
 
-/// <summary>A named P&amp;L amount (income or expense) at its statement magnitude.</summary>
-public sealed record ProfitAndLossLine(string LedgerName, Money Amount);
+/// <summary>
+/// A named P&amp;L amount (income or expense) at its statement magnitude. <see cref="LedgerId"/> is the
+/// owning ledger's stable id (RQ-7 universal drill-down): Enter on the line opens that ledger's vouchers
+/// (a <see cref="LedgerBook"/>) for the period. A default (<c>Guid.Empty</c>) id marks a non-drillable
+/// synthetic line; <see cref="IsDrillable"/> is the guard the UI checks.
+/// </summary>
+public sealed record ProfitAndLossLine(string LedgerName, Money Amount, Guid LedgerId = default)
+{
+    /// <summary>True iff Enter should drill this line into its ledger's vouchers (a real ledger line).</summary>
+    public bool IsDrillable => LedgerId != Guid.Empty;
+}
 
 /// <summary>
 /// The Trading + Profit &amp; Loss projection (design §7.3). Uses periodic inventory:
@@ -145,7 +154,7 @@ public sealed record ProfitAndLoss(
                 var magnitude = -signed;
                 if (magnitude != 0m)
                 {
-                    income.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude)));
+                    income.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id));
                     totalIncome += magnitude;
                 }
             }
@@ -154,7 +163,7 @@ public sealed record ProfitAndLoss(
                 var magnitude = signed; // debit side, positive
                 if (magnitude != 0m)
                 {
-                    expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude)));
+                    expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id));
                     totalExpense += magnitude;
                 }
             }

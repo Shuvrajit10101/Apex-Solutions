@@ -8,8 +8,16 @@ namespace Apex.Ledger.Reports;
 /// is the ledger's actual immediate group id — the reliable key for group-membership tests (two distinct
 /// groups may share a name, so classifying by name alone is ambiguous). It is <c>null</c> only for the two
 /// synthetic heads (derived Stock-in-Hand, folded period Net Profit) that have no single owning ledger.
+/// <para><see cref="LedgerId"/> is the owning ledger's stable id (RQ-7 universal drill-down): Enter on the
+/// line opens that ledger's vouchers (a <see cref="LedgerBook"/>) for the period. It is <c>Guid.Empty</c>
+/// for the two synthetic heads, which have no single owning ledger; <see cref="IsDrillable"/> is the guard
+/// the UI checks so Enter is a safe no-op on those lines.</para>
 /// </summary>
-public sealed record BalanceSheetLine(string Name, string GroupName, Money Amount, Guid? GroupId = null);
+public sealed record BalanceSheetLine(string Name, string GroupName, Money Amount, Guid? GroupId = null, Guid LedgerId = default)
+{
+    /// <summary>True iff Enter should drill this line into its ledger's vouchers (a real ledger line).</summary>
+    public bool IsDrillable => LedgerId != Guid.Empty;
+}
 
 /// <summary>
 /// The Balance Sheet (design §7.4). Every non-P&amp;L ledger's closing balance, split
@@ -88,12 +96,12 @@ public sealed record BalanceSheet(
                 var stockNature = ClassificationRules.PrimaryNatureOf(group, company);
                 if (stockNature == GroupNature.Asset)
                 {
-                    assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(signedStock), group.Id));
+                    assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(signedStock), group.Id, ledger.Id));
                     totalAsset += signedStock;
                 }
                 else
                 {
-                    liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(-signedStock), group.Id));
+                    liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(-signedStock), group.Id, ledger.Id));
                     totalLiab += -signedStock;
                 }
                 continue;
@@ -108,13 +116,13 @@ public sealed record BalanceSheet(
             {
                 // Assets sit on the debit side; magnitude = signed (positive when debit).
                 var magnitude = signed;
-                assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude), group.Id));
+                assets.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude), group.Id, ledger.Id));
                 totalAsset += magnitude;
             }
             else // Liability (Capital, Loans, Current Liabilities, Suspense, …)
             {
                 var magnitude = -signed; // credit side positive
-                liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude), group.Id));
+                liabilities.Add(new BalanceSheetLine(ledger.Name, group.Name, new Money(magnitude), group.Id, ledger.Id));
                 totalLiab += magnitude;
             }
         }

@@ -299,8 +299,14 @@
                         </Border>
 
                         <ScrollViewer Grid.Row="1" Background="White">
-                            <ItemsControl ItemsSource="{Binding Rows}">
-                                <ItemsControl.ItemTemplate>
+                            <!-- RQ-7 drill: a ListBox (not a plain ItemsControl) so a row can be highlighted and
+                                 Enter/double-click drills a drillable ledger row (TB/BS/P&L → that ledger's
+                                 vouchers) or a Day Book voucher row (→ the voucher's detail). Non-drillable rows
+                                 (headers/totals/synthetic) are a safe no-op. -->
+                            <ListBox ItemsSource="{Binding Rows}" Background="White" Tag="drill"
+                                     SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                                     DoubleTapped="OnAccountingReportDrill" KeyDown="OnAccountingReportKeyDown">
+                                <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:ReportRow">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Background="Transparent">
@@ -334,8 +340,8 @@
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
                         </ScrollViewer>
                         </Grid>
 
@@ -355,8 +361,9 @@
                                 <TextBlock Grid.Column="5" Text="Value" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
-                            <ListBox Grid.Row="1" Background="White" x:Name="StockSummaryList"
+                            <ListBox Grid.Row="1" Background="White" x:Name="StockSummaryList" Tag="drill"
                                      ItemsSource="{Binding Rows}"
+                                     SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                                      DoubleTapped="OnStockSummaryDrill" KeyDown="OnStockSummaryKeyDown"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                               <ListBox.Styles>
@@ -896,6 +903,108 @@
                         </Grid>
 
                         </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: RQ-7 Ledger Vouchers drill (a drilled TB/BS/P&L ledger's LedgerBook) -->
+                    <ContentControl IsVisible="{Binding LedgerVouchers, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding LedgerVouchers}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:LedgerVouchersViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,130,130,140">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Debit" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="Credit" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Balance" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <!-- Enter/double-click a posting row drills one level deeper into the voucher detail. -->
+                              <ListBox ItemsSource="{Binding Rows}" Background="White" Tag="drill"
+                                       SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                                       DoubleTapped="OnAccountingReportDrill" KeyDown="OnAccountingReportKeyDown">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            Background="Transparent">
+                                      <Grid ColumnDefinitions="*,130,130,140" Height="24">
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
+                                                    VerticalAlignment="Center" Margin="8,0">
+                                          <TextBlock Text="{Binding Particulars}"
+                                                     FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
+                                                     FontSize="12.5"/>
+                                          <TextBlock Text="{Binding Secondary}"
+                                                     FontSize="10.5" Foreground="#8A8A8A" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Debit}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Credit}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Amount}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: RQ-7 Voucher Detail drill (read-only leaf) -->
+                    <ContentControl IsVisible="{Binding VoucherDetail, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding VoucherDetail}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:VoucherDetailViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,150,150">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Debit" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="Credit" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            Background="Transparent">
+                                      <Grid ColumnDefinitions="*,150,150" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Particulars}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Debit}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Credit}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
                     </ContentControl>

@@ -2,8 +2,17 @@ using Apex.Ledger.Domain;
 
 namespace Apex.Ledger.Reports;
 
-/// <summary>One Trial Balance row: a ledger's closing placed in exactly one column.</summary>
-public sealed record TrialBalanceRow(string LedgerName, string GroupName, Money Debit, Money Credit);
+/// <summary>
+/// One Trial Balance row: a ledger's closing placed in exactly one column. <see cref="LedgerId"/> is the
+/// owning ledger's stable id (RQ-7 universal drill-down): Enter on the row opens that ledger's vouchers
+/// (a <see cref="LedgerBook"/>) for the report period. A default (<c>Guid.Empty</c>) id marks a
+/// non-drillable synthetic row; <see cref="IsDrillable"/> is the guard the UI checks.
+/// </summary>
+public sealed record TrialBalanceRow(string LedgerName, string GroupName, Money Debit, Money Credit, Guid LedgerId = default)
+{
+    /// <summary>True iff Enter should drill this row into its ledger's vouchers (a real ledger row).</summary>
+    public bool IsDrillable => LedgerId != Guid.Empty;
+}
 
 /// <summary>
 /// The Trial Balance (design §7.2): every ledger's closing balance placed in the Dr or Cr
@@ -35,12 +44,12 @@ public sealed record TrialBalance(IReadOnlyList<TrialBalanceRow> Rows, Money Tot
 
             if (bal.Side == DrCr.Debit)
             {
-                rows.Add(new TrialBalanceRow(ledger.Name, groupName, bal.Amount, Money.Zero));
+                rows.Add(new TrialBalanceRow(ledger.Name, groupName, bal.Amount, Money.Zero, ledger.Id));
                 totalDr += bal.Amount.Amount;
             }
             else
             {
-                rows.Add(new TrialBalanceRow(ledger.Name, groupName, Money.Zero, bal.Amount));
+                rows.Add(new TrialBalanceRow(ledger.Name, groupName, Money.Zero, bal.Amount, ledger.Id));
                 totalCr += bal.Amount.Amount;
             }
         }
@@ -58,7 +67,7 @@ public sealed record TrialBalance(IReadOnlyList<TrialBalanceRow> Rows, Money Tot
     /// period-end <c>To</c> — opening balances are carried forward, NOT dropped. <c>From</c> selects the
     /// as-at date's upper bound only; it does not turn the statement into in-window movement. So an
     /// opening-only ledger (e.g. a Capital account with no vouchers) still appears in a period Trial
-    /// Balance, matching Tally. The scenario is honoured.</para>
+    /// Balance, matching the reference product. The scenario is honoured.</para>
     /// </summary>
     public static TrialBalance Build(Company company, ReportOptions options)
         => options.Period is { } p

@@ -580,17 +580,28 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **729 passed / 0 failed** (Ledger 405 · Sqlite 46 · Desktop 278). Schema v13 unchanged. Robert & Bright green. **RQ-5 (new report families) COMPLETE.**
 - **Next:** Phase 5 slice 6 — RQ-7 universal drill-down (Enter on TB/BS/P&L rows → ledger vouchers → voucher).
 
+### Phase 5 slice 6 — Universal drill-down (RQ-7) ✅ (2026-07-06)
+- **Delivered RQ-7:** Enter (keyboard-first) or double-click on a Trial Balance / Balance Sheet / P&L ledger row drills to that ledger's vouchers (new `LedgerVouchersViewModel`, a cascading Miller-column with running balance), then Enter on a posting → the voucher (`VoucherDetailViewModel`, read-only). Day Book Enter → voucher directly. Stock Summary → Movement drill unchanged.
+- **Engine:** appended `Guid LedgerId` to TrialBalanceRow/BalanceSheetLine/ProfitAndLossLine (+ `IsDrillable`), `Guid VoucherId` to DayBookRow/LedgerBookRow; synthetic heads (folded Net Profit, derived Stock-in-Hand) non-drillable. `LedgerBook.Build` gained a movement mode + Guid.Empty guard. Figures byte-for-byte unchanged.
+- **UI:** ReportRow surfaces DrillLedgerId/DrillVoucherId/IsDrillable; generalized `ReportsViewModel.Drill` dispatch (DrillToLedgerRequested/DrillToVoucherRequested events); drill columns append without trimming (prior panes persist); Esc/Back pops + rehydrates.
+- **Session recovery:** the first slice-6 run was interrupted by a process exit (partial engine-only tree, discarded via A12); the re-run's UI agent glitched (returned a leaked prompt, wrote nothing) so the engine landed but the UI didn't — completed via a dedicated UI workflow. Lesson: verify tree ground-truth after any interruption; a glitched agent's self-report is worthless — the tree + gate are the authority.
+- **Adversarial review (A10, 4 lenses):** render ALL PASS (3-level drill cascade verified headlessly). Fixed 1 HIGH + 2 MED: (HIGH) keyboard Enter was preempted by the Window tunnel handler → two-way SelectedRow + tunnel-stage Enter check drills before cascade nav (proven by a real-keys HeadlessMainWindowTests); (MED) P&L period drill showed cumulative closing → movement mode reconciles the ledger-vouchers total to the P&L period figure ("Period Movement"); (MED) report shortcuts leaked into drill columns → IsReportContext gated to exclude LedgerVouchers/VoucherDetail. Each locked with tests incl. real-window key tests.
+- **De-brand sweep (ER-11):** removed 10 stray "Tally" brand refs from code comments/XML-docs (8 in RatioAnalysis.cs from slice-4 web-verify citations that slipped in post-review, + ReportsViewModel/TrialBalance) → zero brand "Tally" in shipped src. Lesson: web-verify citations belong in the return text/memory, never in code comments.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **751 passed / 0 failed** (Ledger 416 · Sqlite 46 · Desktop 289). Schema v13 unchanged. Robert & Bright green.
+- **Next:** Phase 5 slice 7 — RQ-8 Save View (persist config tuple per company; SQLite schema v14).
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v13, 729 tests green** (Ledger 405 · Sqlite 46 · Desktop 278), de-branded, working
+  SINGLE live workspace now), **schema v13, 751 tests green** (Ledger 416 · Sqlite 46 · Desktop 289), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
-  RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE** and ✅ **Phase 5
-  slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 6** — RQ-7 universal drill-down (Enter on TB/BS/P&L rows → ledger vouchers → voucher);
+  RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
+  slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, and ✅ **Phase 5 slice 6 (universal drill-down — RQ-7)
+  COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 7** — RQ-8 Save View (persist the report config tuple per company; SQLite schema v14);
   then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,

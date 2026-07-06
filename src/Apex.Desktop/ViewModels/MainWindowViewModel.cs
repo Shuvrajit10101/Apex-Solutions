@@ -41,6 +41,8 @@ public enum Screen
     GodownMaster,
     StockItemMaster,
     GstConfig,
+    LedgerVouchers,
+    VoucherDetail,
 }
 
 /// <summary>
@@ -191,6 +193,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Alt+N "Auto Columns" chooser view model, non-null only while that panel column is open (RQ-4).</summary>
     [ObservableProperty] private AutoColumnsViewModel? _autoColumns;
 
+    /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
+    [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
+
+    /// <summary>The RQ-7 read-only voucher-detail drill column, non-null only while that column is open (rightmost).</summary>
+    [ObservableProperty] private VoucherDetailViewModel? _voucherDetail;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
@@ -204,7 +212,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
-        && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null;
+        && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
+        && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -233,6 +242,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -846,15 +857,101 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var reports = new ReportsViewModel(Company, kind, stockItemId);
         if (kind == ReportKind.StockSummary)
             reports.DrillToMovementRequested += id => OpenReport(ReportKind.StockItemMovement, id);
+        // RQ-7 universal drill-down: a TB/BS/P&L ledger row opens that ledger's vouchers as a NEW cascading
+        // column (the report pane persists); a Day Book row opens the voucher's read-only detail.
+        reports.DrillToLedgerRequested += (ledgerId, from, to, movement) => OpenLedgerVouchers(ledgerId, from, to, movement);
+        reports.DrillToVoucherRequested += OpenVoucherDetail;
         OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
             () => Reports = reports);
     }
 
     /// <summary>
-    /// The keyboard-first Stock-Summary drill (Enter on the report page): drills the highlighted/selected
-    /// Stock-Summary item row into its Stock Item Movement report. A no-op unless a Stock Summary is open.
+    /// The keyboard-first report drill (Enter / double-click on the highlighted report row). Dispatched by the
+    /// report's own kind: Stock Summary → the item's movement report; TB/BS/P&amp;L → that ledger's vouchers;
+    /// Day Book → the voucher's detail. A safe no-op on any non-drillable row. Also serves a drilled
+    /// ledger-vouchers column (its posting rows drill one level deeper into the voucher).
     /// </summary>
-    public void DrillReport(ReportRow? row) => Reports?.Drill(row);
+    public void DrillReport(ReportRow? row)
+    {
+        if (LedgerVouchers is not null) LedgerVouchers.Drill(row);
+        else Reports?.Drill(row);
+    }
+
+    /// <summary>
+    /// RQ-7 keyboard-Enter drill (defect-1): drills the ACTIVE pane's highlighted row using the row the pane's
+    /// grid two-way-bound as its <c>SelectedRow</c> — so the drill does not depend on which control holds focus.
+    /// Returns true iff a drill was performed (a drillable row on a report / ledger-vouchers pane), letting the
+    /// shell's Enter handler mark the key handled ahead of the generic cascade Enter. A safe no-op (false) on a
+    /// non-drillable row, on a voucher-detail pane, or on any non-report screen.
+    /// </summary>
+    public bool DrillSelectedRow()
+    {
+        // A ledger-vouchers drill column takes priority: its posting rows drill one level deeper.
+        if (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is { SelectedRow: { CanDrill: true } lvRow })
+        {
+            LedgerVouchers.Drill(lvRow);
+            return true;
+        }
+
+        // An accounting report (TB/BS/P&L/Day Book) or Stock Summary: drill the highlighted row.
+        if (CurrentScreen == Screen.Report && Reports is { SelectedRow: { CanDrill: true } reportRow })
+        {
+            Reports.Drill(reportRow);
+            return true;
+        }
+
+        return false;
+    }
+
+    // =============================================================== screen: RQ-7 ledger-vouchers drill
+
+    /// <summary>
+    /// Opens the RQ-7 ledger-vouchers drill target — the drilled ledger's <see cref="Apex.Ledger.Reports.LedgerBook"/>
+    /// over [<paramref name="from"/>,<paramref name="to"/>] — as its OWN cascading column to the RIGHT of the
+    /// report it drilled from (mirroring <see cref="OpenReportConfig"/>): the report stays live beneath so Esc/Back
+    /// pops this column and restores it. The posting rows are themselves drillable into the voucher detail. A
+    /// safe no-op on a non-drillable id (the engine returns an empty book anyway).
+    /// </summary>
+    public void OpenLedgerVouchers(Guid ledgerId, DateOnly from, DateOnly to, bool movement = false)
+    {
+        if (Company is null || ledgerId == Guid.Empty) return;
+
+        var vm = new LedgerVouchersViewModel(Company, ledgerId, from, to, movement);
+        vm.DrillToVoucherRequested += OpenVoucherDetail;
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.LedgerVouchers, vm.Title, () => LedgerVouchers = vm);
+    }
+
+    /// <summary>
+    /// Opens the RQ-7 voucher-detail drill target — a read-only view of the voucher — as its OWN cascading column
+    /// to the RIGHT of the report/ledger-vouchers column it drilled from (the prior pane persists; Esc/Back pops).
+    /// A safe no-op when the id does not resolve to a voucher.
+    /// </summary>
+    public void OpenVoucherDetail(Guid voucherId)
+    {
+        if (Company is null) return;
+        var voucher = Company.FindVoucher(voucherId);
+        if (voucher is null) return;
+
+        var vm = new VoucherDetailViewModel(Company, voucher);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.VoucherDetail, vm.Title, () => VoucherDetail = vm);
+    }
+
+    /// <summary>
+    /// Appends a drill column to the RIGHT of the cascade WITHOUT trimming the pane it drilled from — the RQ-7
+    /// Miller-column drill (prior panes persist), unlike <see cref="OpenPageColumn"/> which replaces the page.
+    /// Esc/Back pops it and <see cref="RehydratePageFromRightmostColumn"/> re-binds the surviving pane.
+    /// </summary>
+    private void OpenDrillColumn(GatewayColumn column, Screen screen, string title, Action setPage)
+    {
+        if (Columns.Count == 0) return; // nothing to drill from
+        setPage();
+        Columns.Add(column);
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
 
     // =============================================================== screen: report configuration (F12)
 
@@ -910,8 +1007,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Clear button on the Alt+F12 sort/filter panel: reset the view to the identity and re-run.</summary>
     public void ClearReportSortFilter() => ReportSortFilter?.Clear();
 
-    /// <summary>True while a report is the active page (or its F12 config panel is open) — F2/Alt+F2/Alt+F1 act on it.</summary>
-    public bool IsReportContext => Reports is not null;
+    /// <summary>
+    /// True while a report is the ACTIVE page (or its F12 config panel is open) — the report-parameter
+    /// shortcuts (F2, F12, Alt+F1, Alt+F2, Alt+F12, Alt+C, Alt+N) act on it. False when a drill column
+    /// (LedgerVouchers / VoucherDetail) is the active/rightmost pane even though the report still exists
+    /// beneath it: those shortcuts must be inert there so they never re-parameterise or re-open config on the
+    /// underlying report the user has drilled away from (RQ-7). Enter (drill) and Esc/Back still work in the
+    /// drill columns via their own handling.
+    /// </summary>
+    public bool IsReportContext => Reports is not null
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
     /// <summary>
     /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
@@ -1487,6 +1592,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ReportSortFilter = null;
         AddComparisonColumn = null;
         AutoColumns = null;
+        LedgerVouchers = null;
+        VoucherDetail = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -2002,6 +2109,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case ReportsViewModel r:
                 Reports = r;
                 CurrentScreen = Screen.Report;
+                break;
+            // RQ-7 drill columns can sit beneath one another (report → ledger-vouchers → voucher-detail); when a
+            // deeper drill column is popped the surviving one must be re-bound so it stays live. A report may also
+            // survive beneath a just-popped ledger-vouchers/voucher-detail column.
+            case LedgerVouchersViewModel lv:
+                LedgerVouchers = lv;
+                CurrentScreen = Screen.LedgerVouchers;
+                break;
+            case VoucherDetailViewModel vd:
+                VoucherDetail = vd;
+                CurrentScreen = Screen.VoucherDetail;
                 break;
             default:
                 CurrentScreen = Screen.Gateway;
