@@ -15,7 +15,7 @@ namespace Apex.Desktop.Services;
 /// <para>The report's amounts are already <c>IndianFormat</c>-formatted on the <see cref="ReportRow"/>,
 /// so they pass through verbatim and the PDF shows exactly the grid figures. Non-ASCII glyphs the PDF
 /// writer would render as '?' (the em-dash in a subtitle, the ₹ sign) are folded to ASCII here so the
-/// output is clean and de-branded — never a stray '?'. No "Tally" text is ever introduced.</para>
+/// output is clean and de-branded — never a stray '?'. No brand text is ever introduced.</para>
 /// </summary>
 public static class ReportPrintProjector
 {

@@ -84,6 +84,8 @@ public partial class MainWindow : Window
                 vm.ApplySaveView();
             else if (vm.CurrentScreen == Screen.SavedViews)
                 vm.OpenSelectedSavedView();
+            else if (vm.CurrentScreen == Screen.PrintConfig)
+                vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
             else
@@ -177,7 +179,7 @@ public partial class MainWindow : Window
         // shows the paginated layout; "Save PDF" writes the bytes. Report context only (so the bare P never
         // fires while a drill column is active). Checked before the bare-P menu quick-jump (Profit & Loss),
         // which is guarded to menu screens, and before the Ctrl+P falls through to anything else.
-        if (e.Key == Key.P && vm.IsReportContext && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
+        if (e.Key == Key.P && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
         {
             vm.OpenPrintPreview();
             e.Handled = true;
@@ -228,6 +230,16 @@ public partial class MainWindow : Window
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.DeliveryNote); e.Handled = true; return;
                 case Key.F7: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.StockJournal); e.Handled = true; return;
             }
+        }
+
+        // F12 on an open voucher/invoice print-preview opens the RQ-12 print-config panel (title override,
+        // narration on/off, copy marking). Checked before the report F12 so it never re-opens report config.
+        if (e.Key == Key.F12 && vm.CurrentScreen == Screen.PrintPreview
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            vm.OpenPrintConfig();
+            e.Handled = true;
+            return;
         }
 
         // Bare F2 / F12 on a report page act on the report (RQ-1 as-of, RQ-6 configuration) rather than the
@@ -403,6 +415,9 @@ public partial class MainWindow : Window
 
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();
+
+    private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyPrintConfig();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

@@ -16,11 +16,25 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class VoucherDetailViewModel : ViewModelBase
 {
+    private readonly Company _company;
+    private readonly Voucher _voucher;
+
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private string _subtitle = string.Empty;
 
     /// <summary>The voucher's stable id — the identity the header/tests key on.</summary>
     public Guid VoucherId { get; }
+
+    /// <summary>True iff Print (P/Ctrl+P) on this drill should produce the GST <b>tax invoice</b> (a Sales
+    /// item-invoice) rather than the plain Dr/Cr voucher (RQ-10/RQ-11 routing).</summary>
+    public bool IsTaxInvoice => VoucherPrintProjector.IsTaxInvoice(_company, _voucher);
+
+    /// <summary>Builds the print-preview VM for this voucher: a tax-invoice preview when it is a Sales
+    /// item-invoice, else the plain voucher preview. The Io renderer is chosen by the projection kind.</summary>
+    public PrintPreviewViewModel BuildPrintPreview() =>
+        IsTaxInvoice
+            ? new PrintPreviewViewModel(VoucherPrintProjector.ProjectInvoice(_company, _voucher))
+            : new PrintPreviewViewModel(VoucherPrintProjector.ProjectVoucher(_company, _voucher));
 
     /// <summary>The entry-line rows (Particulars = ledger name, Debit / Credit columns), plus a totals row.</summary>
     public ObservableCollection<ReportRow> Rows { get; } = new();
@@ -30,6 +44,8 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
         if (company is null) throw new ArgumentNullException(nameof(company));
         if (voucher is null) throw new ArgumentNullException(nameof(voucher));
 
+        _company = company;
+        _voucher = voucher;
         VoucherId = voucher.Id;
 
         var type = company.FindVoucherType(voucher.TypeId);

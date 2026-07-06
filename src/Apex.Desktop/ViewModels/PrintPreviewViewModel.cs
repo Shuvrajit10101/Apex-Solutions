@@ -22,13 +22,33 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
-    private readonly PrintReport _report;
+    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10) or a tax invoice (RQ-11).
+    /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
+    public enum PrintKind { Report, Voucher, Invoice }
 
-    /// <summary>The page config the preview + PDF are rendered with. Rebuilt (and the report re-rendered) when
+    // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
+    private readonly PrintReport? _report;
+    private readonly VoucherPrintData? _voucher;
+    private readonly InvoicePrintData? _invoice;
+
+    /// <summary>The page config the preview + PDF are rendered with. Rebuilt (and the document re-rendered) when
     /// the size/orientation is changed via the toggles below.</summary>
     private PageConfig _config;
 
+    /// <summary>The report projection the on-screen preview paginates. In report mode it IS the report; in
+    /// voucher/invoice mode it is a lightweight text projection of the voucher/invoice (rebuilt each render so
+    /// the narration toggle / copy label / title override are reflected on screen too). The authoritative bytes
+    /// always come from the Io renderer — this is presentation-only.</summary>
+    private PrintReport _previewReport = new();
+
+    /// <summary>Which document kind this preview renders.</summary>
+    public PrintKind Kind { get; }
+
     public string Title => "Print Preview";
+
+    /// <summary>True for a voucher / tax-invoice preview — the F12 print-config knobs (title override, narration
+    /// toggle, copy marking) apply. False for a plain report preview (those knobs are inert there).</summary>
+    public bool SupportsPrintConfig => Kind is PrintKind.Voucher or PrintKind.Invoice;
 
     /// <summary>The report title being printed (heading line).</summary>
     public string ReportTitle { get; }
@@ -48,20 +68,65 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>Landscape orientation when true (portrait by default). Toggling re-renders.</summary>
     [ObservableProperty] private bool _landscape;
 
+    // ---- F12 print-config knobs (RQ-12) — apply to voucher/invoice prints; inert for a report. ----
+
+    /// <summary>F12: an optional document-title override (blank ⇒ the template default, e.g. "TAX INVOICE").
+    /// Changing it re-renders.</summary>
+    [ObservableProperty] private string _titleOverride = string.Empty;
+
+    /// <summary>F12: whether the narration line prints (default on). Toggling re-renders.</summary>
+    [ObservableProperty] private bool _showNarration = true;
+
+    /// <summary>F12: the copy-marking label (None / Original / Duplicate / Triplicate). Changing it re-renders.</summary>
+    [ObservableProperty] private CopyMarking _copyMarking = CopyMarking.None;
+
     /// <summary>The page count of the rendered PDF / preview (for the heading).</summary>
     public int PageCount => Pages.Count;
 
     public PrintPreviewViewModel(ReportsViewModel reportVm)
         : this(ReportPrintProjector.Project(reportVm), reportVm?.Title ?? string.Empty) { }
 
-    /// <summary>Testable ctor: preview a pre-built print model directly.</summary>
+    /// <summary>Testable ctor: preview a pre-built report print model directly (RQ-9).</summary>
     public PrintPreviewViewModel(PrintReport report, string reportTitle)
     {
         _report = report ?? throw new ArgumentNullException(nameof(report));
+        Kind = PrintKind.Report;
         ReportTitle = reportTitle ?? string.Empty;
         _config = BuildConfig();
         Render();
     }
+
+    /// <summary>Preview a plain voucher (RQ-10) via <c>VoucherPdf</c>; the F12 knobs apply.</summary>
+    public PrintPreviewViewModel(VoucherPrintData voucher)
+    {
+        _voucher = voucher ?? throw new ArgumentNullException(nameof(voucher));
+        Kind = PrintKind.Voucher;
+        ReportTitle = string.IsNullOrEmpty(voucher.VoucherNumber)
+            ? voucher.VoucherTypeName
+            : $"{voucher.VoucherTypeName} No. {voucher.VoucherNumber}";
+        _config = BuildConfig();
+        Render();
+    }
+
+    /// <summary>Preview a GST tax invoice (RQ-11) via <c>InvoicePdf</c>; the F12 knobs apply.</summary>
+    public PrintPreviewViewModel(InvoicePrintData invoice)
+    {
+        _invoice = invoice ?? throw new ArgumentNullException(nameof(invoice));
+        Kind = PrintKind.Invoice;
+        ReportTitle = string.IsNullOrEmpty(invoice.InvoiceNumber)
+            ? "Tax Invoice"
+            : $"Tax Invoice No. {invoice.InvoiceNumber}";
+        _config = BuildConfig();
+        Render();
+    }
+
+    /// <summary>The F12 knobs assembled into the Io <see cref="PrintConfig"/> the renderers honour.</summary>
+    private PrintConfig BuildPrintConfig() => new()
+    {
+        TitleOverride = string.IsNullOrWhiteSpace(TitleOverride) ? null : TitleOverride.Trim(),
+        ShowNarration = ShowNarration,
+        CopyMarking = CopyMarking,
+    };
 
     private PageConfig BuildConfig() => new()
     {
@@ -75,8 +140,20 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     private void Render()
     {
         _config = BuildConfig();
-        PdfBytes = ReportPdf.Render(_report, _config);
+        PdfBytes = Kind switch
+        {
+            PrintKind.Voucher => VoucherPdf.Render(_voucher!, BuildPrintConfig(), _config),
+            PrintKind.Invoice => InvoicePdf.Render(_invoice!, BuildPrintConfig(), _config),
+            _ => ReportPdf.Render(_report!, _config),
+        };
         OnPropertyChanged(nameof(PdfBytes));
+
+        _previewReport = Kind switch
+        {
+            PrintKind.Voucher => BuildVoucherPreviewReport(),
+            PrintKind.Invoice => BuildInvoicePreviewReport(),
+            _ => _report!,
+        };
 
         Pages.Clear();
         int pageNo = 0;
@@ -96,6 +173,12 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     partial void OnUseLetterChanged(bool value) => Render();
     partial void OnLandscapeChanged(bool value) => Render();
+
+    // The F12 knobs only affect a voucher/invoice render; re-render on change (a no-op guard keeps the report
+    // preview from re-rendering pointlessly since those bytes never read the print config).
+    partial void OnTitleOverrideChanged(string value) { if (SupportsPrintConfig) Render(); }
+    partial void OnShowNarrationChanged(bool value) { if (SupportsPrintConfig) Render(); }
+    partial void OnCopyMarkingChanged(CopyMarking value) { if (SupportsPrintConfig) Render(); }
 
     /// <summary>
     /// Saves the rendered PDF bytes to <paramref name="path"/> (the Avalonia layer chose the path; the writer
@@ -134,7 +217,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         int perPage = Math.Max(1, (int)(contentHeight / _config.RowHeight));
 
         var current = new List<PrintRow>();
-        foreach (var row in _report.Rows)
+        foreach (var row in _previewReport.Rows)
         {
             if (current.Count >= perPage)
             {
@@ -151,8 +234,8 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         var lines = new List<PreviewLine>(rows.Count);
         foreach (var r in rows)
         {
-            var cells = new List<string>(_report.Columns.Count);
-            for (int i = 0; i < _report.Columns.Count; i++)
+            var cells = new List<string>(_previewReport.Columns.Count);
+            for (int i = 0; i < _previewReport.Columns.Count; i++)
             {
                 string text = i < r.Cells.Count ? (r.Cells[i] ?? string.Empty) : string.Empty;
                 if (i == 0 && r.Indent > 0) text = new string(' ', r.Indent) + text;
@@ -161,10 +244,100 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             lines.Add(new PreviewLine(cells, r.IsHeader, r.IsTotal));
         }
 
-        var headers = new List<string>(_report.Columns.Count);
-        foreach (var c in _report.Columns) headers.Add(c.Header);
+        var headers = new List<string>(_previewReport.Columns.Count);
+        foreach (var c in _previewReport.Columns) headers.Add(c.Header);
 
-        return new PreviewPage(_report.Title, _report.Subtitle, headers, lines, pageNo);
+        return new PreviewPage(_previewReport.Title, _previewReport.Subtitle, headers, lines, pageNo);
+    }
+
+    // ---- voucher / invoice preview projections (presentation-only text mirror of the PDF) ----
+
+    private PrintReport BuildVoucherPreviewReport()
+    {
+        var v = _voucher!;
+        var cfg = BuildPrintConfig();
+        var rows = new List<PrintRow>();
+        if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
+            rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
+        rows.Add(PrintRow.Header($"No. {v.VoucherNumber}", "Date", v.DateText));
+        if (!string.IsNullOrEmpty(v.PartyName))
+            rows.Add(PrintRow.Header("Party: " + v.PartyName, string.Empty, string.Empty));
+        foreach (var l in v.Lines)
+            rows.Add(new PrintRow(new[]
+            {
+                l.LedgerName,
+                l.IsDebit ? IndianFormat.Amount(l.Amount) : string.Empty,
+                l.IsDebit ? string.Empty : IndianFormat.Amount(l.Amount),
+            }));
+        rows.Add(PrintRow.Total("Total",
+            IndianFormat.AmountAlways(v.TotalDebit), IndianFormat.AmountAlways(v.TotalCredit)));
+        if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(v.Narration))
+            rows.Add(PrintRow.Header("Narration: " + v.Narration, string.Empty, string.Empty));
+
+        var title = string.IsNullOrEmpty(cfg.TitleOverride) ? v.VoucherTypeName : cfg.TitleOverride!;
+        return new PrintReport
+        {
+            Title = title,
+            Subtitle = v.CompanyName,
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 3, CellAlign.Left),
+                new PrintColumn("Debit", 1.5, CellAlign.Right),
+                new PrintColumn("Credit", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    private PrintReport BuildInvoicePreviewReport()
+    {
+        var inv = _invoice!;
+        var cfg = BuildPrintConfig();
+        var rows = new List<PrintRow>();
+        if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
+            rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
+        rows.Add(PrintRow.Header($"Invoice No. {inv.InvoiceNumber}", "Date", inv.InvoiceDateText));
+        rows.Add(PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
+        rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
+
+        int sr = 0;
+        foreach (var it in inv.Items)
+        {
+            sr++;
+            rows.Add(new PrintRow(new[]
+            {
+                $"{sr}. {it.Description}  (HSN {it.HsnSac})  {it.QuantityText} @ {it.RateText}",
+                string.Empty,
+                IndianFormat.Amount(it.TaxableValue),
+            }));
+        }
+        rows.Add(PrintRow.Total("Taxable Value", string.Empty, IndianFormat.AmountAlways(inv.TotalTaxable)));
+        if (inv.IsInterState)
+            rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
+        else
+        {
+            rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
+            rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
+        }
+        if (inv.RoundOff.Amount != 0m)
+            rows.Add(new PrintRow(new[] { "Round Off", string.Empty, IndianFormat.AmountAlways(inv.RoundOff) }));
+        rows.Add(PrintRow.Total("Grand Total", string.Empty, IndianFormat.AmountAlways(inv.GrandTotal)));
+        if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(inv.Narration))
+            rows.Add(PrintRow.Header("Narration: " + inv.Narration, string.Empty, string.Empty));
+
+        var title = string.IsNullOrEmpty(cfg.TitleOverride) ? "TAX INVOICE" : cfg.TitleOverride!;
+        return new PrintReport
+        {
+            Title = title,
+            Subtitle = inv.Seller.Name,
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 4, CellAlign.Left),
+                new PrintColumn(string.Empty, 1, CellAlign.Right),
+                new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
     }
 }
 

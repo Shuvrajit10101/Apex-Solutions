@@ -608,20 +608,31 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **795 passed / 0 failed** (Apex.Ledger.Io 13 · Ledger 422 · Sqlite 52 · Desktop 308). Schema v14. Robert & Bright green. **4 test projects now.**
 - **Next:** Phase 5 slice 9 — voucher print (RQ-10) + invoice print (RQ-11, tax-invoice + amount-in-words) + print config F12 (RQ-12). [A15]
 
+### Phase 5 slice 9 — Voucher + tax-invoice print + F12 print config (RQ-10/11/12) ✅ (2026-07-06)
+- **Delivered in Apex.Ledger.Io:** IndianAmountInWords (paisa-exact Indian lakh/crore words), VoucherPdf (RQ-10: header + Dr/Cr lines + totals + amount-in-words + narration), InvoicePdf (RQ-11: single built-in TAX INVOICE template — seller/buyer GSTIN blocks, item table Sr/Description/HSN/Qty/Rate/Amount, per-rate GST breakup CGST+SGST intra or IGST inter, taxable + tax + round-off + grand total, amount-in-words, declaration/signature), PrintConfig (RQ-12: title override, narration toggle, copy marking Original/Duplicate/Triplicate). All paginate; reuse the slice-8 PdfWriter; deterministic, byte-stable, de-branded.
+- **Mandatory tax-invoice fields WEB-VERIFIED against CGST Rule 46** (CBIC taxinformation.cbic.gov.in + taxguru/gstzen secondary sources) — supplier/recipient GSTIN, invoice no/date, HSN, qty/rate, taxable value, per-head tax rate+amount, place of supply, signature, copy marking; RCM field noted (deferred to Phase 9). Logo embedding deferred (DP-9).
+- **UI:** VoucherPrintProjector (pure; item-invoice→InvoicePdf routing via GstService, plain voucher→VoucherPdf) + PrintConfigViewModel (F12 print config) + P/Ctrl+P; thin Avalonia layer (ER-12).
+- **Validation** (strict xref parser + pdftotext): voucher & invoice PDFs valid/open; GST figures reconcile to the engine to the paisa; amount-in-words matches the grand total; copy marking + both GSTINs present.
+- **Adversarial review (A10, 4 lenses) caught 2 HIGH + 1 LOW, all fixed + tested:** (HIGH, financial) a mixed invoice with an exempt/nil line UNDER-FOOTED — the exempt value was dropped from Taxable Value & Grand Total (customer under-billed) → TotalTaxable now sums ALL line values (8,750@18% + 2,000 exempt → 12,325); (HIGH) VoucherPdf/InvoicePdf didn't paginate — long docs clipped totals/GST-breakup/words/signature off-page → now paginate (repeat header, keep the closing block together, Page N of M); (LOW) a user TitleOverride/narration containing "Tally" leaked into the PDF → new Debrand.Text sanitizes all user text (incl. /Title).
+- **De-brand sweep:** shipped src is now zero brand "Tally" except the intentional Debrand.cs stripping-regex pattern.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **845 passed / 0 failed** (Apex.Ledger.Io 54 · Ledger 422 · Sqlite 52 · Desktop 317). Schema v14. Robert & Bright green.
+- **Next:** Phase 5 slice 10 — export (CSV/JSON/XML/XLSX) of reports & masters (RQ-14..19). [A15]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v14, 795 tests green** (4 test projects: Apex.Ledger.Io 13 · Ledger 422 · Sqlite 52 · Desktop 308), de-branded, working
+  SINGLE live workspace now), **schema v14, 845 tests green** (4 test projects: Apex.Ledger.Io 54 · Ledger 422 · Sqlite 52 · Desktop 317), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
   RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
   slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, ✅ **Phase 5 slice 6 (universal drill-down — RQ-7)
-  COMPLETE**, ✅ **Phase 5 slice 7 (Save View — RQ-8; SQLite schema v14) COMPLETE**, and ✅ **Phase 5 slice 8 (IO
-  foundation — Apex.Ledger.Io + hand-rolled PDF writer + report→PDF print/preview — RQ-9/13) COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 9** — voucher print (RQ-10) + invoice print (RQ-11, tax-invoice + amount-in-words) + print
-  config F12 (RQ-12); then the rest of Phase 5 (export / import / email) per `plan.md`.
+  COMPLETE**, ✅ **Phase 5 slice 7 (Save View — RQ-8; SQLite schema v14) COMPLETE**, ✅ **Phase 5 slice 8 (IO
+  foundation — Apex.Ledger.Io + hand-rolled PDF writer + report→PDF print/preview — RQ-9/13) COMPLETE**, and ✅ **Phase 5
+  slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 10** — export (CSV/JSON/XML/XLSX) of reports & masters (RQ-14..19); then the rest of
+  Phase 5 (import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

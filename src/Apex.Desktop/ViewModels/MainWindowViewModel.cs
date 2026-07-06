@@ -23,6 +23,7 @@ public enum Screen
     SaveView,
     SavedViews,
     PrintPreview,
+    PrintConfig,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -206,6 +207,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
     [ObservableProperty] private PrintPreviewViewModel? _printPreview;
 
+    /// <summary>The F12 print-config panel (RQ-12) over a voucher/invoice preview, non-null only while that column is open.</summary>
+    [ObservableProperty] private PrintConfigViewModel? _printConfigPanel;
+
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
 
@@ -226,7 +230,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
-        && SaveView is null && SavedViews is null && PrintPreview is null
+        && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -259,6 +263,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1035,6 +1040,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsReportContext => Reports is not null
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
+    /// <summary>True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, or a drilled
+    /// voucher-detail (which prints the voucher / tax invoice). Used to gate the Print shortcut.</summary>
+    public bool IsPrintablePage =>
+        IsReportContext || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null);
+
     /// <summary>
     /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
     /// the keyboard-first date-entry surface (there is no modal date dialog); it opens seeded from the report's
@@ -1222,10 +1232,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenPrintPreview()
     {
-        if (Reports is null) return;              // only meaningful over an open report
         if (PrintPreview is not null) return;     // preview already open — don't stack a second one
 
-        var preview = new PrintPreviewViewModel(Reports);
+        // On a drilled voucher (RQ-7 detail) Print renders THAT voucher — a GST tax invoice for a Sales
+        // item-invoice (RQ-11), else the plain Dr/Cr voucher (RQ-10). Otherwise it prints the open report (RQ-9).
+        PrintPreviewViewModel preview;
+        if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+            preview = vd.BuildPrintPreview();
+        else if (Reports is not null)
+            preview = new PrintPreviewViewModel(Reports);
+        else
+            return;                               // nothing to print
+
         PrintPreview = preview;
         Columns.Add(new GatewayColumn(preview.Title, preview));
         ActiveColumnIndex = Columns.Count - 1;
@@ -1241,6 +1259,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// the bytes are written. A no-op when no preview is open. Returns whether the file was written.
     /// </summary>
     public bool SavePrintPreview(string path) => PrintPreview?.SavePdf(path) ?? false;
+
+    /// <summary>
+    /// F12 on an open voucher/invoice print-preview (RQ-12) — opens the print Configuration panel (title override,
+    /// narration on/off, copy marking) as its own cascading column to the RIGHT of the preview, never a stacked
+    /// overlay, mirroring <see cref="OpenReportConfig"/>. The preview stays live beneath; applying re-renders it in
+    /// place. A no-op unless a config-capable preview (voucher/invoice) is open; re-pressing while the panel is
+    /// open is a no-op (there is already a config column).
+    /// </summary>
+    public void OpenPrintConfig()
+    {
+        if (PrintPreview is not { SupportsPrintConfig: true } preview) return; // only over a voucher/invoice preview
+        if (PrintConfigPanel is not null) return;                              // panel already open — don't stack
+
+        var panel = new PrintConfigViewModel(preview);
+        PrintConfigPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintConfig;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the print-config panel: push the knobs and re-render the preview.</summary>
+    public void ApplyPrintConfig() => PrintConfigPanel?.Apply();
 
     // =============================================================== screen: voucher entry
 
@@ -1721,6 +1764,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SaveView = null;
         SavedViews = null;
         PrintPreview = null;
+        PrintConfigPanel = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }
@@ -2249,6 +2293,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case VoucherDetailViewModel vd:
                 VoucherDetail = vd;
                 CurrentScreen = Screen.VoucherDetail;
+                break;
+            // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
+            case PrintPreviewViewModel pv:
+                PrintPreview = pv;
+                CurrentScreen = Screen.PrintPreview;
                 break;
             default:
                 CurrentScreen = Screen.Gateway;

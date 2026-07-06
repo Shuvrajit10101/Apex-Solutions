@@ -3636,6 +3636,64 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: F12 print Configuration panel (RQ-12 title override, narration, copy marking) -->
+                    <ContentControl IsVisible="{Binding PrintConfigPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PrintConfigPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PrintConfigViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="300">
+
+                                <!-- RQ-12: title override -->
+                                <TextBlock Text="Document title override" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
+                                         PlaceholderText="(blank = template default, e.g. TAX INVOICE)"/>
+
+                                <!-- RQ-12: narration -->
+                                <CheckBox Content="Print narration"
+                                          IsChecked="{Binding ShowNarration, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- RQ-12: copy marking -->
+                                <TextBlock Text="Copy marking" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <RadioButton GroupName="CopyMark" Content="None"
+                                             IsChecked="{Binding IsCopyNone, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="CopyMark" Content="Original for Recipient"
+                                             IsChecked="{Binding IsCopyOriginal, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="CopyMark" Content="Duplicate for Supplier"
+                                             IsChecked="{Binding IsCopyDuplicate, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="CopyMark" Content="Triplicate for Transporter"
+                                             IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <TextBlock Text="Logo embedding is deferred (later polish)."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <Button Content="Apply (Ctrl+A)" Padding="14,6" HorizontalAlignment="Left"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        Click="OnApplyPrintConfigClick"/>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Alt+F12 report Sort/Filter panel (RQ-3 sort & value/range/name filter) -->
                     <ContentControl IsVisible="{Binding ReportSortFilter, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ReportSortFilter}">
@@ -3958,6 +4016,8 @@
                               <CheckBox Content="Landscape" IsChecked="{Binding Landscape, Mode=TwoWay}"/>
                               <TextBlock Text="{Binding PageCount, StringFormat='Pages: {0}'}"
                                          VerticalAlignment="Center" Foreground="#8A8A8A" FontSize="12"/>
+                              <TextBlock Text="F12: Print Config" IsVisible="{Binding SupportsPrintConfig}"
+                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}" FontSize="12"/>
                             </StackPanel>
 
                             <!-- Paginated preview: one framed 'sheet' per page -->
