@@ -590,19 +590,29 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **751 passed / 0 failed** (Ledger 416 · Sqlite 46 · Desktop 289). Schema v13 unchanged. Robert & Bright green.
 - **Next:** Phase 5 slice 7 — RQ-8 Save View (persist config tuple per company; SQLite schema v14).
 
+### Phase 5 slice 7 — Save View (RQ-8) ✅ + SQLite schema v14 (2026-07-06)
+- **Delivered RQ-8:** save/list/open/delete named report VIEWS per company, persisting the CONFIG TUPLE ONLY (kind + period/as-of + detail + hide-zero/%/closing-stock + scenario name + sort/filter + comparative columns) — NEVER computed figures (ER-9/DP-7); opening a view recomputes fresh so it can never go stale.
+- **Data:** framework-agnostic `SavedReportView` model (deterministic culture-invariant System.Text.Json, enums by name, tolerant of unknown enum names) + `ISavedReportViewRepository` port (upsert/list/get/delete, company-scoped, NOCASE); `ReportKind` kept out of Apex.Ledger (Desktop maps to/from a stable string token). SQLite **schema v14**: `MigrateV13ToV14` (CREATE saved_views + unique index (company,name), no ALTER), CurrentVersion→14, CreateV1 extended so fresh DBs stamp to v14; SqliteCompanyStore implements the port.
+- **UI:** ToSavedView/ApplySavedView on ReportsViewModel + SaveViewViewModel (name prompt) + SavedViewsViewModel (list/apply/delete) nested under Reports; applying reproduces the exact configured report.
+- **Render PASS** (headless, real-window key pipeline): save → saved-views list → apply reproduces the configured report; clean Miller-columns, zero "Tally".
+- **Adversarial review (A10, 4 lenses):** 1 MEDIUM only (FromJson threw on an unknown enum name) → tolerant enum converter falls back to defaults so a corrupt/newer saved view still loads.
+- **Gate discipline caught 8 Sqlite failures the build agent mis-labeled "flakes":** 4 were stale hard-coded schema-version asserts (Expected 13/Actual 14 after the v14 bump) → re-pointed to `Schema.CurrentVersion`; 4 were a connection-pool `File.Delete` lock → shared `TempDbFile.Delete` (ClearAllPools + tolerant retry) across all round-trip tests. The robust teardown UNMASKED a real test-fixture bug: DowngradeToV11/V9 helpers didn't drop the v14 saved_views table → "table already exists" on re-migration → fixed (DROP IF EXISTS). Production migration path was not at fault (disposes correctly).
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **774 passed / 0 failed** (Ledger 422 · Sqlite 52 · Desktop 300). Robert & Bright green. **Schema v14.**
+- **Next:** Phase 5 slice 8 — IO foundation: new `Apex.Ledger.Io` project + hand-rolled PDF writer + render-to-PDF "print" + preview (RQ-9/10/13). [A15 Reporting & I/O Engineer]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v13, 751 tests green** (Ledger 416 · Sqlite 46 · Desktop 289), de-branded, working
+  SINGLE live workspace now), **schema v14, 774 tests green** (Ledger 422 · Sqlite 52 · Desktop 300), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
   RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
-  slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, and ✅ **Phase 5 slice 6 (universal drill-down — RQ-7)
-  COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 7** — RQ-8 Save View (persist the report config tuple per company; SQLite schema v14);
-  then the rest of Phase 5 (printing / export / import / email) per `plan.md`.
+  slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, ✅ **Phase 5 slice 6 (universal drill-down — RQ-7)
+  COMPLETE**, and ✅ **Phase 5 slice 7 (Save View — RQ-8; SQLite schema v14) COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 8** — IO foundation: new `Apex.Ledger.Io` project + hand-rolled PDF writer + render-to-PDF
+  "print" + preview (RQ-9/10/13); then the rest of Phase 5 (export / import / email) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

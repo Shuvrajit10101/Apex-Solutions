@@ -68,12 +68,13 @@ public sealed class InventoryVoucherRoundTripTests
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
-                // The current version has advanced past v10 (v11 added the per-item standard-cost column; v12
-                // added item-invoice stock lines; v13 added core GST); a fresh DB is stamped straight to it and
+                // The current version has advanced past v10; a fresh DB is stamped straight to it and the
                 // inventory-voucher round-trip is unaffected.
-                Assert.Equal(13, Schema.CurrentVersion);
                 write.Save(original);
                 write.Save(original); // re-save (upsert) must not trip an inventory-voucher FK
+                // Stamped to the current schema version (the single source of truth, so a future version bump
+                // never re-breaks this test).
+                Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
@@ -137,7 +138,7 @@ public sealed class InventoryVoucherRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -162,7 +163,7 @@ public sealed class InventoryVoucherRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -205,7 +206,7 @@ public sealed class InventoryVoucherRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -237,7 +238,7 @@ public sealed class InventoryVoucherRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -259,6 +260,10 @@ public sealed class InventoryVoucherRoundTripTests
         // Drop the v12 item-invoice table too, so the reopen's v11→v12 CREATE TABLE does not collide with an
         // already-present table (this is a faithful v9 shape that predates every later slice).
         Exec(conn, "DROP TABLE IF EXISTS voucher_inventory_lines;");
+        // Drop the v14 saved-views table + its unique index so the reopen's v13→v14 CREATE TABLE does not
+        // collide with an already-present table.
+        Exec(conn, "DROP INDEX IF EXISTS ux_saved_views_company_name;");
+        Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         // Rebuild voucher_types WITHOUT the two v10 effect columns (SQLite pre-3.35 has no DROP COLUMN; use a
         // table rewrite that is robust across versions).
         Exec(conn, """

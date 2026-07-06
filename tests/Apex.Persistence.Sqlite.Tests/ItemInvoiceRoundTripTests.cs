@@ -74,11 +74,13 @@ public sealed class ItemInvoiceRoundTripTests
 
             using (var write = new SqliteCompanyStore(dbPath))
             {
-                // Item-invoice stock lines were added at v12; the current version has since advanced (v13 added
-                // core GST). A fresh DB is stamped straight to the current version and the round-trip is unaffected.
-                Assert.Equal(13, Schema.CurrentVersion);
+                // Item-invoice stock lines were added at v12; the current version has since advanced. A fresh
+                // DB is stamped straight to the current version and the round-trip is unaffected.
                 write.Save(original);
                 write.Save(original); // re-save (upsert) must not trip an FK
+                // Stamped to the current schema version (the single source of truth, so a future version bump
+                // never re-breaks this test).
+                Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
@@ -112,7 +114,7 @@ public sealed class ItemInvoiceRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -136,7 +138,7 @@ public sealed class ItemInvoiceRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -170,7 +172,7 @@ public sealed class ItemInvoiceRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -203,21 +205,25 @@ public sealed class ItemInvoiceRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
     // ---- helpers ----
 
     /// <summary>Downgrades a freshly-saved database to a clean v11 shape: drop the v12 table + every later
-    /// (v13 GST) artifact and set the version marker back to 11, modelling a store that predates this slice.
-    /// The re-open then migrates v11→v12→v13 cleanly (its bare CREATE TABLE / ADD COLUMN steps must not collide
-    /// with a table/column a fresh save at the current version already created).</summary>
+    /// (v13 GST, v14 saved-views) artifact and set the version marker back to 11, modelling a store that
+    /// predates this slice. The re-open then migrates v11→v12→v13→v14 cleanly (its bare CREATE TABLE / ADD
+    /// COLUMN steps must not collide with a table/column a fresh save at the current version already created).</summary>
     private static void DowngradeToV11(string dbPath)
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
         Exec(conn, "DROP TABLE IF EXISTS voucher_inventory_lines;");
+        // Drop the v14 saved-views table + its unique index so the reopen's v13→v14 CREATE TABLE does not
+        // collide with an already-present table (this is a faithful v11 shape that predates every later slice).
+        Exec(conn, "DROP INDEX IF EXISTS ux_saved_views_company_name;");
+        Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         DowngradeStripV13(conn);
         Exec(conn, "UPDATE schema_version SET version = 11;");
         SqliteConnection.ClearPool(conn);

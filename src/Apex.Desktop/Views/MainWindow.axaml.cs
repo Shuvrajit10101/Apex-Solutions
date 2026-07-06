@@ -78,6 +78,10 @@ public partial class MainWindow : Window
                 vm.ApplyAddComparisonColumn();
             else if (vm.CurrentScreen == Screen.AutoColumns)
                 vm.ApplyAutoColumns();
+            else if (vm.CurrentScreen == Screen.SaveView)
+                vm.ApplySaveView();
+            else if (vm.CurrentScreen == Screen.SavedViews)
+                vm.OpenSelectedSavedView();
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -142,6 +146,25 @@ public partial class MainWindow : Window
         if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             vm.ToggleItemInvoice();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+S (RQ-8) opens the "Save View" panel over an open report — name and store the report's current
+        // configuration (kind + period/as-of + detail + F12 options + sort/filter + comparative columns). Report
+        // context only, so it never fires while a drill column is the active pane. Ctrl+A on the panel saves it.
+        if (e.Key == Key.S && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsReportContext)
+        {
+            vm.OpenSaveView();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+K (RQ-8) opens the "Saved Views" list — the company's saved report views (open/apply or delete one).
+        // Available over any report page; needs a company. Checked before the global Alt shortcuts.
+        if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
+        {
+            vm.OpenSavedViews();
             e.Handled = true;
             return;
         }
@@ -380,6 +403,15 @@ public partial class MainWindow : Window
 
     private void OnClearComparativeClick(object? sender, RoutedEventArgs e)
         => Vm?.ClearComparative();
+
+    private void OnApplySaveViewClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplySaveView();
+
+    private void OnOpenSavedViewClick(object? sender, RoutedEventArgs e)
+        => Vm?.OpenSelectedSavedView();
+
+    private void OnDeleteSavedViewClick(object? sender, RoutedEventArgs e)
+        => Vm?.DeleteSelectedSavedView();
 
     private void OnUnitSimpleClick(object? sender, RoutedEventArgs e)
     {

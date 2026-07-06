@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Persistence;
+using Apex.Ledger.Reports;
 using Apex.Persistence.Sqlite;
 
 namespace Apex.Desktop.Services;
@@ -93,6 +95,41 @@ public sealed class CompanyStorage
                 File.Delete(entry.DatabasePath);
         }
         catch (IOException) { /* file in use — leave it */ }
+    }
+
+    // =============================================================== RQ-8 Save View (per-company saved views)
+
+    /// <summary>
+    /// Saves (upserts) a report <paramref name="view"/> under <paramref name="name"/> for the company whose
+    /// aggregate <paramref name="company"/> is (RQ-8). Opens the company's own <c>.db</c> transiently — the same
+    /// backing store the report reads from — so a view is scoped to exactly this company's file (per-company
+    /// isolation is intrinsic: another company is a different file). Config only; no figures are stored.
+    /// </summary>
+    public void SaveView(Company company, string name, SavedReportView view)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        store.Save(company.Id, name, view);
+    }
+
+    /// <summary>Lists a company's saved report views, ordered by name (case-insensitive), or empty when none (RQ-8).</summary>
+    public IReadOnlyList<SavedReportViewEntry> ListViews(Company company)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        return store.List(company.Id);
+    }
+
+    /// <summary>Gets a company's saved report view of <paramref name="name"/> (case-insensitive), or null (RQ-8).</summary>
+    public SavedReportView? GetView(Company company, string name)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        return store.Get(company.Id, name);
+    }
+
+    /// <summary>Deletes a company's saved report view of <paramref name="name"/> (case-insensitive; no-op if absent) (RQ-8).</summary>
+    public void DeleteView(Company company, string name)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        store.Delete(company.Id, name);
     }
 
     private static string SanitiseFileName(string name)

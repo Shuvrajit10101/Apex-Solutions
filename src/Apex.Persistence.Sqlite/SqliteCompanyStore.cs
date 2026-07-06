@@ -1,6 +1,7 @@
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Persistence;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Microsoft.Data.Sqlite;
 
@@ -23,7 +24,7 @@ namespace Apex.Persistence.Sqlite;
 /// stored voucher number. A voucher that fails validation on reload signals a corrupt store and is
 /// surfaced as an exception rather than silently dropped.</para>
 /// </remarks>
-public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, IVoucherRepository, IDisposable
+public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, IVoucherRepository, ISavedReportViewRepository, IDisposable
 {
     private readonly SqliteConnection _connection;
 
@@ -337,6 +338,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             }
             tx.Commit();
             version = 13;
+        }
+
+        // v13 → v14: apply the saved-views migration, then bump the marker. Existing v13 data survives untouched.
+        if (version == 13)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV13ToV14;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 14);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 14;
         }
 
         if (version != Schema.CurrentVersion)
@@ -2306,6 +2328,93 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$inum", a.InstrumentNumber);
         cmd.Parameters.AddWithValue("$idate", (object?)(a.InstrumentDate is { } id ? FormatDate(id) : null) ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$bdate", (object?)(a.BankDate is { } bd ? FormatDate(bd) : null) ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
+    // ------------------------------------------------------------------ ISavedReportViewRepository
+
+    /// <inheritdoc />
+    public void Save(Guid companyId, string name, SavedReportView view)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("A saved-view name is required.", nameof(name));
+        ArgumentNullException.ThrowIfNull(view);
+
+        // Config-only JSON: the report is always recomputed on apply, so no figure is ever persisted (ER-9).
+        var json = view.ToJson();
+
+        using var tx = _connection.BeginTransaction();
+        // Upsert by (company, name), case-insensitive: overwrite the existing row of that name, else insert.
+        // Delete-then-insert keeps a stable single row and a fresh id only when creating.
+        using (var find = _connection.CreateCommand())
+        {
+            find.Transaction = tx;
+            find.CommandText =
+                "SELECT id FROM saved_views WHERE company_id = $cid AND name = $name COLLATE NOCASE LIMIT 1;";
+            find.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            find.Parameters.AddWithValue("$name", name);
+            var existingId = find.ExecuteScalar() as string;
+
+            if (existingId is not null)
+            {
+                using var upd = _connection.CreateCommand();
+                upd.Transaction = tx;
+                upd.CommandText = "UPDATE saved_views SET name = $name, config_json = $json WHERE id = $id;";
+                upd.Parameters.AddWithValue("$name", name);
+                upd.Parameters.AddWithValue("$json", json);
+                upd.Parameters.AddWithValue("$id", existingId);
+                upd.ExecuteNonQuery();
+            }
+            else
+            {
+                using var ins = _connection.CreateCommand();
+                ins.Transaction = tx;
+                ins.CommandText =
+                    "INSERT INTO saved_views (id, company_id, name, config_json) VALUES ($id, $cid, $name, $json);";
+                ins.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+                ins.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+                ins.Parameters.AddWithValue("$name", name);
+                ins.Parameters.AddWithValue("$json", json);
+                ins.ExecuteNonQuery();
+            }
+        }
+        tx.Commit();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<SavedReportViewEntry> List(Guid companyId)
+    {
+        var entries = new List<SavedReportViewEntry>();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT name, config_json FROM saved_views WHERE company_id = $cid ORDER BY name COLLATE NOCASE;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            entries.Add(new SavedReportViewEntry(reader.GetString(0), SavedReportView.FromJson(reader.GetString(1))));
+        return entries;
+    }
+
+    /// <inheritdoc />
+    public SavedReportView? Get(Guid companyId, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT config_json FROM saved_views WHERE company_id = $cid AND name = $name COLLATE NOCASE LIMIT 1;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        cmd.Parameters.AddWithValue("$name", name);
+        return cmd.ExecuteScalar() is string json ? SavedReportView.FromJson(json) : null;
+    }
+
+    /// <inheritdoc />
+    public void Delete(Guid companyId, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM saved_views WHERE company_id = $cid AND name = $name COLLATE NOCASE;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        cmd.Parameters.AddWithValue("$name", name);
         cmd.ExecuteNonQuery();
     }
 

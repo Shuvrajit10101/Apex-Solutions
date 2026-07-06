@@ -77,7 +77,9 @@ public sealed class GstRoundTripTests
             using (var write = new SqliteCompanyStore(dbPath))
             {
                 write.Save(original);
-                Assert.Equal(13, Schema.CurrentVersion);
+                // A fresh DB is stamped straight to the current schema version (the single source of truth,
+                // so this never re-breaks on a version bump); the GST round-trip below is unaffected.
+                Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
                 write.Save(original); // re-save (delete-then-insert) must not trip a GST FK
             }
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
@@ -131,7 +133,7 @@ public sealed class GstRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -152,7 +154,7 @@ public sealed class GstRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -202,7 +204,7 @@ public sealed class GstRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -238,7 +240,7 @@ public sealed class GstRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 

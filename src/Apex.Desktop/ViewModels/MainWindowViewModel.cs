@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -19,6 +20,8 @@ public enum Screen
     ReportSortFilter,
     AddComparisonColumn,
     AutoColumns,
+    SaveView,
+    SavedViews,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -193,6 +196,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Alt+N "Auto Columns" chooser view model, non-null only while that panel column is open (RQ-4).</summary>
     [ObservableProperty] private AutoColumnsViewModel? _autoColumns;
 
+    /// <summary>The Ctrl+S "Save View" panel view model, non-null only while that panel column is open (RQ-8).</summary>
+    [ObservableProperty] private SaveViewViewModel? _saveView;
+
+    /// <summary>The Alt+K "Saved Views" list panel view model, non-null only while that panel column is open (RQ-8).</summary>
+    [ObservableProperty] private SavedViewsViewModel? _savedViews;
+
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
 
@@ -213,6 +222,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
+        && SaveView is null && SavedViews is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -242,6 +252,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1116,6 +1128,84 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    // =============================================================== screen: Save View / Saved Views (RQ-8)
+
+    /// <summary>
+    /// Ctrl+S — opens the "Save View" panel (RQ-8) as its own cascading column to the RIGHT of the open report,
+    /// never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live beneath the panel;
+    /// applying captures the report's current CONFIGURATION TUPLE and upserts it (by name) into the company's
+    /// store — no figures are stored (ER-9). A no-op unless a report is open; re-pressing Ctrl+S while the panel
+    /// is open is a no-op (there is already a Save-View column).
+    /// </summary>
+    public void OpenSaveView()
+    {
+        if (Reports is null || Company is null) return; // only over an open report of an open company
+        if (SaveView is not null) return;               // panel already open — don't stack a second
+
+        var panel = new SaveViewViewModel(Reports, Company, _storage);
+        SaveView = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SaveView;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the Save-View panel: save the view, then pop the panel on success so
+    /// the report is the active pane again (a rejected blank name leaves the panel open with its error).</summary>
+    public void ApplySaveView()
+    {
+        if (SaveView is null) return;
+        if (SaveView.Apply()) BackFromPage();
+    }
+
+    /// <summary>
+    /// Alt+K — opens the "Saved Views" list (RQ-8), nested under Reports as its own cascading column to the RIGHT
+    /// of the open report (keyboard-first, never a flat dump). Lists this company's saved views; the user opens
+    /// (applies) or deletes one. A no-op unless a company is open; re-pressing Alt+K while the panel is open is a
+    /// no-op. Unlike the other report panels it does not require a report to be open — it is reachable over any
+    /// report page and lists the company's views regardless.
+    /// </summary>
+    public void OpenSavedViews()
+    {
+        if (Company is null) return;      // needs a company to scope the views to
+        if (SavedViews is not null) return; // panel already open — don't stack a second
+
+        var panel = new SavedViewsViewModel(Company, _storage);
+        panel.OpenRequested += ApplySavedView;
+        SavedViews = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SavedViews;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>The Open action on the Saved-Views panel: apply the highlighted saved view (delegates to the
+    /// panel, which raises the open request the shell services via <see cref="ApplySavedView"/>).</summary>
+    public void OpenSelectedSavedView() => SavedViews?.Open();
+
+    /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
+    public void DeleteSelectedSavedView() => SavedViews?.Delete();
+
+    /// <summary>
+    /// Applies a saved view (RQ-8): resolves its stable kind token to a Desktop <see cref="ReportKind"/>, opens a
+    /// FRESH report of that kind as a page column, then re-applies the config so the projection recomputes — the
+    /// on-screen figures are identical to configuring the same options by hand (ER-9; figures are never loaded).
+    /// An unknown token (a view saved by a newer build) is ignored. Opening the report replaces the Saved-Views
+    /// panel column (it is a page-open), so the report becomes the active pane with the applied view.
+    /// </summary>
+    public void ApplySavedView(SavedReportView view)
+    {
+        if (view is null || Company is null) return;
+        if (ReportsViewModel.KindFor(view.ReportKind) is not { } kind) return; // token this build cannot map
+
+        OpenReport(kind);
+        Reports?.ApplySavedView(view);
+    }
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -1592,6 +1682,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ReportSortFilter = null;
         AddComparisonColumn = null;
         AutoColumns = null;
+        SaveView = null;
+        SavedViews = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }

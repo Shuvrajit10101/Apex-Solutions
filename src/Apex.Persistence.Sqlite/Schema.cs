@@ -56,8 +56,8 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v13 = core GST).</summary>
-    public const int CurrentVersion = 13;
+    /// <summary>The current schema version this adapter reads and writes (v14 = saved report views).</summary>
+    public const int CurrentVersion = 14;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -450,6 +450,16 @@ public static class Schema
             batch_label       TEXT        NULL
         );
 
+        -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
+        -- report configuration tuple (kind/period/depth/sort/filter/comparative/F12) — never a computed figure;
+        -- the report is always recomputed when the view is applied, so a saved view can never go stale (ER-9).
+        CREATE TABLE saved_views (
+            id           TEXT    NOT NULL PRIMARY KEY,
+            company_id   TEXT    NOT NULL,                    -- the owning company id (per-company isolation key)
+            name         TEXT    NOT NULL,                    -- unique within a company (case-insensitive)
+            config_json  TEXT    NOT NULL                     -- the SavedReportView config tuple as JSON
+        );
+
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
@@ -479,6 +489,8 @@ public static class Schema
         CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
         CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
         CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
+        -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
+        CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
 
     /// <summary>
@@ -916,5 +928,26 @@ public static class Schema
         ALTER TABLE entry_lines ADD COLUMN gst_tax_head            INTEGER NULL;
         ALTER TABLE entry_lines ADD COLUMN gst_rate_bp             INTEGER NULL;
         ALTER TABLE entry_lines ADD COLUMN gst_taxable_value_paisa INTEGER NULL;
+        """;
+
+    /// <summary>
+    /// v13 → v14: <b>saved report views</b> (RQ-8 Save View; ER-9, DP-7). Creates the <c>saved_views</c> table
+    /// and its unique <c>(company_id, name)</c> index — pure CREATE TABLE/INDEX, no ALTER, no row rewrites — so
+    /// an existing v13 database keeps every table and row untouched and simply gains an empty <c>saved_views</c>
+    /// table. The <c>company_id</c> is a plain isolation key (no companies FK), so a view can be stored without
+    /// coupling to a persisted company row. Each row holds ONLY the report configuration tuple as JSON (kind/period/depth/sort/filter/
+    /// comparative/F12), never a computed figure: a saved view is always recomputed against the live company on
+    /// apply, so it can never go stale (ER-9). Run inside a transaction that also bumps <c>schema_version</c> to
+    /// 14. A fresh DB is stamped straight to v14 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV13ToV14 = """
+        CREATE TABLE saved_views (
+            id           TEXT    NOT NULL PRIMARY KEY,
+            company_id   TEXT    NOT NULL,
+            name         TEXT    NOT NULL,
+            config_json  TEXT    NOT NULL
+        );
+
+        CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
 }

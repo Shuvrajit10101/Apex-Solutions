@@ -3848,6 +3848,97 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Ctrl+S "Save View" panel (RQ-8 — name + store the report's current configuration) -->
+                    <ContentControl IsVisible="{Binding SaveView, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SaveView}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SaveViewViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="300">
+
+                                <TextBlock Text="Save this report's view under a name" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="Only the configuration is saved (period, detail, sort/filter, columns, F12 options) — the report is recomputed when the view is opened."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <StackPanel Spacing="4">
+                                  <TextBlock Text="Name" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding Name, Mode=TwoWay}" PlaceholderText="e.g. Monthly TB"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Save (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplySaveViewClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Alt+K "Saved Views" list (RQ-8 — open/apply or delete this company's saved views) -->
+                    <ContentControl IsVisible="{Binding SavedViews, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SavedViews}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SavedViewsViewModel">
+                          <Grid RowDefinitions="Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Margin="0,0,0,8">
+                              <ListBox ItemsSource="{Binding Views}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                                       Background="White" BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:SavedViewItem">
+                                    <Grid ColumnDefinitions="*,Auto" Height="30">
+                                      <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="13"
+                                                 Foreground="{StaticResource BrandNavy}"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding KindLabel}"
+                                                 VerticalAlignment="Center" Margin="8,0" FontSize="11"
+                                                 Foreground="#8A8A8A"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Border>
+
+                            <TextBlock Grid.Row="2" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,0,0,8" TextWrapping="Wrap"/>
+
+                            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto">
+                              <Button Grid.Column="1" Content="Delete" Padding="14,6" Margin="0,0,8,0"
+                                      Click="OnDeleteSavedViewClick"/>
+                              <Button Grid.Column="2" Content="Open (Ctrl+A)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnOpenSavedViewClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Forex Gain/Loss (unrealized revaluation) report -->
                     <ContentControl IsVisible="{Binding ForexReport, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ForexReport}">

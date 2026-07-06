@@ -123,6 +123,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Alt+N "Auto Columns" chooser (non-null only for that RQ-4 column).</summary>
     public AutoColumnsViewModel? AutoColumns => Page as AutoColumnsViewModel;
 
+    /// <summary>The hosted Ctrl+S "Save View" panel (non-null only for that RQ-8 column).</summary>
+    public SaveViewViewModel? SaveView => Page as SaveViewViewModel;
+
+    /// <summary>The hosted Alt+K "Saved Views" list panel (non-null only for that RQ-8 column).</summary>
+    public SavedViewsViewModel? SavedViews => Page as SavedViewsViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 

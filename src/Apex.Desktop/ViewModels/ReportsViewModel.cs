@@ -590,6 +590,153 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>The number of extra (non-base) comparison columns currently added — for the shell/tests.</summary>
     public int ExtraColumnCount => _extraColumns.Count;
 
+    // =============================================================== RQ-8 Save View (config tuple only)
+
+    /// <summary>
+    /// The stable, opaque report-kind tokens that the persisted <see cref="SavedReportView.ReportKind"/> string
+    /// carries — one per <see cref="ReportKind"/>. These are frozen forever: renaming the Desktop enum must NOT
+    /// change a token (an already-saved view still resolves), so the map is authored by hand, not <c>ToString()</c>.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<ReportKind, string> KindTokens = new Dictionary<ReportKind, string>
+    {
+        [ReportKind.TrialBalance] = "TrialBalance",
+        [ReportKind.BalanceSheet] = "BalanceSheet",
+        [ReportKind.ProfitAndLoss] = "ProfitAndLoss",
+        [ReportKind.DayBook] = "DayBook",
+        [ReportKind.StockSummary] = "StockSummary",
+        [ReportKind.GodownSummary] = "GodownSummary",
+        [ReportKind.StockItemMovement] = "StockItemMovement",
+        [ReportKind.ReceiptNoteRegister] = "ReceiptNoteRegister",
+        [ReportKind.DeliveryNoteRegister] = "DeliveryNoteRegister",
+        [ReportKind.RejectionRegister] = "RejectionRegister",
+        [ReportKind.PhysicalStockRegister] = "PhysicalStockRegister",
+        [ReportKind.OrderRegister] = "OrderRegister",
+        [ReportKind.ReorderStatus] = "ReorderStatus",
+        [ReportKind.TaxAnalysis] = "TaxAnalysis",
+        [ReportKind.Gstr1] = "Gstr1",
+        [ReportKind.Gstr3b] = "Gstr3b",
+        [ReportKind.CashFlow] = "CashFlow",
+        [ReportKind.FundsFlow] = "FundsFlow",
+        [ReportKind.RatioAnalysis] = "RatioAnalysis",
+        [ReportKind.NegativeStock] = "NegativeStock",
+        [ReportKind.NegativeCashBank] = "NegativeCashBank",
+        [ReportKind.MemorandumRegister] = "MemorandumRegister",
+        [ReportKind.ReversingJournalRegister] = "ReversingJournalRegister",
+    };
+
+    private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
+        KindTokens.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.Ordinal);
+
+    /// <summary>Maps a Desktop <see cref="ReportKind"/> to its stable persisted token.</summary>
+    public static string TokenFor(ReportKind kind) => KindTokens[kind];
+
+    /// <summary>Resolves a persisted token back to a Desktop <see cref="ReportKind"/>, or null when unknown
+    /// (a view saved by a newer build the engine token no longer maps — the caller skips it rather than crash).</summary>
+    public static ReportKind? KindFor(string token) =>
+        TokenKinds.TryGetValue(token, out var kind) ? kind : null;
+
+    /// <summary>
+    /// Captures the report's CURRENT configuration as a config-only <see cref="SavedReportView"/> (RQ-8) — its
+    /// kind token, period/as-of, detailed flag, F12 options, scenario NAME, sort/filter thresholds and the
+    /// comparative columns. No computed figure is captured: applying the view later recomputes the report from
+    /// the live company (ER-9), so a saved view can never go stale.
+    /// </summary>
+    public SavedReportView ToSavedView() => new()
+    {
+        ReportKind = TokenFor(Kind),
+        AsOfDate = _options.AsOfDate,
+        PeriodFrom = _options.Period?.From,
+        PeriodTo = _options.Period?.To,
+        Detailed = _options.Detailed,
+        HideZeroBalances = _options.HideZeroBalances,
+        ShowPercentages = _options.ShowPercentages,
+        ClosingStock = _options.ClosingStock,
+        ScenarioName = _options.Scenario?.Name,
+        SortKey = _sortFilter.SortKey,
+        SortAscending = _sortFilter.Ascending,
+        FilterMinRupees = _sortFilter.Min?.Amount,
+        FilterMaxRupees = _sortFilter.Max?.Amount,
+        FilterNameContains = _sortFilter.NameContains,
+        ComparativeColumns = _extraColumns.Count == 0
+            ? null
+            : _extraColumns.Select(c => new SavedComparativeColumn
+            {
+                Label = c.Label,
+                PeriodFrom = c.Period?.From,
+                PeriodTo = c.Period?.To,
+                ScenarioName = c.Scenario?.Name,
+            }).ToList(),
+    };
+
+    /// <summary>
+    /// Re-applies a saved <paramref name="view"/> (RQ-8) to this report and RECOMPUTES it: rebuilds the
+    /// <see cref="ReportOptions"/> (period/as-of/detail/F12/scenario), the <see cref="ReportSortFilter"/> view
+    /// (sort + rupee thresholds + name filter) and the comparative columns, re-binding every scenario NAME to a
+    /// live scenario on this company (an unknown name → the actual books, ER-9). The report kind is assumed to
+    /// already match this view model's <see cref="Kind"/> (the shell opens a fresh report of the saved kind).
+    /// Never loads figures — the projection re-runs through the engine so the on-screen numbers are identical to
+    /// configuring the same options by hand.
+    /// </summary>
+    public void ApplySavedView(SavedReportView view)
+    {
+        if (view is null) throw new ArgumentNullException(nameof(view));
+
+        // ---- ReportOptions (RQ-1/2/6) ----
+        var options = ReportOptions.AsOf(view.AsOfDate)
+            .WithDetailed(view.Detailed)
+            .WithHideZeroBalances(view.HideZeroBalances)
+            .WithShowPercentages(view.ShowPercentages)
+            .WithClosingStock(view.ClosingStock)
+            .WithScenario(ScenarioByName(view.ScenarioName));
+        if (view.PeriodFrom is { } from && view.PeriodTo is { } to)
+        {
+            var range = new PeriodRange(from, to);
+            if (range.IsValid) options = options.WithPeriod(range);
+        }
+        _options = options;
+
+        // Keep the scenario picker in step so the header/subtitle and a later re-save reflect the applied scenario.
+        // Assign the BACKING FIELD (not the SelectedScenario property): the property setter fires
+        // OnSelectedScenarioChanged, which would overwrite the _options we just built from the view and recompute
+        // twice. We already rebuild _options above and Show(Kind) below, so bypass the side-effect and just notify.
+#pragma warning disable MVVMTK0034
+        _selectedScenario = Scenarios.FirstOrDefault(o => o.Scenario == _options.Scenario) ?? Scenarios[0];
+#pragma warning restore MVVMTK0034
+        OnPropertyChanged(nameof(SelectedScenario));
+
+        // ---- ReportSortFilter (RQ-3) ----
+        _sortFilter = ReportSortFilter.None
+            .WithSort(view.SortKey, view.SortAscending)
+            .WithRange(
+                view.FilterMinRupees is { } min ? Money.FromRupees(min) : null,
+                view.FilterMaxRupees is { } max ? Money.FromRupees(max) : null)
+            .WithNameContains(view.FilterNameContains);
+
+        // ---- comparative columns (RQ-4) ----
+        _extraColumns.Clear();
+        if (view.ComparativeColumns is { Count: > 0 } cols)
+            foreach (var c in cols)
+            {
+                PeriodRange? period = c.PeriodFrom is { } cf && c.PeriodTo is { } ct
+                    ? new PeriodRange(cf, ct) : null;
+                _extraColumns.Add(new ComparativeReport.ColumnSpec(
+                    c.Label, period, ScenarioByName(c.ScenarioName), Options: _options));
+            }
+
+        NotifyParameterChanged();
+        OnPropertyChanged(nameof(SortFilter));
+        Show(Kind); // RECOMPUTE — figures are never loaded from the view (ER-9).
+    }
+
+    /// <summary>Resolves a scenario NAME to a live scenario on this company, or null (actual books) when the
+    /// name is null/empty or matches no scenario — the ER-9 re-bind-on-apply rule.</summary>
+    private Scenario? ScenarioByName(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return null;
+        return _company.Scenarios.FirstOrDefault(s =>
+            string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>
     /// The RQ-7 universal drill: Enter (or double-click) on the highlighted report row drills into the
     /// appropriate target, dispatched by report kind. It is deliberately a SAFE NO-OP on any non-drillable row
