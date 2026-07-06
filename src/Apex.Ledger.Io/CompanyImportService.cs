@@ -285,6 +285,15 @@ public sealed class CompanyImportService
                 errors.Add("An opening-stock allocation references a godown that is neither imported nor present.");
         }
 
+        // Batch master → item + optional inward-layer godown.
+        foreach (var bm in model.Payload.BatchMasters)
+        {
+            if (!plan.CanResolveStockItem(bm.StockItemId, _target))
+                errors.Add($"Batch '{bm.BatchNumber}' references a stock item that is neither imported nor present.");
+            if (bm.GodownId is { } gid && !plan.CanResolveGodown(gid, _target))
+                errors.Add($"Batch '{bm.BatchNumber}' references a godown that is neither imported nor present.");
+        }
+
         // Ledger → currency.
         foreach (var l in model.Payload.Ledgers)
             if (l.CurrencyId is { } cur && !plan.CanResolveCurrency(cur, _target))

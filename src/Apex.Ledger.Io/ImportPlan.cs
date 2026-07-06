@@ -348,9 +348,33 @@ internal sealed class ImportPlan
                 i.Alias, ParseEnum<StockValuationMethod>(i.ValuationMethod), i.HsnSacCode, i.IsTaxable,
                 i.ReorderLevel, i.MinimumOrderQuantity, MoneyCodec.FromPaisaNullable(i.StandardCostPaisa));
             domain.Gst = BuildStockItemGst(i.Gst);
+            // v16 batch switches (RQ-2) — plain model flags, carried verbatim.
+            domain.MaintainInBatches = i.MaintainInBatches;
+            domain.TrackManufacturingDate = i.TrackManufacturingDate;
+            domain.UseExpiryDates = i.UseExpiryDates;
             journal.RecordStockItem(domain);
             stockItemId[i.Id] = domain.Id;
             created++;
+        }
+
+        // 8b) Batch masters (Phase 6 Cluster 1; RQ-1). Each references a resolved stock item (+ optional godown),
+        //     both created above. A batch is created only for a NEWLY-created item — a duplicate item reused under
+        //     Skip already owns its batches (re-importing must not duplicate them); the item switches (Maintain/
+        //     Track/Use-Expiry) ride along on the item created above and so need no separate reuse handling.
+        foreach (var bm in _model.Payload.BatchMasters)
+        {
+            // Skip batches whose item was a reused duplicate (its batches already exist on the target).
+            if (!stockItemId.TryGetValue(bm.StockItemId, out _) || IsReusedStockItem(bm.StockItemId)) continue;
+            var batch = new BatchMaster(Guid.NewGuid(),
+                ResolveStockItemId(bm.StockItemId, stockItemId, t), bm.BatchNumber,
+                CompanyImportService.ParseDateOpt(bm.ManufacturingDate),
+                CompanyImportService.ParseDateOpt(bm.ExpiryDate),
+                ExpiryPeriod.Parse(bm.ExpiryPeriod),
+                bm.GodownId is { } gid ? ResolveGodownId(gid, godownId, t) : null,
+                bm.InwardQuantity,
+                bm.InwardRatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null);
+            t.AddBatchMaster(batch);
+            journal.RecordBatchMaster(batch);
         }
 
         // 9) Stock opening balances (only for newly-created items — a duplicate item's opening rode the merge path).

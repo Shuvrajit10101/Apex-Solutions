@@ -56,8 +56,9 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v15 = capture-only SMTP profile).</summary>
-    public const int CurrentVersion = 15;
+    /// <summary>The current schema version this adapter reads and writes (v16 = batch masters + per-batch inward
+    /// cost layer, with additive nullable <c>batch_id</c> references on the stock-line tables — Phase 6 slice 1).</summary>
+    public const int CurrentVersion = 16;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -374,7 +375,12 @@ public static class Schema
             gst_hsn_sac         TEXT        NULL,             -- HSN/SAC (4/6/8 digits)
             gst_taxability      INTEGER     NULL,             -- GstTaxability enum ordinal (NULL = no GST block)
             gst_rate_bp         INTEGER     NULL,             -- integrated GST rate in basis points
-            gst_supply_type     INTEGER     NULL              -- GstSupplyType enum ordinal (Goods/Services)
+            gst_supply_type     INTEGER     NULL,             -- GstSupplyType enum ordinal (Goods/Services)
+            -- v16 (RQ-2): the three independent batch switches. 0/1, default 0 so an existing item is unchanged
+            -- (ER-13). Use-Expiry may be on without Track-Mfg; all three are model flags read/written verbatim.
+            maintain_in_batches      INTEGER NOT NULL DEFAULT 0,   -- "Maintain in Batches" 0/1
+            track_manufacturing_date INTEGER NOT NULL DEFAULT 0,   -- "Track date of Manufacturing" 0/1
+            use_expiry_dates         INTEGER NOT NULL DEFAULT 0    -- "Use Expiry dates" 0/1
         );
 
         CREATE TABLE stock_opening_balances (
@@ -388,7 +394,9 @@ public static class Schema
             -- value (qty × rate) is NOT stored: it is derived on read from quantity × rate to the paisa,
             -- so a single source of truth avoids drift (the old write-only value_paisa column was removed).
             mfg_date           TEXT        NULL,             -- forward-compat (Phase 6), no behaviour yet
-            expiry_date        TEXT        NULL              -- forward-compat (Phase 6), no behaviour yet
+            expiry_date        TEXT        NULL,             -- forward-compat (Phase 6), no behaviour yet
+            -- v16 (RQ-1): optional first-class batch this opening layer belongs to; NULL for non-batch items.
+            batch_id           TEXT        NULL REFERENCES batch_masters(id)
         );
 
         CREATE TABLE inventory_vouchers (
@@ -414,7 +422,9 @@ public static class Schema
             quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
             direction         INTEGER NOT NULL,               -- StockDirection ordinal (Inward=0, Outward=1)
             rate_paisa        INTEGER     NULL,               -- optional per-unit rate in paisa
-            batch_label       TEXT        NULL
+            batch_label       TEXT        NULL,
+            -- v16 (RQ-1/RQ-3): optional first-class batch this movement allocates to; NULL for non-batch lines.
+            batch_id          TEXT        NULL REFERENCES batch_masters(id)
         );
 
         CREATE TABLE order_lines (
@@ -434,7 +444,9 @@ public static class Schema
             stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
             godown_id         TEXT    NOT NULL REFERENCES godowns(id),
             counted_qty_micro INTEGER NOT NULL,               -- counted qty × 1,000,000 (≥ 0)
-            batch_label       TEXT        NULL
+            batch_label       TEXT        NULL,
+            -- v16 (RQ-1): optional first-class batch this physical count applies to; NULL for non-batch lines.
+            batch_id          TEXT        NULL REFERENCES batch_masters(id)
         );
 
         -- v12 (catalog §10; slice 3.3b): Item-Invoice stock lines on a Purchase/Sales accounting voucher.
@@ -447,7 +459,32 @@ public static class Schema
             quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
             direction         INTEGER NOT NULL,               -- StockDirection ordinal (Inward=0, Outward=1)
             rate_paisa        INTEGER NOT NULL,               -- per-unit rate in paisa (item-invoice always rated)
-            batch_label       TEXT        NULL
+            batch_label       TEXT        NULL,
+            -- v16 (RQ-1/RQ-3): optional first-class batch this item-invoice line allocates to; NULL for non-batch.
+            batch_id          TEXT        NULL REFERENCES batch_masters(id)
+        );
+
+        -- v16 (RQ-1/RQ-4/RQ-6; DP-8): the BATCH master — one first-class row per (stock item, batch number),
+        -- REPLACING today's bare batch_label text. batch_no is unique WITHIN an item (the ux index below), NOT
+        -- globally (Cluster 1 subtlety d), so two different items may reuse the same batch number. mfg_date and
+        -- expiry_date are optional (RQ-2): expiry_date is the resolved absolute date; expiry_period holds the raw
+        -- "12 Months"-style text when the user enters a period (RQ-4) that the engine resolves to expiry_date
+        -- (mfg + period). The optional per-batch inward cost layer (inward_qty_micro / inward_rate_paisa, RQ-6,
+        -- DP-8) records the batch's own inward quantity and rate so per-batch cost may differ from the item's
+        -- overall average; godown_id is the layer's location (batch on-hand is per item/godown/batch, RQ-5).
+        -- Money = INTEGER paisa; qty = INTEGER micros (× 1,000,000). All cost-layer columns are NULL until an
+        -- inward populates them; a batch may exist as a pure label with no cost layer yet.
+        CREATE TABLE batch_masters (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            batch_no          TEXT    NOT NULL,               -- unique within the item (see ux index), not global
+            mfg_date          TEXT        NULL,               -- ISO yyyy-MM-dd, or NULL (RQ-2 Track date of Mfg)
+            expiry_date       TEXT        NULL,               -- resolved absolute ISO yyyy-MM-dd, or NULL (RQ-4)
+            expiry_period     TEXT        NULL,               -- raw period text ("12 Months") when entered as a period (RQ-4)
+            godown_id         TEXT        NULL REFERENCES godowns(id),   -- inward layer location (RQ-5), NULL if unknown
+            inward_qty_micro  INTEGER     NULL,               -- per-batch inward qty × 1,000,000 (RQ-6/DP-8), NULL = no layer
+            inward_rate_paisa INTEGER     NULL                -- per-batch inward rate in paisa (RQ-6/DP-8), NULL = no layer
         );
 
         -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
@@ -503,6 +540,11 @@ public static class Schema
         CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
         CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
         CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
+        -- v16: batch masters — one lookup index by company + item, and the per-item-unique batch number key
+        -- (batch numbers are unique WITHIN an item, not globally — RQ-1 / Cluster 1 subtlety d).
+        CREATE INDEX ix_batch_masters_company        ON batch_masters(company_id);
+        CREATE INDEX ix_batch_masters_item           ON batch_masters(stock_item_id);
+        CREATE UNIQUE INDEX ux_batch_masters_item_no ON batch_masters(stock_item_id, batch_no);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
@@ -984,5 +1026,50 @@ public static class Schema
             from_address TEXT    NOT NULL,
             from_name    TEXT        NULL
         );
+        """;
+
+    /// <summary>
+    /// v15 → v16: <b>batch masters + per-batch inward cost layer</b> (Phase 6 slice 1; RQ-1..RQ-8, DP-8; ER-1).
+    /// Creates the <c>batch_masters</c> table (a first-class batch per <c>(stock item, batch number)</c>, batch
+    /// numbers unique WITHIN an item — not globally — with optional mfg/expiry dates, an optional resolved-from
+    /// expiry-period, and an optional per-batch inward cost layer of qty-micros + rate-paisa) and its indexes,
+    /// then adds an <b>additive nullable</b> <c>batch_id</c> reference to the four stock-line tables that carry a
+    /// <c>batch_label</c> today (<c>stock_opening_balances</c>, <c>inventory_allocations</c>,
+    /// <c>physical_stock_lines</c>, <c>voucher_inventory_lines</c>) plus the three <c>stock_items</c> batch
+    /// switches (<c>maintain_in_batches</c> / <c>track_manufacturing_date</c> / <c>use_expiry_dates</c>, RQ-2),
+    /// each <c>NOT NULL DEFAULT 0</c> so an existing item is byte-identical (ER-13). It is purely additive: one new
+    /// <c>CREATE TABLE</c> + three indexes + four nullable + three defaulted <c>ALTER TABLE … ADD COLUMN</c> — it
+    /// never rewrites an existing row and leaves every <c>batch_label</c> column intact (backward-compat, DP-10),
+    /// so an existing v15
+    /// database keeps all its data and simply gains one empty table and four NULL columns (non-batch data behaves
+    /// byte-identically, ER-13). Run inside a transaction that also bumps <c>schema_version</c> to 16. A fresh DB
+    /// is stamped straight to v16 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV15ToV16 = """
+        CREATE TABLE batch_masters (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+            batch_no          TEXT    NOT NULL,
+            mfg_date          TEXT        NULL,
+            expiry_date       TEXT        NULL,
+            expiry_period     TEXT        NULL,
+            godown_id         TEXT        NULL REFERENCES godowns(id),
+            inward_qty_micro  INTEGER     NULL,
+            inward_rate_paisa INTEGER     NULL
+        );
+
+        CREATE INDEX ix_batch_masters_company        ON batch_masters(company_id);
+        CREATE INDEX ix_batch_masters_item           ON batch_masters(stock_item_id);
+        CREATE UNIQUE INDEX ux_batch_masters_item_no ON batch_masters(stock_item_id, batch_no);
+
+        ALTER TABLE stock_opening_balances ADD COLUMN batch_id TEXT NULL REFERENCES batch_masters(id);
+        ALTER TABLE inventory_allocations  ADD COLUMN batch_id TEXT NULL REFERENCES batch_masters(id);
+        ALTER TABLE physical_stock_lines   ADD COLUMN batch_id TEXT NULL REFERENCES batch_masters(id);
+        ALTER TABLE voucher_inventory_lines ADD COLUMN batch_id TEXT NULL REFERENCES batch_masters(id);
+
+        ALTER TABLE stock_items ADD COLUMN maintain_in_batches      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN track_manufacturing_date INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN use_expiry_dates         INTEGER NOT NULL DEFAULT 0;
         """;
 }

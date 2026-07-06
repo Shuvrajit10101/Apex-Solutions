@@ -89,6 +89,10 @@ public static class CanonicalMapper
         StockCategories = OrderById(c.StockCategories, g => g.Name, g => g.Id).Select(MapStockCategory).ToList(),
         Godowns = OrderById(c.Godowns, g => g.Name, g => g.Id).Select(MapGodown).ToList(),
         StockItems = OrderById(c.StockItems, i => i.Name, i => i.Id).Select(MapStockItem).ToList(),
+        // Batch masters — ordered by (item id, batch number, id) so the stream is stable and human-legible.
+        BatchMasters = c.BatchMasters
+            .OrderBy(b => b.StockItemId).ThenBy(b => b.BatchNumber, StringComparer.Ordinal).ThenBy(b => b.Id)
+            .Select(MapBatchMaster).ToList(),
         StockOpeningBalances = c.StockOpeningBalances.OrderBy(b => b.Id).Select(MapStockOpeningBalance).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
@@ -219,6 +223,17 @@ public static class CanonicalMapper
         StandardCostPaisa = MoneyCodec.ToPaisa(i.StandardCost),
         ReorderLevel = i.ReorderLevel, MinimumOrderQuantity = i.MinimumOrderQuantity,
         Gst = i.Gst is { } g ? MapStockItemGst(g) : null,
+        MaintainInBatches = i.MaintainInBatches,
+        TrackManufacturingDate = i.TrackManufacturingDate,
+        UseExpiryDates = i.UseExpiryDates,
+    };
+
+    private static BatchMasterDto MapBatchMaster(BatchMaster b) => new()
+    {
+        Id = b.Id, StockItemId = b.StockItemId, BatchNumber = b.BatchNumber,
+        ManufacturingDate = Iso(b.ManufacturingDate), ExpiryDate = Iso(b.ExpiryDate),
+        ExpiryPeriod = b.ExpiryPeriod?.RawText, GodownId = b.GodownId,
+        InwardQuantity = b.InwardQuantity, InwardRatePaisa = MoneyCodec.ToPaisa(b.InwardRate),
     };
 
     private static StockOpeningBalanceDto MapStockOpeningBalance(StockOpeningBalance b) => new()

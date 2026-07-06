@@ -132,8 +132,45 @@ internal static class CanonicalFixture
             inventoryLines: invLines));
 
         AddCostAndBankAndForex(company, service, inv, cash, sg, nos, mainGodown, item);
+        AddBatches(company, inv, sg, nos, mainGodown);
 
         return company;
+    }
+
+    /// <summary>
+    /// Adds Phase-6 batch data so the canonical round-trip proves batch masters survive (RQ-1/RQ-3/RQ-6): a
+    /// batch-tracked item (all three switches on) with two batch masters — one dated (mfg + absolute expiry +
+    /// per-batch inward cost layer + godown) and one carrying an expiry PERIOD instead of an absolute date — plus
+    /// a Receipt-Note inventory voucher that moves stock in against a batch label (a "batch sale/movement" line).
+    /// </summary>
+    private static void AddBatches(Company company, InventoryService inv, StockGroup sg, Unit nos, Godown mainGodown)
+    {
+        var med = inv.CreateStockItem("Paracetamol", sg.Id, nos.Id);
+        med.MaintainInBatches = true;
+        med.TrackManufacturingDate = true;
+        med.UseExpiryDates = true;
+
+        var batches = new BatchService(company);
+        batches.CreateBatch(med.Id, "LOT-A",
+            manufacturingDate: new DateOnly(2021, 1, 10),
+            expiryDate: new DateOnly(2023, 1, 10),
+            godownId: mainGodown.Id,
+            inwardQuantity: 250m,
+            inwardRate: Money.FromRupees(12.34m));
+        batches.CreateBatch(med.Id, "LOT-B",
+            manufacturingDate: new DateOnly(2021, 3, 1),
+            expiryPeriod: new ExpiryPeriod(18, ExpiryPeriodUnit.Months));
+
+        // Opening batch layer carrying a batch label (per-line batch allocation).
+        inv.AddOpeningBalance(med.Id, mainGodown.Id, 40m, Money.FromRupees(12.34m), batchLabel: "LOT-A");
+
+        // A Receipt Note moving 20 units IN against batch LOT-B (a batch movement line).
+        var receiptNoteType = company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.ReceiptNote);
+        var invPosting = new InventoryPostingService(company);
+        invPosting.Post(new InventoryVoucher(Guid.NewGuid(), receiptNoteType.Id, new DateOnly(2021, 4, 12),
+            new[] { new InventoryAllocation(med.Id, mainGodown.Id, 20m, StockDirection.Inward,
+                rate: Money.FromRupees(12.34m), batchLabel: "LOT-B") },
+            number: 2, narration: "GRN for 20 paracetamol (batch LOT-B)"));
     }
 
     /// <summary>

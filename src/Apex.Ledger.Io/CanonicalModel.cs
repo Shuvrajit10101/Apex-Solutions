@@ -86,6 +86,10 @@ public sealed record PayloadDto
     public IReadOnlyList<StockCategoryDto> StockCategories { get; init; } = [];
     public IReadOnlyList<GodownDto> Godowns { get; init; } = [];
     public IReadOnlyList<StockItemDto> StockItems { get; init; } = [];
+
+    // Batch tracking (Phase 6 Cluster 1; catalog §9): first-class batch/lot masters per stock item.
+    public IReadOnlyList<BatchMasterDto> BatchMasters { get; init; } = [];
+
     public IReadOnlyList<StockOpeningBalanceDto> StockOpeningBalances { get; init; } = [];
 
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
@@ -211,6 +215,31 @@ public sealed record StockItemDto
     public decimal? ReorderLevel { get; init; }
     public decimal? MinimumOrderQuantity { get; init; }
     public StockItemGstDto? Gst { get; init; }
+
+    // Batch switches (Phase 6 Cluster 1; RQ-2). Default false ⇒ a non-batch item serialises byte-identically.
+    public bool MaintainInBatches { get; init; }
+    public bool TrackManufacturingDate { get; init; }
+    public bool UseExpiryDates { get; init; }
+}
+
+/// <summary>
+/// A first-class batch/lot master (Phase 6 Cluster 1; RQ-1/RQ-4/RQ-6, DP-8), mirroring the domain
+/// <c>BatchMaster</c> and the SQLite <c>batch_masters</c> row. The batch number is unique <b>within its item</b>
+/// (not globally). Expiry may be an absolute date <b>and/or</b> a raw period text (e.g. "18 Months") that the
+/// engine resolves from the mfg date. The optional per-batch inward cost layer is integer paisa (rate) + exact
+/// decimal (quantity); both <c>null</c> when the batch is a pure label with no layer yet.
+/// </summary>
+public sealed record BatchMasterDto
+{
+    public required Guid Id { get; init; }
+    public required Guid StockItemId { get; init; }
+    public required string BatchNumber { get; init; }
+    public string? ManufacturingDate { get; init; }  // ISO yyyy-MM-dd or null
+    public string? ExpiryDate { get; init; }          // resolved absolute ISO yyyy-MM-dd or null
+    public string? ExpiryPeriod { get; init; }        // raw period text ("18 Months") or null
+    public Guid? GodownId { get; init; }               // inward-layer location or null
+    public decimal? InwardQuantity { get; init; }      // per-batch inward qty or null
+    public long? InwardRatePaisa { get; init; }        // per-batch inward rate in paisa or null
 }
 
 public sealed record StockOpeningBalanceDto

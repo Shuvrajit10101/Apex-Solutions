@@ -24,6 +24,7 @@ internal sealed class ApplyJournal
     private readonly List<StockCategory> _stockCategories = new();
     private readonly List<Godown> _godowns = new();
     private readonly List<StockItem> _stockItems = new();
+    private readonly List<BatchMaster> _batchMasters = new();
     private readonly List<StockOpeningBalance> _openingBalances = new();
     private readonly List<Currency> _currencies = new();
     private readonly List<ExchangeRate> _exchangeRates = new();
@@ -57,6 +58,7 @@ internal sealed class ApplyJournal
     public void RecordStockCategory(StockCategory c) => _stockCategories.Add(c);
     public void RecordGodown(Godown g) => _godowns.Add(g);
     public void RecordStockItem(StockItem i) => _stockItems.Add(i);
+    public void RecordBatchMaster(BatchMaster b) => _batchMasters.Add(b);
     public void RecordStockOpeningBalance(StockOpeningBalance b) => _openingBalances.Add(b);
     public void RecordCurrency(Currency c) => _currencies.Add(c);
     public void RecordExchangeRate(ExchangeRate r) => _exchangeRates.Add(r);
@@ -96,8 +98,10 @@ internal sealed class ApplyJournal
         for (var i = _scenarios.Count - 1; i >= 0; i--) _company.RemoveScenario(_scenarios[i]);
         for (var i = _budgets.Count - 1; i >= 0; i--) _company.RemoveBudget(_budgets[i]);
 
-        // 2) Opening-stock allocations, then stock items, godowns, categories, stock groups, units.
+        // 2) Opening-stock allocations, then batch masters (reference items + godowns), then stock items, godowns,
+        //    categories, stock groups, units.
         for (var i = _openingBalances.Count - 1; i >= 0; i--) _company.RemoveStockOpeningBalance(_openingBalances[i]);
+        for (var i = _batchMasters.Count - 1; i >= 0; i--) _company.RemoveBatchMaster(_batchMasters[i]);
         for (var i = _stockItems.Count - 1; i >= 0; i--) _company.RemoveStockItem(_stockItems[i]);
         for (var i = _godowns.Count - 1; i >= 0; i--) _company.RemoveGodown(_godowns[i]);
         for (var i = _stockCategories.Count - 1; i >= 0; i--) _company.RemoveStockCategory(_stockCategories[i]);

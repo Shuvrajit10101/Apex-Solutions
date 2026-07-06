@@ -226,9 +226,61 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
+        DowngradeStripV16(conn);
         DowngradeStripV13(conn);
         Exec(conn, "UPDATE schema_version SET version = 11;");
         SqliteConnection.ClearPool(conn);
+    }
+
+    /// <summary>Strips the v16 batch artifacts so a downgraded DB is a faithful pre-batch shape and the reopen's
+    /// MigrateV15ToV16 (CREATE batch_masters + ADD COLUMN batch_id) does not collide. Drops the batch_masters
+    /// table + its indexes and rebuilds the three stock-line tables that gained a nullable batch_id via ALTER —
+    /// stock_opening_balances, inventory_allocations, physical_stock_lines — to their pre-v16 shape. (v11's
+    /// voucher_inventory_lines is dropped separately and recreated by v11→v12 without batch_id.) SQLite pre-3.35
+    /// has no DROP COLUMN, so the table-rewrite idiom is used.</summary>
+    internal static void DowngradeStripV16(SqliteConnection conn)
+    {
+        Exec(conn, "DROP INDEX IF EXISTS ux_batch_masters_item_no;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_batch_masters_item;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_batch_masters_company;");
+        Exec(conn, "DROP TABLE IF EXISTS batch_masters;");
+
+        // stock_opening_balances: rebuild without the v16 batch_id column.
+        Exec(conn, """
+            CREATE TABLE stock_opening_balances_v15 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, stock_item_id TEXT NOT NULL,
+                godown_id TEXT NOT NULL, batch_label TEXT NULL, quantity_micro INTEGER NOT NULL,
+                rate_paisa INTEGER NOT NULL, mfg_date TEXT NULL, expiry_date TEXT NULL);
+            INSERT INTO stock_opening_balances_v15 SELECT id, company_id, stock_item_id, godown_id, batch_label,
+                quantity_micro, rate_paisa, mfg_date, expiry_date FROM stock_opening_balances;
+            DROP TABLE stock_opening_balances;
+            ALTER TABLE stock_opening_balances_v15 RENAME TO stock_opening_balances;
+            """);
+
+        // inventory_allocations: rebuild without the v16 batch_id column.
+        Exec(conn, """
+            CREATE TABLE inventory_allocations_v15 (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL,
+                line_order INTEGER NOT NULL, role INTEGER NOT NULL, stock_item_id TEXT NOT NULL,
+                godown_id TEXT NOT NULL, unit_id TEXT NULL, quantity_micro INTEGER NOT NULL,
+                direction INTEGER NOT NULL, rate_paisa INTEGER NULL, batch_label TEXT NULL);
+            INSERT INTO inventory_allocations_v15 SELECT id, inventory_voucher_id, line_order, role, stock_item_id,
+                godown_id, unit_id, quantity_micro, direction, rate_paisa, batch_label FROM inventory_allocations;
+            DROP TABLE inventory_allocations;
+            ALTER TABLE inventory_allocations_v15 RENAME TO inventory_allocations;
+            """);
+
+        // physical_stock_lines: rebuild without the v16 batch_id column.
+        Exec(conn, """
+            CREATE TABLE physical_stock_lines_v15 (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL,
+                line_order INTEGER NOT NULL, stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL,
+                counted_qty_micro INTEGER NOT NULL, batch_label TEXT NULL);
+            INSERT INTO physical_stock_lines_v15 SELECT id, inventory_voucher_id, line_order, stock_item_id,
+                godown_id, counted_qty_micro, batch_label FROM physical_stock_lines;
+            DROP TABLE physical_stock_lines;
+            ALTER TABLE physical_stock_lines_v15 RENAME TO physical_stock_lines;
+            """);
     }
 
     /// <summary>Strips the v13 core-GST artifacts (the gst_rate_slabs table + the GST columns on companies /

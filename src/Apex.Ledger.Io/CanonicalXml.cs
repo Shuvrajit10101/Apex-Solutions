@@ -75,6 +75,7 @@ public static class CanonicalXml
             List("stockCategories", "stockCategory", p.StockCategories, BuildStockCategory),
             List("godowns", "godown", p.Godowns, BuildGodown),
             List("stockItems", "stockItem", p.StockItems, BuildStockItem),
+            List("batchMasters", "batchMaster", p.BatchMasters, BuildBatchMaster),
             List("stockOpeningBalances", "stockOpeningBalance", p.StockOpeningBalances, BuildStockOpeningBalance),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher));
@@ -188,10 +189,19 @@ public static class CanonicalXml
             Attr("baseUnitId", i.BaseUnitId), OptId("categoryId", i.CategoryId), Opt("alias", i.Alias),
             Attr("valuationMethod", i.ValuationMethod), Opt("hsnSacCode", i.HsnSacCode),
             Attr("isTaxable", i.IsTaxable), OptLong("standardCostPaisa", i.StandardCostPaisa),
-            OptDec("reorderLevel", i.ReorderLevel), OptDec("minimumOrderQuantity", i.MinimumOrderQuantity));
+            OptDec("reorderLevel", i.ReorderLevel), OptDec("minimumOrderQuantity", i.MinimumOrderQuantity),
+            Attr("maintainInBatches", i.MaintainInBatches),
+            Attr("trackManufacturingDate", i.TrackManufacturingDate),
+            Attr("useExpiryDates", i.UseExpiryDates));
         if (i.Gst is { } g) el.Add(BuildStockItemGst("gst", g));
         return el;
     }
+
+    private static XElement BuildBatchMaster(BatchMasterDto b) => new("batchMaster",
+        Attr("id", b.Id), Attr("stockItemId", b.StockItemId), Attr("batchNumber", b.BatchNumber),
+        Opt("manufacturingDate", b.ManufacturingDate), Opt("expiryDate", b.ExpiryDate),
+        Opt("expiryPeriod", b.ExpiryPeriod), OptId("godownId", b.GodownId),
+        OptDec("inwardQuantity", b.InwardQuantity), OptLong("inwardRatePaisa", b.InwardRatePaisa));
 
     private static XElement BuildStockOpeningBalance(StockOpeningBalanceDto b) => new("stockOpeningBalance",
         Attr("id", b.Id), Attr("stockItemId", b.StockItemId), Attr("godownId", b.GodownId),
@@ -440,6 +450,7 @@ public static class CanonicalXml
                 StockCategories = ReadList(root, "stockCategories", "stockCategory", ReadStockCategory),
                 Godowns = ReadList(root, "godowns", "godown", ReadGodown),
                 StockItems = ReadList(root, "stockItems", "stockItem", ReadStockItem),
+                BatchMasters = ReadList(root, "batchMasters", "batchMaster", ReadBatchMaster),
                 StockOpeningBalances = ReadList(root, "stockOpeningBalances", "stockOpeningBalance", ReadStockOpeningBalance),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
@@ -577,6 +588,17 @@ public static class CanonicalXml
         HsnSacCode = Str(e, "hsnSacCode"), IsTaxable = Bool(e, "isTaxable"), StandardCostPaisa = OptLong(e, "standardCostPaisa"),
         ReorderLevel = OptDec(e, "reorderLevel"), MinimumOrderQuantity = OptDec(e, "minimumOrderQuantity"),
         Gst = e.Element("gst") is { } g ? ReadStockItemGst(g) : null,
+        MaintainInBatches = Bool(e, "maintainInBatches"),
+        TrackManufacturingDate = Bool(e, "trackManufacturingDate"),
+        UseExpiryDates = Bool(e, "useExpiryDates"),
+    };
+
+    private static BatchMasterDto ReadBatchMaster(XElement e) => new()
+    {
+        Id = Guid(e, "id"), StockItemId = Guid(e, "stockItemId"), BatchNumber = Str(e, "batchNumber")!,
+        ManufacturingDate = Str(e, "manufacturingDate"), ExpiryDate = Str(e, "expiryDate"),
+        ExpiryPeriod = Str(e, "expiryPeriod"), GodownId = OptGuid(e, "godownId"),
+        InwardQuantity = OptDec(e, "inwardQuantity"), InwardRatePaisa = OptLong(e, "inwardRatePaisa"),
     };
 
     private static StockOpeningBalanceDto ReadStockOpeningBalance(XElement e) => new()

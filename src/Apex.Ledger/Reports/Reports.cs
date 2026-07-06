@@ -71,6 +71,23 @@ public static class Report
     public static ReorderStatus BuildReorderStatus(Company c, DateOnly asOf)
         => ReorderStatus.Build(c, asOf);
 
+    // ------------------------------------------------------------------ batch reports (Phase 6 Cluster 1)
+
+    /// <summary>The Batch-wise report over a period (Phase 6 Cluster 1; RQ-8) — per item/batch:
+    /// inwards/outwards/closing with mfg &amp; expiry. <paramref name="from"/> defaults to
+    /// <see cref="Company.BooksBeginFrom"/>; set <paramref name="onlyItemId"/> for a single item and
+    /// <paramref name="includeNonBatch"/> to also show the item's non-batch stock.</summary>
+    public static BatchwiseReport BuildBatchwiseReport(
+        Company c, DateOnly to, DateOnly? from = null, Guid? onlyItemId = null, bool includeNonBatch = false)
+        => BatchwiseReport.Build(c, to, from, onlyItemId, includeNonBatch);
+
+    /// <summary>The batch Age Analysis as of a date (Phase 6 Cluster 1; RQ-8) — batches expiring within
+    /// <paramref name="withinDays"/> days plus every already-expired batch still holding stock (past-expiry
+    /// flagged distinctly).</summary>
+    public static BatchAgeAnalysis BuildBatchAgeAnalysis(
+        Company c, DateOnly asOf, int withinDays = 30, Guid? onlyItemId = null)
+        => BatchAgeAnalysis.Build(c, asOf, withinDays, onlyItemId);
+
     // ------------------------------------------------------------------ GST reports (slice 4b)
 
     /// <summary>The GST Tax Analysis period summary (catalog §12; RQ-20) — outward + inward tax by rate/head.</summary>

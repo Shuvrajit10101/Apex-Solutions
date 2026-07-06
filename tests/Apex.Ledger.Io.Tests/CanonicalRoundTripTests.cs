@@ -1,6 +1,7 @@
 using System.Text;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Io.Tests;
 
@@ -342,6 +343,81 @@ public class CanonicalRoundTripTests
         AssertNewDataTypes(model!, company);
     }
 
+    // ------------------------------------------------------------------ batch masters round-trip (Phase 6)
+
+    [Fact]
+    public void Json_round_trips_batch_masters_and_item_switches()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var (model, errors) = CanonicalJson.Parse(CanonicalJson.Export(company));
+        Assert.Empty(errors);
+        AssertBatches(model!, company);
+    }
+
+    [Fact]
+    public void Xml_round_trips_batch_masters_and_item_switches()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var (model, errors) = CanonicalXml.Parse(CanonicalXml.Export(company));
+        Assert.Empty(errors);
+        AssertBatches(model!, company);
+    }
+
+    [Fact]
+    public void Batch_tracked_company_export_import_into_fresh_company_reconciles_json_and_xml()
+    {
+        // PR-4 gate extended to batches: export a batch-tracked company to JSON AND XML, import EACH into a fresh
+        // (differently-Guid'd) company through the engine-routed CompanyImportService, and assert every batch
+        // master + count is EQUAL source == target and every stock figure reconciles to the paisa.
+        var source = CanonicalFixture.BuildBright();
+
+        foreach (var bytes in new[] { CanonicalJson.Export(source), CanonicalXml.Export(source) })
+        {
+            var (model, errors) = bytes[0] == (byte)'{' ? CanonicalJson.Parse(bytes) : CanonicalXml.Parse(bytes);
+            Assert.Empty(errors);
+
+            var fresh = FreshTarget();
+            var result = new CompanyImportService(fresh).Apply(model!);
+            Assert.True(result.Applied, string.Join("; ", result.Errors));
+
+            AssertBatchesReconcileAcrossCompanies(source, fresh);
+        }
+    }
+
+    [Fact]
+    public void Corrupted_batch_import_is_rejected_and_leaves_pre_existing_data_unchanged()
+    {
+        // A batch-tracked export corrupted at the wire (a batch master references a stock item that is neither
+        // imported nor present) must be rejected (Applied=false) with the target byte-for-byte unchanged.
+        var source = CanonicalFixture.BuildBright();
+        var (parsed, errors) = CanonicalJson.Parse(CanonicalJson.Export(source));
+        Assert.Empty(errors);
+
+        // Corrupt exactly one batch master's stock-item reference to a random, absent id (a genuine dangling ref
+        // — not a wholesale rename, which would stay internally consistent). The document is still well-formed.
+        var badBatches = parsed!.Payload.BatchMasters
+            .Select((b, ix) => ix == 0 ? b with { StockItemId = Guid.NewGuid() } : b).ToList();
+        var model = parsed with { Payload = parsed.Payload with { BatchMasters = badBatches } };
+
+        var target = FreshTarget();
+        // Pre-seed the target with a batch so we can prove it survives an aborted import.
+        var inv = new Apex.Ledger.Services.InventoryService(target);
+        var sg = inv.CreateStockGroup("Existing");
+        var nos = inv.CreateSimpleUnit("Nos", "Numbers");
+        var existingItem = inv.CreateStockItem("Existing Item", sg.Id, nos.Id);
+        new Apex.Ledger.Services.BatchService(target).CreateBatch(existingItem.Id, "PRE-1",
+            inwardQuantity: 7m, inwardRate: Money.FromRupees(3m));
+        var before = Encoding.UTF8.GetString(CanonicalJson.Export(target));
+
+        var result = new CompanyImportService(target).Apply(model);
+        Assert.False(result.Applied);
+
+        var after = Encoding.UTF8.GetString(CanonicalJson.Export(target));
+        Assert.Equal(before, after); // byte-for-byte unchanged: the pre-existing batch is intact
+        Assert.Single(target.BatchMasters);
+        Assert.Equal("PRE-1", target.BatchMasters[0].BatchNumber);
+    }
+
     // ------------------------------------------------------------------ XXE safety (XML only)
 
     [Fact]
@@ -454,8 +530,8 @@ public class CanonicalRoundTripTests
         Assert.True(scenarioDto.IncludeActuals);
         Assert.Single(scenarioDto.IncludedTypeIds);
 
-        // Inventory voucher (Receipt Note).
-        var invVoucher = Assert.Single(company.InventoryVouchers);
+        // Inventory voucher (the "GRN for 5 widgets" Receipt Note; the fixture also adds a batch GRN separately).
+        var invVoucher = company.InventoryVouchers.Single(v => v.Narration == "GRN for 5 widgets");
         var invDto = model.Payload.InventoryVouchers.Single(x => x.Id == invVoucher.Id);
         var invAlloc = Assert.Single(invDto.Allocations);
         Assert.Equal(5m, invAlloc.Quantity);
@@ -469,4 +545,86 @@ public class CanonicalRoundTripTests
         var text = Encoding.UTF8.GetString(bytes);
         Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
     }
+
+    // ------------------------------------------------------------------ batch assertions
+
+    /// <summary>The batch-tracked item + its two batch masters survive the projection with every field intact.</summary>
+    private static void AssertBatches(CanonicalModel model, Company company)
+    {
+        var med = company.FindStockItemByName("Paracetamol")!;
+        var medDto = model.Payload.StockItems.Single(x => x.Id == med.Id);
+        Assert.True(medDto.MaintainInBatches);
+        Assert.True(medDto.TrackManufacturingDate);
+        Assert.True(medDto.UseExpiryDates);
+
+        // Exactly the two batch masters we created, matched by number.
+        var srcBatches = company.BatchesFor(med.Id).ToList();
+        Assert.Equal(2, srcBatches.Count);
+        Assert.Equal(company.BatchMasters.Count, model.Payload.BatchMasters.Count);
+
+        var srcA = company.FindBatchByNumber(med.Id, "LOT-A")!;
+        var aDto = model.Payload.BatchMasters.Single(x => x.Id == srcA.Id);
+        Assert.Equal(med.Id, aDto.StockItemId);
+        Assert.Equal("LOT-A", aDto.BatchNumber);
+        Assert.Equal("2021-01-10", aDto.ManufacturingDate);
+        Assert.Equal("2023-01-10", aDto.ExpiryDate);
+        Assert.Null(aDto.ExpiryPeriod);
+        Assert.Equal(med.Id == srcA.StockItemId ? srcA.GodownId : null, aDto.GodownId);
+        Assert.Equal(250m, aDto.InwardQuantity);
+        Assert.Equal(MoneyCodec.ToPaisa(Money.FromRupees(12.34m)), aDto.InwardRatePaisa);
+
+        var srcB = company.FindBatchByNumber(med.Id, "LOT-B")!;
+        var bDto = model.Payload.BatchMasters.Single(x => x.Id == srcB.Id);
+        Assert.Equal("2021-03-01", bDto.ManufacturingDate);
+        Assert.Null(bDto.ExpiryDate);
+        Assert.Equal("18 Months", bDto.ExpiryPeriod);
+        Assert.Null(bDto.GodownId);
+        Assert.Null(bDto.InwardQuantity);
+        Assert.Null(bDto.InwardRatePaisa);
+    }
+
+    /// <summary>
+    /// After an export → import into a fresh company (by name, differently-Guid'd), the batch masters reconcile
+    /// count-for-count and figure-for-figure to the paisa — matched by (item name, batch number).
+    /// </summary>
+    private static void AssertBatchesReconcileAcrossCompanies(Company source, Company target)
+    {
+        Assert.Equal(source.BatchMasters.Count, target.BatchMasters.Count);
+
+        foreach (var srcItem in source.StockItems)
+        {
+            var tgtItem = target.FindStockItemByName(srcItem.Name)!;
+            Assert.Equal(srcItem.MaintainInBatches, tgtItem.MaintainInBatches);
+            Assert.Equal(srcItem.TrackManufacturingDate, tgtItem.TrackManufacturingDate);
+            Assert.Equal(srcItem.UseExpiryDates, tgtItem.UseExpiryDates);
+
+            var srcBatches = source.BatchesFor(srcItem.Id).ToList();
+            var tgtBatches = target.BatchesFor(tgtItem.Id).ToList();
+            Assert.Equal(srcBatches.Count, tgtBatches.Count);
+
+            foreach (var sb in srcBatches)
+            {
+                var tb = target.FindBatchByNumber(tgtItem.Id, sb.BatchNumber)!;
+                Assert.Equal(sb.ManufacturingDate, tb.ManufacturingDate);
+                Assert.Equal(sb.ExpiryDate, tb.ExpiryDate);
+                Assert.Equal(sb.ExpiryPeriod, tb.ExpiryPeriod);
+                Assert.Equal(sb.ResolvedExpiryDate, tb.ResolvedExpiryDate);
+                Assert.Equal(sb.InwardQuantity, tb.InwardQuantity);
+                Assert.Equal(sb.InwardRate, tb.InwardRate);            // paisa-exact
+                // The inward-layer godown resolves by name across companies.
+                if (sb.GodownId is { } sgId)
+                {
+                    var srcGodown = source.FindGodown(sgId)!;
+                    Assert.Equal(target.FindGodownByName(srcGodown.Name)!.Id, tb.GodownId);
+                }
+                else
+                {
+                    Assert.Null(tb.GodownId);
+                }
+            }
+        }
+    }
+
+    private static Company FreshTarget() =>
+        CompanyFactory.CreateSeeded("Fresh Import Co", new DateOnly(2021, 4, 1), new DateOnly(2021, 4, 1));
 }

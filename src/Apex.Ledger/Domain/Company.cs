@@ -24,6 +24,7 @@ public sealed class Company
     private readonly List<StockItem> _stockItems = new();
     private readonly List<StockOpeningBalance> _stockOpeningBalances = new();
     private readonly List<InventoryVoucher> _inventoryVouchers = new();
+    private readonly List<BatchMaster> _batchMasters = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -124,6 +125,9 @@ public sealed class Company
     /// <summary>Stock &amp; order vouchers (catalog §10): GRN/Delivery/Rejection/Stock-Journal/Physical/PO/SO.</summary>
     public IReadOnlyList<InventoryVoucher> InventoryVouchers => _inventoryVouchers;
 
+    /// <summary>Batch / lot masters (catalog §11 Cluster 1; Phase 6 RQ-1): per stock item, per-item-unique.</summary>
+    public IReadOnlyList<BatchMaster> BatchMasters => _batchMasters;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -172,6 +176,12 @@ public sealed class Company
     public void AddGodown(Godown godown) => _godowns.Add(godown ?? throw new ArgumentNullException(nameof(godown)));
     public void AddStockItem(StockItem item) => _stockItems.Add(item ?? throw new ArgumentNullException(nameof(item)));
     public void AddStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Add(balance ?? throw new ArgumentNullException(nameof(balance)));
+
+    /// <summary>Adds a batch master (per-item-uniqueness guard lives in <c>BatchService</c>).</summary>
+    public void AddBatchMaster(BatchMaster batch) => _batchMasters.Add(batch ?? throw new ArgumentNullException(nameof(batch)));
+
+    /// <summary>Removes a batch master (delete-guards live in <c>BatchService</c>; also used by import roll-back).</summary>
+    public bool RemoveBatchMaster(BatchMaster batch) => _batchMasters.Remove(batch);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
@@ -246,6 +256,18 @@ public sealed class Company
     public StockItem? FindStockItem(Guid id) => _stockItems.FirstOrDefault(i => i.Id == id);
     public StockOpeningBalance? FindStockOpeningBalance(Guid id) => _stockOpeningBalances.FirstOrDefault(b => b.Id == id);
     public InventoryVoucher? FindInventoryVoucher(Guid id) => _inventoryVouchers.FirstOrDefault(v => v.Id == id);
+    public BatchMaster? FindBatchMaster(Guid id) => _batchMasters.FirstOrDefault(b => b.Id == id);
+
+    /// <summary>All batch masters that belong to a given stock item (RQ-1).</summary>
+    public IEnumerable<BatchMaster> BatchesFor(Guid stockItemId) => _batchMasters.Where(b => b.StockItemId == stockItemId);
+
+    /// <summary>
+    /// Finds an item's batch by its number (case-insensitive), or <c>null</c>. Batch numbers are unique
+    /// <i>within</i> an item (RQ-1), so this resolves at most one batch per item.
+    /// </summary>
+    public BatchMaster? FindBatchByNumber(Guid stockItemId, string batchNumber) =>
+        _batchMasters.FirstOrDefault(b => b.StockItemId == stockItemId &&
+            string.Equals(b.BatchNumber, batchNumber?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote

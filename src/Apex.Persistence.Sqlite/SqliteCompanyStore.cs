@@ -383,6 +383,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 15;
         }
 
+        // v15 → v16: apply the batch-masters migration, then bump the marker. Existing v15 data survives untouched
+        // (pure CREATE + additive nullable batch_id columns; batch_label stays intact — Phase 6 slice 1).
+        if (version == 15)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV15ToV16;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 16);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 16;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -494,6 +516,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             company.AddGodown(g);
         foreach (var item in ReadStockItems(companyId))
             company.AddStockItem(item);
+        // Batch masters after items + godowns (they reference both), before opening balances.
+        foreach (var bm in ReadBatchMasters(companyId))
+            company.AddBatchMaster(bm);
         foreach (var ob in ReadStockOpeningBalances(companyId))
             company.AddStockOpeningBalance(ob);
 
@@ -567,6 +592,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertStockCategories(tx, company);
         InsertGodowns(tx, company);
         InsertStockItems(tx, company);
+        // Batch masters after stock items (FK stock_items) + godowns; before opening balances (a batch_id on an
+        // opening layer would FK batch_masters — even though we do not populate batch_id today, keep the order safe).
+        InsertBatchMasters(tx, company);
         InsertStockOpeningBalances(tx, company);
         InsertVouchers(tx, company);
         // Inventory & order vouchers (catalog §10): reference voucher_types, stock_items, godowns, units, and
@@ -1027,7 +1055,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
                    hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
-                   gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
+                   gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
+                   maintain_in_batches, track_manufacturing_date, use_expiry_dates
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1035,7 +1064,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         var list = new List<StockItem>();
         while (r.Read())
         {
-            list.Add(new StockItem(
+            var item = new StockItem(
                 Guid.Parse(r.GetString(0)),
                 r.GetString(1),
                 stockGroupId: Guid.Parse(r.GetString(2)),
@@ -1048,7 +1077,39 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 reorderLevel: r.IsDBNull(9) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(9)),
                 minimumOrderQuantity: r.IsDBNull(10) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(10)),
                 standardCost: r.IsDBNull(11) ? (Money?)null : Paisa.ToMoney(r.GetInt64(11)),
-                gst: ReadStockItemGst(r)));
+                gst: ReadStockItemGst(r));
+            // v16 batch switches (columns 16–18).
+            item.MaintainInBatches = r.GetInt64(16) != 0;
+            item.TrackManufacturingDate = r.GetInt64(17) != 0;
+            item.UseExpiryDates = r.GetInt64(18) != 0;
+            list.Add(item);
+        }
+        return list;
+    }
+
+    private IEnumerable<BatchMaster> ReadBatchMasters(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, stock_item_id, batch_no, mfg_date, expiry_date, expiry_period,
+                   godown_id, inward_qty_micro, inward_rate_paisa
+            FROM batch_masters WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<BatchMaster>();
+        while (r.Read())
+        {
+            list.Add(new BatchMaster(
+                Guid.Parse(r.GetString(0)),
+                stockItemId: Guid.Parse(r.GetString(1)),
+                batchNumber: r.GetString(2),
+                manufacturingDate: r.IsDBNull(3) ? (DateOnly?)null : ParseDate(r.GetString(3)),
+                expiryDate: r.IsDBNull(4) ? (DateOnly?)null : ParseDate(r.GetString(4)),
+                expiryPeriod: r.IsDBNull(5) ? null : ExpiryPeriod.Parse(r.GetString(5)),
+                godownId: r.IsDBNull(6) ? (Guid?)null : Guid.Parse(r.GetString(6)),
+                inwardQuantity: r.IsDBNull(7) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(7)),
+                inwardRate: r.IsDBNull(8) ? (Money?)null : Paisa.ToMoney(r.GetInt64(8))));
         }
         return list;
     }
@@ -1567,6 +1628,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM cost_categories WHERE company_id = $cid;", ("$cid", cid));
         // Inventory: openings FK items+godowns; items FK groups/categories/units → delete child-first.
         ExecTx(tx, "DELETE FROM stock_opening_balances WHERE company_id = $cid;", ("$cid", cid));
+        // Batch masters FK stock_items + godowns; the batch_id-bearing line tables (openings/allocations/physical/
+        // item-invoice) were all deleted above → safe to drop batch masters before items + godowns.
+        ExecTx(tx, "DELETE FROM batch_masters WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM stock_items WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM stock_categories WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM stock_groups WHERE company_id = $cid;", ("$cid", cid));
@@ -1964,9 +2028,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO stock_items
                     (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
                      hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
-                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
+                     maintain_in_batches, track_manufacturing_date, use_expiry_dates)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
-                        $ghsn, $gtax, $grate, $gsup);
+                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1988,6 +2053,37 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$gtax", g is null ? (object)DBNull.Value : (int)g.Taxability);
             cmd.Parameters.AddWithValue("$grate", g?.RateBasisPoints is { } grbp ? grbp : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$gsup", g is null ? (object)DBNull.Value : (int)g.SupplyType);
+
+            // v16 batch switches (0/1; default off).
+            cmd.Parameters.AddWithValue("$mib", item.MaintainInBatches ? 1 : 0);
+            cmd.Parameters.AddWithValue("$tmd", item.TrackManufacturingDate ? 1 : 0);
+            cmd.Parameters.AddWithValue("$ued", item.UseExpiryDates ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertBatchMasters(SqliteTransaction tx, Company c)
+    {
+        foreach (var b in c.BatchMasters)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO batch_masters
+                    (id, company_id, stock_item_id, batch_no, mfg_date, expiry_date, expiry_period,
+                     godown_id, inward_qty_micro, inward_rate_paisa)
+                VALUES ($id, $cid, $item, $no, $mfg, $exp, $period, $godown, $qty, $rate);
+                """;
+            cmd.Parameters.AddWithValue("$id", b.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$item", b.StockItemId.ToString("D"));
+            cmd.Parameters.AddWithValue("$no", b.BatchNumber);
+            cmd.Parameters.AddWithValue("$mfg", (object?)(b.ManufacturingDate is { } m ? FormatDate(m) : null) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$exp", (object?)(b.ExpiryDate is { } e ? FormatDate(e) : null) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$period", (object?)b.ExpiryPeriod?.RawText ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$godown", (object?)b.GodownId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$qty", b.InwardQuantity is { } q ? QtyMicroFromDecimal(q) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$rate", b.InwardRate is { } r ? Paisa.FromMoney(r) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

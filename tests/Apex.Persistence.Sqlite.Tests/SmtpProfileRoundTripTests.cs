@@ -30,8 +30,8 @@ public sealed class SmtpProfileRoundTripTests
         try
         {
             using (new SqliteCompanyStore(dbPath)) { }
-            Assert.Equal(15, Schema.CurrentVersion);
-            Assert.Equal(15L, ReadSchemaVersion(dbPath));
+            Assert.True(Schema.CurrentVersion >= 15);                     // SMTP profile landed at v15
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             Assert.True(TableExists(dbPath, "smtp_profile"));
         }
         finally { Delete(dbPath); }
@@ -167,9 +167,9 @@ public sealed class SmtpProfileRoundTripTests
             Assert.Equal(14L, ReadSchemaVersion(dbPath));
             Assert.False(TableExists(dbPath, "smtp_profile"));
 
-            using (var store = new SqliteCompanyStore(dbPath)) // opens v14 → migrates to v15
+            using (var store = new SqliteCompanyStore(dbPath)) // opens v14 → migrates forward (>= v15)
             {
-                Assert.Equal(15L, ReadSchemaVersion(dbPath));
+                Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
                 Assert.True(TableExists(dbPath, "smtp_profile"));
                 // Existing v14 data survived the pure CREATE-only migration.
                 Assert.Equal("Legacy V14 Co", ReadCompanyName(dbPath, companyId));
@@ -260,7 +260,11 @@ public sealed class SmtpProfileRoundTripTests
     /// <summary>
     /// A minimal pre-v15 (v14) DDL: enough of the schema for the v14→v15 migration (which only CREATEs the
     /// <c>smtp_profile</c> table) and a data-preservation assertion, including the v14 <c>saved_views</c> table
-    /// so we prove that row survives. Kept in the test so it never drifts as the production schema advances.
+    /// so we prove that row survives. Because opening the store migrates all the way to
+    /// <see cref="Schema.CurrentVersion"/> (past v15), the four v16-touched stock-line tables
+    /// (<c>stock_opening_balances</c>, <c>inventory_allocations</c>, <c>physical_stock_lines</c>,
+    /// <c>voucher_inventory_lines</c>) are included in their pre-v16 shape so the v15→v16 ADD-COLUMN steps have
+    /// real targets. Kept in the test so it never drifts as the production schema advances.
     /// </summary>
     private const string MinimalV14Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -274,5 +278,28 @@ public sealed class SmtpProfileRoundTripTests
             name         TEXT NOT NULL,
             config_json  TEXT NOT NULL
         );
+        CREATE TABLE stock_opening_balances (
+            id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, stock_item_id TEXT NOT NULL,
+            godown_id TEXT NOT NULL, batch_label TEXT NULL, quantity_micro INTEGER NOT NULL,
+            rate_paisa INTEGER NOT NULL, mfg_date TEXT NULL, expiry_date TEXT NULL);
+        CREATE TABLE inventory_allocations (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL,
+            line_order INTEGER NOT NULL, role INTEGER NOT NULL, stock_item_id TEXT NOT NULL,
+            godown_id TEXT NOT NULL, unit_id TEXT NULL, quantity_micro INTEGER NOT NULL,
+            direction INTEGER NOT NULL, rate_paisa INTEGER NULL, batch_label TEXT NULL);
+        CREATE TABLE physical_stock_lines (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL,
+            line_order INTEGER NOT NULL, stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL,
+            counted_qty_micro INTEGER NOT NULL, batch_label TEXT NULL);
+        CREATE TABLE voucher_inventory_lines (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL,
+            stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL, quantity_micro INTEGER NOT NULL,
+            direction INTEGER NOT NULL, rate_paisa INTEGER NOT NULL, batch_label TEXT NULL);
+        CREATE TABLE stock_items (
+            id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+            stock_group_id TEXT NOT NULL, category_id TEXT NULL, base_unit_id TEXT NOT NULL, alias TEXT NULL,
+            valuation_method INTEGER NOT NULL DEFAULT 0, hsn_sac_code TEXT NULL, is_taxable INTEGER NOT NULL DEFAULT 0,
+            reorder_level_micro INTEGER NULL, min_order_qty_micro INTEGER NULL, standard_cost_paisa INTEGER NULL,
+            gst_hsn_sac TEXT NULL, gst_taxability INTEGER NULL, gst_rate_bp INTEGER NULL, gst_supply_type INTEGER NULL);
         """;
 }

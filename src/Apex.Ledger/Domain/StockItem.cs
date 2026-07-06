@@ -76,6 +76,26 @@ public sealed class StockItem
     /// </summary>
     public StockItemGstDetails? Gst { get; set; }
 
+    /// <summary>
+    /// <b>Maintain in Batches</b> (Phase 6 Cluster 1; requirements RQ-2). When on, the item's stock is tracked
+    /// per batch/lot and the batch-allocation sub-screen appears at voucher entry. Independent of the two date
+    /// switches. Defaults to <c>false</c> so every existing item behaves byte-identically (ER-13). This is a
+    /// plain model flag here; UI gating (company flag / F12) is a later slice.
+    /// </summary>
+    public bool MaintainInBatches { get; set; }
+
+    /// <summary>
+    /// <b>Track date of Manufacturing</b> (Phase 6 Cluster 1; requirements RQ-2). Independent of
+    /// <see cref="UseExpiryDates"/>. Defaults to <c>false</c>.
+    /// </summary>
+    public bool TrackManufacturingDate { get; set; }
+
+    /// <summary>
+    /// <b>Use Expiry dates</b> (Phase 6 Cluster 1; requirements RQ-2, subtlety a). May be on <b>without</b>
+    /// <see cref="TrackManufacturingDate"/>. Defaults to <c>false</c>.
+    /// </summary>
+    public bool UseExpiryDates { get; set; }
+
     public StockItem(
         Guid id,
         string name,

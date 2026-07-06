@@ -266,6 +266,26 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
+        // Drop the v16 batch_masters table + its indexes so the reopen's v15→v16 CREATE TABLE does not collide.
+        // (inventory_allocations / physical_stock_lines / voucher_inventory_lines are dropped above and recreated
+        // fresh by the v10/v12 migrations WITHOUT batch_id, so the v16 ADD-COLUMN steps re-apply cleanly.)
+        Exec(conn, "DROP INDEX IF EXISTS ux_batch_masters_item_no;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_batch_masters_item;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_batch_masters_company;");
+        Exec(conn, "DROP TABLE IF EXISTS batch_masters;");
+        // stock_opening_balances is a v9 table (kept, not dropped), so a fresh save at v16 gave it the v16
+        // batch_id column via ALTER — strip it back to the v9 shape so the reopen's v15→v16 ADD COLUMN does not
+        // collide with an already-present column.
+        Exec(conn, """
+            CREATE TABLE stock_opening_balances_v9 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, stock_item_id TEXT NOT NULL,
+                godown_id TEXT NOT NULL, batch_label TEXT NULL, quantity_micro INTEGER NOT NULL,
+                rate_paisa INTEGER NOT NULL, mfg_date TEXT NULL, expiry_date TEXT NULL);
+            INSERT INTO stock_opening_balances_v9 SELECT id, company_id, stock_item_id, godown_id, batch_label,
+                quantity_micro, rate_paisa, mfg_date, expiry_date FROM stock_opening_balances;
+            DROP TABLE stock_opening_balances;
+            ALTER TABLE stock_opening_balances_v9 RENAME TO stock_opening_balances;
+            """);
         // Rebuild voucher_types WITHOUT the two v10 effect columns (SQLite pre-3.35 has no DROP COLUMN; use a
         // table rewrite that is robust across versions).
         Exec(conn, """
