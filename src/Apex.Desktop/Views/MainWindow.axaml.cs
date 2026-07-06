@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Specialized;
+using System.IO;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -82,6 +84,8 @@ public partial class MainWindow : Window
                 vm.ApplySaveView();
             else if (vm.CurrentScreen == Screen.SavedViews)
                 vm.OpenSelectedSavedView();
+            else if (vm.CurrentScreen == Screen.PrintPreview)
+                SavePrintPreviewToDocuments(vm);
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -165,6 +169,17 @@ public partial class MainWindow : Window
         if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
         {
             vm.OpenSavedViews();
+            e.Handled = true;
+            return;
+        }
+
+        // P / Ctrl+P (RQ-9) opens the Print Preview of the CURRENT report — renders it to a de-branded PDF and
+        // shows the paginated layout; "Save PDF" writes the bytes. Report context only (so the bare P never
+        // fires while a drill column is active). Checked before the bare-P menu quick-jump (Profit & Loss),
+        // which is guarded to menu screens, and before the Ctrl+P falls through to anything else.
+        if (e.Key == Key.P && vm.IsReportContext && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
+        {
+            vm.OpenPrintPreview();
             e.Handled = true;
             return;
         }
@@ -409,6 +424,34 @@ public partial class MainWindow : Window
 
     private void OnOpenSavedViewClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSelectedSavedView();
+
+    /// <summary>
+    /// "Save PDF" on the Print-Preview panel: writes the rendered bytes to a file. The renderer is disk-free;
+    /// this thin layer just picks a path (the user's Documents folder with a report-derived file name) and calls
+    /// the VM, which writes the stream. A full save-file dialog can replace the path choice in a later slice.
+    /// </summary>
+    private void OnSavePrintPreviewClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) SavePrintPreviewToDocuments(vm);
+    }
+
+    /// <summary>Picks a Documents-folder path from the report title and asks the VM to write the rendered PDF bytes.</summary>
+    private static void SavePrintPreviewToDocuments(MainWindowViewModel vm)
+    {
+        if (vm.PrintPreview is not { } preview) return;
+        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var name = SafeFileName(preview.ReportTitle) + ".pdf";
+        vm.SavePrintPreview(Path.Combine(dir, name));
+    }
+
+    /// <summary>Turns a report title into a safe file-name stem (invalid path chars → '_'; blank → "Report").</summary>
+    private static string SafeFileName(string title)
+    {
+        var stem = string.IsNullOrWhiteSpace(title) ? "Report" : title.Trim();
+        foreach (var c in Path.GetInvalidFileNameChars())
+            stem = stem.Replace(c, '_');
+        return stem;
+    }
 
     private void OnDeleteSavedViewClick(object? sender, RoutedEventArgs e)
         => Vm?.DeleteSelectedSavedView();

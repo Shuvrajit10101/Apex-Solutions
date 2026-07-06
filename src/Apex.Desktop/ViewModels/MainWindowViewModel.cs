@@ -22,6 +22,7 @@ public enum Screen
     AutoColumns,
     SaveView,
     SavedViews,
+    PrintPreview,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -202,6 +203,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Alt+K "Saved Views" list panel view model, non-null only while that panel column is open (RQ-8).</summary>
     [ObservableProperty] private SavedViewsViewModel? _savedViews;
 
+    /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
+    [ObservableProperty] private PrintPreviewViewModel? _printPreview;
+
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
 
@@ -222,7 +226,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
-        && SaveView is null && SavedViews is null
+        && SaveView is null && SavedViews is null && PrintPreview is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -254,6 +258,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1206,6 +1211,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Reports?.ApplySavedView(view);
     }
 
+    // =============================================================== screen: Print Preview (RQ-9 / DP-8)
+
+    /// <summary>
+    /// P / Ctrl+P — opens the "Print Preview" of the CURRENT report (RQ-9) as its own cascading column to the
+    /// RIGHT of the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report
+    /// stays live beneath the preview; the report's on-screen rows/config are projected into a de-branded PDF
+    /// (via <c>Apex.Ledger.Io</c>) and shown paginated. A no-op unless a report is open; re-pressing while the
+    /// preview is open is a no-op (there is already a preview column). All IO stays in the Io project (ER-12).
+    /// </summary>
+    public void OpenPrintPreview()
+    {
+        if (Reports is null) return;              // only meaningful over an open report
+        if (PrintPreview is not null) return;     // preview already open — don't stack a second one
+
+        var preview = new PrintPreviewViewModel(Reports);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Save button on the Print-Preview panel: writes the rendered PDF bytes to <paramref name="path"/>
+    /// (chosen by the Avalonia layer, or a temp path). The renderer never touches disk — this is the only place
+    /// the bytes are written. A no-op when no preview is open. Returns whether the file was written.
+    /// </summary>
+    public bool SavePrintPreview(string path) => PrintPreview?.SavePdf(path) ?? false;
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -1684,6 +1720,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AutoColumns = null;
         SaveView = null;
         SavedViews = null;
+        PrintPreview = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }

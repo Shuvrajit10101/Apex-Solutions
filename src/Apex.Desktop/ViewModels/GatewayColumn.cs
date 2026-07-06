@@ -129,6 +129,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Alt+K "Saved Views" list panel (non-null only for that RQ-8 column).</summary>
     public SavedViewsViewModel? SavedViews => Page as SavedViewsViewModel;
 
+    /// <summary>The hosted P / Ctrl+P "Print Preview" panel (non-null only for that RQ-9 column).</summary>
+    public PrintPreviewViewModel? PrintPreview => Page as PrintPreviewViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 

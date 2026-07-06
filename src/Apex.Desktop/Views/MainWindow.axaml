@@ -3939,6 +3939,88 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Print Preview (RQ-9 / DP-8 — render the report to a de-branded PDF and preview it) -->
+                    <ContentControl IsVisible="{Binding PrintPreview, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PrintPreview}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PrintPreviewViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+
+                            <!-- Page options -->
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="16" Margin="2,0,0,8">
+                              <CheckBox Content="Letter (else A4)" IsChecked="{Binding UseLetter, Mode=TwoWay}"/>
+                              <CheckBox Content="Landscape" IsChecked="{Binding Landscape, Mode=TwoWay}"/>
+                              <TextBlock Text="{Binding PageCount, StringFormat='Pages: {0}'}"
+                                         VerticalAlignment="Center" Foreground="#8A8A8A" FontSize="12"/>
+                            </StackPanel>
+
+                            <!-- Paginated preview: one framed 'sheet' per page -->
+                            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Auto" Background="#EDEDED">
+                              <ItemsControl ItemsSource="{Binding Pages}" Margin="8">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PreviewPage">
+                                    <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                            BorderThickness="1" Margin="0,0,0,12" Padding="18">
+                                      <StackPanel Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="14"
+                                                   HorizontalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Text="{Binding Subtitle}" FontSize="11"
+                                                   HorizontalAlignment="Center" Foreground="#555555" Margin="0,0,0,6"/>
+                                        <ItemsControl ItemsSource="{Binding Headers}">
+                                          <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                          </ItemsControl.ItemsPanel>
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate><TextBlock Text="{Binding}" FontWeight="Bold" FontSize="11"
+                                                                     Width="120" Foreground="{StaticResource BrandNavy}"/></DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Border Height="1" Background="{StaticResource GridLine}" Margin="0,2"/>
+                                        <ItemsControl ItemsSource="{Binding Lines}">
+                                          <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:PreviewLine">
+                                              <ItemsControl ItemsSource="{Binding Cells}">
+                                                <ItemsControl.ItemsPanel>
+                                                  <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                  <DataTemplate><TextBlock Text="{Binding}" FontSize="11" Width="120"
+                                                                           TextTrimming="CharacterEllipsis"/></DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                              </ItemsControl>
+                                            </DataTemplate>
+                                          </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="{Binding Footer}" FontSize="10" Foreground="#8A8A8A"
+                                                   HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                                      </StackPanel>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                         IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <Button Grid.Column="1" Content="Save PDF (Ctrl+A)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnSavePrintPreviewClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Forex Gain/Loss (unrealized revaluation) report -->
                     <ContentControl IsVisible="{Binding ForexReport, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ForexReport}">
