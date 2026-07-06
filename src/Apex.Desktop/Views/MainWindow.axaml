@@ -3694,6 +3694,75 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: E / Alt+E "Export" panel (RQ-14/16 — CSV / XLSX / PDF export of the open report) -->
+                    <ContentControl IsVisible="{Binding ExportPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ExportPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ExportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="320">
+
+                                <!-- RQ-16: format -->
+                                <TextBlock Text="Format" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="CSV (comma-separated)"
+                                             IsChecked="{Binding IsCsv, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="XLSX (Excel workbook)"
+                                             IsChecked="{Binding IsXlsx, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportFormat" Content="PDF (printable)"
+                                             IsChecked="{Binding IsPdf, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- RQ-16: destination -->
+                                <TextBlock Text="Destination" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Folder" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Folder, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(target folder)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="File name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding FileName, Mode=TwoWay}"
+                                           PlaceholderText="(base name, no extension)"/>
+                                </Grid>
+                                <CheckBox Content="Append timestamp to the file name"
+                                          IsChecked="{Binding AppendTimestamp, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding ResolvedFileName, StringFormat='Will write: {0}'}"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Export (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyExportClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Alt+F12 report Sort/Filter panel (RQ-3 sort & value/range/name filter) -->
                     <ContentControl IsVisible="{Binding ReportSortFilter, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ReportSortFilter}">

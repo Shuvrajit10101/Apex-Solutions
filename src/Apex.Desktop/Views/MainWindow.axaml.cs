@@ -86,6 +86,8 @@ public partial class MainWindow : Window
                 vm.OpenSelectedSavedView();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
+            else if (vm.CurrentScreen == Screen.Export)
+                vm.ApplyExport();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
             else
@@ -182,6 +184,17 @@ public partial class MainWindow : Window
         if (e.Key == Key.P && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
         {
             vm.OpenPrintPreview();
+            e.Handled = true;
+            return;
+        }
+
+        // E / Alt+E (RQ-14) opens the Export panel for the CURRENT report — choose CSV/XLSX/PDF, folder,
+        // filename and an optional timestamp; applying writes the file via Apex.Ledger.Io. Report context only
+        // (so the bare E never fires while a drill/voucher/master column is active), and not while typing.
+        // Accepts both the bare E and Alt+E (the header hint reads "E: Export"). No Ctrl (Ctrl+E is unused here).
+        if (e.Key == Key.E && vm.IsReportContext && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
+        {
+            vm.OpenExport();
             e.Handled = true;
             return;
         }
@@ -418,6 +431,9 @@ public partial class MainWindow : Window
 
     private void OnApplyPrintConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyPrintConfig();
+
+    private void OnApplyExportClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyExport();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

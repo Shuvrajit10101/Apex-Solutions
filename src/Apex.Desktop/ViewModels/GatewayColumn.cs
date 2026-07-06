@@ -135,6 +135,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted F12 print-config panel over a voucher/invoice preview (non-null only for that RQ-12 column).</summary>
     public PrintConfigViewModel? PrintConfigPanel => Page as PrintConfigViewModel;
 
+    /// <summary>The hosted E / Alt+E "Export" panel (non-null only for that RQ-14 column).</summary>
+    public ExportViewModel? ExportPanel => Page as ExportViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 

@@ -618,21 +618,30 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **845 passed / 0 failed** (Apex.Ledger.Io 54 · Ledger 422 · Sqlite 52 · Desktop 317). Schema v14. Robert & Bright green.
 - **Next:** Phase 5 slice 10 — export (CSV/JSON/XML/XLSX) of reports & masters (RQ-14..19). [A15]
 
+### Phase 5 slice 10 — Tabular export: CSV + XLSX (RQ-14..18) ✅ (2026-07-06)
+- **Delivered in Apex.Ledger.Io:** TabularExport model (Text/Number cells; Number carries the exact decimal), CsvWriter (RFC-4180, UTF-8-with-BOM, CRLF, formula-injection guard), XlsxWriter (hand-rolled minimal OPC via built-in System.IO.Compression.ZipArchive — no NuGet: [Content_Types].xml + _rels + workbook + sheet1 with numeric `<c t="n">` cells, XML-illegal control chars stripped, deterministic zip → byte-stable, opens without repair — verified via System.IO.Packaging), ExportConfig (folder/filename/optional timestamp passed in; no clock), TabularDebrand (newline-safe cell de-brand). **UI:** ReportTabularProjector (report → TabularExport; money as exact Number cells so a spreadsheet sums them; real on-screen column captions) + ExportViewModel + E/Alt+E export panel (format/destination/timestamp).
+- **Validation** (ZipArchive + XmlDocument + System.IO.Packaging + strict RFC-4180 parser): CSV BOM + well-formed, XLSX valid OPC opens without repair, money paisa-exact, byte-stable, zero "tally".
+- **Adversarial review (A10, 4 lenses) caught 3 HIGH + 1 MED + 2 LOW; fixed 4 (+ regression tests):** (HIGH) numeric cells preserve real precision (qty 10.125 / rate 3.3333, not forced 2dp); (HIGH) XLSX XML-illegal control chars stripped so Excel opens without repair; (MED) wide inventory/GST exports had blank headers → real per-kind on-screen captions; (LOW) CSV formula/macro injection (=,+,-,@) neutralized with a leading ' (negative money stays a plain summable number). **Deferred (LOW):** master-list export wiring → Phase 5 slice 13 (finalization).
+- **Note:** a usage-limit interruption hit mid-fix; recovered by verifying the WIP tree still built + 68 Io tests green, then re-ran the fix workflow after the limit cleared (STOP-at-checkpoint discipline held — last commit b54ab51 stayed the clean fallback).
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **880 passed / 0 failed** (Apex.Ledger.Io 76 · Ledger 422 · Sqlite 52 · Desktop 330). Schema v14. Robert & Bright green.
+- **Next:** Phase 5 slice 11 — canonical JSON + XML data export + import (JSON/CSV/XML) + lossless round-trip HARD gate (RQ-19/20..24, PR-4). [A15]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v14, 845 tests green** (4 test projects: Apex.Ledger.Io 54 · Ledger 422 · Sqlite 52 · Desktop 317), de-branded, working
+  SINGLE live workspace now), **schema v14, 880 tests green** (4 test projects: Apex.Ledger.Io 76 · Ledger 422 · Sqlite 52 · Desktop 330), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
   RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
   slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, ✅ **Phase 5 slice 6 (universal drill-down — RQ-7)
   COMPLETE**, ✅ **Phase 5 slice 7 (Save View — RQ-8; SQLite schema v14) COMPLETE**, ✅ **Phase 5 slice 8 (IO
-  foundation — Apex.Ledger.Io + hand-rolled PDF writer + report→PDF print/preview — RQ-9/13) COMPLETE**, and ✅ **Phase 5
-  slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 10** — export (CSV/JSON/XML/XLSX) of reports & masters (RQ-14..19); then the rest of
-  Phase 5 (import / email) per `plan.md`.
+  foundation — Apex.Ledger.Io + hand-rolled PDF writer + report→PDF print/preview — RQ-9/13) COMPLETE**, ✅ **Phase 5
+  slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, and ✅ **Phase 5 slice 10 (tabular
+  export CSV RFC-4180 + XLSX hand-rolled OPC — RQ-14..18) COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 11** — canonical JSON + XML data export + import (JSON/CSV/XML) + lossless round-trip HARD
+  gate (RQ-19/20..24, PR-4); then the rest of Phase 5 (email / finalization) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

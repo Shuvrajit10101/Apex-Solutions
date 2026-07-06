@@ -24,6 +24,7 @@ public enum Screen
     SavedViews,
     PrintPreview,
     PrintConfig,
+    Export,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -210,6 +211,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The F12 print-config panel (RQ-12) over a voucher/invoice preview, non-null only while that column is open.</summary>
     [ObservableProperty] private PrintConfigViewModel? _printConfigPanel;
 
+    /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
+    [ObservableProperty] private ExportViewModel? _exportPanel;
+
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
 
@@ -231,6 +235,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
+        && ExportPanel is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -264,6 +269,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1285,6 +1291,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Apply button on the print-config panel: push the knobs and re-render the preview.</summary>
     public void ApplyPrintConfig() => PrintConfigPanel?.Apply();
 
+    // =============================================================== screen: export
+
+    /// <summary>
+    /// E / Alt+E (RQ-14) — opens the "Export" panel for the CURRENT report as its own cascading column to the
+    /// RIGHT of the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report
+    /// stays live beneath; applying projects the report into a <see cref="Apex.Ledger.Io.TabularExport"/> (money
+    /// as exact Number cells) and writes the chosen CSV/XLSX/PDF via <c>Apex.Ledger.Io</c>. A no-op unless a
+    /// report is open; re-pressing while the panel is open is a no-op (there is already an export column). All
+    /// IO stays in the Io project (ER-12).
+    /// </summary>
+    public void OpenExport()
+    {
+        if (ExportPanel is not null) return;   // panel already open — don't stack a second one
+        if (Reports is null) return;           // nothing to export
+
+        var panel = new ExportViewModel(Reports);
+        ExportPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Export;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
+    public bool ApplyExport() => ExportPanel?.Apply() ?? false;
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -1765,6 +1799,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SavedViews = null;
         PrintPreview = null;
         PrintConfigPanel = null;
+        ExportPanel = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }

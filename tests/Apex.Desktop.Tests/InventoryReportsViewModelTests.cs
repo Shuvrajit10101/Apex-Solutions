@@ -4,6 +4,7 @@ using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
+using Apex.Ledger.Io;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
 
@@ -307,6 +308,51 @@ public sealed class InventoryReportsViewModelTests : IDisposable
 
         // Still the Stock Summary — nothing opened.
         Assert.Equal(ReportKind.StockSummary, k.Vm.Reports!.Kind);
+    }
+
+    // ---------------------------------------------------------------- (8) tabular export: headers + precision
+
+    [Fact]
+    public void Stock_summary_export_carries_the_on_screen_column_captions_not_blank_headers()
+    {
+        var k = NewKit("Header Co");
+        k.Vm.OpenReport(ReportKind.StockSummary);
+
+        var export = ReportTabularProjector.Project(k.Vm.Reports!);
+        var headers = export.Columns.Select(c => c.Header).ToArray();
+
+        // The wide inventory report exports the SAME captions the grid shows (RQ-15/18) — never a blank header row.
+        Assert.Equal(new[] { "Stock Item", "Inward", "Outward", "Closing Qty", "Rate", "Value" }, headers);
+        Assert.DoesNotContain(export.Columns, c => string.IsNullOrEmpty(c.Header));
+    }
+
+    [Fact]
+    public void Stock_item_movement_export_carries_its_six_on_screen_captions()
+    {
+        // A different wide inventory report — its six populated columns each carry the on-screen caption.
+        var k = NewKit("Movement Header Co");
+        k.Vm.OpenReport(ReportKind.StockItemMovement, k.WidgetId);
+
+        var export = ReportTabularProjector.Project(k.Vm.Reports!);
+        var headers = export.Columns.Select(c => c.Header).ToArray();
+        Assert.Equal(new[] { "Date", "Voucher Type", "Inward", "Outward", "Balance", "Value" }, headers);
+        Assert.DoesNotContain(export.Columns, c => string.IsNullOrEmpty(c.Header));
+    }
+
+    [Fact]
+    public void Stock_summary_export_keeps_whole_quantities_whole_no_invented_decimals()
+    {
+        var k = NewKit("Precision Co");
+        k.Vm.OpenReport(ReportKind.StockSummary);
+
+        var export = ReportTabularProjector.Project(k.Vm.Reports!);
+        string csv = System.Text.Encoding.UTF8.GetString(CsvWriter.Write(export));
+
+        // Gadget closing qty is a whole 200 — it must export as "200", not "200.00" (RQ-15 on-screen fidelity).
+        Assert.Contains("200", csv);
+        Assert.DoesNotContain("200.00", csv);
+        // Widget closing qty is a whole 105 — likewise no invented ".00".
+        Assert.DoesNotContain("105.00", csv);
     }
 
     public void Dispose()
