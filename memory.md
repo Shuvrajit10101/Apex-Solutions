@@ -626,22 +626,32 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **880 passed / 0 failed** (Apex.Ledger.Io 76 · Ledger 422 · Sqlite 52 · Desktop 330). Schema v14. Robert & Bright green.
 - **Next:** Phase 5 slice 11 — canonical JSON + XML data export + import (JSON/CSV/XML) + lossless round-trip HARD gate (RQ-19/20..24, PR-4). [A15]
 
+### Phase 5 slice 11 — Canonical JSON+XML export/import + lossless round-trip (RQ-19/20..24, PR-4) ✅ (2026-07-06)
+- **Delivered the DATA round-trip.** Apex.Ledger.Io: CanonicalModel (a COMPLETE mirror of the Company aggregate — audited against SQLite Schema v14; money=integer paisa, rates=micros, deterministic), CanonicalMapper (export), CanonicalJson + CanonicalXml (versioned envelope {formatVersion:1, schemaVersion:14, company, payload}; XML XXE-safe DtdProcessing.Prohibit; strict ISO dates; byte-stable), CsvImport (flat). CompanyImportService (ENGINE-ROUTED apply, ER-6: masters via domain create, vouchers via LedgerService.Post/VoucherValidator; validate-before-apply with per-record messages; TRANSACTIONAL all-or-nothing via ApplyJournal; duplicate policy Skip/MergeOpeningBalance/RejectBatch).
+- **Covers EVERYTHING** (review caught the round-trip silently dropping data on a narrow fixture): groups/ledgers (incl. interest, cheque-printing, currency)/voucher-types/units/stock masters/opening balances, accounting + item-invoice vouchers + GST line tax + bill/cost/bank allocations + forex, cost categories/centres, currencies + exchange rates, budgets, scenarios, inventory vouchers (GRN/Delivery/Rejections/Stock-Journal/Physical + order/physical lines). Predefined masters (Cash, P&L head/group) reused-by-name not duplicated.
+- **UI:** ImportDataViewModel (O/Alt+O: file+format+duplicate-policy → read → apply, reports per-record errors, nothing on failure) + ExportDataViewModel (canonical JSON/XML backup); thin Avalonia layer (ER-12).
+- **PR-4 EXIT GATE PASS** (validated independently): export Bright(rich: +cost+bank+forex+currency/rate+budget+scenario+inventory-voucher) → import into a fresh company → every report figure (TB/BS/P&L/Stock/GST) reconciles to the PAISA AND every master + per-line sub-object count is EQUAL source==target, on BOTH JSON and XML. A corrupted batch (unbalanced / missing-ledger) is rejected with a message and leaves a pre-existing GST company 100% UNCHANGED. XML DOCTYPE/entity rejected (XXE). Byte-stable; zero "tally". The gate has teeth (asserts exact counts + paisa figures).
+- **Adversarial review (A10, 4 lenses) caught 2 CRITICAL + 3 HIGH + 2 MED + 2 LOW across two fix rounds:** silent data drops (cost/bank/forex/budgets/scenarios/inventory-vouchers) → complete envelope; rollback deleted pre-existing GST ledgers/config → snapshot-before + prune-only-created; XXE → DtdProcessing.Prohibit; too-narrow fixture → rich fixture + exact-count assertions; P&L-head group duplicated → FindGroupOrHeadByName reuse; + de-brand comment + strict ISO dates.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **922 passed / 0 failed** (Apex.Ledger.Io 95 · Ledger 433 · Sqlite 52 · Desktop 342). Schema v14. Robert & Bright green.
+- **Next:** Phase 5 slice 12 — email (compose + .eml/mail-client hand-off; SMTP profile captured, live send deferred) (RQ-25..27). [A15]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v14, 880 tests green** (4 test projects: Apex.Ledger.Io 76 · Ledger 422 · Sqlite 52 · Desktop 330), de-branded, working
+  SINGLE live workspace now), **schema v14, 922 tests green** (4 test projects: Apex.Ledger.Io 95 · Ledger 433 · Sqlite 52 · Desktop 342), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
   RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
   slice 5 (Exception reports — RQ-5 pt.2) COMPLETE → RQ-5 DONE**, ✅ **Phase 5 slice 6 (universal drill-down — RQ-7)
   COMPLETE**, ✅ **Phase 5 slice 7 (Save View — RQ-8; SQLite schema v14) COMPLETE**, ✅ **Phase 5 slice 8 (IO
   foundation — Apex.Ledger.Io + hand-rolled PDF writer + report→PDF print/preview — RQ-9/13) COMPLETE**, ✅ **Phase 5
-  slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, and ✅ **Phase 5 slice 10 (tabular
-  export CSV RFC-4180 + XLSX hand-rolled OPC — RQ-14..18) COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 11** — canonical JSON + XML data export + import (JSON/CSV/XML) + lossless round-trip HARD
-  gate (RQ-19/20..24, PR-4); then the rest of Phase 5 (email / finalization) per `plan.md`.
+  slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, ✅ **Phase 5 slice 10 (tabular
+  export CSV RFC-4180 + XLSX hand-rolled OPC — RQ-14..18) COMPLETE**, and ✅ **Phase 5 slice 11 (canonical JSON+XML data
+  export/import + lossless round-trip — RQ-19/20..24; PR-4 exit gate PASS) COMPLETE**, committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 12** — email (compose + .eml/mail-client hand-off; SMTP profile captured, live send
+  deferred — RQ-25..27); then the rest of Phase 5 (finalization) per `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

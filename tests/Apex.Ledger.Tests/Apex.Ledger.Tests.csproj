@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Apex.Ledger\Apex.Ledger.csproj" />
+    <ProjectReference Include="..\..\src\Apex.Ledger.Io\Apex.Ledger.Io.csproj" />
   </ItemGroup>
 
   <!-- Ship the Robert/Bright study fixtures into the test output so the loader test finds them. -->

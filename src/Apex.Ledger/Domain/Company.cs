@@ -199,6 +199,33 @@ public sealed class Company
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
 
+    // ---- Master removal (used by the import roll-back so a rejected batch leaves no partial masters, RQ-23).
+    //      Delete-guards for interactive Alter/Delete live in the services; these are the raw list removals the
+    //      transactional importer needs to undo what it added within a single failed apply. ----
+
+    /// <summary>Removes a group (used by the transactional import roll-back).</summary>
+    public bool RemoveGroup(Group group) => _groups.Remove(group);
+    /// <summary>Removes a ledger (used by the transactional import roll-back).</summary>
+    public bool RemoveLedger(Ledger ledger) => _ledgers.Remove(ledger);
+    /// <summary>Removes a voucher type (used by the transactional import roll-back).</summary>
+    public bool RemoveVoucherType(VoucherType type) => _voucherTypes.Remove(type);
+    /// <summary>Removes a posted voucher (used by the transactional import roll-back).</summary>
+    public bool RemoveVoucher(Voucher voucher) => _vouchers.Remove(voucher);
+    /// <summary>Removes a currency (used by the transactional import roll-back).</summary>
+    public bool RemoveCurrency(Currency currency) => _currencies.Remove(currency);
+    /// <summary>Removes a dated exchange-rate quote (used by the transactional import roll-back).</summary>
+    public bool RemoveExchangeRate(ExchangeRate rate) => _exchangeRates.Remove(rate);
+    /// <summary>Removes a cost category (used by the transactional import roll-back).</summary>
+    public bool RemoveCostCategory(CostCategory category) => _costCategories.Remove(category);
+    /// <summary>Removes a cost centre (used by the transactional import roll-back).</summary>
+    public bool RemoveCostCentre(CostCentre centre) => _costCentres.Remove(centre);
+    /// <summary>Removes a budget (used by the transactional import roll-back).</summary>
+    public bool RemoveBudget(Budget budget) => _budgets.Remove(budget);
+    /// <summary>Removes a scenario (used by the transactional import roll-back).</summary>
+    public bool RemoveScenario(Scenario scenario) => _scenarios.Remove(scenario);
+    /// <summary>Removes a stock/order voucher (used by the transactional import roll-back).</summary>
+    public bool RemoveInventoryVoucher(InventoryVoucher voucher) => _inventoryVouchers.Remove(voucher);
+
     // ---- Lookups ----
 
     public Group? FindGroup(Guid id) =>
@@ -239,6 +266,19 @@ public sealed class Company
         _groups.FirstOrDefault(g =>
             string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase) ||
             (g.Alias is not null && string.Equals(g.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Like <see cref="FindGroupByName"/> but also matches the reserved <see cref="ProfitAndLossHead"/> (which is
+    /// stored outside the 28 <see cref="Groups"/>). Import uses this so the seeded P&amp;L head is reused by name
+    /// rather than re-created as a 29th group; the report/classification callers keep the head-excluding
+    /// <see cref="FindGroupByName"/>.
+    /// </summary>
+    public Group? FindGroupOrHeadByName(string name) =>
+        FindGroupByName(name)
+        ?? (ProfitAndLossHead is { } pl &&
+            (string.Equals(pl.Name, name, StringComparison.OrdinalIgnoreCase) ||
+             (pl.Alias is not null && string.Equals(pl.Alias, name, StringComparison.OrdinalIgnoreCase)))
+            ? pl : null);
 
     public Ledger? FindLedgerByName(string name) =>
         _ledgers.FirstOrDefault(l =>

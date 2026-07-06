@@ -25,6 +25,8 @@ public enum Screen
     PrintPreview,
     PrintConfig,
     Export,
+    ExportData,
+    ImportData,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -214,6 +216,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
     [ObservableProperty] private ExportViewModel? _exportPanel;
 
+    /// <summary>The Y "Export Data" (canonical company backup, RQ-19/DP-4) panel, non-null only while that column is open.</summary>
+    [ObservableProperty] private ExportDataViewModel? _exportDataPanel;
+
+    /// <summary>The O / Alt+O "Import" (canonical/CSV company import, RQ-20..24) panel, non-null only while that column is open.</summary>
+    [ObservableProperty] private ImportDataViewModel? _importDataPanel;
+
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
 
@@ -235,7 +243,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
-        && ExportPanel is null
+        && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -270,6 +278,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1319,6 +1329,62 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
     public bool ApplyExport() => ExportPanel?.Apply() ?? false;
 
+    // =============================================================== screen: export data (canonical backup)
+
+    /// <summary>
+    /// Y (Gateway → Export Data; RQ-19/DP-4) — opens the "Export Data" panel that serialises the WHOLE open company
+    /// (masters + vouchers, money as integer paisa, deterministic order) to a canonical JSON/XML backup, as its own
+    /// cascading column to the RIGHT of the Gateway. This complements the report/master-list export (E); it exports
+    /// the entire company so it can be re-imported into a fresh company and reconcile to the paisa (PR-4). A no-op
+    /// unless a company is open; re-pressing while the panel is open is a no-op (there is already one column).
+    /// </summary>
+    public void OpenExportData()
+    {
+        if (ExportDataPanel is not null) return;   // panel already open — don't stack a second one
+        if (Company is null) return;               // nothing to export
+
+        var panel = new ExportDataViewModel(Company);
+        ExportDataPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ExportData;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Export button on the Export-Data panel: serialise + write the canonical file.</summary>
+    public bool ApplyExportData() => ExportDataPanel?.Apply() ?? false;
+
+    // =============================================================== screen: import data
+
+    /// <summary>
+    /// O / Alt+O (Gateway → Import; RQ-20..24) — opens the "Import" panel that reads a canonical JSON/XML backup (or
+    /// a flat CSV) and applies it INTO the open company through the engine-routed <see cref="ImportDataViewModel"/>
+    /// (validate-before-apply, transactional, engine-routed). Opens as its own cascading column to the RIGHT of the
+    /// Gateway. A no-op unless a company is open; re-pressing while the panel is open is a no-op.
+    /// </summary>
+    public void OpenImport()
+    {
+        if (ImportDataPanel is not null) return;   // panel already open — don't stack a second one
+        if (Company is null) return;               // nothing to import into
+
+        // The open Company aggregate is mutated in place by the import (and persisted by the panel), so any report
+        // opened afterwards reads the fresh figures. We refresh the button bar but keep the panel open so its
+        // success summary stays visible; the user steps back (Esc) to the Gateway when done.
+        var panel = new ImportDataViewModel(Company, _storage, onImported: BuildButtonBar);
+        ImportDataPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ImportData;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Import button on the Import panel: read + parse + engine-routed apply. Returns success.</summary>
+    public bool ApplyImport() => ImportDataPanel?.Apply() ?? false;
+
     // =============================================================== screen: voucher entry
 
     /// <summary>
@@ -1800,6 +1866,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PrintPreview = null;
         PrintConfigPanel = null;
         ExportPanel = null;
+        ExportDataPanel = null;
+        ImportDataPanel = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }

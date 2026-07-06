@@ -88,6 +88,10 @@ public partial class MainWindow : Window
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
                 vm.ApplyExport();
+            else if (vm.CurrentScreen == Screen.ExportData)
+                vm.ApplyExportData();
+            else if (vm.CurrentScreen == Screen.ImportData)
+                vm.ApplyImport();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
             else
@@ -195,6 +199,28 @@ public partial class MainWindow : Window
         if (e.Key == Key.E && vm.IsReportContext && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExport();
+            e.Handled = true;
+            return;
+        }
+
+        // O / Alt+O (Gateway → Import; RQ-20..24) opens the "Import" panel: read a canonical JSON/XML backup (or a
+        // flat CSV) + choose the duplicate policy, then engine-routed apply into the open company. Only on the bare
+        // Gateway cascade (a company is open, no page/voucher/master column on top, not typing) — the header hint
+        // reads "O: Import". Accepts the bare O and Alt+O; never fires inside a voucher/ledger field.
+        if (e.Key == Key.O && vm.CurrentScreen == Screen.Gateway
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
+        {
+            vm.OpenImport();
+            e.Handled = true;
+            return;
+        }
+
+        // Y (Gateway → Export Data; RQ-19/DP-4) opens the "Export Data" panel: a canonical JSON/XML backup of the
+        // whole company. Same Gateway-root guard as Import — the header hint reads "Y: Data".
+        if (e.Key == Key.Y && vm.CurrentScreen == Screen.Gateway
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
+        {
+            vm.OpenExportData();
             e.Handled = true;
             return;
         }
@@ -434,6 +460,12 @@ public partial class MainWindow : Window
 
     private void OnApplyExportClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyExport();
+
+    private void OnApplyExportDataClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyExportData();
+
+    private void OnApplyImportDataClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyImport();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

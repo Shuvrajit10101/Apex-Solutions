@@ -138,6 +138,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted E / Alt+E "Export" panel (non-null only for that RQ-14 column).</summary>
     public ExportViewModel? ExportPanel => Page as ExportViewModel;
 
+    /// <summary>The hosted Y "Export Data" canonical-backup panel (non-null only for that RQ-19/DP-4 column).</summary>
+    public ExportDataViewModel? ExportDataPanel => Page as ExportDataViewModel;
+
+    /// <summary>The hosted O / Alt+O "Import" panel (non-null only for that RQ-20..24 column).</summary>
+    public ImportDataViewModel? ImportDataPanel => Page as ImportDataViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 

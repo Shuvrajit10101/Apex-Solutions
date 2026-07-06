@@ -3763,6 +3763,153 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Y "Export Data" panel (RQ-19/DP-4 — canonical JSON/XML backup of the whole company) -->
+                    <ContentControl IsVisible="{Binding ExportDataPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ExportDataPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ExportDataViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="320">
+
+                                <TextBlock Text="Canonical backup of the whole company (masters + vouchers)."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- Format -->
+                                <TextBlock Text="Format" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportDataFormat" Content="JSON (canonical)"
+                                             IsChecked="{Binding IsJson, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ExportDataFormat" Content="XML (canonical)"
+                                             IsChecked="{Binding IsXml, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Destination -->
+                                <TextBlock Text="Destination" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Folder" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Folder, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="(target folder)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="File name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding FileName, Mode=TwoWay}"
+                                           PlaceholderText="(base name, no extension)"/>
+                                </Grid>
+                                <CheckBox Content="Append timestamp to the file name"
+                                          IsChecked="{Binding AppendTimestamp, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding ResolvedFileName, StringFormat='Will write: {0}'}"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Export (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyExportDataClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: O / Alt+O "Import" panel (RQ-20..24 — canonical JSON/XML or flat CSV company import) -->
+                    <ContentControl IsVisible="{Binding ImportDataPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ImportDataPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ImportDataViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle, StringFormat='Into: {0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="14" MinWidth="340">
+
+                                <!-- Source file -->
+                                <TextBlock Text="Source file" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBox Text="{Binding FilePath, Mode=TwoWay}"
+                                         FontFamily="Consolas,Menlo,monospace"
+                                         PlaceholderText="(full path to the backup / CSV file)"/>
+
+                                <!-- Format -->
+                                <TextBlock Text="Format" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <RadioButton GroupName="ImportFormat" Content="JSON (canonical, lossless)"
+                                             IsChecked="{Binding IsJson, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ImportFormat" Content="XML (canonical, lossless)"
+                                             IsChecked="{Binding IsXml, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ImportFormat" Content="CSV (flat masters/vouchers)"
+                                             IsChecked="{Binding IsCsv, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Duplicate policy -->
+                                <TextBlock Text="If a master already exists" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <RadioButton GroupName="ImportDupPolicy" Content="Skip (keep existing)"
+                                             IsChecked="{Binding IsSkip, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ImportDupPolicy" Content="Merge opening balance"
+                                             IsChecked="{Binding IsMerge, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                <RadioButton GroupName="ImportDupPolicy" Content="Reject the whole batch"
+                                             IsChecked="{Binding IsReject, Mode=TwoWay}"
+                                             Foreground="{StaticResource BrandNavy}"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Import (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyImportDataClick"/>
+                                </Grid>
+
+                                <!-- Per-record errors (nothing was applied) -->
+                                <ItemsControl ItemsSource="{Binding Errors}"
+                                              IsVisible="{Binding Errors.Count}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                      <TextBlock Text="{Binding}" Foreground="#B00020"
+                                                 FontSize="11" TextWrapping="Wrap" Margin="0,1"/>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Alt+F12 report Sort/Filter panel (RQ-3 sort & value/range/name filter) -->
                     <ContentControl IsVisible="{Binding ReportSortFilter, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ReportSortFilter}">
