@@ -35,6 +35,8 @@
         <conv:BillRefTypeLabelConverter x:Key="BillRefLabel"/>
         <conv:BudgetTypeLabelConverter x:Key="BudgetTypeLabel"/>
         <conv:BankTxTypeLabelConverter x:Key="BankTxTypeLabel"/>
+        <conv:ExpiryRowToBrushConverter x:Key="ExpiryRowBrush"/>
+        <conv:ExpiryWarningToBrushConverter x:Key="ExpiryWarningBrush"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -658,6 +660,120 @@
                               </ItemsControl>
                             </ScrollViewer>
                           </Grid>
+
+                          <!-- == Batch-wise (Phase 6 Cluster 1; RQ-8): Item | Batch | Mfg | Expiry | Godown | Inward | Outward | Closing | Value ==
+                               Wide grid; horizontal scroll so no column clips. Header + rows share the SAME
+                               explicit widths so they scroll together and line up. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsBatchwise}">
+                          <Grid RowDefinitions="Auto,*" Width="1080" HorizontalAlignment="Left">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="180,120,110,110,140,100,100,100,120">
+                                <TextBlock Grid.Column="0" Text="Item" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Batch" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Mfg" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Expiry" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Godown" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Inward" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="Outward" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="7" Text="Closing" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="8" Text="Value ₹" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="180,120,110,110,140,100,100,100,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="7" Text="{Binding Col8}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="8" Text="{Binding Secondary}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                          <!-- == Batch Age Analysis (Phase 6 Cluster 1; RQ-8): Item | Batch | Mfg | Expiry | Days | Godown | Qty | Value ==
+                               Past-expiry rows flagged distinctly (red foreground via ExpiryRowBrush). -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsBatchAgeAnalysis}">
+                          <Grid RowDefinitions="Auto,*" Width="1030" HorizontalAlignment="Left">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="190,120,110,110,130,140,110,120">
+                                <TextBlock Grid.Column="0" Text="Item" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Batch" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Mfg" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Expiry" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Days" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Godown" Classes="colHdr"/>
+                                <TextBlock Grid.Column="6" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="7" Text="Value ₹" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="190,120,110,110,130,140,110,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
+                                                   Foreground="{Binding IsExpired, Converter={StaticResource ExpiryRowBrush}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="{Binding IsExpired, Converter={StaticResource ExpiryRowBrush}}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   Foreground="{Binding IsExpired, Converter={StaticResource ExpiryRowBrush}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   Foreground="{Binding IsExpired, Converter={StaticResource ExpiryRowBrush}}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="7" Text="{Binding Secondary}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
 
                         </Grid>
 
@@ -1683,6 +1799,14 @@
                                                    Text="{Binding BatchLabel, Mode=TwoWay}"
                                                    PlaceholderText="—"
                                                    IsVisible="{Binding ShowsBatch}"/>
+                                          <!-- Batch-allocation sub-screen affordance (RQ-3): shown ONLY where the
+                                               sub-screen applies — company flag on, item Maintains-in-Batches,
+                                               godown + a positive qty (RQ-52 UI-leak fix). Opens the per-batch
+                                               allocation column; Alt+B is the keyboard equivalent (NFR-2). -->
+                                          <Button Grid.Column="5" Width="30" Padding="0" Content="⧉"
+                                                  ToolTip.Tip="Allocate batches (Alt+B)"
+                                                  IsVisible="{Binding WantsBatchAllocation}"
+                                                  Click="OnOpenBatchAllocationClick"/>
                                         </Grid>
                                       </Border>
                                     </DataTemplate>
@@ -3338,6 +3462,24 @@
                                     </StackPanel>
                                   </Border>
 
+                                  <!-- Batch switches (Phase 6 Cluster 1; RQ-2) — shown only when the company
+                                       flag "Maintain Batch-wise details" is on (RQ-52). The three switches are
+                                       independent (Use-Expiry may be on without Track-Mfg). -->
+                                  <Border Background="#EEF4FB"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding ShowBatchSwitches}">
+                                    <StackPanel Spacing="6">
+                                      <TextBlock Text="Batch Details" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <CheckBox Content="Maintain in Batches"
+                                                IsChecked="{Binding MaintainInBatches, Mode=TwoWay}" FontSize="12.5"/>
+                                      <CheckBox Content="Track date of Manufacturing"
+                                                IsChecked="{Binding TrackManufacturingDate, Mode=TwoWay}" FontSize="12.5"/>
+                                      <CheckBox Content="Use Expiry dates"
+                                                IsChecked="{Binding UseExpiryDates, Mode=TwoWay}" FontSize="12.5"/>
+                                    </StackPanel>
+                                  </Border>
+
                                   <!-- Opening balance (optional) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -3433,6 +3575,271 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Batch / Lot master (create + list) — Phase 6 Cluster 1 (RQ-1/RQ-4/RQ-54) -->
+                    <ContentControl IsVisible="{Binding BatchMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BatchMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BatchMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Batch / Lot Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                            <!-- Create form -->
+                            <ScrollViewer Grid.Row="1" MaxHeight="330" Margin="0,0,0,10">
+                              <Border Background="White"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="16">
+                                <StackPanel Spacing="10">
+                                  <Grid ColumnDefinitions="110,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Batch / Lot" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding BatchNumber, Mode=TwoWay}"
+                                             PlaceholderText="e.g. LOT-2401"/>
+                                    <TextBlock Grid.Column="2" Text="Item" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Items}"
+                                              SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                              PlaceholderText="batch-tracked item…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:StockItem">
+                                          <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="110,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Godown" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding GodownOptions}"
+                                              SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
+                                              PlaceholderText="(unspecified)">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:OptionalGodownOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Mfg date" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding ManufacturingDateText, Mode=TwoWay}"
+                                             PlaceholderText="dd-MMM-yyyy (optional)"/>
+                                  </Grid>
+
+                                  <!-- Expiry: an absolute date OR a period (RQ-4) -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="Expiry — enter a date OR a period (resolved from mfg date)"
+                                                 FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="110,*,70,90,120">
+                                        <TextBlock Grid.Column="0" Text="Expiry date" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding ExpiryDateText, Mode=TwoWay}"
+                                                 PlaceholderText="dd-MMM-yyyy"/>
+                                        <TextBlock Grid.Column="2" Text="or" FontStyle="Italic"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   Foreground="#6A6A6A"/>
+                                        <TextBox Grid.Column="3" Text="{Binding ExpiryPeriodCountText, Mode=TwoWay}"
+                                                 TextAlignment="Right" PlaceholderText="count"/>
+                                        <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" Margin="6,0,0,0"
+                                                  ItemsSource="{Binding ExpiryUnits}"
+                                                  SelectedItem="{Binding ExpiryPeriodUnit, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ExpiryPeriodUnitOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <!-- Opening inward cost layer (optional; RQ-6/DP-8) -->
+                                  <Grid ColumnDefinitions="110,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Opening qty" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding OpeningQuantityText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="0 (optional)"/>
+                                    <TextBlock Grid.Column="2" Text="Rate ₹" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding OpeningRateText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="0.00"/>
+                                  </Grid>
+
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Foreground="{StaticResource AlertRed}" FontSize="12"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnCreateBatchClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+                            </ScrollViewer>
+
+                            <!-- Existing batches header — column widths MUST match the row template below so the
+                                 labels sit over their data (Opening ₹ widened so the amounts don't clip). -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="118,*,96,92,124,96">
+                                <TextBlock Grid.Column="0" Text="Batch / Lot" Classes="colHdr" Margin="8,0,0,0"/>
+                                <TextBlock Grid.Column="1" Text="Item" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Godown" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Mfg Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Expiry" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Opening ₹" Classes="colHdr"
+                                           TextAlignment="Right" Margin="0,0,10,0"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:BatchListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="118,*,96,92,124,96" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding BatchNumber}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Item}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Godown}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding MfgDate}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Expiry}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding OpeningValue}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#555555"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Batch-allocation sub-screen (voucher entry) — Phase 6 Cluster 1 (RQ-3/RQ-7) -->
+                    <ContentControl IsVisible="{Binding BatchAllocation, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BatchAllocation}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BatchAllocationViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Batch Allocation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,6"/>
+
+                            <!-- Context header: item + godown + qty to allocate -->
+                            <Border Grid.Row="1" Background="#EEF4FB"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="12,8" Margin="0,0,0,8">
+                              <StackPanel Orientation="Horizontal" Spacing="18">
+                                <TextBlock Text="{Binding ItemName}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding GodownName}" Foreground="#555555" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding LineQuantityText}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Header + rows share ONE fixed width inside a horizontal scroller (as the batch
+                                 REPORTS do) so the Rate column can never be clipped by the page pane; the six
+                                 columns (156,88,92,92,66,66 = 560) fit the ~626px pane, and the h-scroll is a
+                                 safety net if the pane is ever narrower. Header and rows use IDENTICAL widths. -->
+                            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Disabled" Background="White">
+                              <Grid RowDefinitions="Auto,*" Width="560" HorizontalAlignment="Left">
+                                <!-- Column header: Batch | New No. | Mfg | Expiry | Qty | Rate -->
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="156,88,92,92,66,66">
+                                    <TextBlock Grid.Column="0" Text="Batch / Lot" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="New No." Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Mfg Dt." Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="Expiry" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+
+                                <!-- Repeatable batch lines -->
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled" Background="White">
+                                  <ItemsControl ItemsSource="{Binding Lines}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:BatchAllocationLineViewModel">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                                Padding="0,2">
+                                          <StackPanel>
+                                            <Grid ColumnDefinitions="156,88,92,92,66,66">
+                                              <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="4,0"
+                                                        ItemsSource="{Binding BatchOptions}"
+                                                        SelectedItem="{Binding SelectedBatch, Mode=TwoWay}"
+                                                        PlaceholderText="pick / New…">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="vm:BatchPickOption">
+                                                    <TextBlock Text="{Binding Display}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <TextBox Grid.Column="1" Text="{Binding NewBatchNumber, Mode=TwoWay}"
+                                                       Margin="2,0" PlaceholderText="new no."/>
+                                              <TextBox Grid.Column="2" Text="{Binding ManufacturingDateText, Mode=TwoWay}"
+                                                       Margin="2,0" FontSize="11"/>
+                                              <TextBox Grid.Column="3" Text="{Binding ExpiryText, Mode=TwoWay}"
+                                                       Margin="2,0" FontSize="11"/>
+                                              <TextBox Grid.Column="4" Text="{Binding QuantityText, Mode=TwoWay}"
+                                                       Margin="2,0" TextAlignment="Right"/>
+                                              <TextBox Grid.Column="5" Text="{Binding RateText, Mode=TwoWay}"
+                                                       Margin="2,0" TextAlignment="Right"/>
+                                            </Grid>
+                                            <!-- Non-blocking expiry warning (RQ-7): red when expired, amber near-expiry -->
+                                            <TextBlock Text="{Binding Warning}" Margin="8,1,0,2" FontSize="11"
+                                                       TextWrapping="Wrap"
+                                                       IsVisible="{Binding Warning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                       Foreground="{Binding IsExpired, Converter={StaticResource ExpiryWarningBrush}}"/>
+                                          </StackPanel>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </ScrollViewer>
+                              </Grid>
+                            </ScrollViewer>
+
+                            <!-- Balance line + Accept -->
+                            <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                              <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="{Binding RemainingText}" FontSize="12"
+                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                              <Button Grid.Column="1" Content="Accept (Ctrl+A)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnAcceptBatchAllocationClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GST — Statutory configuration (F11 Features → GST) -->
                     <ContentControl IsVisible="{Binding GstConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding GstConfig}">
@@ -3448,6 +3855,19 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,8">
                               <StackPanel Spacing="12">
+                                <!-- Inventory features (Phase 6 Cluster 1; RQ-52): the master gate for the whole
+                                     batch/expiry feature. When off, the per-item batch switches, the Batch master
+                                     and the batch reports are all hidden. Labelled as a company FEATURE (F11), not
+                                     a GST/statutory option, so the company-wide inventory switch reads correctly. -->
+                                <TextBlock Text="COMPANY FEATURES (F11)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+                                <CheckBox Content="Maintain Batch-wise details"
+                                          IsChecked="{Binding MaintainBatchwiseDetails, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"/>
+                                <TextBlock Text="STATUTORY" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
                                 <CheckBox Content="Enable GST for this company"
                                           IsChecked="{Binding GstEnabled, Mode=TwoWay}"
                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>

@@ -62,6 +62,37 @@ public sealed class Company
     /// <summary>True iff GST is enabled for this company.</summary>
     public bool GstEnabled => Gst is { Enabled: true };
 
+    /// <summary>
+    /// Backing field for <see cref="MaintainBatchwiseDetails"/>: <c>null</c> ⇒ "not explicitly set", so the
+    /// getter falls back to inferring the flag from persisted batch state (see below).
+    /// </summary>
+    private bool? _maintainBatchwiseDetails;
+
+    /// <summary>
+    /// Company feature flag <b>"Maintain Batch-wise details"</b> (F11 Company Features; Phase 6 Cluster 1;
+    /// requirements RQ-2/RQ-52). This is the master gate for the whole batch/expiry feature: the per-item batch
+    /// switches, the Batch master, the batch-allocation sub-screen and the batch reports are all hidden/inert
+    /// when it is off.
+    /// <para>
+    /// It is an <b>in-memory</b> flag (no schema column — Phase 6 slice 1 added no company column, ER-1). When
+    /// never explicitly set it is <b>inferred</b> as true whenever the company already carries any batch state —
+    /// a batch master exists, or an item has <see cref="StockItem.MaintainInBatches"/> on — so a company that was
+    /// configured for batches keeps the flag on across a reload without a new column. The F11 toggle sets it
+    /// explicitly; setting it back to its inferred value clears the override. Turning it off does not delete any
+    /// batch data (harmless — the batch UI simply hides).
+    /// </para>
+    /// </summary>
+    public bool MaintainBatchwiseDetails
+    {
+        get => _maintainBatchwiseDetails ?? HasAnyBatchState;
+        set => _maintainBatchwiseDetails = value;
+    }
+
+    /// <summary>True iff the company already carries persisted batch state (a batch master or a batch-tracked
+    /// item) — the basis for inferring <see cref="MaintainBatchwiseDetails"/> when it was never set explicitly.</summary>
+    private bool HasAnyBatchState =>
+        _batchMasters.Count > 0 || _stockItems.Any(i => i.MaintainInBatches);
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

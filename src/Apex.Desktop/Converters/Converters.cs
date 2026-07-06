@@ -319,6 +319,43 @@ public sealed class SelectedToForegroundConverter : IValueConverter
 }
 
 /// <summary>
+/// Maps a batch-age row's <c>IsExpired</c> flag to its foreground (Phase 6 Cluster 1; RQ-8): a distinct
+/// alert-red for an already past-expiry batch so it reads apart from the merely near-expiry rows; the neutral
+/// ink otherwise.
+/// </summary>
+public sealed class ExpiryRowToBrushConverter : IValueConverter
+{
+    public static readonly ExpiryRowToBrushConverter Instance = new();
+
+    private static readonly IBrush Expired = new SolidColorBrush(Color.Parse("#B00020"));
+    private static readonly IBrush Ink = new SolidColorBrush(Color.Parse("#1A1A1A"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Expired : Ink;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Maps a batch-allocation line's <c>IsExpired</c> flag to its non-blocking-warning foreground (Phase 6
+/// Cluster 1; RQ-7): alert-red for an already-expired batch, amber for a merely near-expiry one.
+/// </summary>
+public sealed class ExpiryWarningToBrushConverter : IValueConverter
+{
+    public static readonly ExpiryWarningToBrushConverter Instance = new();
+
+    private static readonly IBrush Expired = new SolidColorBrush(Color.Parse("#B00020"));
+    private static readonly IBrush NearExpiry = new SolidColorBrush(Color.Parse("#B5730E"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Expired : NearExpiry;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// Maps a bool (IsBalanced) to the difference-text foreground: ink when balanced, alert-red when
 /// out of balance — so an unbalanced voucher's difference reads clearly as an error.
 /// </summary>

@@ -61,6 +61,14 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     [ObservableProperty] private string _rateText = string.Empty;
     [ObservableProperty] private string _batchLabel = string.Empty;
 
+    /// <summary>
+    /// True only when the batch-allocation sub-screen actually applies to this line (RQ-52 UI leak fix): the
+    /// company maintains batch-wise details, the item Maintains-in-Batches, and item + godown + a positive
+    /// quantity are all present. Kept in sync by the parent <see cref="InventoryVoucherEntryViewModel"/> on every
+    /// change; the "⧉" batch affordance binds its visibility to this so it only shows where it does something.
+    /// </summary>
+    [ObservableProperty] private bool _wantsBatchAllocation;
+
     /// <summary>True when this line's kind carries a per-unit Rate column (Order / Movement, not Counted).</summary>
     public bool ShowsRate => Kind is InventoryLineKind.Order or InventoryLineKind.Movement;
 

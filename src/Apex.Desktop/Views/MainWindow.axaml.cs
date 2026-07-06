@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Specialized;
 using System.IO;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -138,6 +139,25 @@ public partial class MainWindow : Window
         if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             vm.SettleBills();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B (NFR-2 / RQ-3) opens the batch-allocation sub-screen for a batch-tracked inventory-voucher line —
+        // the keyboard equivalent of the "⧉" affordance the tooltip advertises. Resolves the focused line from the
+        // key source (so Alt+B on a specific row targets it), falling back to the first eligible line on the
+        // screen. Placed before the general Alt letter shortcuts so it never falls through; a safe no-op when no
+        // line currently qualifies (company flag off / non-batch item / no godown / qty 0).
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.InventoryVoucherEntry
+            && vm.InventoryVoucherEntry is { } entry)
+        {
+            var focused = FocusedInventoryLine(e);
+            if (focused is not null && entry.LineWantsBatchAllocation(focused))
+                entry.RequestBatchAllocation(focused);
+            else
+                entry.RequestBatchAllocationForFirstEligibleLine();
             e.Handled = true;
             return;
         }
@@ -365,6 +385,19 @@ public partial class MainWindow : Window
 
     private static bool IsTyping(KeyEventArgs e) => e.Source is TextBox;
 
+    /// <summary>
+    /// Resolves the inventory-voucher line the key event originated on by walking the control tree up from the
+    /// key source to the first element whose DataContext is an <see cref="InventoryVoucherLineViewModel"/> — so
+    /// Alt+B on a specific row targets that row. Returns null when the key came from outside any line row.
+    /// </summary>
+    private static InventoryVoucherLineViewModel? FocusedInventoryLine(KeyEventArgs e)
+    {
+        for (var c = e.Source as StyledElement; c is not null; c = c.Parent)
+            if (c.DataContext is InventoryVoucherLineViewModel line)
+                return line;
+        return null;
+    }
+
     /// <summary>Report quick-letters fire only on menu screens and never while typing in a field.</summary>
     private static bool CanQuickJump(MainWindowViewModel vm, KeyEventArgs e)
         => vm.IsMenuScreen && !IsTyping(e);
@@ -465,6 +498,19 @@ public partial class MainWindow : Window
 
     private void OnCreateStockItemClick(object? sender, RoutedEventArgs e)
         => Vm?.StockItemMaster?.Create();
+
+    private void OnCreateBatchClick(object? sender, RoutedEventArgs e)
+        => Vm?.BatchMaster?.Create();
+
+    private void OnAcceptBatchAllocationClick(object? sender, RoutedEventArgs e)
+        => Vm?.AcceptCurrent();
+
+    /// <summary>Opens the batch-allocation sub-screen (RQ-3) for the inventory-voucher line the button sits on.</summary>
+    private void OnOpenBatchAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ViewModels.InventoryVoucherLineViewModel line })
+            Vm?.InventoryVoucherEntry?.RequestBatchAllocation(line);
+    }
 
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.Apply();

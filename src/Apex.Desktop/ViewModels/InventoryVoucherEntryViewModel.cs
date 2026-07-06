@@ -133,6 +133,74 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
     /// <summary>The column caption for the quantity field (Counted vs Quantity).</summary>
     public string QuantityHeader => IsPhysicalStock ? "Counted Qty" : "Quantity";
 
+    /// <summary>
+    /// Raised when the batch-allocation sub-screen (Phase 6 Cluster 1; RQ-3) should open for a line whose item
+    /// Maintains-in-Batches: carries the item, the godown, the line quantity, whether the movement is OUTWARD
+    /// (so the sub-screen can default the FEFO/FIFO issue selection, DP-1), and a callback that writes the
+    /// committed batch allocations back to the line. The shell (not this VM) owns opening the cascade column.
+    /// </summary>
+    public event Action<StockItem, Godown, decimal, bool,
+        Action<System.Collections.Generic.IReadOnlyList<BatchAllocation>>>? BatchAllocationRequested;
+
+    /// <summary>
+    /// True for a line on which the batch-allocation sub-screen applies (RQ-3): the company maintains batch-wise
+    /// details, the line's kind carries a batch (Movement / Counted), the item Maintains-in-Batches, and item +
+    /// godown + a positive quantity are known. The view shows a "Batches (Alt+B)" affordance only then.
+    /// </summary>
+    public bool LineWantsBatchAllocation(InventoryVoucherLineViewModel line) =>
+        _company.MaintainBatchwiseDetails
+        && line is { ShowsBatch: true, SelectedItem: { MaintainInBatches: true }, SelectedGodown: not null }
+        && line.ParsedQuantity > 0m;
+
+    /// <summary>
+    /// Whether the primary "Lines" grid of this voucher type carries OUTWARD movement (drives the FEFO/FIFO
+    /// default seed in the batch sub-screen, DP-1). Outward = anything that decreases on-hand from the primary
+    /// list: Delivery Note, Rejection Out, Material Out, and a <b>Stock Journal</b> (whose primary list is the
+    /// source/consumption side — the destination/production list is a separate grid with no batch affordance).
+    /// Mirrors the post-time direction rule (outward = not Receipt/Rejection-In inward). An INWARD line has no
+    /// existing stock to draw from, so the sub-screen seeds a single blank line instead.
+    /// </summary>
+    private bool IsOutwardMovement =>
+        _type.BaseType is VoucherBaseType.DeliveryNote or VoucherBaseType.RejectionOut
+            or VoucherBaseType.MaterialOut or VoucherBaseType.StockJournal;
+
+    /// <summary>
+    /// Alt+B on a batch-tracked line — requests the batch-allocation sub-screen for it. Raises
+    /// <see cref="BatchAllocationRequested"/> with the line's item/godown/qty/direction and a commit callback
+    /// that writes the accepted allocations back to the line's <see cref="InventoryVoucherLineViewModel.BatchLabel"/>
+    /// (a single batch keeps its number; several batches show a "Multi (N)" summary — the multi-batch expansion
+    /// at post time is a later slice). A no-op unless <see cref="LineWantsBatchAllocation"/>.
+    /// </summary>
+    public void RequestBatchAllocation(InventoryVoucherLineViewModel line)
+    {
+        if (line is null || !LineWantsBatchAllocation(line)) return;
+        var item = line.SelectedItem!;
+        var godown = line.SelectedGodown!;
+        var qty = line.ParsedQuantity;
+
+        BatchAllocationRequested?.Invoke(item, godown, qty, IsOutwardMovement, allocations =>
+        {
+            if (allocations.Count == 1)
+                line.BatchLabel = allocations[0].BatchNumber;
+            else if (allocations.Count > 1)
+                line.BatchLabel = $"Multi ({allocations.Count})";
+        });
+    }
+
+    /// <summary>
+    /// Alt+B keyboard entry point (NFR-2): opens the batch-allocation sub-screen for the first line on which it
+    /// applies (<see cref="LineWantsBatchAllocation"/>). The view passes the focused line when a batch line has
+    /// focus; this whole-screen fallback lets Alt+B work even when focus is elsewhere on the entry screen.
+    /// Returns true when a sub-screen was requested, false when no line currently qualifies (a safe no-op).
+    /// </summary>
+    public bool RequestBatchAllocationForFirstEligibleLine()
+    {
+        var line = Lines.FirstOrDefault(LineWantsBatchAllocation);
+        if (line is null) return false;
+        RequestBatchAllocation(line);
+        return true;
+    }
+
     public InventoryVoucherEntryViewModel(
         Company company,
         VoucherType type,
@@ -227,6 +295,11 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
     /// </summary>
     public void Recalculate()
     {
+        // Keep each line's batch affordance in sync with the FULL gate (company flag + item + godown + qty), so
+        // the "⧉" button only appears where the batch-allocation sub-screen actually applies (RQ-52 UI leak fix).
+        foreach (var l in Lines)
+            l.WantsBatchAllocation = LineWantsBatchAllocation(l);
+
         var completeLines = Lines.Count(l => l.IsComplete);
         var halfFilled = Lines.Any(l => !l.IsBlank && !l.IsComplete);
 

@@ -30,6 +30,10 @@ public enum ReportKind
     OrderRegister,
     ReorderStatus,
 
+    // ---- batch reports (Phase 6 Cluster 1 — Reports → Inventory Books → Batch) ----
+    Batchwise,
+    BatchAgeAnalysis,
+
     // ---- GST reports (slice 4d) ----
     TaxAnalysis,
     Gstr1,
@@ -105,7 +109,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool IsInventoryReport => Kind is ReportKind.StockSummary or ReportKind.GodownSummary
         or ReportKind.StockItemMovement or ReportKind.ReceiptNoteRegister or ReportKind.DeliveryNoteRegister
         or ReportKind.RejectionRegister or ReportKind.PhysicalStockRegister or ReportKind.OrderRegister
-        or ReportKind.ReorderStatus;
+        or ReportKind.ReorderStatus or ReportKind.Batchwise or ReportKind.BatchAgeAnalysis;
 
     /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
     public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
@@ -132,6 +136,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool IsReorderStatus => Kind == ReportKind.ReorderStatus;
     public bool IsPhysicalStockRegister => Kind == ReportKind.PhysicalStockRegister;
     public bool IsOrderRegister => Kind == ReportKind.OrderRegister;
+
+    /// <summary>True for the Batch-wise report (Phase 6 Cluster 1; RQ-8) — drives its wide batch DataTemplate.</summary>
+    public bool IsBatchwise => Kind == ReportKind.Batchwise;
+
+    /// <summary>True for the batch Age Analysis report (Phase 6 Cluster 1; RQ-8) — drives its wide batch DataTemplate.</summary>
+    public bool IsBatchAgeAnalysis => Kind == ReportKind.BatchAgeAnalysis;
 
     // ---- GST-report layout flags (drive which GST DataTemplate the view shows; slice 4d) ----
     public bool IsTaxAnalysis => Kind == ReportKind.TaxAnalysis;
@@ -378,6 +388,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
+        OnPropertyChanged(nameof(IsBatchwise));
+        OnPropertyChanged(nameof(IsBatchAgeAnalysis));
         OnPropertyChanged(nameof(IsTaxAnalysis));
         OnPropertyChanged(nameof(IsGstr1));
         OnPropertyChanged(nameof(IsGstr3b));
@@ -403,6 +415,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.PhysicalStockRegister: BuildPhysicalStockRegister(); break;
             case ReportKind.OrderRegister: BuildOrderRegister(); break;
             case ReportKind.ReorderStatus: BuildReorderStatus(); break;
+            case ReportKind.Batchwise: BuildBatchwise(); break;
+            case ReportKind.BatchAgeAnalysis: BuildBatchAgeAnalysis(); break;
 
             case ReportKind.TaxAnalysis: BuildTaxAnalysis(); break;
             case ReportKind.Gstr1: BuildGstr1(); break;
@@ -612,6 +626,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.PhysicalStockRegister] = "PhysicalStockRegister",
         [ReportKind.OrderRegister] = "OrderRegister",
         [ReportKind.ReorderStatus] = "ReorderStatus",
+        [ReportKind.Batchwise] = "Batchwise",
+        [ReportKind.BatchAgeAnalysis] = "BatchAgeAnalysis",
         [ReportKind.TaxAnalysis] = "TaxAnalysis",
         [ReportKind.Gstr1] = "Gstr1",
         [ReportKind.Gstr3b] = "Gstr3b",
@@ -1309,6 +1325,118 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         if (rs.Rows.Count == 0)
             Rows.Add(new ReportRow { Col1 = "All items are above their reorder levels.", IsHeader = true });
+    }
+
+    // =============================================================== batch reports (Phase 6 Cluster 1; RQ-8)
+
+    // --------------------------------------------------------------- Batch-wise report
+    //   Item | Batch | Mfg | Expiry | Godown | Opening | Inward | Outward | Closing ... (via Col1..Col8 + Secondary)
+
+    /// <summary>
+    /// Builds the Batch-wise report (Reports → Inventory Books → Batch → Batch-wise; RQ-8) over the report's
+    /// [from, to] window — per item, per batch, its opening/inward/outward/closing quantities with mfg &amp;
+    /// expiry and its closing value at the batch's authoritative cost (DP-8). A pure projection over the engine
+    /// <see cref="Report.BuildBatchwiseReport"/>; the on-screen numbers derive from the same
+    /// <see cref="Apex.Ledger.Services.BatchStockService"/> the batch engine uses (ER-4).
+    /// </summary>
+    private void BuildBatchwise()
+    {
+        var from = _options.Period?.From ?? BooksFrom;
+        var report = Report.BuildBatchwiseReport(_company, _asOf, from);
+        Title = "Batch-wise";
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
+
+        var total = Money.Zero;
+        foreach (var r in report.Rows)
+        {
+            total += r.ClosingValue;
+            Rows.Add(new ReportRow
+            {
+                // Col1 Item | Col2 Batch | Col3 Mfg | Col4 Expiry | Col5 Godown | Col6 Inward |
+                // Col7 Outward | Col8 Closing-Qty ; Secondary carries the closing value.
+                Col1 = r.ItemName,
+                Col2 = r.Batch,
+                Col3 = r.ManufacturingDate is { } m ? FormatDate(m) : "—",
+                Col4 = r.ExpiryDate is { } e ? FormatDate(e) : "—",
+                Col5 = r.GodownName,
+                Col6 = IndianFormat.Quantity(r.InwardQuantity),
+                Col7 = IndianFormat.Quantity(r.OutwardQuantity),
+                Col8 = IndianFormat.Quantity(r.ClosingQuantity),
+                Secondary = IndianFormat.Amount(r.ClosingValue),
+            });
+        }
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No batch-tracked stock in this period.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Secondary = IndianFormat.AmountAlways(total),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- Batch Age Analysis
+    //   Item | Batch | Mfg | Expiry | Days | Godown | Qty | Value ; past-expiry rows flagged distinctly (IsExpired).
+
+    /// <summary>
+    /// Builds the Age Analysis of expiring batches (Reports → Inventory Books → Batch → Age Analysis; RQ-8) as of
+    /// the report date: every batch with on-hand stock whose resolved expiry is past OR within the near-expiry
+    /// window (30 days), soonest-expiry first, with the whole-day gap to expiry (negative once past). Past-expiry
+    /// rows are flagged <b>distinctly</b> (<see cref="ReportRow.IsExpired"/> → a red foreground). A pure
+    /// projection over the engine <see cref="Report.BuildBatchAgeAnalysis"/>.
+    /// </summary>
+    private void BuildBatchAgeAnalysis()
+    {
+        const int withinDays = 30;
+        var report = Report.BuildBatchAgeAnalysis(_company, _asOf, withinDays);
+        Title = "Age Analysis of Expiring Batches";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}  —  next {withinDays} days (past-expiry flagged)";
+
+        var total = Money.Zero;
+        foreach (var r in report.Rows)
+        {
+            total += r.Value;
+            var days = r.DaysToExpiry;
+            var daysText = r.IsExpired
+                ? $"expired {(-days)}d ago"
+                : days == 0 ? "expires today" : $"in {days}d";
+            Rows.Add(new ReportRow
+            {
+                // Col1 Item | Col2 Batch | Col3 Mfg | Col4 Expiry | Col5 Days | Col6 Godown | Col7 Qty ;
+                // Secondary carries the value.
+                Col1 = r.ItemName,
+                Col2 = r.Batch,
+                Col3 = r.ManufacturingDate is { } m ? FormatDate(m) : "—",
+                Col4 = FormatDate(r.ExpiryDate),
+                Col5 = daysText,
+                Col6 = r.GodownName,
+                Col7 = IndianFormat.Quantity(r.Quantity),
+                Secondary = IndianFormat.Amount(r.Value),
+                IsExpired = r.IsExpired,   // past-expiry rows render in the distinct alert colour (RQ-8)
+            });
+        }
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow
+            {
+                Col1 = "No batches are expired or expiring within the next 30 days.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Total (expiring / expired)",
+            Secondary = IndianFormat.AmountAlways(total),
+            IsTotal = true,
+        });
     }
 
     // =============================================================== GST reports (slice 4d)

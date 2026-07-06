@@ -68,6 +68,13 @@ public sealed class ReportRow
     public string Col8 { get; init; } = string.Empty;
 
     /// <summary>
+    /// True for a past-expiry batch row (Batch Age Analysis, RQ-8): the row is flagged <b>distinctly</b> (a red
+    /// foreground) so an already-expired batch reads apart from a merely near-expiry one. False on every other
+    /// row, so all existing reports render unchanged.
+    /// </summary>
+    public bool IsExpired { get; init; }
+
+    /// <summary>
     /// The stock item this row drills to (Stock Summary → Stock Item Movement). Non-null only on a
     /// selectable Stock-Summary item row; null for headers, totals and other reports. Drives whether
     /// Enter/double-click drills in.

@@ -50,6 +50,8 @@ public enum Screen
     UnitMaster,
     GodownMaster,
     StockItemMaster,
+    BatchMaster,
+    BatchAllocation,
     GstConfig,
     LedgerVouchers,
     VoucherDetail,
@@ -74,6 +76,10 @@ public enum GatewayMenu
     OrderVouchers,
     InventoryVouchers,
     InventoryReports,
+
+    // Reports → Inventory Reports → Batch (Phase 6 Cluster 1; RQ-8/RQ-54): Batch-wise + Age Analysis.
+    InventoryBatchReports,
+
     GstReports,
     Statements,
     ExceptionReports,
@@ -195,6 +201,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Stock-Item master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private StockItemMasterViewModel? _stockItemMaster;
 
+    /// <summary>The Batch/Lot master view model (Phase 6 Cluster 1), non-null only while that page column is open.</summary>
+    [ObservableProperty] private BatchMasterViewModel? _batchMaster;
+
+    /// <summary>The batch-allocation sub-screen view model (Phase 6 Cluster 1; RQ-3), non-null only while it is open.</summary>
+    [ObservableProperty] private BatchAllocationViewModel? _batchAllocation;
+
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
@@ -255,7 +267,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
-        && GodownMaster is null && StockItemMaster is null && GstConfig is null && ReportConfig is null
+        && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
+        && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
@@ -284,6 +297,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnUnitMasterChanged(UnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -628,6 +643,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Godown", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Stock Item", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Batch / Lot master (Phase 6 Cluster 1; RQ-1/RQ-54) — surfaced only when the company flag
+        // "Maintain Batch-wise details" is on (RQ-52), so a non-batch company is unaffected.
+        if (Company is { MaintainBatchwiseDetails: true })
+            col.Add(new MenuItemViewModel("Batch", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -710,6 +729,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         col.Add(MenuItemViewModel.Header("Analysis"));
         col.Add(new MenuItemViewModel("Reorder Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Batch reports (Phase 6 Cluster 1; RQ-8/RQ-54) nest under a Batch sub-group — surfaced only when the
+        // company flag "Maintain Batch-wise details" is on (RQ-52).
+        if (Company is { MaintainBatchwiseDetails: true })
+            col.Add(new MenuItemViewModel("Batch", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         col.Add(MenuItemViewModel.Header("Registers"));
         col.Add(new MenuItemViewModel("Receipt Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -730,6 +753,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("Inventory Reports");
         OpenSubmenuColumn(BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
             "Gateway of Apex Solutions — Inventory Reports");
+    }
+
+    /// <summary>
+    /// Builds the "Batch" submenu column (Reports → Inventory Reports → Batch; Phase 6 Cluster 1; RQ-8/RQ-54):
+    /// the two batch reports nested under a single <b>Batch</b> section — <b>Batch-wise</b> (per item/batch
+    /// inwards/outwards/closing with mfg &amp; expiry) and <b>Age Analysis</b> (batches expiring within N days,
+    /// past-expiry flagged distinctly). Each is a page item reusing <see cref="Screen.Report"/> +
+    /// <see cref="OpenReport(ReportKind, Guid?)"/>.
+    /// </summary>
+    private GatewayColumn BuildInventoryBatchReportsColumn()
+    {
+        var col = new GatewayColumn("Batch");
+        col.Add(MenuItemViewModel.Header("Batch"));
+        col.Add(new MenuItemViewModel("Batch-wise", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Age Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Inventory Reports → Batch" submenu column directly (the public entry a hotkey/test
+    /// uses). Rebuilds the cascade to [root → Inventory Reports → Batch] and focuses the submenu.
+    /// </summary>
+    public void ShowInventoryBatchReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowInventoryReportsMenu();
+        SelectSubmenuItem("Batch");
+        OpenSubmenuColumn(BuildInventoryBatchReportsColumn(), GatewayMenu.InventoryBatchReports,
+            "Gateway of Apex Solutions — Batch Reports");
     }
 
     /// <summary>
@@ -1736,6 +1788,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             Company, type, _storage,
             onSaved: ShowGateway,
             onCancelled: BackFromPage);
+        // RQ-3: a batch-tracked line opens the batch-allocation sub-screen as a cascade column to the right.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
         var title = $"Inventory Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.InventoryVoucherEntry, title,
             () => InventoryVoucherEntry = entry);
@@ -1874,6 +1929,50 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var master = new StockItemMasterViewModel(Company, _storage, onChanged: () => { });
         OpenPageColumn(new GatewayColumn("Stock Item Creation", master), Screen.StockItemMaster,
             "Stock Item Creation", () => StockItemMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Batch / Lot creation master (Masters → Create → Inventory Masters → Batch; Phase 6 Cluster 1)
+    /// as a page column. A no-op unless the company flag "Maintain Batch-wise details" is on (RQ-52), so the
+    /// screen can never be reached on a non-batch company.
+    /// </summary>
+    public void ShowBatchMaster()
+    {
+        if (Company is null) return;
+        if (!Company.MaintainBatchwiseDetails) return;   // gated by the F11 company flag (RQ-52)
+
+        var master = new BatchMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Batch Creation", master), Screen.BatchMaster,
+            "Batch / Lot Creation", () => BatchMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the batch-allocation sub-screen (Phase 6 Cluster 1; RQ-3) for an inventory-voucher line as a page
+    /// column to the right of the voucher screen. Called after item + godown + qty are known on a line whose
+    /// item Maintains-in-Batches. The sub-screen defaults its selection via the engine's FEFO/FIFO
+    /// <see cref="Apex.Ledger.Services.BatchStockService.DefaultIssueSelection"/> for an outward line and warns
+    /// (never blocks) on an expired/near-expiry batch. A no-op unless the company flag is on.
+    /// </summary>
+    public void ShowBatchAllocation(
+        StockItem item, Godown godown, decimal quantity, bool isOutward,
+        Action<System.Collections.Generic.IReadOnlyList<BatchAllocation>>? onCommitted = null)
+    {
+        if (Company is null || item is null || godown is null) return;
+        if (!Company.MaintainBatchwiseDetails || !item.MaintainInBatches) return;
+
+        var asOf = AccountBooksAsOf();
+        var sub = new BatchAllocationViewModel(Company, item, godown, quantity, asOf, isOutward,
+            onCommitted: onCommitted);
+        // The sub-screen sits to the RIGHT of the live voucher column (do NOT trim the voucher page): push it as
+        // its own cascading column, mirroring the F12-panel-over-report pattern, so the voucher stays beneath.
+        ClearSubScreens();
+        BatchAllocation = sub;
+        Columns.Add(new GatewayColumn(sub.Title, sub));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BatchAllocation;
+        ScreenTitle = sub.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
     }
 
     // =============================================================== screen: statutory (GST config)
@@ -2149,6 +2248,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         UnitMaster = null;
         GodownMaster = null;
         StockItemMaster = null;
+        BatchMaster = null;
+        BatchAllocation = null;
         GstConfig = null;
         ReportConfig = null;
         ReportSortFilter = null;
@@ -2197,6 +2298,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+                 or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.GstConfig)
             BackFromPage();
     }
@@ -2434,6 +2536,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.StockItemMaster:
                 StockItemMaster?.Create();
                 return;
+            case Screen.BatchMaster:
+                BatchMaster?.Create();
+                return;
+            case Screen.BatchAllocation:
+                // Ctrl+A commits the batch allocation; on success pop the sub-screen back to the voucher.
+                if (BatchAllocation?.Apply() == true) BackFromPage();
+                return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
@@ -2516,6 +2625,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Statements of Accounts"),
             "Inventory Reports" => (BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
                 "Gateway of Apex Solutions — Inventory Reports"),
+            // "Batch" is a Group ONLY under Inventory Reports (under Create it is a Page → the batch master); the
+            // Inventory-Reports hub is the active parent here, so drilling it opens the batch-reports submenu.
+            "Batch" when CurrentGatewayMenu == GatewayMenu.InventoryReports => (
+                BuildInventoryBatchReportsColumn(), GatewayMenu.InventoryBatchReports,
+                "Gateway of Apex Solutions — Batch Reports"),
             "GST Reports" => (BuildGstReportsColumn(), GatewayMenu.GstReports,
                 "Gateway of Apex Solutions — GST Reports"),
             "Statements" => (BuildStatementsColumn(), GatewayMenu.Statements,
@@ -2580,6 +2694,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Unit": ShowUnitMaster(); break;
             case "Godown": ShowGodownMaster(); break;
             case "Stock Item": ShowStockItemMaster(); break;
+            case "Batch": ShowBatchMaster(); break;
+            case "Batch-wise": OpenReport(ReportKind.Batchwise); break;
+            case "Age Analysis": OpenReport(ReportKind.BatchAgeAnalysis); break;
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
@@ -2739,6 +2856,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
                     "Inventory Reports" => GatewayMenu.InventoryReports,
+                    "Batch" => GatewayMenu.InventoryBatchReports,
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
                     "Exception Reports" => GatewayMenu.ExceptionReports,

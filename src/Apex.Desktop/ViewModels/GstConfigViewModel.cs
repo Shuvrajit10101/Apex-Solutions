@@ -64,6 +64,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>Whether GST is enabled for the company (the "Enable GST" toggle).</summary>
     [ObservableProperty] private bool _gstEnabled;
 
+    /// <summary>
+    /// The company feature flag <b>"Maintain Batch-wise details"</b> (F11 Company Features; Phase 6 Cluster 1;
+    /// requirements RQ-2/RQ-52). The master gate for the whole batch/expiry feature — the per-item batch
+    /// switches, the Batch master, the batch-allocation sub-screen and the batch reports are all hidden/inert
+    /// when it is off. Applied to the live company by <see cref="ApplyBatchFeature"/> (and by
+    /// <see cref="Apply"/>) and persisted; turning it off deletes no batch data (harmless, the UI simply hides).
+    /// </summary>
+    [ObservableProperty] private bool _maintainBatchwiseDetails;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -115,6 +124,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         var cfg = _company.Gst;
         GstEnabled = cfg is { Enabled: true };
+        MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -142,6 +152,30 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     }
 
     private static string Domain_Normalize(string? gstin) => (gstin ?? string.Empty).Trim().ToUpperInvariant();
+
+    /// <summary>
+    /// Applies the "Maintain Batch-wise details" toggle to the live company the moment it changes (RQ-52), so the
+    /// per-item batch switches / Batch master / batch reports surface (or hide) immediately, and persists the
+    /// company. Errors are surfaced without crashing and the toggle reverts to the company's real state. Kept
+    /// independent of the GST <see cref="Apply"/> so flipping the batch feature does not require enabling GST.
+    /// </summary>
+    partial void OnMaintainBatchwiseDetailsChanged(bool value)
+    {
+        _company.MaintainBatchwiseDetails = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            // Reflect the company's real (persisted) state on failure.
+            if (MaintainBatchwiseDetails != _company.MaintainBatchwiseDetails)
+                MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
+            return;
+        }
+        _onChanged();
+    }
 
     /// <summary>
     /// Applies the toggle: on Enable, pre-validate the GSTIN + Home State, then call the engine's

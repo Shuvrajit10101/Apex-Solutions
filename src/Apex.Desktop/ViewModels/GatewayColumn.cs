@@ -108,6 +108,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Stock-Item master (non-null only for the Stock-Item creation column).</summary>
     public StockItemMasterViewModel? StockItemMaster => Page as StockItemMasterViewModel;
 
+    /// <summary>The hosted Batch/Lot master (non-null only for the Batch-creation column; Phase 6 Cluster 1).</summary>
+    public BatchMasterViewModel? BatchMaster => Page as BatchMasterViewModel;
+
+    /// <summary>The hosted batch-allocation sub-screen (non-null only for that column; Phase 6 Cluster 1; RQ-3).</summary>
+    public BatchAllocationViewModel? BatchAllocation => Page as BatchAllocationViewModel;
+
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
 

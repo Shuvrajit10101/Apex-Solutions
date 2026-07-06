@@ -129,6 +129,18 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     [ObservableProperty] private string _reorderLevelText = string.Empty;
     [ObservableProperty] private string _minimumOrderQtyText = string.Empty;
 
+    // ---- Batch switches (Phase 6 Cluster 1; RQ-2) — only offered when the company flag is on ----
+    [ObservableProperty] private bool _maintainInBatches;
+    [ObservableProperty] private bool _trackManufacturingDate;
+    [ObservableProperty] private bool _useExpiryDates;
+
+    /// <summary>
+    /// True iff the company flag <see cref="Company.MaintainBatchwiseDetails"/> is on (RQ-52) — the three item
+    /// batch switches (<see cref="MaintainInBatches"/> / <see cref="TrackManufacturingDate"/> /
+    /// <see cref="UseExpiryDates"/>) are surfaced only then, per the F11/F12 config-driven visibility model.
+    /// </summary>
+    public bool ShowBatchSwitches => _company.MaintainBatchwiseDetails;
+
     // ---- GST details (catalog §12; phase4 RQ-8) — only offered when GST is enabled ----
     [ObservableProperty] private GstTaxabilityOption? _taxability;
     [ObservableProperty] private GstRateOption? _gstRate;
@@ -289,6 +301,16 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 item.Gst = gstBlock;
             }
 
+            // Batch switches (RQ-2) — captured only when the company flag is on; the three switches are
+            // independent (Use-Expiry may be on without Track-Mfg, subtlety a). When the company flag is off the
+            // switches stay false so an existing (non-batch) company is byte-identical (ER-13).
+            if (ShowBatchSwitches)
+            {
+                item.MaintainInBatches = MaintainInBatches;
+                item.TrackManufacturingDate = TrackManufacturingDate;
+                item.UseExpiryDates = UseExpiryDates;
+            }
+
             if (wantsOpening && openingQty > 0m)
             {
                 var batch = string.IsNullOrWhiteSpace(OpeningBatchLabel) ? null : OpeningBatchLabel.Trim();
@@ -320,6 +342,9 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         OpeningBatchLabel = string.Empty;
         Taxability = Taxabilities.First();
         GstRate = GstRates.First();
+        MaintainInBatches = false;
+        TrackManufacturingDate = false;
+        UseExpiryDates = false;
         _onChanged();
         return true;
     }
