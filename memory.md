@@ -635,12 +635,20 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **922 passed / 0 failed** (Apex.Ledger.Io 95 · Ledger 433 · Sqlite 52 · Desktop 342). Schema v14. Robert & Bright green.
 - **Next:** Phase 5 slice 12 — email (compose + .eml/mail-client hand-off; SMTP profile captured, live send deferred) (RQ-25..27). [A15]
 
+### Phase 5 slice 12 — Email compose + .eml/mailto hand-off + SMTP profile (RQ-25..27) ✅ + SQLite schema v15 (2026-07-06)
+- **Delivered email compose (OFFLINE; live SMTP send DEFERRED — tracked).** Apex.Ledger.Io: EmlComposer (RFC-5322/MIME multipart/mixed .eml — base64 body + attachment; deterministic, no clock/RNG: fixed boundary + caller-supplied Date/Message-ID; header FOLDING ≤998/≤78; RFC-2047 encoded-words split ≤75 on UTF-8 boundaries; RFC-2231 non-ASCII filenames; header-injection HARDENED — CR/LF stripped from free-text, rejected in structural fields), Mailto (RFC-6068 percent-encoded), SmtpProfile (host/port/TLS/from — NO password, R13, reflection-guarded). SQLite **schema v15**: MigrateV14ToV15 (CREATE smtp_profile, no password column) + ISmtpProfileRepository over SqliteCompanyStore.
+- **UI:** EmailComposeViewModel (M/Ctrl+M: To/Cc/Subject/Body + attach the exported PDF → write .eml / open mail client; panel states nothing is sent) + SmtpSettingsViewModel (capture profile, no password field). Thin Avalonia layer (ER-12); no socket/SMTP path exists.
+- **Validation** (independent MIME parser): .eml valid RFC-5322/MIME, attachment base64 decodes to the EXACT exported PDF bytes, byte-stable, zero "tally", no SmtpClient/socket; SMTP profile persists with no password column.
+- **Adversarial review (A10, 4 lenses incl. a header-injection SECURITY lens) caught 3 HIGH + 1 MED, all fixed + tested:** (HIGH, security) email header injection via CR/LF in header values → stripped/rejected; (HIGH) long recipient headers exceeded RFC-5322 998 → folded; (HIGH) non-ASCII attachment filename raw bytes → RFC-2231 filename*; (MED) over-long RFC-2047 encoded-word → split ≤75.
+- **Gate (orchestrator-re-run):** build 0/0; `dotnet test -c Release` = **976 passed / 0 failed** (Apex.Ledger.Io 125 · Ledger 433 · Sqlite 59 · Desktop 359). Schema v15. Robert & Bright green.
+- **Next:** Phase 5 slice 13 — wire the live P/E/M/O shortcut bar + report-config shortcuts + Reports-nav completeness + master-list export (deferred from slice 10) + Phase-5 completeness audit (RQ-28..30) [A8/A15]. LAST Phase-5 slice; then pause + launch the app for user inspection.
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
   phase3/phase4 requirements docs for context).
 - **State:** .NET/Avalonia (C#) desktop Tally-Prime-clone accounting app. Branch `claude/keen-albattani-a09dfd` (the
-  SINGLE live workspace now), **schema v14, 922 tests green** (4 test projects: Apex.Ledger.Io 95 · Ledger 433 · Sqlite 52 · Desktop 342), de-branded, working
+  SINGLE live workspace now), **schema v15, 976 tests green** (4 test projects: Apex.Ledger.Io 125 · Ledger 433 · Sqlite 59 · Desktop 359), de-branded, working
   tree clean. ✅ **Phases 3 (Inventory) + 4 (GST core) COMPLETE**; ✅ **Phase 5 slice 1 (report config & depth — RQ-1/2/6)
   COMPLETE**, ✅ **Phase 5 slice 2 (report sort & filter — RQ-3) COMPLETE**, ✅ **Phase 5 slice 3 (comparative/columnar —
   RQ-4) COMPLETE**, ✅ **Phase 5 slice 4 (Cash Flow / Funds Flow / Ratio Analysis — RQ-5 pt.1) COMPLETE**, ✅ **Phase 5
@@ -649,9 +657,12 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   foundation — Apex.Ledger.Io + hand-rolled PDF writer + report→PDF print/preview — RQ-9/13) COMPLETE**, ✅ **Phase 5
   slice 9 (voucher + tax-invoice print + F12 print config — RQ-10/11/12) COMPLETE**, ✅ **Phase 5 slice 10 (tabular
   export CSV RFC-4180 + XLSX hand-rolled OPC — RQ-14..18) COMPLETE**, and ✅ **Phase 5 slice 11 (canonical JSON+XML data
-  export/import + lossless round-trip — RQ-19/20..24; PR-4 exit gate PASS) COMPLETE**, committed & pushed (no PR yet).
-- **Resume at Phase 5 slice 12** — email (compose + .eml/mail-client hand-off; SMTP profile captured, live send
-  deferred — RQ-25..27); then the rest of Phase 5 (finalization) per `plan.md`.
+  export/import + lossless round-trip — RQ-19/20..24; PR-4 exit gate PASS) COMPLETE**, and ✅ **Phase 5 slice 12 (email
+  compose + .eml/mailto hand-off + SMTP profile — RQ-25..27; SQLite schema v15; live send deferred) COMPLETE**,
+  committed & pushed (no PR yet).
+- **Resume at Phase 5 slice 13** — wire the live P/E/M/O shortcut bar + report-config shortcuts + Reports-nav
+  completeness + master-list export (deferred from slice 10) + Phase-5 completeness audit (RQ-28..30); LAST Phase-5
+  slice, then pause + launch the app for user inspection; then the rest of `plan.md`.
 - **THE LOOP TO RUN (user's instruction):** `/loop complete all the phases till they are perfect, and carry out /loop
   for all the phases` — self-pace via the loop and drive Phase 5 + every remaining plan.md phase (6–11) to a perfect,
   gated, adversarially-verified finish.

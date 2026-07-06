@@ -27,6 +27,8 @@ public enum Screen
     Export,
     ExportData,
     ImportData,
+    EmailCompose,
+    SmtpSettings,
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
@@ -222,6 +224,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The O / Alt+O "Import" (canonical/CSV company import, RQ-20..24) panel, non-null only while that column is open.</summary>
     [ObservableProperty] private ImportDataViewModel? _importDataPanel;
 
+    /// <summary>The M / Ctrl+M "E-Mail" compose panel (RQ-25/26), non-null only while that column is open.</summary>
+    [ObservableProperty] private EmailComposeViewModel? _emailCompose;
+
+    /// <summary>The "SMTP Settings" capture panel (RQ-27), non-null only while that column is open.</summary>
+    [ObservableProperty] private SmtpSettingsViewModel? _smtpSettings;
+
     /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
     [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
 
@@ -244,6 +252,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
+        && EmailCompose is null && SmtpSettings is null
         && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -280,6 +289,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1329,6 +1340,70 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
     public bool ApplyExport() => ExportPanel?.Apply() ?? false;
 
+    // =============================================================== screen: e-mail compose (RQ-25/26)
+
+    /// <summary>
+    /// M / Ctrl+M — opens the "E-Mail" compose panel for the CURRENT report (RQ-25) or a drilled voucher / tax
+    /// invoice (RQ-11 attachment), as its own cascading column to the RIGHT of the page, never a stacked overlay,
+    /// mirroring <see cref="OpenExport"/>. The report/invoice stays live beneath; the attachment defaults to its
+    /// exported PDF (rendered via <c>Apex.Ledger.Io</c>). The hand-off is OFFLINE (RQ-26) — Save writes a
+    /// byte-stable <c>.eml</c> (carrying the attachment), or a <c>mailto:</c> opens the OS mail client for a quick
+    /// body — <b>nothing is sent</b>; no socket/SMTP path exists. A no-op unless a report or voucher-detail is on
+    /// screen; re-pressing while the panel is open is a no-op (there is already a compose column).
+    /// </summary>
+    public void OpenEmailCompose()
+    {
+        if (EmailCompose is not null) return;   // panel already open — don't stack a second one
+
+        EmailComposeViewModel panel;
+        if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+            panel = new EmailComposeViewModel(vd);       // e-mail the drilled voucher / tax invoice
+        else if (IsReportContext && Reports is { } r)
+            panel = new EmailComposeViewModel(r);        // e-mail the open report
+        else
+            return;                                      // nothing to e-mail
+
+        EmailCompose = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.EmailCompose;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the compose panel: write the byte-stable <c>.eml</c> (with the
+    /// attachment) to <paramref name="path"/>. The composer never touches disk — this is the only write. A no-op
+    /// when no compose panel is open. Returns whether the file was written. Nothing is sent.</summary>
+    public bool SaveEmail(string path) => EmailCompose?.SaveEml(path) ?? false;
+
+    // =============================================================== screen: SMTP settings (RQ-27)
+
+    /// <summary>
+    /// Opens the "SMTP Settings" panel (RQ-27) for the open company as its own cascading column, mirroring
+    /// <see cref="OpenExport"/>. It captures the outgoing-mail server profile (host / port / TLS / from-address /
+    /// from-name) and round-trips it through the per-company store. <b>No password is captured (R13)</b> and
+    /// nothing is sent — the profile is for a later phase to wire live transport. A no-op unless a company is
+    /// open; re-pressing while the panel is open is a no-op.
+    /// </summary>
+    public void OpenSmtpSettings()
+    {
+        if (SmtpSettings is not null) return;   // panel already open — don't stack a second one
+        if (Company is null) return;            // no company — nothing to configure
+
+        var panel = new SmtpSettingsViewModel(_storage, Company);
+        SmtpSettings = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SmtpSettings;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the SMTP settings panel: upsert the captured profile. Returns success.</summary>
+    public bool SaveSmtpSettings() => SmtpSettings?.Save() ?? false;
+
     // =============================================================== screen: export data (canonical backup)
 
     /// <summary>
@@ -1868,6 +1943,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ExportPanel = null;
         ExportDataPanel = null;
         ImportDataPanel = null;
+        EmailCompose = null;
+        SmtpSettings = null;
         LedgerVouchers = null;
         VoucherDetail = null;
     }
@@ -2510,6 +2587,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));
         ButtonBar.Add(new ButtonBarItem("D", "Day Book", () => OpenReport(ReportKind.DayBook), hasCompany));
+
+        // M — E-Mail (RQ-25/26): compose an offline .eml / mailto for the current report or drilled invoice.
+        // Enabled on a printable page (a report, or a drilled voucher-detail); nothing is sent.
+        ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
+        // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
+        ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));

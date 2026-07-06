@@ -1,5 +1,6 @@
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Persistence;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
@@ -24,7 +25,7 @@ namespace Apex.Persistence.Sqlite;
 /// stored voucher number. A voucher that fails validation on reload signals a corrupt store and is
 /// surfaced as an exception rather than silently dropped.</para>
 /// </remarks>
-public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, IVoucherRepository, ISavedReportViewRepository, IDisposable
+public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, IVoucherRepository, ISavedReportViewRepository, ISmtpProfileRepository, IDisposable
 {
     private readonly SqliteConnection _connection;
 
@@ -359,6 +360,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             }
             tx.Commit();
             version = 14;
+        }
+
+        // v14 → v15: apply the SMTP-profile migration, then bump the marker. Existing v14 data survives untouched.
+        if (version == 14)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV14ToV15;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 15);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 15;
         }
 
         if (version != Schema.CurrentVersion)
@@ -2417,6 +2439,79 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$name", name);
         cmd.ExecuteNonQuery();
     }
+
+    // ------------------------------------------------------------------ ISmtpProfileRepository
+
+    // The port's Save/Get/Delete are implemented EXPLICITLY, forwarding to these descriptively-named public
+    // methods so the store's own API reads clearly (the plain Save/Get/Delete names collide with the other
+    // repositories on this class, e.g. Save(Company) and Get(company, viewName)).
+
+    /// <inheritdoc cref="ISmtpProfileRepository.Save" />
+    public void SaveSmtpProfile(Guid companyId, SmtpProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+
+        // One row per company (company_id is the PRIMARY KEY): upsert by delete-then-insert in one transaction.
+        // No password/secret is ever written — the row carries only host/port/TLS/from (R13).
+        using var tx = _connection.BeginTransaction();
+        using (var del = _connection.CreateCommand())
+        {
+            del.Transaction = tx;
+            del.CommandText = "DELETE FROM smtp_profile WHERE company_id = $cid;";
+            del.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            del.ExecuteNonQuery();
+        }
+        using (var ins = _connection.CreateCommand())
+        {
+            ins.Transaction = tx;
+            ins.CommandText = """
+                INSERT INTO smtp_profile (company_id, host, port, use_tls, from_address, from_name)
+                VALUES ($cid, $host, $port, $tls, $from, $fromName);
+                """;
+            ins.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            ins.Parameters.AddWithValue("$host", profile.Host);
+            ins.Parameters.AddWithValue("$port", profile.Port);
+            ins.Parameters.AddWithValue("$tls", profile.UseTls ? 1 : 0);
+            ins.Parameters.AddWithValue("$from", profile.FromAddress);
+            ins.Parameters.AddWithValue("$fromName", (object?)profile.FromName ?? DBNull.Value);
+            ins.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    /// <inheritdoc cref="ISmtpProfileRepository.Get" />
+    public SmtpProfile? GetSmtpProfile(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT host, port, use_tls, from_address, from_name
+            FROM smtp_profile WHERE company_id = $cid LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new SmtpProfile
+        {
+            Host = r.GetString(0),
+            Port = (int)r.GetInt64(1),
+            UseTls = r.GetInt64(2) != 0,
+            FromAddress = r.GetString(3),
+            FromName = r.IsDBNull(4) ? null : r.GetString(4),
+        };
+    }
+
+    /// <inheritdoc cref="ISmtpProfileRepository.Delete" />
+    public void DeleteSmtpProfile(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM smtp_profile WHERE company_id = $cid;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        cmd.ExecuteNonQuery();
+    }
+
+    void ISmtpProfileRepository.Save(Guid companyId, SmtpProfile profile) => SaveSmtpProfile(companyId, profile);
+    SmtpProfile? ISmtpProfileRepository.Get(Guid companyId) => GetSmtpProfile(companyId);
+    void ISmtpProfileRepository.Delete(Guid companyId) => DeleteSmtpProfile(companyId);
 
     // ------------------------------------------------------------------ low-level helpers
 

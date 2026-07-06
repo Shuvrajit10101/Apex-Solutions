@@ -224,6 +224,8 @@ public sealed class ItemInvoiceRoundTripTests
         // collide with an already-present table (this is a faithful v11 shape that predates every later slice).
         Exec(conn, "DROP INDEX IF EXISTS ux_saved_views_company_name;");
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
+        // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
+        Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
         DowngradeStripV13(conn);
         Exec(conn, "UPDATE schema_version SET version = 11;");
         SqliteConnection.ClearPool(conn);

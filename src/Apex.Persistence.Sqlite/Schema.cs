@@ -56,8 +56,8 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v14 = saved report views).</summary>
-    public const int CurrentVersion = 14;
+    /// <summary>The current schema version this adapter reads and writes (v15 = capture-only SMTP profile).</summary>
+    public const int CurrentVersion = 15;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -458,6 +458,20 @@ public static class Schema
             company_id   TEXT    NOT NULL,                    -- the owning company id (per-company isolation key)
             name         TEXT    NOT NULL,                    -- unique within a company (case-insensitive)
             config_json  TEXT    NOT NULL                     -- the SavedReportView config tuple as JSON
+        );
+
+        -- v15 (RQ-27 SMTP profile; R13): a capture-only SMTP server profile, ONE row per company (company_id is
+        -- the PRIMARY KEY, so a save upserts the single row). Records ONLY the connection identity — host, port,
+        -- TLS flag and the sender identity. There is deliberately NO password/secret/credential column: a
+        -- credential (if ever needed) lives in the OS secret store / environment, never in this DB. Nothing yet
+        -- consumes this row to open a socket — live SMTP send is DEFERRED.
+        CREATE TABLE smtp_profile (
+            company_id   TEXT    NOT NULL PRIMARY KEY,        -- the owning company id (one profile per company)
+            host         TEXT    NOT NULL,                    -- SMTP server host
+            port         INTEGER NOT NULL,                    -- submission port (587/465/25…)
+            use_tls      INTEGER NOT NULL,                    -- 0/1
+            from_address TEXT    NOT NULL,                    -- envelope/from address
+            from_name    TEXT        NULL                     -- optional display name
         );
 
         CREATE INDEX ix_groups_company        ON groups(company_id);
@@ -949,5 +963,26 @@ public static class Schema
         );
 
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
+        """;
+
+    /// <summary>
+    /// v14 → v15: <b>capture-only SMTP profile</b> (RQ-27; R13). Creates the <c>smtp_profile</c> table — a single
+    /// per-company row holding host/port/TLS/from-address/from-name only. Pure CREATE TABLE, no ALTER, no row
+    /// rewrites — so an existing v14 database keeps every table and row untouched and simply gains an empty
+    /// <c>smtp_profile</c> table. The <c>company_id</c> is a plain isolation key + PRIMARY KEY (one profile per
+    /// company; no companies FK, so a profile can be stored without a persisted company row). There is
+    /// deliberately <b>no password/secret column</b>: a credential — if ever needed — lives in the OS secret
+    /// store / environment, never in this DB. Run inside a transaction that also bumps <c>schema_version</c> to
+    /// 15. A fresh DB is stamped straight to v15 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV14ToV15 = """
+        CREATE TABLE smtp_profile (
+            company_id   TEXT    NOT NULL PRIMARY KEY,
+            host         TEXT    NOT NULL,
+            port         INTEGER NOT NULL,
+            use_tls      INTEGER NOT NULL,
+            from_address TEXT    NOT NULL,
+            from_name    TEXT        NULL
+        );
         """;
 }

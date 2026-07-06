@@ -45,8 +45,9 @@ public sealed class SavedViewRoundTripTests
         try
         {
             using (new SqliteCompanyStore(dbPath)) { }
-            Assert.Equal(14, Schema.CurrentVersion);
-            Assert.Equal(14L, ReadSchemaVersion(dbPath));
+            // saved_views was introduced at v14; a fresh DB stamps to the current version (>= 14) and has it.
+            Assert.True(Schema.CurrentVersion >= 14);
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             Assert.True(TableExists(dbPath, "saved_views"));
         }
         finally { Delete(dbPath); }
@@ -171,9 +172,9 @@ public sealed class SavedViewRoundTripTests
             Assert.Equal(13L, ReadSchemaVersion(dbPath));
             Assert.False(TableExists(dbPath, "saved_views"));
 
-            using (var store = new SqliteCompanyStore(dbPath)) // opens v13 → migrates to v14
+            using (var store = new SqliteCompanyStore(dbPath)) // opens v13 → migrates forward (>= v14)
             {
-                Assert.Equal(14L, ReadSchemaVersion(dbPath));
+                Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
                 Assert.True(TableExists(dbPath, "saved_views"));
                 // Existing v13 data survived the pure CREATE-only migration.
                 Assert.Equal("Legacy V13 Co", ReadCompanyName(dbPath, companyId));

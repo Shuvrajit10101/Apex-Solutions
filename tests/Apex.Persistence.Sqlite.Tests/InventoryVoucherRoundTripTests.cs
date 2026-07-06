@@ -264,6 +264,8 @@ public sealed class InventoryVoucherRoundTripTests
         // collide with an already-present table.
         Exec(conn, "DROP INDEX IF EXISTS ux_saved_views_company_name;");
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
+        // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
+        Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
         // Rebuild voucher_types WITHOUT the two v10 effect columns (SQLite pre-3.35 has no DROP COLUMN; use a
         // table rewrite that is robust across versions).
         Exec(conn, """

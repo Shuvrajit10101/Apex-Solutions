@@ -94,6 +94,10 @@ public partial class MainWindow : Window
                 vm.ApplyImport();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
+            else if (vm.CurrentScreen == Screen.EmailCompose)
+                SaveEmailToDocuments(vm);
+            else if (vm.CurrentScreen == Screen.SmtpSettings)
+                vm.SaveSmtpSettings();
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -221,6 +225,18 @@ public partial class MainWindow : Window
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExportData();
+            e.Handled = true;
+            return;
+        }
+
+        // M / Ctrl+M (RQ-25/26) opens the "E-Mail" compose panel for the CURRENT report or the drilled voucher /
+        // tax invoice — the attachment defaults to its exported PDF. The hand-off is OFFLINE: Save writes a
+        // byte-stable .eml (with the attachment) or a mailto opens the OS mail client — nothing is sent. Printable
+        // page context only (a report, or a voucher-detail drill), and not while typing. The header hint reads
+        // "M: E-Mail". Accepts the bare M and Ctrl+M.
+        if (e.Key == Key.M && vm.IsPrintablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
+        {
+            vm.OpenEmailCompose();
             e.Handled = true;
             return;
         }
@@ -505,6 +521,20 @@ public partial class MainWindow : Window
         var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         var name = SafeFileName(preview.ReportTitle) + ".pdf";
         vm.SavePrintPreview(Path.Combine(dir, name));
+    }
+
+    /// <summary>
+    /// "Save .eml" on the E-Mail compose panel: writes the byte-stable message (with the exported-PDF attachment)
+    /// to a Documents-folder path derived from the document title. The composer is disk-free; this thin layer just
+    /// picks the path and calls the VM. A full save-file dialog can replace the path choice in a later slice.
+    /// Nothing is sent — the .eml is handed to the OS mail client by the user.
+    /// </summary>
+    private static void SaveEmailToDocuments(MainWindowViewModel vm)
+    {
+        if (vm.EmailCompose is not { } compose) return;
+        var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        var name = SafeFileName(compose.DocumentTitle) + ".eml";
+        vm.SaveEmail(Path.Combine(dir, name));
     }
 
     /// <summary>Turns a report title into a safe file-name stem (invalid path chars → '_'; blank → "Report").</summary>

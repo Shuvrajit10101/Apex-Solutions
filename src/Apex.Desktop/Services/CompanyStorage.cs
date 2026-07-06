@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Persistence;
 using Apex.Ledger.Reports;
 using Apex.Persistence.Sqlite;
@@ -130,6 +131,33 @@ public sealed class CompanyStorage
     {
         using var store = new SqliteCompanyStore(PathForName(company.Name));
         store.Delete(company.Id, name);
+    }
+
+    // =============================================================== RQ-27 SMTP profile (per-company, capture-only)
+
+    /// <summary>
+    /// Saves (upserts) the company's capture-only <paramref name="profile"/> (host / port / TLS / from-address /
+    /// from-name; RQ-27). Opens the company's own <c>.db</c> transiently — one profile per company file. There is
+    /// deliberately NO password (R13); a credential (if ever) lives in the OS secret store, never the DB.
+    /// </summary>
+    public void SaveSmtpProfile(Company company, SmtpProfile profile)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        store.SaveSmtpProfile(company.Id, profile);
+    }
+
+    /// <summary>Gets the company's SMTP profile, or <c>null</c> when none has been saved (RQ-27).</summary>
+    public SmtpProfile? GetSmtpProfile(Company company)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        return store.GetSmtpProfile(company.Id);
+    }
+
+    /// <summary>Deletes the company's SMTP profile (no-op if absent) (RQ-27).</summary>
+    public void DeleteSmtpProfile(Company company)
+    {
+        using var store = new SqliteCompanyStore(PathForName(company.Name));
+        store.DeleteSmtpProfile(company.Id);
     }
 
     private static string SanitiseFileName(string name)
