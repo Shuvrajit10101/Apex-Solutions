@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 20;
+    public const int CurrentVersion = 21;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -109,7 +109,10 @@ public static class Schema
             gst_periodicity      INTEGER     NULL,             -- GstReturnPeriodicity enum ordinal
             -- v20 (Phase 6 slice 4; RQ-22; DP-7): F11 "Use separate Actual & Billed Quantity columns" — a pure
             -- persisted toggle (cannot be inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
-            use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0   -- 0/1
+            use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            -- v21 (Phase 6 slice 5; RQ-26): F11 "Enable multiple Price Levels" — a pure persisted toggle (cannot be
+            -- inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
+            enable_multiple_price_levels INTEGER NOT NULL DEFAULT 0     -- 0/1
         );
 
         CREATE TABLE gst_rate_slabs (
@@ -177,7 +180,10 @@ public static class Schema
             -- v19 (Phase 6 slice 3; RQ-16..RQ-20): "Method of Appropriation in Purchase invoice" — a NON-NULL value
             -- marks this Direct-Expenses ledger as an additional-cost ledger (0 = ByQuantity, 1 = ByValue). NULL
             -- (the default) = a plain P&L ledger that never touches a stock rate (RQ-19).
-            method_of_appropriation INTEGER  NULL              -- MethodOfAppropriation enum ordinal, or NULL
+            method_of_appropriation INTEGER  NULL,             -- MethodOfAppropriation enum ordinal, or NULL
+            -- v21 (Phase 6 slice 5; RQ-30): a party ledger's default Price Level. Nullable FK; NULL (the default for
+            -- every existing ledger) = no default level. Only meaningful while enable_multiple_price_levels is on.
+            default_price_level_id  TEXT     NULL REFERENCES price_levels(id)
         );
 
         CREATE TABLE currencies (
@@ -564,6 +570,42 @@ public static class Schema
             percent_millis        INTEGER     NULL                -- carve-out % of FG cost × 1,000 (DP-3), NULL = not a %-basis line
         );
 
+        -- v21 (Phase 6 slice 5; RQ-26): the named Price Levels — a bare per-company master (Wholesale/Retail…),
+        -- unique name within a company (see ux index). A level is nothing but an id + name; the party default
+        -- (ledgers.default_price_level_id) and the dated price lists reference it.
+        CREATE TABLE price_levels (
+            id          TEXT NOT NULL PRIMARY KEY,
+            company_id  TEXT NOT NULL REFERENCES companies(id),
+            name        TEXT NOT NULL
+        );
+
+        -- v21 (Phase 6 slice 5; RQ-27): the Price List HEADER — one dated version per (level, item). A revision
+        -- APPENDS a new row with a later applicable_from; older rows are retained (append-only history). The
+        -- resolver picks the latest applicable_from <= voucher date (RQ-29). applicable_from is ISO yyyy-MM-dd TEXT
+        -- (culture-invariant, ER-10).
+        CREATE TABLE price_lists (
+            id              TEXT NOT NULL PRIMARY KEY,
+            company_id      TEXT NOT NULL REFERENCES companies(id),
+            price_level_id  TEXT NOT NULL REFERENCES price_levels(id),
+            stock_item_id   TEXT NOT NULL REFERENCES stock_items(id),
+            applicable_from TEXT NOT NULL              -- ISO yyyy-MM-dd
+        );
+
+        -- v21 (Phase 6 slice 5; RQ-27/RQ-28): the Price List SLAB lines. Quantities are INTEGER micros
+        -- (× 1,000,000, QuantityScale); to_qty_micro NULL = open-ended top slab. rate_paisa = INTEGER paisa (Money
+        -- boundary, ER-2). discount_percent_millis = percent × 1,000 (INTEGER millis, exact to 3 dp — mirrors
+        -- bom_lines.percent_millis / interest_rate_millis). Slabs are contiguous/ascending/non-overlapping
+        -- (service-validated); From is inclusive (≥), To is exclusive (<) — the boundary lands in the higher slab.
+        CREATE TABLE price_list_lines (
+            id                      INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            price_list_id           TEXT    NOT NULL REFERENCES price_lists(id),
+            line_order              INTEGER NOT NULL,        -- preserves slab order within the list
+            from_qty_micro          INTEGER NOT NULL,        -- inclusive lower bound  (From ≥)
+            to_qty_micro            INTEGER     NULL,        -- exclusive upper bound (To <); NULL = open-ended
+            rate_paisa              INTEGER NOT NULL,        -- per-unit rate in paisa
+            discount_percent_millis INTEGER NOT NULL DEFAULT 0 -- discount% × 1,000 (0 = none)
+        );
+
         -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
         -- report configuration tuple (kind/period/depth/sort/filter/comparative/F12) — never a computed figure;
         -- the report is always recomputed when the view is applied, so a saved view can never go stale (ER-9).
@@ -629,6 +671,13 @@ public static class Schema
         CREATE INDEX ix_bom_item               ON bill_of_materials(stock_item_id);
         CREATE UNIQUE INDEX ux_bom_item_name   ON bill_of_materials(stock_item_id, name COLLATE NOCASE);
         CREATE INDEX ix_bom_lines_bom          ON bom_lines(bom_id);
+        -- v21: price levels — lookup by company + the per-company case-insensitive unique name; price lists —
+        -- lookup by company + the (level, item) resolution key; slab lines by their list.
+        CREATE INDEX ix_price_levels_company     ON price_levels(company_id);
+        CREATE UNIQUE INDEX ux_price_levels_name ON price_levels(company_id, name COLLATE NOCASE);
+        CREATE INDEX ix_price_lists_company      ON price_lists(company_id);
+        CREATE INDEX ix_price_lists_level_item   ON price_lists(price_level_id, stock_item_id);
+        CREATE INDEX ix_price_list_lines_list    ON price_list_lines(price_list_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
@@ -1260,5 +1309,51 @@ public static class Schema
 
         ALTER TABLE companies     ADD COLUMN use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE voucher_types ADD COLUMN allow_zero_valued              INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v20 → v21: <b>Price Levels &amp; Price Lists</b> (Phase 6 slice 5; RQ-26..RQ-31; ER-1, ER-13). Purely
+    /// additive — creates the three new tables <c>price_levels</c> (a bare named per-company master),
+    /// <c>price_lists</c> (one dated version header per (level, item), append-only) and <c>price_list_lines</c>
+    /// (the quantity slabs: micros/paisa/millis, From≥ / To&lt;), plus two additive <c>ALTER … ADD COLUMN</c>:
+    /// <c>companies.enable_multiple_price_levels</c> (F11 toggle, <c>DEFAULT 0</c>) and
+    /// <c>ledgers.default_price_level_id</c> (a party's default level, nullable FK). No <c>ALTER</c> that rewrites
+    /// rows, no data loss: existing v20 rows keep every value, the flag defaults OFF and the FK defaults NULL, so a
+    /// non-price-level company is byte-identical (ER-13). Run inside a transaction that also bumps
+    /// <c>schema_version</c> to 21. A fresh DB is stamped straight to v21 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV20ToV21 = """
+        CREATE TABLE price_levels (
+            id          TEXT NOT NULL PRIMARY KEY,
+            company_id  TEXT NOT NULL REFERENCES companies(id),
+            name        TEXT NOT NULL
+        );
+
+        CREATE TABLE price_lists (
+            id              TEXT NOT NULL PRIMARY KEY,
+            company_id      TEXT NOT NULL REFERENCES companies(id),
+            price_level_id  TEXT NOT NULL REFERENCES price_levels(id),
+            stock_item_id   TEXT NOT NULL REFERENCES stock_items(id),
+            applicable_from TEXT NOT NULL
+        );
+
+        CREATE TABLE price_list_lines (
+            id                      INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            price_list_id           TEXT    NOT NULL REFERENCES price_lists(id),
+            line_order              INTEGER NOT NULL,
+            from_qty_micro          INTEGER NOT NULL,
+            to_qty_micro            INTEGER     NULL,
+            rate_paisa              INTEGER NOT NULL,
+            discount_percent_millis INTEGER NOT NULL DEFAULT 0
+        );
+
+        ALTER TABLE companies ADD COLUMN enable_multiple_price_levels INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers   ADD COLUMN default_price_level_id       TEXT    NULL REFERENCES price_levels(id);
+
+        CREATE INDEX ix_price_levels_company     ON price_levels(company_id);
+        CREATE UNIQUE INDEX ux_price_levels_name ON price_levels(company_id, name COLLATE NOCASE);
+        CREATE INDEX ix_price_lists_company      ON price_lists(company_id);
+        CREATE INDEX ix_price_lists_level_item   ON price_lists(price_level_id, stock_item_id);
+        CREATE INDEX ix_price_list_lines_list    ON price_list_lines(price_list_id);
         """;
 }

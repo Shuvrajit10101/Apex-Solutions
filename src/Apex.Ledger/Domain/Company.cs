@@ -26,6 +26,8 @@ public sealed class Company
     private readonly List<InventoryVoucher> _inventoryVouchers = new();
     private readonly List<BatchMaster> _batchMasters = new();
     private readonly List<BillOfMaterials> _billsOfMaterials = new();
+    private readonly List<PriceLevel> _priceLevels = new();
+    private readonly List<PriceList> _priceLists = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -147,6 +149,21 @@ public sealed class Company
     /// </summary>
     public bool UseSeparateActualBilledQuantity { get; set; }
 
+    /// <summary>
+    /// Company feature flag <b>"Enable multiple Price Levels"</b> (F11 Company Features → Inventory; Book pp.33–35;
+    /// Phase 6 slice 5; requirements RQ-26/RQ-52). Master gate for the whole Price-Levels/Price-Lists feature: the
+    /// levels master, the price-list master, the party-default-level field, the Sales header field, the discount
+    /// column and the Price List report are all hidden/inert when it is off.
+    /// <para>
+    /// Like <see cref="UseSeparateActualBilledQuantity"/> (and unlike <see cref="MaintainBatchwiseDetails"/> /
+    /// <see cref="SetComponentsBom"/>, which are inferred from data), this is a <b>pure user toggle</b> that
+    /// <b>cannot be inferred</b> — a company may enable it before defining any level — so it is a plain persisted
+    /// <c>get; set;</c> backed by a real <c>companies</c> column (v21). Defaults to <c>false</c>, so every existing
+    /// company is byte-identical (ER-13).
+    /// </para>
+    /// </summary>
+    public bool EnableMultiplePriceLevels { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 
@@ -216,6 +233,13 @@ public sealed class Company
     /// <summary>Bills of Materials (catalog §11 Cluster 2; Phase 6 RQ-9): manufacturing recipes, per finished good.</summary>
     public IReadOnlyList<BillOfMaterials> BillsOfMaterials => _billsOfMaterials;
 
+    /// <summary>Price Levels (catalog §11; Phase 6 slice 5; RQ-26): named rate tiers (Wholesale/Retail…).</summary>
+    public IReadOnlyList<PriceLevel> PriceLevels => _priceLevels;
+
+    /// <summary>Price Lists (catalog §11; Phase 6 slice 5; RQ-27): dated slab-rate versions per (level, item),
+    /// append-only history.</summary>
+    public IReadOnlyList<PriceList> PriceLists => _priceLists;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -276,6 +300,18 @@ public sealed class Company
 
     /// <summary>Removes a Bill of Materials (delete-guards live in <c>BomService</c>; also used by import roll-back).</summary>
     public bool RemoveBillOfMaterials(BillOfMaterials bom) => _billsOfMaterials.Remove(bom);
+
+    /// <summary>Adds a price level (uniqueness guard lives in <c>PriceListService</c>).</summary>
+    public void AddPriceLevel(PriceLevel level) => _priceLevels.Add(level ?? throw new ArgumentNullException(nameof(level)));
+
+    /// <summary>Removes a price level (delete-guards live in <c>PriceListService</c>; also used by import roll-back).</summary>
+    public bool RemovePriceLevel(PriceLevel level) => _priceLevels.Remove(level);
+
+    /// <summary>Adds a dated price-list version (append-only history; guards live in <c>PriceListService</c>).</summary>
+    public void AddPriceList(PriceList list) => _priceLists.Add(list ?? throw new ArgumentNullException(nameof(list)));
+
+    /// <summary>Removes a price-list version (used by the transactional import roll-back).</summary>
+    public bool RemovePriceList(PriceList list) => _priceLists.Remove(list);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
@@ -377,6 +413,18 @@ public sealed class Company
     public BillOfMaterials? FindBomByName(Guid stockItemId, string name) =>
         _billsOfMaterials.FirstOrDefault(b => b.StockItemId == stockItemId &&
             string.Equals(b.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a price level by its id, or <c>null</c> (Phase 6 slice 5; RQ-26).</summary>
+    public PriceLevel? FindPriceLevel(Guid id) => _priceLevels.FirstOrDefault(l => l.Id == id);
+
+    /// <summary>Finds a price level by its name (case-insensitive), or <c>null</c> (RQ-26).</summary>
+    public PriceLevel? FindPriceLevelByName(string name) =>
+        _priceLevels.FirstOrDefault(l => string.Equals(l.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>All dated price-list versions for a given (level, item) — the append-only history the resolver
+    /// picks the latest-applicable version from (RQ-27/RQ-29).</summary>
+    public IEnumerable<PriceList> PriceListsFor(Guid priceLevelId, Guid stockItemId) =>
+        _priceLists.Where(pl => pl.PriceLevelId == priceLevelId && pl.StockItemId == stockItemId);
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote

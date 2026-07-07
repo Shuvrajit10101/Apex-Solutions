@@ -519,6 +519,15 @@ public partial class MainWindow : Window
     private void OnCreateBomClick(object? sender, RoutedEventArgs e)
         => Vm?.BomMaster?.Create();
 
+    private void OnCreatePriceLevelClick(object? sender, RoutedEventArgs e)
+        => Vm?.PriceLevels?.Create();
+
+    private void OnSavePriceListClick(object? sender, RoutedEventArgs e)
+        => Vm?.PriceLists?.Save();
+
+    private void OnAddPriceListSlabClick(object? sender, RoutedEventArgs e)
+        => Vm?.PriceLists?.AddSlabRow();
+
     private void OnAddBomLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BomMaster?.AddBlankLine();
 

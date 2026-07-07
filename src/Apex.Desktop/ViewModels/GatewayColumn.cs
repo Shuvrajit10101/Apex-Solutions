@@ -123,6 +123,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
 
+    /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
+    public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
+
+    /// <summary>The hosted Price List master (non-null only for the Price-List creation column; Phase 6 slice 5; RQ-27).</summary>
+    public PriceListsViewModel? PriceLists => Page as PriceListsViewModel;
+
     /// <summary>The hosted F12 report-Configuration panel (non-null only for the report-config column).</summary>
     public ReportConfigViewModel? ReportConfig => Page as ReportConfigViewModel;
 

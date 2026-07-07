@@ -111,6 +111,15 @@ public sealed class Ledger
     /// </summary>
     public MethodOfAppropriation? MethodOfAppropriation { get; set; }
 
+    /// <summary>
+    /// Optional <b>default Price Level</b> on a <b>party</b> ledger (Sundry Debtor) — Book pp.34–35; Phase 6
+    /// slice 5; requirement RQ-30. When a Sales voucher selects this party, its Price Level header field is
+    /// initialised from this level (still overridable per voucher). <c>null</c> (the default for every existing
+    /// ledger) ⇒ no default level; only meaningful while <see cref="Company.EnableMultiplePriceLevels"/> is on.
+    /// Nullable FK to a <see cref="PriceLevel"/>.
+    /// </summary>
+    public Guid? DefaultPriceLevelId { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -129,7 +138,8 @@ public sealed class Ledger
         PartyGstDetails? partyGst = null,
         StockItemGstDetails? salesPurchaseGst = null,
         LedgerGstClassification? gstClassification = null,
-        MethodOfAppropriation? methodOfAppropriation = null)
+        MethodOfAppropriation? methodOfAppropriation = null,
+        Guid? defaultPriceLevelId = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -157,6 +167,7 @@ public sealed class Ledger
         SalesPurchaseGst = salesPurchaseGst;
         GstClassification = gstClassification;
         MethodOfAppropriation = methodOfAppropriation;
+        DefaultPriceLevelId = defaultPriceLevelId;
     }
 
     /// <summary>True iff this ledger holds balances in a foreign (non-base) currency.</summary>

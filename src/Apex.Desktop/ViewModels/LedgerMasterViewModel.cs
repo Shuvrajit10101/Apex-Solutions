@@ -65,6 +65,21 @@ public sealed class MethodOfAppropriationChoice
 }
 
 /// <summary>
+/// A "Default Price Level" picker option (Book pp.34–35; Phase 6 slice 5; RQ-30): "(none)"
+/// (<see cref="PriceLevelId"/> null — no default level, the norm) or a defined <see cref="PriceLevel"/>. When a
+/// Sales voucher selects a party carrying a non-null level, its Price-Level header defaults to it (still
+/// overridable per voucher). Only offered while <see cref="Company.EnableMultiplePriceLevels"/> is on.
+/// </summary>
+public sealed class PriceLevelChoice
+{
+    /// <summary>The stored party default price-level id — null means "(none)".</summary>
+    public Guid? PriceLevelId { get; }
+    public string Display { get; }
+    public PriceLevelChoice(Guid? priceLevelId, string display) { PriceLevelId = priceLevelId; Display = display; }
+    public override string ToString() => Display;
+}
+
+/// <summary>
 /// The Ledger-creation master ("Create → Ledger", Alt+C): pick a name and an under-group
 /// from the 28 predefined groups, create the ledger on the current company, and see it appear in
 /// the list. Persists the company to its <c>.db</c> via <see cref="CompanyStorage.Save"/> on create.
@@ -241,6 +256,24 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>The State/UT options for the party place-of-supply picker (the GST state-code list).</summary>
     public IReadOnlyList<IndianStateOption> PartyStates { get; }
 
+    // --------------------------------------------------------------- default price level (Book pp.34–35; slice 5 RQ-30)
+
+    /// <summary>
+    /// The "Default Price Level" choices for a party ledger (RQ-30): "(none)" plus every defined
+    /// <see cref="PriceLevel"/>. Empty of levels when none are defined (only the "(none)" sentinel).
+    /// </summary>
+    public IReadOnlyList<PriceLevelChoice> PriceLevelChoices { get; }
+
+    /// <summary>The chosen party default price level — "(none)" by default (every existing party keeps no default).</summary>
+    [ObservableProperty] private PriceLevelChoice? _selectedPriceLevel;
+
+    /// <summary>
+    /// True iff the "Default Price Level" picker should render: the company's "Enable multiple Price Levels" F11
+    /// flag is on AND the chosen group is a party group (Sundry Debtors). Gated so a non-price-level screen is
+    /// byte-unchanged (ER-13).
+    /// </summary>
+    public bool ShowDefaultPriceLevel => _company.EnableMultiplePriceLevels && IsPartyGroup;
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -261,6 +294,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         PartyStates = IndianState.All.Select(s => new IndianStateOption { State = s }).ToList();
         _partyRegistrationType = PartyRegistrationTypes[2]; // Unregistered (a plain B2C party) by default
+
+        PriceLevelChoices = BuildPriceLevelChoices(company);
+        _selectedPriceLevel = PriceLevelChoices[0]; // (none)
 
         RefreshList();
     }
@@ -287,6 +323,18 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     }
 
     /// <summary>
+    /// Builds the default-price-level picker list: "(none)" first (stored as null), then every defined price
+    /// level. A company with no levels shows just the "(none)" option.
+    /// </summary>
+    private static IReadOnlyList<PriceLevelChoice> BuildPriceLevelChoices(Company company)
+    {
+        var list = new List<PriceLevelChoice> { new(null, "◦ (none)") };
+        foreach (var level in company.PriceLevels.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            list.Add(new PriceLevelChoice(level.Id, level.Name));
+        return list;
+    }
+
+    /// <summary>
     /// A party group (Sundry Debtors / Sundry Creditors, or a sub-group under one) — the bill-wise
     /// prompts are shown only for these, where "Maintain bill-by-bill" surfaces for party
     /// ledgers. When the chosen group is a party group the flag defaults on.
@@ -300,6 +348,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         OnPropertyChanged(nameof(ShowPartyGst));
         OnPropertyChanged(nameof(IsDirectExpensesGroup));
         OnPropertyChanged(nameof(ShowAppropriation));
+        OnPropertyChanged(nameof(ShowDefaultPriceLevel));
     }
 
     partial void OnShowConfigurationChanged(bool value) => OnPropertyChanged(nameof(ShowAppropriation));
@@ -432,6 +481,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         MethodOfAppropriation? methodOfAppropriation =
             ShowAppropriation ? SelectedMethod?.Value : null;
 
+        // Party default Price Level (RQ-30) — captured only when the F11 flag is on AND the ledger is a party;
+        // null (no default) for every non-price-level or non-party ledger (ER-13).
+        Guid? defaultPriceLevelId = ShowDefaultPriceLevel ? SelectedPriceLevel?.PriceLevelId : null;
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
@@ -444,7 +497,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             // makes this a forex ledger whose lines carry forex amounts + rates.
             currencyId: SelectedCurrency?.CurrencyId,
             partyGst: partyGst,
-            methodOfAppropriation: methodOfAppropriation);
+            methodOfAppropriation: methodOfAppropriation,
+            defaultPriceLevelId: defaultPriceLevelId);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -462,6 +516,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         PartyGstin = string.Empty;
         PartyRegistrationType = PartyRegistrationTypes[2]; // back to Unregistered
         PartyState = null;
+        SelectedPriceLevel = PriceLevelChoices[0];         // reset to (none)
         _onChanged();
         return true;
     }

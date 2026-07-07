@@ -606,6 +606,18 @@ public sealed class PartyOption
 }
 
 /// <summary>
+/// One option in the Sales item-invoice <b>Price Level</b> header picker (slice 5; RQ-30). The
+/// <see cref="IsNotApplicable"/> sentinel (<see cref="Level"/> null) means "no auto-fill"; otherwise the chosen
+/// <see cref="PriceLevel"/> drives the per-line Rate/Discount auto-fill via the resolver.
+/// </summary>
+public sealed class PriceLevelSelectorOption
+{
+    public Apex.Ledger.Domain.PriceLevel? Level { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNotApplicable => Level is null;
+}
+
+/// <summary>
 /// A friendly pre-validation failure raised inside the entry VM before the engine is touched (blank grid,
 /// Stock-Journal imbalance). Its message is surfaced verbatim to <see cref="InventoryVoucherEntryViewModel.Message"/>.
 /// Kept internal to the entry flow — it never escapes to the engine.

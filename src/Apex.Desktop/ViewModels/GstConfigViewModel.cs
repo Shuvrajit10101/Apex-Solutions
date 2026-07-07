@@ -89,6 +89,17 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _defineBomComponentType;
 
+    /// <summary>
+    /// The company feature flag <b>"Enable multiple Price Levels"</b> (F11 Company Features → Inventory; Phase 6
+    /// slice 5; RQ-26/RQ-52). The master gate for the whole Price-Levels/Price-Lists feature — the Price Level
+    /// master, the Price List master, the party-default-level picker, the Sales Price-Level header + discount
+    /// column and the Price List report are all hidden/inert when it is off (ER-13). A pure user toggle (it
+    /// cannot be inferred from data — a company may enable it before defining any level), applied to the live
+    /// company by <see cref="OnEnableMultiplePriceLevelsChanged"/> and persisted; turning it off deletes no
+    /// price data (harmless, the UI simply hides).
+    /// </summary>
+    [ObservableProperty] private bool _enableMultiplePriceLevels;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -143,6 +154,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
         SetComponentsBom = _company.SetComponentsBom;
         DefineBomComponentType = _company.DefineBomComponentType;
+        EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -213,6 +225,29 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             Message = ex.Message;
             if (SetComponentsBom != _company.SetComponentsBom)
                 SetComponentsBom = _company.SetComponentsBom;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Enable multiple Price Levels" F11 toggle to the live company the moment it changes (RQ-26/RQ-52),
+    /// so the Price Level / Price List masters, the party-default-level picker, the Sales Price-Level header + discount
+    /// column and the Price List report surface (or hide) immediately, and persists the company. Errors are surfaced
+    /// without crashing and the toggle reverts to the company's real state. Independent of GST.
+    /// </summary>
+    partial void OnEnableMultiplePriceLevelsChanged(bool value)
+    {
+        _company.EnableMultiplePriceLevels = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (EnableMultiplePriceLevels != _company.EnableMultiplePriceLevels)
+                EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
             return;
         }
         _onChanged();

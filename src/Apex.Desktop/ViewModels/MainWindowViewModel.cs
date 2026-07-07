@@ -55,6 +55,8 @@ public enum Screen
     BomMaster,
     ManufacturingJournalEntry,
     GstConfig,
+    PriceLevelsMaster,
+    PriceListsMaster,
     LedgerVouchers,
     VoucherDetail,
 }
@@ -218,6 +220,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
+    /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
+    [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
+
+    /// <summary>The Price List creation master (slice 5; RQ-27), non-null only while that page is open.</summary>
+    [ObservableProperty] private PriceListsViewModel? _priceLists;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -277,6 +285,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
         && BomMaster is null && ManufacturingJournalEntry is null
+        && PriceLevels is null && PriceLists is null
         && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -311,6 +320,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -667,6 +678,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
         if (Company is { SetComponentsBom: true })
             col.Add(new MenuItemViewModel("Bill of Materials", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Price Level / Price List masters (Phase 6 slice 5; RQ-26/RQ-27/RQ-54) — surfaced only when the F11
+        // flag "Enable multiple Price Levels" is on (RQ-52), so a non-price-level company is unaffected.
+        if (Company is { EnableMultiplePriceLevels: true })
+        {
+            col.Add(new MenuItemViewModel("Price Level", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Price List", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
 
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -753,6 +771,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // company flag "Maintain Batch-wise details" is on (RQ-52).
         if (Company is { MaintainBatchwiseDetails: true })
             col.Add(new MenuItemViewModel("Batch", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // Price List report (Phase 6 slice 5; RQ-31/RQ-54) nests beside the analysis reports — surfaced only when
+        // the F11 flag "Enable multiple Price Levels" is on (RQ-52), so a non-price-level company is unaffected.
+        if (Company is { EnableMultiplePriceLevels: true })
+            col.Add(new MenuItemViewModel("Price List", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Registers"));
         col.Add(new MenuItemViewModel("Receipt Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -2010,6 +2033,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Bill of Materials Creation", () => BomMaster = master);
     }
 
+    /// <summary>
+    /// Opens the Price Level creation master (Masters → Create → Inventory Masters → Price Level; Phase 6 slice 5;
+    /// RQ-26) as a page column. A no-op unless the F11 flag "Enable multiple Price Levels" is on (RQ-52), so the
+    /// screen can never be reached on a non-price-level company.
+    /// </summary>
+    public void ShowPriceLevelsMaster()
+    {
+        if (Company is null) return;
+        if (!Company.EnableMultiplePriceLevels) return;   // gated by the F11 company flag (RQ-52)
+
+        var master = new PriceLevelsViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Price Level Creation", master), Screen.PriceLevelsMaster,
+            "Price Level Creation", () => PriceLevels = master);
+    }
+
+    /// <summary>
+    /// Opens the Price List creation master (Masters → Create → Inventory Masters → Price List; Phase 6 slice 5;
+    /// RQ-27) as a page column. A no-op unless the F11 flag "Enable multiple Price Levels" is on (RQ-52).
+    /// </summary>
+    public void ShowPriceListsMaster()
+    {
+        if (Company is null) return;
+        if (!Company.EnableMultiplePriceLevels) return;   // gated by the F11 company flag (RQ-52)
+
+        var master = new PriceListsViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Price List Creation", master), Screen.PriceListsMaster,
+            "Price List Creation", () => PriceLists = master);
+    }
+
     // =============================================================== screen: manufacturing journal
 
     /// <summary>
@@ -2333,6 +2385,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BomMaster = null;
         ManufacturingJournalEntry = null;
         GstConfig = null;
+        PriceLevels = null;
+        PriceLists = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -2797,6 +2851,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Stock Item": ShowStockItemMaster(); break;
             case "Batch": ShowBatchMaster(); break;
             case "Bill of Materials": ShowBomMaster(); break;
+            case "Price Level": ShowPriceLevelsMaster(); break;
+            // "Price List" is the master under Create, but the report under Inventory Reports (mirrors "Batch").
+            case "Price List" when CurrentGatewayMenu == GatewayMenu.InventoryReports:
+                OpenReport(ReportKind.PriceList); break;
+            case "Price List": ShowPriceListsMaster(); break;
             case "Batch-wise": OpenReport(ReportKind.Batchwise); break;
             case "Age Analysis": OpenReport(ReportKind.BatchAgeAnalysis); break;
             case "Budget": ShowBudgetMaster(); break;

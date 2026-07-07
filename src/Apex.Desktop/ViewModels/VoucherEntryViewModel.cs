@@ -95,6 +95,36 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>The editable item-invoice inventory lines (Stock Item / Godown / Qty / Rate / Batch).</summary>
     public ObservableCollection<InventoryVoucherLineViewModel> InventoryLines { get; } = new();
 
+    // =============================================================== Price Levels (Book pp.34–35; catalog §11; slice 5)
+
+    /// <summary>
+    /// The Price-Level header choices for a Sales item-invoice (slice 5; RQ-30): a "Not Applicable" sentinel
+    /// (no auto-fill) first, then every defined <see cref="PriceLevel"/>. Populated only when the feature is on.
+    /// </summary>
+    public ObservableCollection<PriceLevelSelectorOption> PriceLevelOptions { get; } = new();
+
+    /// <summary>
+    /// The chosen Price-Level header (slice 5; RQ-30): initialised from the selected party's
+    /// <see cref="Ledger.DefaultPriceLevelId"/>, freely overridable, or "Not Applicable" for no auto-fill. On
+    /// change the item lines re-resolve their auto-filled Rate/Discount (a user-dirtied line is left alone).
+    /// </summary>
+    [ObservableProperty] private PriceLevelSelectorOption? _selectedPriceLevel;
+
+    /// <summary>
+    /// Guards the Price-Level auto-fill against re-entrancy: stamping a line's Rate/Discount raises change
+    /// notifications that re-enter <see cref="RecalculateItemInvoice"/>; this bool makes the nested
+    /// <see cref="RefreshPriceLevelDefaults"/> a no-op so the pass terminates.
+    /// </summary>
+    private bool _refreshingPrices;
+
+    /// <summary>
+    /// True when the Price-Level header selector + per-line Discount column are shown (slice 5; RQ-30/RQ-52): a
+    /// <b>Sales</b> item-invoice on a company whose "Enable multiple Price Levels" flag is on. Off ⇒ no header
+    /// field, no auto-fill, no discount column — a non-price-level Sales screen is byte-identical (ER-13).
+    /// </summary>
+    public bool ShowPriceLevelSelector =>
+        IsItemInvoice && CanBeItemInvoice && !IsPurchaseInvoice && _company.EnableMultiplePriceLevels;
+
     /// <summary>Running Σ of the item-line values (each qty × rate) — the amount the two derived legs carry.</summary>
     [ObservableProperty] private string _itemsTotalText = "0.00";
 
@@ -602,9 +632,68 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             StockLedgers.Add(l);
         SelectedStockLedger = StockLedgers.FirstOrDefault();
 
+        // Price-Level header choices (slice 5; RQ-30): "Not Applicable" first, then every defined level. Populated
+        // regardless of the flag (cheap); the header field itself is gated by ShowPriceLevelSelector.
+        PriceLevelOptions.Clear();
+        PriceLevelOptions.Add(new PriceLevelSelectorOption { Level = null, Display = "◦ Not Applicable" });
+        foreach (var lvl in _company.PriceLevels.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            PriceLevelOptions.Add(new PriceLevelSelectorOption { Level = lvl, Display = lvl.Name });
+        SelectedPriceLevel = PriceLevelOptions.FirstOrDefault();
+
         // Seed one blank item line so the grid is ready to type into the moment the mode is turned on.
         if (InventoryLines.Count == 0) AddInventoryLine();
         RecalculateItemInvoice();
+    }
+
+    /// <summary>Pushes the Price-Level Discount-column gate to every item line so it shows/hides in sync (ER-13).</summary>
+    private void SyncPriceLevelOnLines()
+    {
+        var on = ShowPriceLevelSelector;
+        foreach (var l in InventoryLines) l.ShowDiscount = on;
+    }
+
+    partial void OnSelectedPriceLevelChanged(PriceLevelSelectorOption? value)
+    {
+        // A new header level re-resolves every un-dirtied line's auto-fill (a user override sticks; RQ-30).
+        RecalculateItemInvoice();
+    }
+
+    /// <summary>
+    /// The Price-Level auto-fill (slice 5; RQ-30). For each item line with an item + a positive quantity, resolves
+    /// the slab for (SelectedPriceLevel, item, qty, VoucherDate) and stamps the Rate (+ Discount %) into the line —
+    /// but ONLY when the line has not been operator-dirtied (the "auto-fill clobbers the manual edit" trap). A
+    /// no-op when the feature is off / no level is chosen ("Not Applicable") / no slab resolves — the line then
+    /// keeps whatever the operator typed. Re-entrancy-guarded (stamping raises change notifications that re-enter
+    /// this via RecalculateItemInvoice).
+    /// </summary>
+    private void RefreshPriceLevelDefaults()
+    {
+        if (_refreshingPrices) return;
+        if (!ShowPriceLevelSelector || SelectedPriceLevel is not { Level: { } level }) return;
+
+        _refreshingPrices = true;
+        try
+        {
+            foreach (var l in InventoryLines)
+            {
+                if (l.SelectedItem is not { } item) continue;
+                var qty = l.ParsedActualQuantity;
+                if (qty <= 0m) continue;
+
+                var resolved = PriceResolver.Resolve(_company, level.Id, item.Id, qty, Date);
+                if (resolved is not { } price) continue;
+
+                var rateText = IndianFormat.AmountAlways(price.Rate.Amount);
+                var discountText = price.DiscountPercent > 0m
+                    ? price.DiscountPercent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                    : string.Empty;
+                l.ApplyPriceAutoFill(rateText, discountText);
+            }
+        }
+        finally
+        {
+            _refreshingPrices = false;
+        }
     }
 
     /// <summary>
@@ -626,7 +715,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             "Sales Accounts", StringComparison.OrdinalIgnoreCase);
     }
 
-    partial void OnSelectedPartyChanged(PartyOption? value) => RecalculateItemInvoice();
+    partial void OnSelectedPartyChanged(PartyOption? value)
+    {
+        // Default the Price-Level header from the party's default level (slice 5; RQ-30), still overridable. Only
+        // when the feature is on; otherwise the header is inert. Assigning re-runs the auto-fill via its handler.
+        if (ShowPriceLevelSelector && value?.Ledger?.DefaultPriceLevelId is { } levelId)
+        {
+            var match = PriceLevelOptions.FirstOrDefault(o => o.Level?.Id == levelId);
+            if (match is not null) SelectedPriceLevel = match;
+        }
+        RecalculateItemInvoice();
+    }
     partial void OnSelectedStockLedgerChanged(DomainLedger? value) => RecalculateItemInvoice();
 
     /// <summary>
@@ -647,6 +746,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowAdditionalCosts));
         OnPropertyChanged(nameof(ShowActualBilledColumns));
         OnPropertyChanged(nameof(QuantityHeader));
+        OnPropertyChanged(nameof(ShowPriceLevelSelector));
         SyncActualBilledOnLines();
         RecalculateItemInvoice();
         Recalculate();
@@ -674,6 +774,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice)
         {
             ShowActualBilled = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity,
+            ShowDiscount = ShowPriceLevelSelector,
         };
         InventoryLines.Add(line);
         RecalculateItemInvoice();
@@ -696,8 +797,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         {
             var sum = 0m;
             foreach (var l in InventoryLines)
-                if (l.IsComplete && l.ParsedRate is { } rate)
-                    sum += Money.ForexBase(new Money(rate), l.ParsedBilledQuantity).Amount;
+                // Value derives from the NET (after Price-Level discount) rate — equals the raw rate when no
+                // discount/column, so a non-price-level line is byte-identical (DP-A; ER-13).
+                if (l.IsComplete && l.EffectiveRate is { } rate)
+                    sum += Money.ForexBase(rate, l.ParsedBilledQuantity).Amount;
             return sum;
         }
     }
@@ -737,8 +840,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         {
             if (l.ParsedRate is not { } rate || rate <= 0m) continue;
             // GST taxable value derives from Billed, NOT Actual (RQ-23) — a short-billed line taxes only the
-            // billed quantity, and a zero-valued (rate 0) free line is skipped above so it bears no GST.
-            var lineValue = Money.ForexBase(new Money(rate), l.ParsedBilledQuantity);
+            // billed quantity, and a zero-valued (rate 0) free line is skipped above so it bears no GST. The
+            // value uses the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
+            var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
 
             var res = _gst.ResolveRate(l.SelectedItem, valueLedger);
             if (GstService.IsUnresolved(res))
@@ -766,6 +870,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// </summary>
     public void RecalculateItemInvoice()
     {
+        // Price Levels (slice 5; RQ-30): keep the per-line Discount column gate in sync, then auto-fill each
+        // un-dirtied line's Rate/Discount from the resolver BEFORE the totals are computed (so they reflect the
+        // stamped values). Both are no-ops when the feature is off, so a non-price-level screen is unchanged.
+        SyncPriceLevelOnLines();
+        RefreshPriceLevelDefaults();
+
         var total = ItemsTotal;
         ItemsTotalText = IndianFormat.AmountAlways(total);
 
@@ -881,8 +991,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             // Wait for every item line to be valid; a ₹0 rate is only valid on a zero-valued-enabled type (RQ-21).
             if (l.ParsedRate is not { } rate || rate < 0m || (rate == 0m && !allowZero)) return;
             // Actual drives stock; Billed drives value — the landed apportionment uses each line's billed value.
+            // The rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             invLines.Add(new VoucherInventoryLine(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, new Money(rate),
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
                 StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity));
         }
 
@@ -956,9 +1067,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 return false;
             }
             // Actual (ParsedActualQuantity) moves stock; Billed (ParsedBilledQuantity) drives value + GST (RQ-23).
-            // When the A/B column is off, Billed ≡ Actual so the line is byte-identical to today (ER-13).
+            // When the A/B column is off, Billed ≡ Actual so the line is byte-identical to today (ER-13). The
+            // posted rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             inventoryLines.Add(new VoucherInventoryLine(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, new Money(rate),
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
                 // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
                 direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
                 batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity));

@@ -496,6 +496,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 20;
         }
 
+        // v20 → v21: apply the Price Levels / Price Lists schema (three new tables + a company F11 flag + a party
+        // ledger default-level FK), then bump the marker. Existing v20 data survives untouched (three CREATE TABLE/
+        // INDEX + one ALTER ADD COLUMN DEFAULT 0 + one ALTER ADD COLUMN NULL; no row rewrites — Phase 6 slice 5).
+        if (version == 20)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV20ToV21;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 21);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 21;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -514,7 +537,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    base_currency_name, decimal_places, decimal_unit_name,
                    primary_cost_category, main_location, profit_and_loss_head_id,
                    gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
-                   use_separate_actual_billed_qty
+                   use_separate_actual_billed_qty, enable_multiple_price_levels
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -543,6 +566,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 MainLocationName = r.GetString(14),
                 // v20 (RQ-22): F11 "Use separate Actual & Billed Quantity" — a plain persisted toggle, read verbatim.
                 UseSeparateActualBilledQuantity = r.GetInt64(22) != 0,
+                // v21 (RQ-26): F11 "Enable multiple Price Levels" — a plain persisted toggle, read verbatim.
+                EnableMultiplePriceLevels = r.GetInt64(23) != 0,
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -617,6 +642,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // good's Set-Components flag is persisted verbatim on the item (loaded above), so it is NOT re-derived here.
         foreach (var bom in ReadBillsOfMaterials(companyId))
             company.AddBillOfMaterials(bom);
+        // Price levels (bare masters) then price lists (reference levels + stock items, both loaded above) —
+        // Phase 6 slice 5. The party ledger's DefaultPriceLevelId was read verbatim with the ledger above.
+        foreach (var level in ReadPriceLevels(companyId))
+            company.AddPriceLevel(level);
+        foreach (var list in ReadPriceLists(companyId))
+            company.AddPriceList(list);
         foreach (var ob in ReadStockOpeningBalances(companyId))
             company.AddStockOpeningBalance(ob);
 
@@ -677,6 +708,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // (entry-line forex FK currencies).
         InsertCurrencies(tx, company);
         InsertExchangeRates(tx, company);
+        // Price levels before ledgers: a party ledger's default_price_level_id FK references price_levels (slice 5).
+        InsertPriceLevels(tx, company);
         InsertLedgers(tx, company);
         InsertVoucherTypes(tx, company);
         // Cost categories before centres (centres FK categories); both before vouchers (cost allocations
@@ -695,6 +728,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertBatchMasters(tx, company);
         // Bill-of-Materials masters after stock items + godowns (a BOM header + its lines FK both).
         InsertBillsOfMaterials(tx, company);
+        // Price lists after stock items (a price_lists header FKs stock_items) + price levels (inserted above).
+        InsertPriceLists(tx, company);
         InsertStockOpeningBalances(tx, company);
         InsertVouchers(tx, company);
         // Inventory & order vouchers (catalog §10): reference voucher_types, stock_items, godowns, units, and
@@ -836,7 +871,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    interest_round_method, interest_round_decimals, currency_id,
                    party_gst_reg_type, party_gstin, party_gst_state,
                    sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
-                   gst_tax_head, gst_tax_direction, method_of_appropriation
+                   gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -863,7 +898,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 salesPurchaseGst: ReadSalesPurchaseGst(r),
                 gstClassification: ReadLedgerGstClassification(r),
                 // v19 (RQ-16..RQ-20): method of appropriation (NULL = plain P&L ledger, not additional-cost).
-                methodOfAppropriation: r.IsDBNull(31) ? (MethodOfAppropriation?)null : (MethodOfAppropriation)(int)r.GetInt64(31)));
+                methodOfAppropriation: r.IsDBNull(31) ? (MethodOfAppropriation?)null : (MethodOfAppropriation)(int)r.GetInt64(31),
+                // v21 (RQ-30): a party ledger's default Price Level (NULL = no default level).
+                defaultPriceLevelId: r.IsDBNull(32) ? (Guid?)null : Guid.Parse(r.GetString(32))));
         }
         return list;
     }
@@ -1281,6 +1318,73 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 lines: linesByBom.TryGetValue(id, out var lines) ? lines : new List<BomLine>()));
         }
         return boms;
+    }
+
+    /// <summary>Reads the named Price Levels (Phase 6 slice 5; RQ-26) — bare per-company masters.</summary>
+    private IEnumerable<PriceLevel> ReadPriceLevels(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT id, name FROM price_levels WHERE company_id = $cid ORDER BY rowid;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<PriceLevel>();
+        while (r.Read())
+            list.Add(new PriceLevel(Guid.Parse(r.GetString(0)), r.GetString(1)));
+        return list;
+    }
+
+    /// <summary>
+    /// Reads the dated Price List versions (Phase 6 slice 5; RQ-27/RQ-28) from <c>price_lists</c> +
+    /// <c>price_list_lines</c>, reconstructing each header with its ordered slabs. Quantity micros (× 1,000,000) →
+    /// exact decimal From/To; paisa → rate; discount millis (× 1,000) → exact decimal percent — all lossless
+    /// (ER-10). Slabs are read in stored <c>line_order</c>; <c>to_qty_micro</c> NULL = open-ended top slab.
+    /// </summary>
+    private IEnumerable<PriceList> ReadPriceLists(Guid companyId)
+    {
+        var slabsByList = new Dictionary<Guid, List<PriceListSlab>>();
+        using (var lineCmd = _connection.CreateCommand())
+        {
+            lineCmd.CommandText = """
+                SELECT l.price_list_id, l.from_qty_micro, l.to_qty_micro, l.rate_paisa, l.discount_percent_millis
+                FROM price_list_lines l
+                JOIN price_lists p ON p.id = l.price_list_id
+                WHERE p.company_id = $cid
+                ORDER BY l.price_list_id, l.line_order;
+                """;
+            lineCmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var lr = lineCmd.ExecuteReader();
+            while (lr.Read())
+            {
+                var listId = Guid.Parse(lr.GetString(0));
+                var slab = new PriceListSlab(
+                    fromQty: QtyMicroToDecimal(lr.GetInt64(1)),
+                    toQty: lr.IsDBNull(2) ? (decimal?)null : QtyMicroToDecimal(lr.GetInt64(2)),
+                    rate: Paisa.ToMoney(lr.GetInt64(3)),
+                    discountPercent: PercentMillisToDecimal(lr.GetInt64(4)));
+                if (!slabsByList.TryGetValue(listId, out var slabs)) slabsByList[listId] = slabs = new List<PriceListSlab>();
+                slabs.Add(slab);
+            }
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, price_level_id, stock_item_id, applicable_from
+            FROM price_lists WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var lists = new List<PriceList>();
+        while (r.Read())
+        {
+            var id = Guid.Parse(r.GetString(0));
+            lists.Add(new PriceList(
+                id,
+                priceLevelId: Guid.Parse(r.GetString(1)),
+                stockItemId: Guid.Parse(r.GetString(2)),
+                applicableFrom: ParseDate(r.GetString(3)),
+                slabs: slabsByList.TryGetValue(id, out var slabs) ? slabs : new List<PriceListSlab>()));
+        }
+        return lists;
     }
 
     /// <summary>Reads the item GST block (columns 12–15), or <c>null</c> when gst_taxability is NULL.</summary>
@@ -1815,7 +1919,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id FROM scenarios WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM scenarios WHERE company_id = $cid;", ("$cid", cid));
+        // Price lists (and their slab lines) FK price_levels + stock_items; a ledger's default_price_level_id FKs
+        // price_levels → delete the lines + lists first, then ledgers, then the price_levels master last (slice 5).
+        ExecTx(tx, """
+            DELETE FROM price_list_lines WHERE price_list_id IN (
+                SELECT id FROM price_lists WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM price_lists WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
+        // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
+        ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));
         // Exchange rates FK currencies; ledgers + entry-line forex FK currencies → after those are gone.
         ExecTx(tx, "DELETE FROM exchange_rates WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM currencies WHERE company_id = $cid;", ("$cid", cid));
@@ -1856,12 +1969,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  base_currency_name, decimal_places, decimal_unit_name,
                  primary_cost_category, main_location, profit_and_loss_head_id,
                  gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
-                 use_separate_actual_billed_qty)
+                 use_separate_actual_billed_qty, enable_multiple_price_levels)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
                  $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper,
-                 $abqty);
+                 $abqty, $empl);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -1889,6 +2002,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$gstper", gst is null ? (object)DBNull.Value : (int)gst.Periodicity);
         // v20 (RQ-22): the F11 Actual/Billed toggle, written verbatim (default 0 for an existing company — ER-13).
         cmd.Parameters.AddWithValue("$abqty", c.UseSeparateActualBilledQuantity ? 1 : 0);
+        // v21 (RQ-26): the F11 "Enable multiple Price Levels" toggle, written verbatim (default 0 — ER-13).
+        cmd.Parameters.AddWithValue("$empl", c.EnableMultiplePriceLevels ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
@@ -1963,10 +2078,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      interest_round_method, interest_round_decimals, currency_id,
                      party_gst_reg_type, party_gstin, party_gst_state,
                      sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
-                     gst_tax_head, gst_tax_direction, method_of_appropriation)
+                     gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
-                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa);
+                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2018,6 +2133,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
             // v19 additional-cost ledger method (NULL for a plain P&L ledger).
             cmd.Parameters.AddWithValue("$moa", l.MethodOfAppropriation is { } moa ? (int)moa : (object)DBNull.Value);
+            // v21 party default Price Level (NULL when the ledger carries no default level).
+            cmd.Parameters.AddWithValue("$dpl", (object?)l.DefaultPriceLevelId?.ToString("D") ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -2348,6 +2465,67 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$rate", line.Rate is { } rt ? Paisa.FromMoney(rt) : (object)DBNull.Value);
                 cmd.Parameters.AddWithValue("$pct",
                     line.PercentOfFinishedGoodCost is { } p ? PercentMillisFromDecimal(p) : (object)DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    /// <summary>Persists the named Price Levels (Phase 6 slice 5; RQ-26) into <c>price_levels</c>.</summary>
+    private void InsertPriceLevels(SqliteTransaction tx, Company c)
+    {
+        foreach (var level in c.PriceLevels)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "INSERT INTO price_levels (id, company_id, name) VALUES ($id, $cid, $name);";
+            cmd.Parameters.AddWithValue("$id", level.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", level.Name);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Persists the dated Price List versions (Phase 6 slice 5; RQ-27/RQ-28) into the <c>price_lists</c> header +
+    /// <c>price_list_lines</c> child tables. Slab From/To quantities are stored as INTEGER micros (× 1,000,000;
+    /// <c>to_qty_micro</c> NULL = open-ended top slab), the rate as INTEGER paisa, and the discount as INTEGER
+    /// millis (× 1,000) — all exact, no float (ER-10). Slab order is preserved via <c>line_order</c>.
+    /// </summary>
+    private void InsertPriceLists(SqliteTransaction tx, Company c)
+    {
+        foreach (var list in c.PriceLists)
+        {
+            using (var head = _connection.CreateCommand())
+            {
+                head.Transaction = tx;
+                head.CommandText = """
+                    INSERT INTO price_lists (id, company_id, price_level_id, stock_item_id, applicable_from)
+                    VALUES ($id, $cid, $level, $item, $from);
+                    """;
+                head.Parameters.AddWithValue("$id", list.Id.ToString("D"));
+                head.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                head.Parameters.AddWithValue("$level", list.PriceLevelId.ToString("D"));
+                head.Parameters.AddWithValue("$item", list.StockItemId.ToString("D"));
+                head.Parameters.AddWithValue("$from", FormatDate(list.ApplicableFrom));
+                head.ExecuteNonQuery();
+            }
+
+            var order = 0;
+            foreach (var slab in list.Slabs)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO price_list_lines
+                        (price_list_id, line_order, from_qty_micro, to_qty_micro, rate_paisa, discount_percent_millis)
+                    VALUES ($list, $ord, $from, $to, $rate, $disc);
+                    """;
+                cmd.Parameters.AddWithValue("$list", list.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$from", QtyMicroFromDecimal(slab.FromQty));
+                cmd.Parameters.AddWithValue("$to", slab.ToQty is { } to ? QtyMicroFromDecimal(to) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$rate", Paisa.FromMoney(slab.Rate));
+                cmd.Parameters.AddWithValue("$disc", PercentMillisFromDecimal(slab.DiscountPercent));
                 cmd.ExecuteNonQuery();
             }
         }

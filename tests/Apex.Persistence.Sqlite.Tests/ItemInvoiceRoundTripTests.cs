@@ -230,6 +230,16 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
+        // Drop the v21 price-level tables + their indexes so the reopen's v20→v21 CREATE TABLE does not collide
+        // (the companies/ledgers rebuild below strips the v21 ALTER columns back to the v11 shape).
+        Exec(conn, "DROP INDEX IF EXISTS ix_price_list_lines_list;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_price_lists_level_item;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_price_lists_company;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_price_levels_name;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_price_levels_company;");
+        Exec(conn, "DROP TABLE IF EXISTS price_list_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS price_lists;");
+        Exec(conn, "DROP TABLE IF EXISTS price_levels;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not
         // collide with a table a fresh save at the current version already created.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");

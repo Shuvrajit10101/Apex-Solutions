@@ -34,6 +34,9 @@ public enum ReportKind
     Batchwise,
     BatchAgeAnalysis,
 
+    // ---- price list report (Phase 6 slice 5 — Reports → Inventory Books → Price List; RQ-31) ----
+    PriceList,
+
     // ---- GST reports (slice 4d) ----
     TaxAnalysis,
     Gstr1,
@@ -109,7 +112,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool IsInventoryReport => Kind is ReportKind.StockSummary or ReportKind.GodownSummary
         or ReportKind.StockItemMovement or ReportKind.ReceiptNoteRegister or ReportKind.DeliveryNoteRegister
         or ReportKind.RejectionRegister or ReportKind.PhysicalStockRegister or ReportKind.OrderRegister
-        or ReportKind.ReorderStatus or ReportKind.Batchwise or ReportKind.BatchAgeAnalysis;
+        or ReportKind.ReorderStatus or ReportKind.Batchwise or ReportKind.BatchAgeAnalysis
+        or ReportKind.PriceList;
 
     /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
     public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
@@ -142,6 +146,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>True for the batch Age Analysis report (Phase 6 Cluster 1; RQ-8) — drives its wide batch DataTemplate.</summary>
     public bool IsBatchAgeAnalysis => Kind == ReportKind.BatchAgeAnalysis;
+
+    /// <summary>True for the Price List report (Phase 6 slice 5; RQ-31) — drives its wide price-list DataTemplate.</summary>
+    public bool IsPriceList => Kind == ReportKind.PriceList;
 
     // ---- GST-report layout flags (drive which GST DataTemplate the view shows; slice 4d) ----
     public bool IsTaxAnalysis => Kind == ReportKind.TaxAnalysis;
@@ -417,6 +424,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.ReorderStatus: BuildReorderStatus(); break;
             case ReportKind.Batchwise: BuildBatchwise(); break;
             case ReportKind.BatchAgeAnalysis: BuildBatchAgeAnalysis(); break;
+            case ReportKind.PriceList: BuildPriceList(); break;
 
             case ReportKind.TaxAnalysis: BuildTaxAnalysis(); break;
             case ReportKind.Gstr1: BuildGstr1(); break;
@@ -628,6 +636,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.ReorderStatus] = "ReorderStatus",
         [ReportKind.Batchwise] = "Batchwise",
         [ReportKind.BatchAgeAnalysis] = "BatchAgeAnalysis",
+        [ReportKind.PriceList] = "PriceList",
         [ReportKind.TaxAnalysis] = "TaxAnalysis",
         [ReportKind.Gstr1] = "Gstr1",
         [ReportKind.Gstr3b] = "Gstr3b",
@@ -1437,6 +1446,60 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Secondary = IndianFormat.AmountAlways(total),
             IsTotal = true,
         });
+    }
+
+    // --------------------------------------------------------------- Price List report (slice 5; RQ-31)
+    //   Level | Item | Applicable From | From Qty | To Qty | Rate | Discount % | Net Rate (via Col1..Col7 + Secondary)
+
+    /// <summary>
+    /// Builds the Price List report (Reports → Inventory Books → Price List; Phase 6 slice 5; RQ-31; Tally-Book
+    /// p.35): per price <b>Level</b>, per <b>inventory item</b>, per <see cref="Apex.Ledger.Domain.PriceList.ApplicableFrom"/>
+    /// version, the quantity slabs (From / To / Rate / Discount % / net rate). <b>Inventory items only</b> — a
+    /// ledger never appears. A pure projection over the engine <see cref="PriceListReport.Build"/>; the Level and
+    /// item repeat only at the top of each group so the nesting reads. De-branded (never any "Tally" text).
+    /// </summary>
+    private void BuildPriceList()
+    {
+        var report = PriceListReport.Build(_company);
+        Title = "Price List";
+        Subtitle = $"{CompanyName}  —  price levels & dated slabs";
+
+        if (report.Items.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No price lists defined.", IsHeader = true });
+            return;
+        }
+
+        foreach (var item in report.Items)
+        {
+            var firstVersion = true;
+            foreach (var version in item.Versions)
+            {
+                var applicable = version.ApplicableFrom.ToString("dd-MMM-yyyy",
+                    System.Globalization.CultureInfo.InvariantCulture);
+                var firstSlab = true;
+                foreach (var slab in version.Slabs)
+                {
+                    Rows.Add(new ReportRow
+                    {
+                        // Level + item only on the group's first row; Applicable-From only on the version's first slab.
+                        Col1 = firstVersion && firstSlab ? item.PriceLevelName : string.Empty,
+                        Col2 = firstVersion && firstSlab ? item.StockItemName : string.Empty,
+                        Col3 = firstSlab ? applicable : string.Empty,
+                        Col4 = IndianFormat.Quantity(slab.FromQty),
+                        Col5 = slab.ToQty is { } to ? IndianFormat.Quantity(to) : "onwards",
+                        Col6 = IndianFormat.Amount(slab.Rate),
+                        Col7 = slab.DiscountPercent > 0m
+                            ? slab.DiscountPercent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "%"
+                            : "—",
+                        Secondary = IndianFormat.Amount(slab.EffectiveUnitRate),
+                        IsHeader = firstVersion && firstSlab,
+                    });
+                    firstSlab = false;
+                    firstVersion = false;
+                }
+            }
+        }
     }
 
     // =============================================================== GST reports (slice 4d)

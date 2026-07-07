@@ -60,7 +60,36 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     [ObservableProperty] private string _quantityText = string.Empty;
     [ObservableProperty] private string _billedQuantityText = string.Empty;
     [ObservableProperty] private string _rateText = string.Empty;
+    [ObservableProperty] private string _discountText = string.Empty;
     [ObservableProperty] private string _batchLabel = string.Empty;
+
+    // --------------------------------------------------------------- price-level auto-fill (slice 5; RQ-30)
+
+    /// <summary>
+    /// When the parent auto-fill is writing <see cref="RateText"/> / <see cref="DiscountText"/> it sets this
+    /// so the change is NOT recorded as an operator edit — the classic "auto-fill clobbers the manual edit"
+    /// trap is avoided by only ever marking the field dirty for a genuine user keystroke.
+    /// </summary>
+    private bool _suppressDirty;
+
+    /// <summary>
+    /// True once the operator has typed into the Rate field themselves (RQ-30). The Price-Level auto-fill
+    /// writes a resolved rate ONLY when the line is not user-dirty, so an operator override always sticks
+    /// through a later Qty / Price-Level re-resolve. Reset by <see cref="ClearPriceAutoFill"/> when the item
+    /// changes (a new item starts a fresh, un-dirtied line).
+    /// </summary>
+    [ObservableProperty] private bool _isRateUserDirty;
+
+    /// <summary>True once the operator has typed into the Discount field themselves (RQ-30) — same sticky rule.</summary>
+    [ObservableProperty] private bool _isDiscountUserDirty;
+
+    /// <summary>
+    /// True when this line shows the gated <b>Price Level</b> Discount % column (slice 5; RQ-30). Kept in sync by
+    /// the parent <see cref="VoucherEntryViewModel"/>: on only when the company's "Enable multiple Price Levels"
+    /// flag is on AND this is a Sales item-invoice line. Off ⇒ the Discount column collapses and the line is
+    /// byte-identical to a non-price-level line (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showDiscount;
 
     /// <summary>
     /// True when this line shows the separate <b>Billed</b> quantity column alongside the <b>Actual</b>
@@ -116,12 +145,56 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
             if (g.IsMainLocation) { _selectedGodown = g; break; }
     }
 
-    partial void OnSelectedItemChanged(StockItem? value) => _onChanged();
+    partial void OnSelectedItemChanged(StockItem? value)
+    {
+        // A new item starts a fresh, un-dirtied line so the Price-Level auto-fill can supply its rate.
+        ClearPriceAutoFill();
+        _onChanged();
+    }
     partial void OnSelectedGodownChanged(Godown? value) => _onChanged();
     partial void OnQuantityTextChanged(string value) => _onChanged();
     partial void OnBilledQuantityTextChanged(string value) => _onChanged();
-    partial void OnRateTextChanged(string value) => _onChanged();
+
+    partial void OnRateTextChanged(string value)
+    {
+        // Only a genuine operator keystroke marks the line dirty; an auto-fill write is suppressed (RQ-30).
+        if (!_suppressDirty) IsRateUserDirty = true;
+        _onChanged();
+    }
+
+    partial void OnDiscountTextChanged(string value)
+    {
+        if (!_suppressDirty) IsDiscountUserDirty = true;
+        _onChanged();
+    }
+
     partial void OnBatchLabelChanged(string value) => _onChanged();
+
+    /// <summary>
+    /// Writes the Price-Level auto-fill values (RQ-30) WITHOUT marking the line dirty. The parent calls this only
+    /// for a line that is not operator-dirtied, so an override is never clobbered. Setting
+    /// <paramref name="rate"/>/<paramref name="discount"/> to null leaves that field untouched.
+    /// </summary>
+    public void ApplyPriceAutoFill(string? rate, string? discount)
+    {
+        _suppressDirty = true;
+        try
+        {
+            if (rate is not null && !IsRateUserDirty) RateText = rate;
+            if (discount is not null && !IsDiscountUserDirty) DiscountText = discount;
+        }
+        finally
+        {
+            _suppressDirty = false;
+        }
+    }
+
+    /// <summary>Resets the auto-fill dirty flags (a fresh item line) without touching the typed text.</summary>
+    public void ClearPriceAutoFill()
+    {
+        IsRateUserDirty = false;
+        IsDiscountUserDirty = false;
+    }
 
     /// <summary>The parsed quantity (0 when blank/unparsable). This is the <b>Actual</b> (stock) quantity.</summary>
     public decimal ParsedQuantity => TryParse(QuantityText, out var q) ? q : 0m;
@@ -142,6 +215,25 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     public decimal? ParsedRate =>
         string.IsNullOrWhiteSpace(RateText) ? null : (TryParse(RateText, out var r) ? r : null);
 
+    /// <summary>
+    /// The parsed Price-Level discount percent (slice 5; RQ-30/DP-A). Only participates when the gated
+    /// <see cref="ShowDiscount"/> column is shown AND a value is typed; otherwise 0, so the value path is
+    /// byte-identical to a non-price-level line (<c>value = qty × rate</c>, ER-13).
+    /// </summary>
+    public decimal ParsedDiscountPercent =>
+        ShowDiscount && !string.IsNullOrWhiteSpace(DiscountText) && TryParse(DiscountText, out var d) ? d : 0m;
+
+    /// <summary>
+    /// The net per-unit rate after any Price-Level discount (DP-A): <c>rate × (1 − discount/100)</c>, rounded to
+    /// the paisa deterministically. When the discount is 0 / the column is hidden this equals the raw rate exactly
+    /// (a paisa-exact rate rounds to itself), so the existing <c>value = qty × rate</c> invariant is preserved and
+    /// posting/valuation are untouched. Null when no rate is typed.
+    /// </summary>
+    public Money? EffectiveRate =>
+        ParsedRate is { } r
+            ? new Money(r * (1m - ParsedDiscountPercent / 100m)).RoundToPaisa()
+            : (Money?)null;
+
     /// <summary>True when a rate was typed (so the parent must validate it is paisa-exact + ≥ 0).</summary>
     public bool HasRate => ShowsRate && !string.IsNullOrWhiteSpace(RateText);
 
@@ -158,6 +250,7 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
         && string.IsNullOrWhiteSpace(QuantityText)
         && string.IsNullOrWhiteSpace(BilledQuantityText)
         && string.IsNullOrWhiteSpace(RateText)
+        && string.IsNullOrWhiteSpace(DiscountText)
         && string.IsNullOrWhiteSpace(BatchLabel);
 
     /// <summary>
@@ -188,6 +281,14 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
                 if (ParsedRate is not { } r) return false;
                 if (r < 0m) return false;
                 if (!new Money(r).IsPaisaExact) return false;
+            }
+
+            // Price-Level discount (only when the gated column is shown): a typed value must parse and be in
+            // [0, 100). Blank/hidden ⇒ no rule, so a non-price-level line is byte-identical (ER-13).
+            if (ShowDiscount && !string.IsNullOrWhiteSpace(DiscountText))
+            {
+                if (!TryParse(DiscountText, out var disc)) return false;
+                if (disc < 0m || disc >= 100m) return false;
             }
             return true;
         }
