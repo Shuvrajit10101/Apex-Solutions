@@ -133,8 +133,58 @@ internal static class CanonicalFixture
 
         AddCostAndBankAndForex(company, service, inv, cash, sg, nos, mainGodown, item);
         AddBatches(company, inv, sg, nos, mainGodown);
+        AddBomAndManufacture(company, inv, sg, nos, mainGodown);
 
         return company;
+    }
+
+    /// <summary>
+    /// Adds Phase-6 Cluster-2 data so the canonical round-trip proves a <b>Bill of Materials</b> master AND a
+    /// posted <b>Manufacturing Journal</b> survive (RQ-9..RQ-15, DP-3, PR-4): a finished good with a multi-line
+    /// BOM (two Component lines + one Scrap carve-out line with an explicit paisa rate, plus a Co-Product line
+    /// carved out by percent, and a unit-of-manufacture of 10 to exercise the scaling path), a user-created
+    /// Manufacturing-Journal voucher type (base Stock Journal + Use as Manufacturing Journal = Yes, RQ-11), and a
+    /// manufacture of 20 finished units that posts one Stock-Journal inventory voucher (source components out,
+    /// destination FG + carve-outs in). Every quantity/rate is chosen paisa-exact so the round-trip reconciles.
+    /// </summary>
+    private static void AddBomAndManufacture(Company company, InventoryService inv, StockGroup sg, Unit nos, Godown mainGodown)
+    {
+        // Finished good + its raw components (all in the same stock group / unit / godown for simplicity).
+        var fg = inv.CreateStockItem("Assembled Gadget", sg.Id, nos.Id);
+        var compA = inv.CreateStockItem("Raw Part A", sg.Id, nos.Id);
+        var compB = inv.CreateStockItem("Raw Part B", sg.Id, nos.Id);
+        var scrap = inv.CreateStockItem("Metal Scrap", sg.Id, nos.Id);
+        var coProduct = inv.CreateStockItem("Side Product", sg.Id, nos.Id);
+        // A carve-out item may default its value to its own standard cost (DP-3) — give the co-product one so the
+        // percent-basis and the default-standard-cost paths are both exercised deterministically.
+        coProduct.StandardCost = Money.FromRupees(3m);
+
+        // Opening stock so the components can be consumed by the manufacture (never negative — ER-7).
+        inv.AddOpeningBalance(compA.Id, mainGodown.Id, 1000m, Money.FromRupees(10m));
+        inv.AddOpeningBalance(compB.Id, mainGodown.Id, 1000m, Money.FromRupees(5m));
+
+        // A BOM stated per a block of 10 finished units (unit-of-manufacture = 10 exercises RQ-12 scaling):
+        //   • 2 × Raw Part A per block   (Component)
+        //   • 3 × Raw Part B per block   (Component)
+        //   • 1 × Metal Scrap per block  (Scrap, carved out at an explicit ₹2/unit rate — DP-3 rate basis)
+        //   • 1 × Side Product per block (Co-Product, carved out at 5% of finished-good pre-carve cost — DP-3 %)
+        var lines = new[]
+        {
+            new BomLine(BomLineType.Component, compA.Id, quantityPerBlock: 2m, godownId: mainGodown.Id),
+            new BomLine(BomLineType.Component, compB.Id, quantityPerBlock: 3m),
+            new BomLine(BomLineType.Scrap, scrap.Id, quantityPerBlock: 1m, godownId: mainGodown.Id,
+                rate: Money.FromRupees(2m)),
+            new BomLine(BomLineType.CoProduct, coProduct.Id, quantityPerBlock: 1m,
+                percentOfFinishedGoodCost: 5m),
+        };
+        var bom = new BomService(company).CreateBom(fg.Id, "Standard", unitOfManufacture: 10m, lines);
+
+        // A user-created Manufacturing-Journal voucher type (RQ-11) and a manufacture of 20 finished units.
+        var mfgJournal = new ManufacturingJournalService(company);
+        var mfgType = mfgJournal.CreateManufacturingJournalType("Manufacturing Journal");
+        mfgJournal.Manufacture(mfgType.Id, bom.Id, quantity: 20m, date: new DateOnly(2021, 4, 15),
+            consumptionGodownId: mainGodown.Id, productionGodownId: mainGodown.Id,
+            additionalCosts: new[] { new ManufacturingAdditionalCost("Labour", Money.FromRupees(100m)) });
     }
 
     /// <summary>

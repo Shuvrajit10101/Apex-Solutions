@@ -405,6 +405,50 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 16;
         }
 
+        // v16 → v17: apply the Bill-of-Materials masters migration, then bump the marker. Existing v16 data survives
+        // untouched (two pure CREATE TABLE + four CREATE INDEX; no ALTER, no row rewrites — Phase 6 slice 2).
+        if (version == 16)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV16ToV17;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 17);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 17;
+        }
+
+        // v17 → v18: apply the two Manufacturing-Journal master-flag columns, then bump the marker. Existing v17
+        // data survives untouched (two additive ALTER … ADD COLUMN DEFAULT 0; no row rewrites — Phase 6 slice 2).
+        if (version == 17)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV17ToV18;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 18);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 18;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -519,6 +563,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Batch masters after items + godowns (they reference both), before opening balances.
         foreach (var bm in ReadBatchMasters(companyId))
             company.AddBatchMaster(bm);
+        // Bill-of-Materials masters after items + godowns (a BOM header + line reference both). The finished
+        // good's Set-Components flag is persisted verbatim on the item (loaded above), so it is NOT re-derived here.
+        foreach (var bom in ReadBillsOfMaterials(companyId))
+            company.AddBillOfMaterials(bom);
         foreach (var ob in ReadStockOpeningBalances(companyId))
             company.AddStockOpeningBalance(ob);
 
@@ -595,6 +643,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Batch masters after stock items (FK stock_items) + godowns; before opening balances (a batch_id on an
         // opening layer would FK batch_masters — even though we do not populate batch_id today, keep the order safe).
         InsertBatchMasters(tx, company);
+        // Bill-of-Materials masters after stock items + godowns (a BOM header + its lines FK both).
+        InsertBillsOfMaterials(tx, company);
         InsertStockOpeningBalances(tx, company);
         InsertVouchers(tx, company);
         // Inventory & order vouchers (catalog §10): reference voucher_types, stock_items, godowns, units, and
@@ -824,7 +874,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                   affects_accounts, affects_stock
+                   affects_accounts, affects_stock, use_as_manufacturing_journal
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -842,7 +892,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 isActive: r.GetInt64(6) != 0,
                 isPredefined: r.GetInt64(7) != 0,
                 affectsAccounts: r.GetInt64(8) != 0,
-                affectsStock: r.GetInt64(9) != 0));
+                affectsStock: r.GetInt64(9) != 0,
+                // v18 (RQ-11): "Use as Manufacturing Journal" flag, read verbatim.
+                useAsManufacturingJournal: r.GetInt64(10) != 0));
         }
         return list;
     }
@@ -1056,7 +1108,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
                    hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
                    gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
-                   maintain_in_batches, track_manufacturing_date, use_expiry_dates
+                   maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1082,6 +1134,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             item.MaintainInBatches = r.GetInt64(16) != 0;
             item.TrackManufacturingDate = r.GetInt64(17) != 0;
             item.UseExpiryDates = r.GetInt64(18) != 0;
+            // v18 Set-Components (BOM) flag (column 19; RQ-10), read verbatim.
+            item.SetComponents = r.GetInt64(19) != 0;
             list.Add(item);
         }
         return list;
@@ -1112,6 +1166,64 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 inwardRate: r.IsDBNull(8) ? (Money?)null : Paisa.ToMoney(r.GetInt64(8))));
         }
         return list;
+    }
+
+    /// <summary>
+    /// Reads the Bill-of-Materials masters (Phase 6 slice 2; RQ-9, DP-3) from the v17 <c>bill_of_materials</c> +
+    /// <c>bom_lines</c> tables, reconstructing each header with its ordered lines. Micros (× 1,000,000) →
+    /// exact decimal quantity / unit-of-manufacture; paisa → carve-out rate; millis (× 1,000) → carve-out percent
+    /// — all lossless (ER-3). Lines are read in stored <c>line_order</c>.
+    /// </summary>
+    private IEnumerable<BillOfMaterials> ReadBillsOfMaterials(Guid companyId)
+    {
+        // Read the lines per BOM once, keyed by bom id (ordered by line_order), then assemble the headers.
+        var linesByBom = new Dictionary<Guid, List<BomLine>>();
+        using (var lineCmd = _connection.CreateCommand())
+        {
+            lineCmd.CommandText = """
+                SELECT l.bom_id, l.line_type, l.component_stock_item_id, l.godown_id, l.qty_micro,
+                       l.rate_paisa, l.percent_millis
+                FROM bom_lines l
+                JOIN bill_of_materials b ON b.id = l.bom_id
+                WHERE b.company_id = $cid
+                ORDER BY l.bom_id, l.line_order;
+                """;
+            lineCmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var lr = lineCmd.ExecuteReader();
+            while (lr.Read())
+            {
+                var bomId = Guid.Parse(lr.GetString(0));
+                var line = new BomLine(
+                    (BomLineType)(int)lr.GetInt64(1),
+                    componentStockItemId: Guid.Parse(lr.GetString(2)),
+                    quantityPerBlock: QtyMicroToDecimal(lr.GetInt64(4)),
+                    godownId: lr.IsDBNull(3) ? (Guid?)null : Guid.Parse(lr.GetString(3)),
+                    rate: lr.IsDBNull(5) ? (Money?)null : Paisa.ToMoney(lr.GetInt64(5)),
+                    percentOfFinishedGoodCost: lr.IsDBNull(6) ? (decimal?)null : PercentMillisToDecimal(lr.GetInt64(6)));
+                if (!linesByBom.TryGetValue(bomId, out var list)) linesByBom[bomId] = list = new List<BomLine>();
+                list.Add(line);
+            }
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, stock_item_id, name, unit_of_manufacture_micro
+            FROM bill_of_materials WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var boms = new List<BillOfMaterials>();
+        while (r.Read())
+        {
+            var id = Guid.Parse(r.GetString(0));
+            boms.Add(new BillOfMaterials(
+                id,
+                stockItemId: Guid.Parse(r.GetString(1)),
+                name: r.GetString(2),
+                unitOfManufacture: QtyMicroToDecimal(r.GetInt64(3)),
+                lines: linesByBom.TryGetValue(id, out var lines) ? lines : new List<BomLine>()));
+        }
+        return boms;
     }
 
     /// <summary>Reads the item GST block (columns 12–15), or <c>null</c> when gst_taxability is NULL.</summary>
@@ -1628,6 +1740,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM cost_categories WHERE company_id = $cid;", ("$cid", cid));
         // Inventory: openings FK items+godowns; items FK groups/categories/units → delete child-first.
         ExecTx(tx, "DELETE FROM stock_opening_balances WHERE company_id = $cid;", ("$cid", cid));
+        // Bill-of-Materials lines FK the header; the header FKs stock_items + godowns → delete lines, then headers,
+        // before items + godowns below.
+        ExecTx(tx, """
+            DELETE FROM bom_lines WHERE bom_id IN (SELECT id FROM bill_of_materials WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM bill_of_materials WHERE company_id = $cid;", ("$cid", cid));
         // Batch masters FK stock_items + godowns; the batch_id-bearing line tables (openings/allocations/physical/
         // item-invoice) were all deleted above → safe to drop batch masters before items + godowns.
         ExecTx(tx, "DELETE FROM batch_masters WHERE company_id = $cid;", ("$cid", cid));
@@ -1863,8 +1981,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                     affects_accounts, affects_stock)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as);
+                     affects_accounts, affects_stock, use_as_manufacturing_journal)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1877,6 +1995,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$pre", t.IsPredefined ? 1 : 0);
             cmd.Parameters.AddWithValue("$aa", t.AffectsAccounts ? 1 : 0);
             cmd.Parameters.AddWithValue("$as", t.AffectsStock ? 1 : 0);
+            cmd.Parameters.AddWithValue("$mfg", t.UseAsManufacturingJournal ? 1 : 0); // v18 (RQ-11)
             cmd.ExecuteNonQuery();
         }
     }
@@ -2029,9 +2148,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
                      hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
                      gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
-                     maintain_in_batches, track_manufacturing_date, use_expiry_dates)
+                     maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
-                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued);
+                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2058,6 +2177,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$mib", item.MaintainInBatches ? 1 : 0);
             cmd.Parameters.AddWithValue("$tmd", item.TrackManufacturingDate ? 1 : 0);
             cmd.Parameters.AddWithValue("$ued", item.UseExpiryDates ? 1 : 0);
+            cmd.Parameters.AddWithValue("$setc", item.SetComponents ? 1 : 0); // v18 Set-Components (RQ-10)
             cmd.ExecuteNonQuery();
         }
     }
@@ -2085,6 +2205,57 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$qty", b.InwardQuantity is { } q ? QtyMicroFromDecimal(q) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$rate", b.InwardRate is { } r ? Paisa.FromMoney(r) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Persists the Bill-of-Materials masters (Phase 6 slice 2; RQ-9, DP-3) into the v17 <c>bill_of_materials</c>
+    /// header + <c>bom_lines</c> child tables. The block size (unit of manufacture) and each line's per-block
+    /// quantity are stored as INTEGER micros (× 1,000,000); a carve-out per-unit rate as INTEGER paisa; a
+    /// carve-out percent as INTEGER millis (× 1,000) — all exact, no float (ER-3). <see cref="BomLine.LineType"/>
+    /// is stored as its enum ordinal (Component=0, ByProduct=1, CoProduct=2, Scrap=3). Line order is preserved.
+    /// </summary>
+    private void InsertBillsOfMaterials(SqliteTransaction tx, Company c)
+    {
+        foreach (var bom in c.BillsOfMaterials)
+        {
+            using (var head = _connection.CreateCommand())
+            {
+                head.Transaction = tx;
+                head.CommandText = """
+                    INSERT INTO bill_of_materials (id, company_id, stock_item_id, name, unit_of_manufacture_micro)
+                    VALUES ($id, $cid, $item, $name, $uom);
+                    """;
+                head.Parameters.AddWithValue("$id", bom.Id.ToString("D"));
+                head.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                head.Parameters.AddWithValue("$item", bom.StockItemId.ToString("D"));
+                head.Parameters.AddWithValue("$name", bom.Name);
+                head.Parameters.AddWithValue("$uom", QtyMicroFromDecimal(bom.UnitOfManufacture));
+                head.ExecuteNonQuery();
+            }
+
+            var order = 0;
+            foreach (var line in bom.Lines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO bom_lines
+                        (bom_id, line_order, line_type, component_stock_item_id, godown_id, qty_micro,
+                         rate_paisa, percent_millis)
+                    VALUES ($bom, $ord, $type, $comp, $godown, $qty, $rate, $pct);
+                    """;
+                cmd.Parameters.AddWithValue("$bom", bom.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$type", (int)line.LineType);
+                cmd.Parameters.AddWithValue("$comp", line.ComponentStockItemId.ToString("D"));
+                cmd.Parameters.AddWithValue("$godown", (object?)line.GodownId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(line.QuantityPerBlock));
+                cmd.Parameters.AddWithValue("$rate", line.Rate is { } rt ? Paisa.FromMoney(rt) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$pct",
+                    line.PercentOfFinishedGoodCost is { } p ? PercentMillisFromDecimal(p) : (object)DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 
@@ -2683,6 +2854,25 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     /// <summary>Quantity micros (qty × 1,000,000) → an exact decimal.</summary>
     private static decimal QtyMicroToDecimal(long micros) => micros / (decimal)Schema.QuantityScale;
+
+    /// <summary>The scale a BOM carve-out percent is stored at (× 1,000 = "millis"), as INTEGER, so a 3-dp
+    /// percentage (e.g. 5.125%) round-trips exactly (no float — ER-3).</summary>
+    private const long PercentMillisScale = 1_000L;
+
+    /// <summary>A carve-out percent → millis (percent × 1,000), stored as INTEGER. Throws if the percent carries
+    /// more than 3 decimal places (would lose precision).</summary>
+    private static long PercentMillisFromDecimal(decimal percent)
+    {
+        var scaled = percent * PercentMillisScale;
+        var truncated = decimal.Truncate(scaled);
+        if (scaled != truncated)
+            throw new InvalidOperationException(
+                $"BOM carve-out percent {percent} is not exact to 3 decimal places; cannot persist as percent millis without loss.");
+        return (long)truncated;
+    }
+
+    /// <summary>Percent millis (percent × 1,000) → an exact decimal percent.</summary>
+    private static decimal PercentMillisToDecimal(long millis) => millis / (decimal)PercentMillisScale;
 
     private static string FormatDate(DateOnly d) => d.ToString("yyyy-MM-dd");
 

@@ -96,6 +96,15 @@ public sealed class StockItem
     /// </summary>
     public bool UseExpiryDates { get; set; }
 
+    /// <summary>
+    /// <b>Set Components (BOM)</b> (Phase 6 Cluster 2; requirements RQ-9/RQ-10). When on, the item is a
+    /// manufactured finished good with one or more <see cref="BillOfMaterials"/> recipes and the BOM
+    /// sub-screen appears in the item master. Independent of the batch switches. Defaults to <c>false</c> so
+    /// every existing item behaves byte-identically (ER-13). This is a plain model flag here; the F12 UI gate
+    /// is a later slice.
+    /// </summary>
+    public bool SetComponents { get; set; }
+
     public StockItem(
         Guid id,
         string name,

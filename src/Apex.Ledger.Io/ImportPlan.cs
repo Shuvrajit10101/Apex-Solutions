@@ -135,7 +135,8 @@ internal sealed class ImportPlan
             var domain = new VoucherType(Guid.NewGuid(), vt.Name,
                 ParseEnum<VoucherBaseType>(vt.BaseType), ParseEnum<NumberingMethod>(vt.Numbering),
                 vt.DefaultShortcut, vt.Abbreviation, vt.IsActive, isPredefined: false,
-                affectsAccounts: vt.AffectsAccounts, affectsStock: vt.AffectsStock);
+                affectsAccounts: vt.AffectsAccounts, affectsStock: vt.AffectsStock,
+                useAsManufacturingJournal: vt.UseAsManufacturingJournal);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -348,10 +349,12 @@ internal sealed class ImportPlan
                 i.Alias, ParseEnum<StockValuationMethod>(i.ValuationMethod), i.HsnSacCode, i.IsTaxable,
                 i.ReorderLevel, i.MinimumOrderQuantity, MoneyCodec.FromPaisaNullable(i.StandardCostPaisa));
             domain.Gst = BuildStockItemGst(i.Gst);
-            // v16 batch switches (RQ-2) — plain model flags, carried verbatim.
+            // v16 batch switches (RQ-2) + v18 Set-Components (RQ-10) — plain model flags, carried verbatim. The
+            // Set-Components flag is authoritative from the export; a BOM created below keeps it true (idempotent).
             domain.MaintainInBatches = i.MaintainInBatches;
             domain.TrackManufacturingDate = i.TrackManufacturingDate;
             domain.UseExpiryDates = i.UseExpiryDates;
+            domain.SetComponents = i.SetComponents;
             journal.RecordStockItem(domain);
             stockItemId[i.Id] = domain.Id;
             created++;
@@ -375,6 +378,28 @@ internal sealed class ImportPlan
                 bm.InwardRatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null);
             t.AddBatchMaster(batch);
             journal.RecordBatchMaster(batch);
+        }
+
+        // 8c) Bill-of-Materials masters (Phase 6 Cluster 2; RQ-9, DP-3). Each references a resolved finished-good
+        //     item, resolved component items, and optional line godowns — all created above. A BOM is created only
+        //     for a NEWLY-created finished good — a duplicate item reused under Skip already owns its BOMs (re-
+        //     importing must not duplicate them). Routed through BomService so its guards run (item exists, name
+        //     unique per item, components exist, ≥ 1 Component line) and the finished good's Set-Components flag is
+        //     turned on (RQ-10). The BOM's own Guid is re-minted; FKs resolve by the DTO→target id maps.
+        var bomService = new BomService(t);
+        foreach (var bomDto in _model.Payload.BillsOfMaterials)
+        {
+            if (!stockItemId.TryGetValue(bomDto.StockItemId, out _) || IsReusedStockItem(bomDto.StockItemId)) continue;
+            var lines = bomDto.Lines.Select(l => new BomLine(
+                ParseEnum<BomLineType>(l.LineType),
+                ResolveStockItemId(l.ComponentStockItemId, stockItemId, t),
+                l.QuantityPerBlock,
+                godownId: l.GodownId is { } gid ? ResolveGodownId(gid, godownId, t) : null,
+                rate: l.RatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null,
+                percentOfFinishedGoodCost: l.PercentOfFinishedGoodCost)).ToList();
+            var bom = bomService.CreateBom(
+                ResolveStockItemId(bomDto.StockItemId, stockItemId, t), bomDto.Name, bomDto.UnitOfManufacture, lines);
+            journal.RecordBillOfMaterials(bom);
         }
 
         // 9) Stock opening balances (only for newly-created items — a duplicate item's opening rode the merge path).

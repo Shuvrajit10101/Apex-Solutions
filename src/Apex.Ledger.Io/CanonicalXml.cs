@@ -76,6 +76,7 @@ public static class CanonicalXml
             List("godowns", "godown", p.Godowns, BuildGodown),
             List("stockItems", "stockItem", p.StockItems, BuildStockItem),
             List("batchMasters", "batchMaster", p.BatchMasters, BuildBatchMaster),
+            List("billsOfMaterials", "billOfMaterials", p.BillsOfMaterials, BuildBom),
             List("stockOpeningBalances", "stockOpeningBalance", p.StockOpeningBalances, BuildStockOpeningBalance),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher));
@@ -163,7 +164,8 @@ public static class CanonicalXml
         Attr("id", t.Id), Attr("name", t.Name), Attr("baseType", t.BaseType), Attr("numbering", t.Numbering),
         Opt("defaultShortcut", t.DefaultShortcut), Opt("abbreviation", t.Abbreviation),
         Attr("isActive", t.IsActive), Attr("isPredefined", t.IsPredefined),
-        Attr("affectsAccounts", t.AffectsAccounts), Attr("affectsStock", t.AffectsStock));
+        Attr("affectsAccounts", t.AffectsAccounts), Attr("affectsStock", t.AffectsStock),
+        Attr("useAsManufacturingJournal", t.UseAsManufacturingJournal));
 
     private static XElement BuildUnit(UnitDto u) => new("unit",
         Attr("id", u.Id), Attr("symbol", u.Symbol), Attr("formalName", u.FormalName),
@@ -192,7 +194,8 @@ public static class CanonicalXml
             OptDec("reorderLevel", i.ReorderLevel), OptDec("minimumOrderQuantity", i.MinimumOrderQuantity),
             Attr("maintainInBatches", i.MaintainInBatches),
             Attr("trackManufacturingDate", i.TrackManufacturingDate),
-            Attr("useExpiryDates", i.UseExpiryDates));
+            Attr("useExpiryDates", i.UseExpiryDates),
+            Attr("setComponents", i.SetComponents));
         if (i.Gst is { } g) el.Add(BuildStockItemGst("gst", g));
         return el;
     }
@@ -202,6 +205,21 @@ public static class CanonicalXml
         Opt("manufacturingDate", b.ManufacturingDate), Opt("expiryDate", b.ExpiryDate),
         Opt("expiryPeriod", b.ExpiryPeriod), OptId("godownId", b.GodownId),
         OptDec("inwardQuantity", b.InwardQuantity), OptLong("inwardRatePaisa", b.InwardRatePaisa));
+
+    private static XElement BuildBom(BillOfMaterialsDto b)
+    {
+        var el = new XElement("billOfMaterials",
+            Attr("id", b.Id), Attr("stockItemId", b.StockItemId), Attr("name", b.Name),
+            Attr("unitOfManufacture", Dec(b.UnitOfManufacture)));
+        var lines = new XElement("lines");
+        foreach (var l in b.Lines)
+            lines.Add(new XElement("line",
+                Attr("lineType", l.LineType), Attr("componentStockItemId", l.ComponentStockItemId),
+                OptId("godownId", l.GodownId), Attr("quantityPerBlock", Dec(l.QuantityPerBlock)),
+                OptLong("ratePaisa", l.RatePaisa), OptDec("percentOfFinishedGoodCost", l.PercentOfFinishedGoodCost)));
+        el.Add(lines);
+        return el;
+    }
 
     private static XElement BuildStockOpeningBalance(StockOpeningBalanceDto b) => new("stockOpeningBalance",
         Attr("id", b.Id), Attr("stockItemId", b.StockItemId), Attr("godownId", b.GodownId),
@@ -451,6 +469,7 @@ public static class CanonicalXml
                 Godowns = ReadList(root, "godowns", "godown", ReadGodown),
                 StockItems = ReadList(root, "stockItems", "stockItem", ReadStockItem),
                 BatchMasters = ReadList(root, "batchMasters", "batchMaster", ReadBatchMaster),
+                BillsOfMaterials = ReadList(root, "billsOfMaterials", "billOfMaterials", ReadBom),
                 StockOpeningBalances = ReadList(root, "stockOpeningBalances", "stockOpeningBalance", ReadStockOpeningBalance),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
@@ -554,6 +573,7 @@ public static class CanonicalXml
         DefaultShortcut = Str(e, "defaultShortcut"), Abbreviation = Str(e, "abbreviation"),
         IsActive = Bool(e, "isActive"), IsPredefined = Bool(e, "isPredefined"),
         AffectsAccounts = Bool(e, "affectsAccounts"), AffectsStock = Bool(e, "affectsStock"),
+        UseAsManufacturingJournal = Bool(e, "useAsManufacturingJournal"),
     };
 
     private static UnitDto ReadUnit(XElement e) => new()
@@ -591,6 +611,7 @@ public static class CanonicalXml
         MaintainInBatches = Bool(e, "maintainInBatches"),
         TrackManufacturingDate = Bool(e, "trackManufacturingDate"),
         UseExpiryDates = Bool(e, "useExpiryDates"),
+        SetComponents = Bool(e, "setComponents"),
     };
 
     private static BatchMasterDto ReadBatchMaster(XElement e) => new()
@@ -599,6 +620,19 @@ public static class CanonicalXml
         ManufacturingDate = Str(e, "manufacturingDate"), ExpiryDate = Str(e, "expiryDate"),
         ExpiryPeriod = Str(e, "expiryPeriod"), GodownId = OptGuid(e, "godownId"),
         InwardQuantity = OptDec(e, "inwardQuantity"), InwardRatePaisa = OptLong(e, "inwardRatePaisa"),
+    };
+
+    private static BillOfMaterialsDto ReadBom(XElement e) => new()
+    {
+        Id = Guid(e, "id"), StockItemId = Guid(e, "stockItemId"), Name = Str(e, "name")!,
+        UnitOfManufacture = DecReq(e, "unitOfManufacture"),
+        Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>())
+            .Select(l => new BomLineDto
+            {
+                LineType = Str(l, "lineType")!, ComponentStockItemId = Guid(l, "componentStockItemId"),
+                GodownId = OptGuid(l, "godownId"), QuantityPerBlock = DecReq(l, "quantityPerBlock"),
+                RatePaisa = OptLong(l, "ratePaisa"), PercentOfFinishedGoodCost = OptDec(l, "percentOfFinishedGoodCost"),
+            }).ToList(),
     };
 
     private static StockOpeningBalanceDto ReadStockOpeningBalance(XElement e) => new()

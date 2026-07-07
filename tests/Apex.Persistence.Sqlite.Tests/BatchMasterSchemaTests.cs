@@ -9,8 +9,8 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// number)</c>, unique WITHIN an item — not globally — with optional mfg/expiry dates, an optional expiry-period,
 /// and an optional per-batch inward cost layer of qty-micros + rate-paisa) and adds a nullable <c>batch_id</c>
 /// reference to the four stock-line tables, leaving every existing <c>batch_label</c> column and row intact.
-/// This covers: a fresh DB stamps to <see cref="Schema.CurrentVersion"/> (= 16) and has <c>batch_masters</c> +
-/// the four <c>batch_id</c> columns; a legacy v15 DB auto-migrates to 16 preserving every existing row (PR-11);
+/// This covers: a fresh DB stamps to <see cref="Schema.CurrentVersion"/> and has <c>batch_masters</c> +
+/// the four <c>batch_id</c> columns; a legacy v15 DB auto-migrates forward preserving every existing row (PR-11);
 /// batch numbers are unique per item but MAY repeat across items (RQ-1); and money/qty are integer paisa/micros.
 /// </summary>
 public sealed class BatchMasterSchemaTests
@@ -24,7 +24,9 @@ public sealed class BatchMasterSchemaTests
         {
             using (new SqliteCompanyStore(dbPath)) { }
 
-            Assert.Equal(16, Schema.CurrentVersion);
+            // Batch masters arrived at schema v16 and persist in every later version; a fresh DB is stamped to
+            // the current version (repointed off a literal so later slices that bump the version stay green).
+            Assert.True(Schema.CurrentVersion >= 16);
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
 
             Assert.True(TableExists(dbPath, "batch_masters"));
@@ -123,9 +125,10 @@ public sealed class BatchMasterSchemaTests
             Assert.Equal(15L, ReadSchemaVersion(dbPath));
             Assert.False(TableExists(dbPath, "batch_masters"));
 
-            using (new SqliteCompanyStore(dbPath)) { } // opens v15 → migrates to v16
+            using (new SqliteCompanyStore(dbPath)) { } // opens v15 → migrates forward to the current version
 
-            Assert.Equal(16L, ReadSchemaVersion(dbPath));
+            // A legacy v15 DB migrates all the way to the current version (v16 batch + every later slice); the
+            // batch_masters table is created en route, so this assertion is version-agnostic (repointed off 16L).
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             Assert.True(TableExists(dbPath, "batch_masters"));
 

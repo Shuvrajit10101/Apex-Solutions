@@ -294,6 +294,20 @@ public sealed class CompanyImportService
                 errors.Add($"Batch '{bm.BatchNumber}' references a godown that is neither imported nor present.");
         }
 
+        // Bill of Materials → finished-good item, each line's component item + optional line godown.
+        foreach (var bom in model.Payload.BillsOfMaterials)
+        {
+            if (!plan.CanResolveStockItem(bom.StockItemId, _target))
+                errors.Add($"BOM '{bom.Name}' references a finished-good stock item that is neither imported nor present.");
+            foreach (var line in bom.Lines)
+            {
+                if (!plan.CanResolveStockItem(line.ComponentStockItemId, _target))
+                    errors.Add($"BOM '{bom.Name}' has a line referencing a stock item that is neither imported nor present.");
+                if (line.GodownId is { } lgid && !plan.CanResolveGodown(lgid, _target))
+                    errors.Add($"BOM '{bom.Name}' has a line referencing a godown that is neither imported nor present.");
+            }
+        }
+
         // Ledger → currency.
         foreach (var l in model.Payload.Ledgers)
             if (l.CurrencyId is { } cur && !plan.CanResolveCurrency(cur, _target))

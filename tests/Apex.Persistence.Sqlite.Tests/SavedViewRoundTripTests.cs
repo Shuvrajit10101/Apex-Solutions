@@ -256,8 +256,10 @@ public sealed class SavedViewRoundTripTests
     /// assertion. Because opening the store migrates all the way to <see cref="Schema.CurrentVersion"/> (past
     /// v14), the four v16-touched stock-line tables (<c>stock_opening_balances</c>, <c>inventory_allocations</c>,
     /// <c>physical_stock_lines</c>, <c>voucher_inventory_lines</c>) are included in their pre-v16 shape so the
-    /// v15→v16 ADD-COLUMN steps have real targets. Kept in the test so it never drifts as the production
-    /// <see cref="Schema"/> advances past v13.
+    /// v15→v16 ADD-COLUMN steps have real targets, and a pre-v18 <c>voucher_types</c> (with the v10 effect flags,
+    /// without the v18 use_as_manufacturing_journal column) plus a pre-v18 <c>stock_items</c> (without
+    /// set_components) so the v17→v18 ADD-COLUMN steps have real targets too. Kept in the test so it never drifts
+    /// as the production <see cref="Schema"/> advances past v13.
     /// </summary>
     private const string MinimalV13Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -288,5 +290,10 @@ public sealed class SavedViewRoundTripTests
             valuation_method INTEGER NOT NULL DEFAULT 0, hsn_sac_code TEXT NULL, is_taxable INTEGER NOT NULL DEFAULT 0,
             reorder_level_micro INTEGER NULL, min_order_qty_micro INTEGER NULL, standard_cost_paisa INTEGER NULL,
             gst_hsn_sac TEXT NULL, gst_taxability INTEGER NULL, gst_rate_bp INTEGER NULL, gst_supply_type INTEGER NULL);
+        CREATE TABLE voucher_types (
+            id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, base_type INTEGER NOT NULL,
+            default_shortcut TEXT NULL, numbering INTEGER NOT NULL, abbreviation TEXT NULL,
+            is_active INTEGER NOT NULL, is_predefined INTEGER NOT NULL,
+            affects_accounts INTEGER NOT NULL DEFAULT 0, affects_stock INTEGER NOT NULL DEFAULT 0);
         """;
 }

@@ -56,9 +56,12 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v16 = batch masters + per-batch inward
-    /// cost layer, with additive nullable <c>batch_id</c> references on the stock-line tables — Phase 6 slice 1).</summary>
-    public const int CurrentVersion = 16;
+    /// <summary>The current schema version this adapter reads and writes (v18 = the two Manufacturing-Journal
+    /// master flags: <c>voucher_types.use_as_manufacturing_journal</c> (RQ-11) and <c>stock_items.set_components</c>
+    /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
+    /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
+    /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
+    public const int CurrentVersion = 18;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -201,7 +204,10 @@ public static class Schema
             is_predefined    INTEGER NOT NULL,
             -- v10 effect flags (catalog §10): whether posting this type touches accounts / moves stock
             affects_accounts INTEGER NOT NULL DEFAULT 0,   -- 0/1
-            affects_stock    INTEGER NOT NULL DEFAULT 0    -- 0/1
+            affects_stock    INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- v18 (RQ-11): "Use as Manufacturing Journal" — a user-created Stock-Journal type flagged as a
+            -- Manufacturing Journal. 0/1, default 0 so every existing Stock Journal is byte-identical (ER-13).
+            use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0    -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -380,7 +386,10 @@ public static class Schema
             -- (ER-13). Use-Expiry may be on without Track-Mfg; all three are model flags read/written verbatim.
             maintain_in_batches      INTEGER NOT NULL DEFAULT 0,   -- "Maintain in Batches" 0/1
             track_manufacturing_date INTEGER NOT NULL DEFAULT 0,   -- "Track date of Manufacturing" 0/1
-            use_expiry_dates         INTEGER NOT NULL DEFAULT 0    -- "Use Expiry dates" 0/1
+            use_expiry_dates         INTEGER NOT NULL DEFAULT 0,   -- "Use Expiry dates" 0/1
+            -- v18 (RQ-10): "Set Components (BOM)" — the item is a manufactured finished good with ≥1 BOM. 0/1,
+            -- default 0 so an existing item is unchanged (ER-13); a plain model flag read/written verbatim.
+            set_components           INTEGER NOT NULL DEFAULT 0    -- 0/1
         );
 
         CREATE TABLE stock_opening_balances (
@@ -487,6 +496,38 @@ public static class Schema
             inward_rate_paisa INTEGER     NULL                -- per-batch inward rate in paisa (RQ-6/DP-8), NULL = no layer
         );
 
+        -- v17 (RQ-9; ER-1): the Bill of Materials HEADER — one first-class row per named BOM on a finished-good
+        -- stock item. A single item may own MULTIPLE BOMs (RQ-9: "multiple per item"), each distinguished by name;
+        -- unit_of_manufacture_micro is the BLOCK size (e.g. 1 or 10 units) the component quantities are expressed
+        -- per, stored as INTEGER micros (× 1,000,000) so a fractional block round-trips exactly (no float, ER-3).
+        CREATE TABLE bill_of_materials (
+            id                          TEXT    NOT NULL PRIMARY KEY,
+            company_id                  TEXT    NOT NULL REFERENCES companies(id),
+            stock_item_id               TEXT    NOT NULL REFERENCES stock_items(id),   -- the finished good this BOM makes
+            name                        TEXT    NOT NULL,               -- BOM name, unique within the item (see ux index)
+            unit_of_manufacture_micro   INTEGER NOT NULL                -- block size × 1,000,000 (> 0), qty basis for the lines
+        );
+
+        -- v17 (RQ-9; DP-3): the BOM component/output LINES. line_type distinguishes an input Component from a
+        -- carved-out By-Product / Co-Product / Scrap output (enum ordinal: Component=0, ByProduct=1, CoProduct=2,
+        -- Scrap=3). qty_micro is the PER-BLOCK quantity (× 1,000,000) the Manufacturing Journal auto-scales by the
+        -- produced quantity. godown_id is the line's consumption/output location (RQ-9), NULL = resolve at posting.
+        -- The carve-out VALUE basis (DP-3) for a By-Product/Co-Product/Scrap line is user-entered as either an
+        -- absolute per-unit rate_paisa (INTEGER paisa) OR a percent of finished-good cost (percent_millis =
+        -- percent × 1,000, exact to 3 dp); both NULL = default to standard cost (DP-3 default). rate_paisa also
+        -- carries an additional-cost line's per-unit/blanket value when line_type = Component (additional cost).
+        CREATE TABLE bom_lines (
+            id                    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            bom_id                TEXT    NOT NULL REFERENCES bill_of_materials(id),
+            line_order            INTEGER NOT NULL,               -- preserves order within the BOM
+            line_type             INTEGER NOT NULL,               -- BomLineType ordinal (Component=0, ByProduct=1, CoProduct=2, Scrap=3)
+            component_stock_item_id TEXT  NOT NULL REFERENCES stock_items(id),
+            godown_id             TEXT        NULL REFERENCES godowns(id),   -- consumption/output location, NULL = resolve at posting
+            qty_micro             INTEGER NOT NULL,               -- per-block quantity × 1,000,000 (> 0)
+            rate_paisa            INTEGER     NULL,               -- carve-out / additional-cost per-unit value in paisa (DP-3), NULL = default
+            percent_millis        INTEGER     NULL                -- carve-out % of FG cost × 1,000 (DP-3), NULL = not a %-basis line
+        );
+
         -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
         -- report configuration tuple (kind/period/depth/sort/filter/comparative/F12) — never a computed figure;
         -- the report is always recomputed when the view is applied, so a saved view can never go stale (ER-9).
@@ -545,6 +586,12 @@ public static class Schema
         CREATE INDEX ix_batch_masters_company        ON batch_masters(company_id);
         CREATE INDEX ix_batch_masters_item           ON batch_masters(stock_item_id);
         CREATE UNIQUE INDEX ux_batch_masters_item_no ON batch_masters(stock_item_id, batch_no);
+        -- v17: Bill of Materials — lookup by company + finished-good item, child lines by BOM, and the per-item
+        -- unique BOM-name key (a BOM name is unique WITHIN its finished good, RQ-9 "multiple per item").
+        CREATE INDEX ix_bom_company            ON bill_of_materials(company_id);
+        CREATE INDEX ix_bom_item               ON bill_of_materials(stock_item_id);
+        CREATE UNIQUE INDEX ux_bom_item_name   ON bill_of_materials(stock_item_id, name COLLATE NOCASE);
+        CREATE INDEX ix_bom_lines_bom          ON bom_lines(bom_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
@@ -1071,5 +1118,61 @@ public static class Schema
         ALTER TABLE stock_items ADD COLUMN maintain_in_batches      INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE stock_items ADD COLUMN track_manufacturing_date INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE stock_items ADD COLUMN use_expiry_dates         INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v16 → v17: <b>Bill of Materials masters</b> (Phase 6 slice 2; RQ-9; ER-1). Creates the
+    /// <c>bill_of_materials</c> header table (one first-class row per named BOM on a finished-good stock item,
+    /// with a per-block <c>unit_of_manufacture_micro</c>; a single item may own MULTIPLE BOMs, keyed unique by
+    /// name within the item) and the <c>bom_lines</c> child table (each line is a Component / By-Product /
+    /// Co-Product / Scrap with a per-block <c>qty_micro</c> and an optional carve-out / additional-cost basis of
+    /// per-unit <c>rate_paisa</c> OR <c>percent_millis</c> = percent × 1,000, per DP-3), plus their indexes. It is
+    /// purely additive: two new <c>CREATE TABLE</c> + four <c>CREATE INDEX</c> — no ALTER, no row rewrites — so an
+    /// existing v16 database keeps every table and row untouched and simply gains two empty BOM tables
+    /// (non-BOM/non-manufacturing data behaves byte-identically, ER-13). Money = INTEGER paisa; quantity =
+    /// INTEGER micros (× 1,000,000); percent = INTEGER millis (× 1,000) — no float (ER-3). Run inside a
+    /// transaction that also bumps <c>schema_version</c> to 17. A fresh DB is stamped straight to v17 via
+    /// <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV16ToV17 = """
+        CREATE TABLE bill_of_materials (
+            id                          TEXT    NOT NULL PRIMARY KEY,
+            company_id                  TEXT    NOT NULL REFERENCES companies(id),
+            stock_item_id               TEXT    NOT NULL REFERENCES stock_items(id),
+            name                        TEXT    NOT NULL,
+            unit_of_manufacture_micro   INTEGER NOT NULL
+        );
+
+        CREATE TABLE bom_lines (
+            id                    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            bom_id                TEXT    NOT NULL REFERENCES bill_of_materials(id),
+            line_order            INTEGER NOT NULL,
+            line_type             INTEGER NOT NULL,
+            component_stock_item_id TEXT  NOT NULL REFERENCES stock_items(id),
+            godown_id             TEXT        NULL REFERENCES godowns(id),
+            qty_micro             INTEGER NOT NULL,
+            rate_paisa            INTEGER     NULL,
+            percent_millis        INTEGER     NULL
+        );
+
+        CREATE INDEX ix_bom_company            ON bill_of_materials(company_id);
+        CREATE INDEX ix_bom_item               ON bill_of_materials(stock_item_id);
+        CREATE UNIQUE INDEX ux_bom_item_name   ON bill_of_materials(stock_item_id, name COLLATE NOCASE);
+        CREATE INDEX ix_bom_lines_bom          ON bom_lines(bom_id);
+        """;
+
+    /// <summary>
+    /// v17 → v18: the two <b>Manufacturing-Journal master flags</b> (Phase 6 slice 2; RQ-10/RQ-11; ER-1). Adds
+    /// <c>voucher_types.use_as_manufacturing_journal</c> (RQ-11: a user-created Stock-Journal type flagged as a
+    /// Manufacturing Journal — it cannot be re-derived from data, so it must be stored to round-trip losslessly)
+    /// and <c>stock_items.set_components</c> (RQ-10: the finished good carries a BOM). Two
+    /// <c>ALTER TABLE … ADD COLUMN … DEFAULT 0</c> — no row rewrites — so an existing v17 database keeps every
+    /// row untouched and both flags default off, i.e. non-manufacturing data behaves byte-identically (ER-13). Run
+    /// inside a transaction that also bumps <c>schema_version</c> to 18. A fresh DB is stamped straight to v18 via
+    /// <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV17ToV18 = """
+        ALTER TABLE voucher_types ADD COLUMN use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items   ADD COLUMN set_components                INTEGER NOT NULL DEFAULT 0;
         """;
 }

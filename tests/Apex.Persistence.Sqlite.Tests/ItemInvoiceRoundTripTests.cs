@@ -226,6 +226,28 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
+        // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not
+        // collide with a table a fresh save at the current version already created.
+        Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_bom_item_name;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_bom_item;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_bom_company;");
+        Exec(conn, "DROP TABLE IF EXISTS bom_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS bill_of_materials;");
+        // Rebuild voucher_types WITHOUT the v18 use_as_manufacturing_journal column (a fresh save at the current
+        // version created it) so the reopen's v17→v18 ALTER ADD COLUMN does not collide. A v11 voucher_types still
+        // carries the v10 affects_accounts / affects_stock columns (v10 predates v11), so keep those.
+        Exec(conn, """
+            CREATE TABLE voucher_types_v17 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                base_type INTEGER NOT NULL, default_shortcut TEXT NULL, numbering INTEGER NOT NULL,
+                abbreviation TEXT NULL, is_active INTEGER NOT NULL, is_predefined INTEGER NOT NULL,
+                affects_accounts INTEGER NOT NULL DEFAULT 0, affects_stock INTEGER NOT NULL DEFAULT 0);
+            INSERT INTO voucher_types_v17 SELECT id, company_id, name, base_type, default_shortcut, numbering,
+                abbreviation, is_active, is_predefined, affects_accounts, affects_stock FROM voucher_types;
+            DROP TABLE voucher_types;
+            ALTER TABLE voucher_types_v17 RENAME TO voucher_types;
+            """);
         DowngradeStripV16(conn);
         DowngradeStripV13(conn);
         Exec(conn, "UPDATE schema_version SET version = 11;");

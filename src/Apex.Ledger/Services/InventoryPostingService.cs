@@ -42,8 +42,11 @@ public sealed class InventoryPostingService
         EnsureReferencesResolve(voucher);
 
         // Stock Journal: source and destination must balance in the base unit (a documented difference is
-        // wastage/absorption — Phase 6; Phase 3 requires an exact balance).
-        if (type.BaseType == VoucherBaseType.StockJournal)
+        // wastage/absorption — Phase 6; Phase 3 requires an exact balance). A Manufacturing Journal (base Stock
+        // Journal + Use as Manufacturing Journal, RQ-11/RQ-13) is EXEMPT — a manufacture transforms inputs into a
+        // different output, so source and destination need not balance by quantity. A plain Stock Journal still
+        // must balance (ER-13).
+        if (type.BaseType == VoucherBaseType.StockJournal && !type.IsManufacturingJournal)
             EnsureStockJournalBalances(voucher);
 
         if (type.Numbering == NumberingMethod.Automatic && voucher.Number <= 0)

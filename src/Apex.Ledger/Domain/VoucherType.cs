@@ -46,6 +46,23 @@ public sealed class VoucherType
     /// </summary>
     public bool AffectsStock { get; set; }
 
+    /// <summary>
+    /// <b>Use as Manufacturing Journal</b> (catalog §11; Phase 6 Cluster 2 RQ-11). A user-created voucher type
+    /// whose <see cref="BaseType"/> is <see cref="VoucherBaseType.StockJournal"/> may set this <b>Yes</b> to
+    /// behave as a Manufacturing Journal: it consumes BOM components (source) and produces the finished good +
+    /// by-products/scrap (destination), and — unlike a plain Stock Journal — its source and destination need
+    /// <b>not</b> balance by quantity (a manufacture transforms inputs into a different output, RQ-13). The
+    /// finished-good production line is valued = Σ component cost + Σ additional cost − Σ carve-out value
+    /// (RQ-13). Defaults to <c>false</c>, so every existing Stock Journal is byte-identical (ER-13). Only
+    /// meaningful on a Stock-Journal base type.
+    /// </summary>
+    public bool UseAsManufacturingJournal { get; set; }
+
+    /// <summary>True iff this is a Manufacturing Journal — a Stock-Journal base type with
+    /// <see cref="UseAsManufacturingJournal"/> on (RQ-11).</summary>
+    public bool IsManufacturingJournal =>
+        BaseType == VoucherBaseType.StockJournal && UseAsManufacturingJournal;
+
     public VoucherType(
         Guid id,
         string name,
@@ -56,7 +73,8 @@ public sealed class VoucherType
         bool isActive = true,
         bool isPredefined = false,
         bool? affectsAccounts = null,
-        bool? affectsStock = null)
+        bool? affectsStock = null,
+        bool useAsManufacturingJournal = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -71,5 +89,6 @@ public sealed class VoucherType
         IsPredefined = isPredefined;
         AffectsAccounts = affectsAccounts ?? VoucherEffects.AffectsAccounts(baseType);
         AffectsStock = affectsStock ?? VoucherEffects.AffectsStock(baseType);
+        UseAsManufacturingJournal = useAsManufacturingJournal;
     }
 }

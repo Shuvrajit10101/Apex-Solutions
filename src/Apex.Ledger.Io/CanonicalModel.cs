@@ -90,6 +90,9 @@ public sealed record PayloadDto
     // Batch tracking (Phase 6 Cluster 1; catalog §9): first-class batch/lot masters per stock item.
     public IReadOnlyList<BatchMasterDto> BatchMasters { get; init; } = [];
 
+    // Bill of Materials (Phase 6 Cluster 2; catalog §11): named manufacturing recipes on a finished-good item.
+    public IReadOnlyList<BillOfMaterialsDto> BillsOfMaterials { get; init; } = [];
+
     public IReadOnlyList<StockOpeningBalanceDto> StockOpeningBalances { get; init; } = [];
 
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
@@ -157,6 +160,10 @@ public sealed record VoucherTypeDto
     public bool IsPredefined { get; init; }
     public bool AffectsAccounts { get; init; }
     public bool AffectsStock { get; init; }
+
+    /// <summary>"Use as Manufacturing Journal" (Phase 6 Cluster 2; RQ-11). Default false ⇒ a plain Stock Journal
+    /// (or any non-manufacturing type) serialises byte-identically (ER-13). Only meaningful on a Stock-Journal base.</summary>
+    public bool UseAsManufacturingJournal { get; init; }
 }
 
 public sealed record UnitDto
@@ -220,6 +227,10 @@ public sealed record StockItemDto
     public bool MaintainInBatches { get; init; }
     public bool TrackManufacturingDate { get; init; }
     public bool UseExpiryDates { get; init; }
+
+    /// <summary>"Set Components (BOM)" (Phase 6 Cluster 2; RQ-10): the item is a manufactured finished good with
+    /// ≥1 BOM. Default false ⇒ a non-manufactured item serialises byte-identically (ER-13).</summary>
+    public bool SetComponents { get; init; }
 }
 
 /// <summary>
@@ -240,6 +251,39 @@ public sealed record BatchMasterDto
     public Guid? GodownId { get; init; }               // inward-layer location or null
     public decimal? InwardQuantity { get; init; }      // per-batch inward qty or null
     public long? InwardRatePaisa { get; init; }        // per-batch inward rate in paisa or null
+}
+
+/// <summary>
+/// A first-class <b>Bill of Materials</b> master (Phase 6 Cluster 2; RQ-9, DP-3), mirroring the domain
+/// <c>BillOfMaterials</c> and the SQLite <c>bill_of_materials</c> + <c>bom_lines</c> rows. It is a named recipe
+/// for a finished-good <see cref="StockItemId"/> (the BOM name is unique <b>within its item</b>), with a
+/// <see cref="UnitOfManufacture"/> block size the line quantities are stated against, and an ordered set of
+/// component/output <see cref="Lines"/>. Quantities are exact decimals (6-dp), carve-out money is integer paisa.
+/// </summary>
+public sealed record BillOfMaterialsDto
+{
+    public required Guid Id { get; init; }
+    public required Guid StockItemId { get; init; }        // the finished good
+    public required string Name { get; init; }             // unique within the item (case-insensitive)
+    public decimal UnitOfManufacture { get; init; }        // block size the line quantities are stated per (> 0)
+    public IReadOnlyList<BomLineDto> Lines { get; init; } = [];
+}
+
+/// <summary>
+/// One line of a <see cref="BillOfMaterialsDto"/> (Phase 6 Cluster 2; RQ-9, DP-3): a consumed Component or a
+/// carved-out By-Product/Co-Product/Scrap output. <see cref="QuantityPerBlock"/> is stated per unit-of-manufacture
+/// block. A carve-out line may carry a value basis — an explicit per-unit <see cref="RatePaisa"/> (integer paisa)
+/// OR a <see cref="PercentOfFinishedGoodCost"/> (exact decimal percent). Both <c>null</c> ⇒ default to the item's
+/// standard cost. A Component line never carries either (its cost comes from valuation at manufacture time).
+/// </summary>
+public sealed record BomLineDto
+{
+    public required string LineType { get; init; }         // BomLineType name (Component/ByProduct/CoProduct/Scrap)
+    public required Guid ComponentStockItemId { get; init; }
+    public Guid? GodownId { get; init; }                    // consumption/output location, null = resolve at posting
+    public decimal QuantityPerBlock { get; init; }         // per-block quantity (> 0), exact 6-dp
+    public long? RatePaisa { get; init; }                  // carve-out per-unit rate in paisa (DP-3), or null
+    public decimal? PercentOfFinishedGoodCost { get; init; } // carve-out % of FG cost (DP-3), or null
 }
 
 public sealed record StockOpeningBalanceDto

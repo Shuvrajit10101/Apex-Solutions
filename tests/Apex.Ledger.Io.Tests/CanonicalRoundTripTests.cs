@@ -418,6 +418,154 @@ public class CanonicalRoundTripTests
         Assert.Equal("PRE-1", target.BatchMasters[0].BatchNumber);
     }
 
+    // ------------------------------------------------------------------ BOM + Manufacturing Journal (Phase 6 slice 2)
+
+    [Fact]
+    public void Json_round_trips_bom_masters_and_manufacturing_journal()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var (model, errors) = CanonicalJson.Parse(CanonicalJson.Export(company));
+        Assert.Empty(errors);
+        AssertBom(model!, company);
+    }
+
+    [Fact]
+    public void Xml_round_trips_bom_masters_and_manufacturing_journal()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var (model, errors) = CanonicalXml.Parse(CanonicalXml.Export(company));
+        Assert.Empty(errors);
+        AssertBom(model!, company);
+    }
+
+    [Fact]
+    public void Bom_company_export_import_into_fresh_company_reconciles_json_and_xml()
+    {
+        // PR-4 gate extended to BOMs + Manufacturing Journals: export a company carrying a multi-line BOM (with a
+        // by-product/scrap carve-out line) and a posted Manufacturing Journal to JSON AND XML, import EACH into a
+        // fresh (differently-Guid'd) company through the engine-routed CompanyImportService, and assert every BOM +
+        // line count is EQUAL source == target and every stock/valuation figure reconciles to the paisa.
+        var source = CanonicalFixture.BuildBright();
+
+        foreach (var bytes in new[] { CanonicalJson.Export(source), CanonicalXml.Export(source) })
+        {
+            var (model, errors) = bytes[0] == (byte)'{' ? CanonicalJson.Parse(bytes) : CanonicalXml.Parse(bytes);
+            Assert.Empty(errors);
+
+            var fresh = FreshTarget();
+            var result = new CompanyImportService(fresh).Apply(model!);
+            Assert.True(result.Applied, string.Join("; ", result.Errors));
+
+            AssertBomReconcilesAcrossCompanies(source, fresh);
+        }
+    }
+
+    [Fact]
+    public void Batch_tracked_manufacture_round_trips_lossless_json_and_xml()
+    {
+        // A10 gap: no existing round-trip exercised a manufacture that CONSUMES a batch-tracked component (the old
+        // aggregate label-less consumption path). Build a small company where the component is maintained in
+        // batches, manufacture drawing FIFO across two lots (each valued at its own rate, DP-8), export to JSON AND
+        // XML, import EACH into a fresh company, and assert the batch on-hand + FG value reconcile to the paisa.
+        var source = BuildBatchManufactureCompany();
+        var asOf = new DateOnly(2021, 4, 30);
+
+        // Baseline (source): 150 A consumed spans B1 (100 @ ₹10) + B2 (50 @ ₹20) = ₹2000 FG value.
+        var srcFg = source.FindStockItemByName("Batched Gadget")!;
+        var srcComp = source.FindStockItemByName("Batched Part")!;
+        var srcGodown = source.MainLocation!.Id;
+        Assert.Equal(Money.FromRupees(2000m),
+            new Apex.Ledger.Services.StockValuationService(source).ClosingValue(srcFg.Id, asOf).Value);
+        Assert.Equal(0m, new Apex.Ledger.Services.InventoryLedger(source).OnHand(srcComp.Id, srcGodown, "B1", asOf));
+        Assert.Equal(50m, new Apex.Ledger.Services.InventoryLedger(source).OnHand(srcComp.Id, srcGodown, "B2", asOf));
+
+        foreach (var bytes in new[] { CanonicalJson.Export(source), CanonicalXml.Export(source) })
+        {
+            var (model, errors) = bytes[0] == (byte)'{' ? CanonicalJson.Parse(bytes) : CanonicalXml.Parse(bytes);
+            Assert.Empty(errors);
+
+            var fresh = FreshTarget();
+            var result = new CompanyImportService(fresh).Apply(model!);
+            Assert.True(result.Applied, string.Join("; ", result.Errors));
+
+            var tgtFg = fresh.FindStockItemByName("Batched Gadget")!;
+            var tgtComp = fresh.FindStockItemByName("Batched Part")!;
+            var tgtGodown = fresh.MainLocation!.Id;
+            var onHand = new Apex.Ledger.Services.InventoryLedger(fresh);
+
+            // The per-batch draw-down survived: B1 fully consumed, B2 half consumed (the outward carried its label).
+            Assert.Equal(0m, onHand.OnHand(tgtComp.Id, tgtGodown, "B1", asOf));
+            Assert.Equal(50m, onHand.OnHand(tgtComp.Id, tgtGodown, "B2", asOf));
+            // The finished-good value reconciles to the paisa, valuing each lot at its own inward rate (DP-8).
+            Assert.Equal(Money.FromRupees(2000m),
+                new Apex.Ledger.Services.StockValuationService(fresh).ClosingValue(tgtFg.Id, asOf).Value);
+        }
+    }
+
+    /// <summary>A minimal company whose manufacture consumes a batch-tracked component across two FIFO lots.</summary>
+    private static Company BuildBatchManufactureCompany()
+    {
+        var company = CompanyFactory.CreateSeeded("Batch Mfg Co", new DateOnly(2021, 4, 1), new DateOnly(2021, 4, 1));
+        var inv = new Apex.Ledger.Services.InventoryService(company);
+        var sg = inv.CreateStockGroup("Goods");
+        var nos = inv.CreateSimpleUnit("Nos", "Numbers");
+        var godown = company.MainLocation!.Id;
+
+        var fg = inv.CreateStockItem("Batched Gadget", sg.Id, nos.Id);
+        var comp = inv.CreateStockItem("Batched Part", sg.Id, nos.Id);
+        comp.MaintainInBatches = true; // batch-tracked, expiry off ⇒ FIFO-by-inward (DP-1)
+
+        var posting = new Apex.Ledger.Services.InventoryPostingService(company);
+        var receiptType = company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.ReceiptNote).Id;
+        posting.Post(new InventoryVoucher(Guid.NewGuid(), receiptType, new DateOnly(2021, 4, 5),
+            new[] { new InventoryAllocation(comp.Id, godown, 100m, StockDirection.Inward, Money.FromRupees(10m), "B1") }));
+        posting.Post(new InventoryVoucher(Guid.NewGuid(), receiptType, new DateOnly(2021, 4, 8),
+            new[] { new InventoryAllocation(comp.Id, godown, 100m, StockDirection.Inward, Money.FromRupees(20m), "B2") }));
+
+        var bom = new BomService(company).CreateBom(fg.Id, "Std", unitOfManufacture: 1m,
+            new[] { new BomLine(BomLineType.Component, comp.Id, quantityPerBlock: 150m) });
+        var mfg = new ManufacturingJournalService(company);
+        var mfgType = mfg.CreateManufacturingJournalType("Manufacturing Journal");
+        mfg.Manufacture(mfgType.Id, bom.Id, quantity: 1m, date: new DateOnly(2021, 4, 15),
+            consumptionGodownId: godown, productionGodownId: godown);
+        return company;
+    }
+
+    [Fact]
+    public void Corrupted_bom_import_is_rejected_and_leaves_pre_existing_data_unchanged()
+    {
+        // A BOM export corrupted at the wire (a BOM references a finished-good stock item that is neither imported
+        // nor present) must be rejected (Applied=false) with the target byte-for-byte unchanged.
+        var source = CanonicalFixture.BuildBright();
+        var (parsed, errors) = CanonicalJson.Parse(CanonicalJson.Export(source));
+        Assert.Empty(errors);
+
+        // Corrupt exactly one BOM's finished-good stock-item reference to a random, absent id (a genuine dangling
+        // ref — not a wholesale rename, which would stay internally consistent). The document is still well-formed.
+        var badBoms = parsed!.Payload.BillsOfMaterials
+            .Select((b, ix) => ix == 0 ? b with { StockItemId = Guid.NewGuid() } : b).ToList();
+        var model = parsed with { Payload = parsed.Payload with { BillsOfMaterials = badBoms } };
+
+        var target = FreshTarget();
+        // Pre-seed the target with a BOM so we can prove it survives an aborted import.
+        var inv = new Apex.Ledger.Services.InventoryService(target);
+        var sg = inv.CreateStockGroup("Existing");
+        var nos = inv.CreateSimpleUnit("Nos", "Numbers");
+        var existingFg = inv.CreateStockItem("Existing Gadget", sg.Id, nos.Id);
+        var existingComp = inv.CreateStockItem("Existing Comp", sg.Id, nos.Id);
+        new Apex.Ledger.Services.BomService(target).CreateBom(existingFg.Id, "PRE", unitOfManufacture: 1m,
+            new[] { new BomLine(BomLineType.Component, existingComp.Id, quantityPerBlock: 2m) });
+        var before = Encoding.UTF8.GetString(CanonicalJson.Export(target));
+
+        var result = new CompanyImportService(target).Apply(model);
+        Assert.False(result.Applied);
+
+        var after = Encoding.UTF8.GetString(CanonicalJson.Export(target));
+        Assert.Equal(before, after); // byte-for-byte unchanged: the pre-existing BOM is intact
+        Assert.Single(target.BillsOfMaterials);
+        Assert.Equal("PRE", target.BillsOfMaterials[0].Name);
+    }
+
     // ------------------------------------------------------------------ XXE safety (XML only)
 
     [Fact]
@@ -623,6 +771,132 @@ public class CanonicalRoundTripTests
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------ BOM assertions
+
+    /// <summary>The multi-line BOM master + its item's Set-Components flag + the Manufacturing-Journal voucher type
+    /// survive the projection with every field intact (RQ-9..RQ-13, DP-3).</summary>
+    private static void AssertBom(CanonicalModel model, Company company)
+    {
+        var fg = company.FindStockItemByName("Assembled Gadget")!;
+        var fgDto = model.Payload.StockItems.Single(x => x.Id == fg.Id);
+        Assert.True(fgDto.SetComponents); // RQ-10: an item with a BOM is a manufactured item
+
+        // Exactly the one BOM we created, matched by id, with all four lines and their types/values.
+        Assert.Equal(company.BillsOfMaterials.Count, model.Payload.BillsOfMaterials.Count);
+        var srcBom = company.BomsFor(fg.Id).Single();
+        var bomDto = model.Payload.BillsOfMaterials.Single(x => x.Id == srcBom.Id);
+        Assert.Equal(fg.Id, bomDto.StockItemId);
+        Assert.Equal("Standard", bomDto.Name);
+        Assert.Equal(10m, bomDto.UnitOfManufacture);
+        Assert.Equal(4, bomDto.Lines.Count);
+
+        var compA = company.FindStockItemByName("Raw Part A")!;
+        var aLine = bomDto.Lines.Single(l => l.ComponentStockItemId == compA.Id);
+        Assert.Equal("Component", aLine.LineType);
+        Assert.Equal(2m, aLine.QuantityPerBlock);
+        Assert.Equal(company.MainLocation!.Id, aLine.GodownId);
+        Assert.Null(aLine.RatePaisa);
+        Assert.Null(aLine.PercentOfFinishedGoodCost);
+
+        var compB = company.FindStockItemByName("Raw Part B")!;
+        var bLine = bomDto.Lines.Single(l => l.ComponentStockItemId == compB.Id);
+        Assert.Equal("Component", bLine.LineType);
+        Assert.Equal(3m, bLine.QuantityPerBlock);
+        Assert.Null(bLine.GodownId); // BOM line godown = resolve-at-posting
+
+        var scrap = company.FindStockItemByName("Metal Scrap")!;
+        var scrapLine = bomDto.Lines.Single(l => l.ComponentStockItemId == scrap.Id);
+        Assert.Equal("Scrap", scrapLine.LineType);
+        Assert.Equal(1m, scrapLine.QuantityPerBlock);
+        Assert.Equal(MoneyCodec.ToPaisa(Money.FromRupees(2m)), scrapLine.RatePaisa); // DP-3 explicit rate basis
+        Assert.Null(scrapLine.PercentOfFinishedGoodCost);
+
+        var co = company.FindStockItemByName("Side Product")!;
+        var coLine = bomDto.Lines.Single(l => l.ComponentStockItemId == co.Id);
+        Assert.Equal("CoProduct", coLine.LineType);
+        Assert.Null(coLine.RatePaisa);
+        Assert.Equal(5m, coLine.PercentOfFinishedGoodCost); // DP-3 percent basis
+
+        // The Manufacturing-Journal voucher type round-trips its flag (RQ-11).
+        var mfgType = company.VoucherTypes.Single(t => t.IsManufacturingJournal);
+        var mfgTypeDto = model.Payload.VoucherTypes.Single(x => x.Id == mfgType.Id);
+        Assert.True(mfgTypeDto.UseAsManufacturingJournal);
+        Assert.Equal("StockJournal", mfgTypeDto.BaseType);
+
+        // The posted Manufacturing Journal is a Stock-Journal inventory voucher (source + destination allocations).
+        var mfgVoucher = company.InventoryVouchers.Single(v => v.TypeId == mfgType.Id);
+        var mfgDto = model.Payload.InventoryVouchers.Single(x => x.Id == mfgVoucher.Id);
+        Assert.NotEmpty(mfgDto.Allocations);            // components consumed (source, outward)
+        Assert.NotEmpty(mfgDto.DestinationAllocations); // FG + carve-outs produced (destination, inward)
+    }
+
+    /// <summary>
+    /// After an export → import into a fresh company (by name, differently-Guid'd), the BOM masters reconcile
+    /// count-for-count and line-for-line, the finished-good Set-Components flag and Manufacturing-Journal type flag
+    /// survive, and the manufactured finished-good stock value reconciles to the paisa — matched by names.
+    /// </summary>
+    private static void AssertBomReconcilesAcrossCompanies(Company source, Company target)
+    {
+        Assert.Equal(source.BillsOfMaterials.Count, target.BillsOfMaterials.Count);
+
+        foreach (var srcBom in source.BillsOfMaterials)
+        {
+            var srcFg = source.FindStockItem(srcBom.StockItemId)!;
+            var tgtFg = target.FindStockItemByName(srcFg.Name)!;
+            Assert.True(tgtFg.SetComponents); // RQ-10 survived
+
+            var tgtBom = target.FindBomByName(tgtFg.Id, srcBom.Name)!;
+            Assert.Equal(srcBom.UnitOfManufacture, tgtBom.UnitOfManufacture);
+            Assert.Equal(srcBom.Lines.Count, tgtBom.Lines.Count);
+
+            foreach (var sl in srcBom.Lines)
+            {
+                var srcComp = source.FindStockItem(sl.ComponentStockItemId)!;
+                var tgtComp = target.FindStockItemByName(srcComp.Name)!;
+                var tl = tgtBom.Lines.Single(l => l.ComponentStockItemId == tgtComp.Id);
+                Assert.Equal(sl.LineType, tl.LineType);
+                Assert.Equal(sl.QuantityPerBlock, tl.QuantityPerBlock);
+                Assert.Equal(sl.Rate, tl.Rate);                              // paisa-exact carve-out rate
+                Assert.Equal(sl.PercentOfFinishedGoodCost, tl.PercentOfFinishedGoodCost);
+                // A pinned BOM-line godown resolves by name across companies.
+                if (sl.GodownId is { } sgId)
+                    Assert.Equal(target.FindGodownByName(source.FindGodown(sgId)!.Name)!.Id, tl.GodownId);
+                else
+                    Assert.Null(tl.GodownId);
+            }
+        }
+
+        // The Manufacturing-Journal voucher type + its posted manufacture survived, and the finished-good closing
+        // stock value reconciles to the paisa (PR-4) — same value under both companies' valuation engines.
+        var srcMfgType = source.VoucherTypes.Single(t => t.IsManufacturingJournal);
+        var tgtMfgType = target.FindVoucherTypeByName(srcMfgType.Name)!;
+        Assert.True(tgtMfgType.IsManufacturingJournal);
+
+        foreach (var srcFg2 in source.StockItems.Where(i => source.BomsFor(i.Id).Any()))
+        {
+            var tgtFg2 = target.FindStockItemByName(srcFg2.Name)!;
+            var srcVal = new Apex.Ledger.Services.StockValuationService(source)
+                .ClosingValue(srcFg2.Id, new DateOnly(2021, 4, 30));
+            var tgtVal = new Apex.Ledger.Services.StockValuationService(target)
+                .ClosingValue(tgtFg2.Id, new DateOnly(2021, 4, 30));
+            Assert.Equal(srcVal.Quantity, tgtVal.Quantity);
+            Assert.Equal(srcVal.Value, tgtVal.Value); // paisa-exact finished-good stock value
+        }
+
+        // Conservation to the paisa (A10 finding #2): the fixture manufactures a finished good whose value ₹157.50
+        // does NOT divide evenly across 20 units (₹7.875/unit) — the exact case the old single-rounded-rate line
+        // shorted by 10 paisa. Pin the conserved value so the round-trip proves a NON-dividing manufacture survives
+        // to the paisa in BOTH companies (not merely source == target). Components ₹70 + labour ₹100 − carve-outs
+        // ₹12.50 (scrap ₹4 + co-product 5% of ₹170 = ₹8.50) = ₹157.50.
+        var srcGadget = source.FindStockItemByName("Assembled Gadget")!;
+        var tgtGadget = target.FindStockItemByName("Assembled Gadget")!;
+        var asOf = new DateOnly(2021, 4, 30);
+        Assert.Equal(Money.FromRupees(157.50m),
+            new Apex.Ledger.Services.StockValuationService(source).ClosingValue(srcGadget.Id, asOf).Value);
+        Assert.Equal(Money.FromRupees(157.50m),
+            new Apex.Ledger.Services.StockValuationService(target).ClosingValue(tgtGadget.Id, asOf).Value);
     }
 
     private static Company FreshTarget() =>

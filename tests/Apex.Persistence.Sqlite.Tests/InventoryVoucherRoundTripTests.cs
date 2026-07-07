@@ -266,6 +266,13 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS saved_views;");
         // Drop the v15 smtp_profile table so the reopen's v14→v15 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS smtp_profile;");
+        // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_bom_item_name;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_bom_item;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_bom_company;");
+        Exec(conn, "DROP TABLE IF EXISTS bom_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS bill_of_materials;");
         // Drop the v16 batch_masters table + its indexes so the reopen's v15→v16 CREATE TABLE does not collide.
         // (inventory_allocations / physical_stock_lines / voucher_inventory_lines are dropped above and recreated
         // fresh by the v10/v12 migrations WITHOUT batch_id, so the v16 ADD-COLUMN steps re-apply cleanly.)

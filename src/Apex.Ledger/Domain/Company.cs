@@ -25,6 +25,7 @@ public sealed class Company
     private readonly List<StockOpeningBalance> _stockOpeningBalances = new();
     private readonly List<InventoryVoucher> _inventoryVouchers = new();
     private readonly List<BatchMaster> _batchMasters = new();
+    private readonly List<BillOfMaterials> _billsOfMaterials = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -159,6 +160,9 @@ public sealed class Company
     /// <summary>Batch / lot masters (catalog §11 Cluster 1; Phase 6 RQ-1): per stock item, per-item-unique.</summary>
     public IReadOnlyList<BatchMaster> BatchMasters => _batchMasters;
 
+    /// <summary>Bills of Materials (catalog §11 Cluster 2; Phase 6 RQ-9): manufacturing recipes, per finished good.</summary>
+    public IReadOnlyList<BillOfMaterials> BillsOfMaterials => _billsOfMaterials;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -213,6 +217,12 @@ public sealed class Company
 
     /// <summary>Removes a batch master (delete-guards live in <c>BatchService</c>; also used by import roll-back).</summary>
     public bool RemoveBatchMaster(BatchMaster batch) => _batchMasters.Remove(batch);
+
+    /// <summary>Adds a Bill of Materials (per-item-name-uniqueness guard lives in <c>BomService</c>).</summary>
+    public void AddBillOfMaterials(BillOfMaterials bom) => _billsOfMaterials.Add(bom ?? throw new ArgumentNullException(nameof(bom)));
+
+    /// <summary>Removes a Bill of Materials (delete-guards live in <c>BomService</c>; also used by import roll-back).</summary>
+    public bool RemoveBillOfMaterials(BillOfMaterials bom) => _billsOfMaterials.Remove(bom);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
@@ -299,6 +309,21 @@ public sealed class Company
     public BatchMaster? FindBatchByNumber(Guid stockItemId, string batchNumber) =>
         _batchMasters.FirstOrDefault(b => b.StockItemId == stockItemId &&
             string.Equals(b.BatchNumber, batchNumber?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a Bill of Materials by its id, or <c>null</c>.</summary>
+    public BillOfMaterials? FindBillOfMaterials(Guid id) => _billsOfMaterials.FirstOrDefault(b => b.Id == id);
+
+    /// <summary>All Bills of Materials that belong to a given finished-good stock item (RQ-9).</summary>
+    public IEnumerable<BillOfMaterials> BomsFor(Guid stockItemId) =>
+        _billsOfMaterials.Where(b => b.StockItemId == stockItemId);
+
+    /// <summary>
+    /// Finds a finished good's BOM by its name (case-insensitive), or <c>null</c>. BOM names are unique
+    /// <i>within</i> a finished good (RQ-9), so this resolves at most one BOM per item.
+    /// </summary>
+    public BillOfMaterials? FindBomByName(Guid stockItemId, string name) =>
+        _billsOfMaterials.FirstOrDefault(b => b.StockItemId == stockItemId &&
+            string.Equals(b.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote

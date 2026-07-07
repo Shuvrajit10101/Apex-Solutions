@@ -93,6 +93,11 @@ public static class CanonicalMapper
         BatchMasters = c.BatchMasters
             .OrderBy(b => b.StockItemId).ThenBy(b => b.BatchNumber, StringComparer.Ordinal).ThenBy(b => b.Id)
             .Select(MapBatchMaster).ToList(),
+        // Bill-of-Materials masters — ordered by (item id, name, id) so the stream is stable and human-legible.
+        // Line order within a BOM is preserved verbatim (it is load-bearing for the recipe).
+        BillsOfMaterials = c.BillsOfMaterials
+            .OrderBy(b => b.StockItemId).ThenBy(b => b.Name, StringComparer.Ordinal).ThenBy(b => b.Id)
+            .Select(MapBom).ToList(),
         StockOpeningBalances = c.StockOpeningBalances.OrderBy(b => b.Id).Select(MapStockOpeningBalance).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
@@ -189,6 +194,7 @@ public static class CanonicalMapper
         DefaultShortcut = t.DefaultShortcut, Abbreviation = t.Abbreviation,
         IsActive = t.IsActive, IsPredefined = t.IsPredefined,
         AffectsAccounts = t.AffectsAccounts, AffectsStock = t.AffectsStock,
+        UseAsManufacturingJournal = t.UseAsManufacturingJournal,
     };
 
     private static UnitDto MapUnit(Unit u) => new()
@@ -226,6 +232,7 @@ public static class CanonicalMapper
         MaintainInBatches = i.MaintainInBatches,
         TrackManufacturingDate = i.TrackManufacturingDate,
         UseExpiryDates = i.UseExpiryDates,
+        SetComponents = i.SetComponents,
     };
 
     private static BatchMasterDto MapBatchMaster(BatchMaster b) => new()
@@ -234,6 +241,21 @@ public static class CanonicalMapper
         ManufacturingDate = Iso(b.ManufacturingDate), ExpiryDate = Iso(b.ExpiryDate),
         ExpiryPeriod = b.ExpiryPeriod?.RawText, GodownId = b.GodownId,
         InwardQuantity = b.InwardQuantity, InwardRatePaisa = MoneyCodec.ToPaisa(b.InwardRate),
+    };
+
+    private static BillOfMaterialsDto MapBom(BillOfMaterials b) => new()
+    {
+        Id = b.Id, StockItemId = b.StockItemId, Name = b.Name, UnitOfManufacture = b.UnitOfManufacture,
+        // Line order is the recipe's own order — preserved verbatim (NOT reordered).
+        Lines = b.Lines.Select(MapBomLine).ToList(),
+    };
+
+    private static BomLineDto MapBomLine(BomLine l) => new()
+    {
+        LineType = l.LineType.ToString(), ComponentStockItemId = l.ComponentStockItemId, GodownId = l.GodownId,
+        QuantityPerBlock = l.QuantityPerBlock,
+        RatePaisa = l.Rate is { } r ? MoneyCodec.ToPaisa(r) : null,
+        PercentOfFinishedGoodCost = l.PercentOfFinishedGoodCost,
     };
 
     private static StockOpeningBalanceDto MapStockOpeningBalance(StockOpeningBalance b) => new()
