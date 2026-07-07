@@ -718,6 +718,49 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   (b) docs `docs(memory): Phase 6 slice 3 log`.
 - **Next:** Phase 6 slice 4 (Price Levels / Price Lists, per plan.md). [A5]
 
+### Phase 6 slice 4 — Zero-valued transactions + separate Actual-vs-Billed quantity (RQ-21..RQ-25; DP-7) ✅ (2026-07-07) — SQLite schema v19→v20
+- **What was built:** two related item-invoice fidelity features (Book pp.142–147; catalog §11).
+  **(1) Zero-valued transactions** — a per-type **`VoucherType.AllowZeroValuedTransactions`** flag (Sales/Purchase
+  only). When on, a ₹0 free-goods item line (Rate/Value = ₹0) is accepted: it moves stock (Actual qty) but posts ₹0
+  to accounts and ₹0 to GST. `VoucherInventoryLine` no longer unconditionally forbids a zero rate (rejects only a
+  **negative** rate now); `VoucherValidator` decides permission against the flag and additionally rejects the flag on
+  any non-Purchase/Sales base type (a Journal/Stock-Journal can never carry it).
+  **(2) Separate Actual & Billed quantity** — a company F11 toggle **`Company.UseSeparateActualBilledQuantity`**
+  (a pure persisted user toggle — DP-7, cannot be inferred). New **`VoucherInventoryLine.BilledQuantity`** (defaults
+  to `Quantity`/Actual ⇒ feature-off byte-identical, ER-13). **Actual** drives on-hand stock; **Billed** drives
+  accounts+GST value. `Value` now = **Billed × Rate** (NOT Actual × Rate) — a zero-valued line contributes ₹0; a
+  short-billed line (recv 60/bill 50) posts less; Billed **>** Actual is allowed (RQ-25) — no ordering constraint.
+- **Valuation bridge (ER-4):** new `VoucherInventoryLine.StockValuationUnitRate = Value ÷ Quantity` (billed value
+  spread over Actual units). `ItemInvoiceStock` moves stock by **Actual** qty and, when Billed ≠ Actual (incl. zero-
+  valued Billed 0), overrides the inward valuation rate with this so free/short-billed goods drag the moving average
+  down (RQ-24) and closing stock reconciles to the billed value to the paisa. Composes correctly with slice-3
+  additional-cost landed rate (landed load wins; else A/B split; else null ⇒ bare rate, byte-identical).
+- **Schema v19→v20 (`MigrateV19ToV20`):** purely additive — `companies.use_separate_actual_billed_qty` (0/1 dflt 0)
+  + `voucher_types.allow_zero_valued` (0/1 dflt 0) + four nullable Actual/Billed qty columns, two on each stock-line
+  table (`voucher_inventory_lines` + `inventory_allocations`): `actual_qty_micro` / `billed_qty_micro` (NULL ⇒ Billed
+  ≡ Actual ⇒ feature-off round-trips byte-identically). `rate_paisa` doc relaxed to allow 0 for a zero-valued line.
+  No row-rewriting ALTER, no data loss (ER-13). New tests: `ActualBilledZeroValuedTests` (engine),
+  `ActualBilledSchemaTests` (schema/round-trip), `ActualBilledVoucherEntryViewModelTests` (UI); existing item-invoice
+  + additional-cost/BOM schema tests updated for the new columns.
+- **UI:** `InventoryVoucherLineViewModel` + `VoucherEntryViewModel` gain the Actual/Billed columns (shown only when
+  the company toggle is on; Miller-column cascade, keyboard-first) and the zero-valued-rate path; `MainWindow.axaml`
+  wired for the extra columns.
+- **PR-6 worked example (locked by test):** Purchase item-invoice, "Use separate Actual & Billed" on — receive 60
+  units, bill 50 @ ₹100 ⇒ stock on-hand +60, accounts/purchase leg = ₹5,000 (50×100), stock valuation inward rate =
+  5000÷60 = ₹83.333… (exact decimal; snaps to paisa only on aggregation), pairing invariant balances ₹5,000 vs
+  ₹5,000. Separately, a zero-valued line (10 units @ ₹0 on a zero-valued-enabled Sales type) ⇒ +10 stock moved, ₹0
+  posted, moving average dragged down (RQ-24); the same ₹0 line on a normal type is rejected.
+- **A10 adversarial review:** confirmed the surgical ER-7 relaxation is scoped to zero-valued-enabled types only
+  (a normal invoice still rejects a fat-finger ₹0 line, a positive-value line is untouched) and the A/B split
+  survives `WithDirection` stamping (which runs before validation/valuation). No new critical bugs unfixed at gate.
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1130 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 134 · Ledger 503 · Sqlite 78 · Desktop 415). **Schema v20.** Robert & Bright green (ER-13). No
+  scratch/probe/ZZ/temp files staged — clean Slice-4 set (engine + schema + UI + tests, incl. 3 new test files).
+- **Committed & pushed by A12 (R4):** two commits — (a) code+tests
+  `feat(inventory): Phase 6 slice 4 — zero-valued transactions + separate Actual/Billed quantity, SQLite schema v20`;
+  (b) docs `docs(memory): Phase 6 slice 4 log`.
+- **Next:** Phase 6 slice 5 (Price Levels / Price Lists, per plan.md). [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
