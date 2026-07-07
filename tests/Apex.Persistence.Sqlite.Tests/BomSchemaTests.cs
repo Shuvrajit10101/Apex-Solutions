@@ -287,5 +287,15 @@ public sealed class BomSchemaTests
             stock_item_id TEXT NOT NULL REFERENCES stock_items(id), batch_no TEXT NOT NULL, mfg_date TEXT NULL,
             expiry_date TEXT NULL, expiry_period TEXT NULL, godown_id TEXT NULL REFERENCES godowns(id),
             inward_qty_micro INTEGER NULL, inward_rate_paisa INTEGER NULL);
+        CREATE TABLE inventory_vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
+            type_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, date TEXT NOT NULL DEFAULT '2026-01-01');
+        CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL, role INTEGER NOT NULL,
+            stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL, unit_id TEXT NULL, quantity_micro INTEGER NOT NULL,
+            direction INTEGER NOT NULL, rate_paisa INTEGER NULL, batch_label TEXT NULL, batch_id TEXT NULL);
+        CREATE TABLE voucher_inventory_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL, stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL,
+            quantity_micro INTEGER NOT NULL, direction INTEGER NOT NULL, rate_paisa INTEGER NOT NULL,
+            batch_label TEXT NULL, batch_id TEXT NULL);
         """;
 }

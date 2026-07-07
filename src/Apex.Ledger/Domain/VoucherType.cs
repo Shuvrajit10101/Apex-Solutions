@@ -73,6 +73,18 @@ public sealed class VoucherType
     /// </summary>
     public bool TrackAdditionalCosts { get; set; }
 
+    /// <summary>
+    /// "<b>Allow zero-valued transactions</b>" (Book pp.142–143; catalog §11; Phase 6 slice 4 RQ-21). A
+    /// voucher-type flag (set per Sales and per Purchase type separately): when <b>Yes</b>, an item line entered
+    /// as <i>free</i> — <see cref="VoucherInventoryLine.Rate"/> / <see cref="VoucherInventoryLine.Value"/> = ₹0 —
+    /// is accepted, so the entry moves stock (Actual qty) but posts ₹0 to the accounting books and ₹0 to GST.
+    /// Defaults to <c>false</c>, so a normal Sales/Purchase still rejects a fat-finger ₹0 line (ER-13). Only valid
+    /// on a Purchase or Sales base type — <c>VoucherValidator</c> rejects it on any other base (a Journal /
+    /// Stock-Journal can never carry it, RQ-21). A rate-less Stock-Journal transfer is an ordinary transfer, NOT
+    /// this feature.
+    /// </summary>
+    public bool AllowZeroValuedTransactions { get; set; }
+
     public VoucherType(
         Guid id,
         string name,
@@ -85,7 +97,8 @@ public sealed class VoucherType
         bool? affectsAccounts = null,
         bool? affectsStock = null,
         bool useAsManufacturingJournal = false,
-        bool trackAdditionalCosts = false)
+        bool trackAdditionalCosts = false,
+        bool allowZeroValuedTransactions = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -102,5 +115,6 @@ public sealed class VoucherType
         AffectsStock = affectsStock ?? VoucherEffects.AffectsStock(baseType);
         UseAsManufacturingJournal = useAsManufacturingJournal;
         TrackAdditionalCosts = trackAdditionalCosts;
+        AllowZeroValuedTransactions = allowZeroValuedTransactions;
     }
 }

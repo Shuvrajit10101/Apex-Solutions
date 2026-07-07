@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 19;
+    public const int CurrentVersion = 20;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -106,7 +106,10 @@ public static class Schema
             gst_home_state       TEXT        NULL,             -- 2-digit GST state code
             gst_reg_type         INTEGER     NULL,             -- GstRegistrationType enum ordinal
             gst_applicable_from  TEXT        NULL,             -- ISO yyyy-MM-dd, or NULL
-            gst_periodicity      INTEGER     NULL              -- GstReturnPeriodicity enum ordinal
+            gst_periodicity      INTEGER     NULL,             -- GstReturnPeriodicity enum ordinal
+            -- v20 (Phase 6 slice 4; RQ-22; DP-7): F11 "Use separate Actual & Billed Quantity columns" — a pure
+            -- persisted toggle (cannot be inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
+            use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0   -- 0/1
         );
 
         CREATE TABLE gst_rate_slabs (
@@ -214,7 +217,10 @@ public static class Schema
             use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0,   -- 0/1
             -- v19 (Phase 6 slice 3; RQ-16..RQ-20): "Track Additional Costs for Purchases" — a Purchase voucher-type
             -- flag enabling the additional-cost apportionment path. 0/1, default 0 so an existing type is unchanged (ER-13).
-            track_additional_costs INTEGER NOT NULL DEFAULT 0          -- 0/1
+            track_additional_costs INTEGER NOT NULL DEFAULT 0,        -- 0/1
+            -- v20 (Phase 6 slice 4; RQ-21): "Allow zero-valued transactions" — a Sales/Purchase voucher-type flag
+            -- permitting ₹0 free-goods item lines. 0/1, default 0 so an existing type is byte-identical (ER-13).
+            allow_zero_valued INTEGER NOT NULL DEFAULT 0              -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -435,12 +441,17 @@ public static class Schema
             stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
             godown_id         TEXT    NOT NULL REFERENCES godowns(id),
             unit_id           TEXT        NULL REFERENCES units(id),   -- line's unit; NULL = item base unit
-            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
+            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0) — the Actual (stock) quantity
             direction         INTEGER NOT NULL,               -- StockDirection ordinal (Inward=0, Outward=1)
             rate_paisa        INTEGER     NULL,               -- optional per-unit rate in paisa
             batch_label       TEXT        NULL,
             -- v16 (RQ-1/RQ-3): optional first-class batch this movement allocates to; NULL for non-batch lines.
-            batch_id          TEXT        NULL REFERENCES batch_masters(id)
+            batch_id          TEXT        NULL REFERENCES batch_masters(id),
+            -- v20 (Phase 6 slice 4; RQ-22; DP-7): the Actual/Billed split, symmetric with voucher_inventory_lines.
+            -- NULL ⇒ "not split": actual defaults to quantity_micro, billed defaults to actual. In practice these stay
+            -- NULL on the pure-stock table (A/B is Sales/Purchase-only, on voucher_inventory_lines); kept for symmetry.
+            actual_qty_micro  INTEGER     NULL,               -- Actual qty × 1,000,000, or NULL = quantity_micro
+            billed_qty_micro  INTEGER     NULL                -- Billed qty × 1,000,000, or NULL = actual
         );
 
         CREATE TABLE order_lines (
@@ -472,12 +483,18 @@ public static class Schema
             line_order        INTEGER NOT NULL,               -- preserves order within the voucher
             stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
             godown_id         TEXT    NOT NULL REFERENCES godowns(id),
-            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0)
+            quantity_micro    INTEGER NOT NULL,               -- qty × 1,000,000 (> 0) — the Actual (stock) quantity
             direction         INTEGER NOT NULL,               -- StockDirection ordinal (Inward=0, Outward=1)
-            rate_paisa        INTEGER NOT NULL,               -- per-unit rate in paisa (item-invoice always rated)
+            rate_paisa        INTEGER NOT NULL,               -- per-unit rate in paisa (0 for a zero-valued free line)
             batch_label       TEXT        NULL,
             -- v16 (RQ-1/RQ-3): optional first-class batch this item-invoice line allocates to; NULL for non-batch.
-            batch_id          TEXT        NULL REFERENCES batch_masters(id)
+            batch_id          TEXT        NULL REFERENCES batch_masters(id),
+            -- v20 (Phase 6 slice 4; RQ-22/RQ-23; DP-7): the Actual/Billed split. quantity_micro REMAINS the Actual
+            -- (stock) quantity — every existing reader is unchanged. actual_qty_micro mirrors it (written only when
+            -- the split is active, else NULL) and billed_qty_micro carries Billed only when it differs from Actual
+            -- (else NULL). NULL ⇒ Billed ≡ Actual, so a feature-off line round-trips byte-identically (ER-13).
+            actual_qty_micro  INTEGER     NULL,               -- Actual qty × 1,000,000, or NULL = quantity_micro
+            billed_qty_micro  INTEGER     NULL                -- Billed qty × 1,000,000, or NULL = actual
         );
 
         -- v19 (Phase 6 slice 3; RQ-20): additional-cost lines on a Stock-Journal TRANSFER inventory voucher. Each
@@ -1222,5 +1239,26 @@ public static class Schema
         );
 
         CREATE INDEX ix_additional_cost_lines_voucher ON additional_cost_lines(inventory_voucher_id);
+        """;
+
+    /// <summary>
+    /// v19 → v20: <b>Zero-valued transactions &amp; separate Actual-vs-Billed quantity</b> (Phase 6 slice 4;
+    /// RQ-21..RQ-25; ER-1, ER-13; DP-7). Purely additive — four nullable Actual/Billed qty columns (two on each
+    /// stock-line table, <c>voucher_inventory_lines</c> + <c>inventory_allocations</c>) plus one
+    /// <c>DEFAULT 0</c> flag column on <c>companies</c> (F11 "Use separate Actual &amp; Billed Quantity") and one
+    /// on <c>voucher_types</c> ("Allow zero-valued transactions"). No <c>ALTER</c> that rewrites rows, no data
+    /// loss: existing v19 rows keep every value, the two flags default OFF and the four qty columns default NULL,
+    /// so <c>quantity_micro</c> remains the Actual (stock) quantity and Billed ≡ Actual — non-A/B, non-zero-valued
+    /// data behaves byte-identically (ER-13). Run inside a transaction that also bumps <c>schema_version</c> to 20.
+    /// A fresh DB is stamped straight to v20 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV19ToV20 = """
+        ALTER TABLE voucher_inventory_lines ADD COLUMN actual_qty_micro INTEGER NULL;
+        ALTER TABLE voucher_inventory_lines ADD COLUMN billed_qty_micro INTEGER NULL;
+        ALTER TABLE inventory_allocations   ADD COLUMN actual_qty_micro INTEGER NULL;
+        ALTER TABLE inventory_allocations   ADD COLUMN billed_qty_micro INTEGER NULL;
+
+        ALTER TABLE companies     ADD COLUMN use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN allow_zero_valued              INTEGER NOT NULL DEFAULT 0;
         """;
 }

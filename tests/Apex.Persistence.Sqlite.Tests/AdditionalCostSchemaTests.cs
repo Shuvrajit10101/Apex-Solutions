@@ -207,7 +207,10 @@ public sealed class AdditionalCostSchemaTests
     /// <c>voucher_types</c> + <c>ledgers</c> and CREATEs <c>additional_cost_lines</c> referencing
     /// <c>inventory_vouchers</c> + <c>ledgers</c>) plus a data-preservation assertion. The <c>voucher_types</c> and
     /// <c>ledgers</c> tables are shaped as at v18 (with the earlier additive columns, WITHOUT the v19 columns) so the
-    /// v18→v19 ALTERs apply cleanly. Kept in the test so it never drifts as the production schema advances.
+    /// v18→v19 ALTERs apply cleanly. It also carries <c>inventory_allocations</c> and
+    /// <c>voucher_inventory_lines</c> (both v20-relevant) so the later v19→v20 ALTERs (which add the Actual/Billed
+    /// qty columns to those two tables) have real targets when this legacy DB migrates forward to the current
+    /// version. Kept in the test so it never drifts as the production schema advances.
     /// </summary>
     private const string MinimalV18Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -221,5 +224,13 @@ public sealed class AdditionalCostSchemaTests
             use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE inventory_vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             type_id TEXT NOT NULL REFERENCES voucher_types(id), number INTEGER NOT NULL, date TEXT NOT NULL);
+        CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL, role INTEGER NOT NULL,
+            stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL, unit_id TEXT NULL, quantity_micro INTEGER NOT NULL,
+            direction INTEGER NOT NULL, rate_paisa INTEGER NULL, batch_label TEXT NULL, batch_id TEXT NULL);
+        CREATE TABLE voucher_inventory_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL, stock_item_id TEXT NOT NULL, godown_id TEXT NOT NULL,
+            quantity_micro INTEGER NOT NULL, direction INTEGER NOT NULL, rate_paisa INTEGER NOT NULL,
+            batch_label TEXT NULL, batch_id TEXT NULL);
         """;
 }

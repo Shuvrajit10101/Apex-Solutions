@@ -27,8 +27,18 @@ public static class VoucherValidator
         ArgumentNullException.ThrowIfNull(c);
 
         // §6.5 referential integrity: the voucher type must be known.
-        if (c.FindVoucherType(v.TypeId) is null)
+        var voucherType = c.FindVoucherType(v.TypeId);
+        if (voucherType is null)
             throw new InvalidVoucherException($"Unknown voucher type {v.TypeId}.");
+
+        // §11 zero-valued transactions (Phase 6 slice 4 RQ-21): "Allow zero-valued transactions" is a Sales/Purchase
+        // feature only. A Journal / Stock-Journal (or any other base) type must never carry it — reject at post time
+        // so the illegal configuration can never smuggle a ₹0 accounting entry onto a non-invoice voucher.
+        if (voucherType.AllowZeroValuedTransactions &&
+            voucherType.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales))
+            throw new InvalidVoucherException(
+                $"'Allow zero-valued transactions' is only valid on a Purchase or Sales voucher type; " +
+                $"'{voucherType.Name}' is a {voucherType.BaseType}.");
 
         // §6.2 at least two lines.
         if (v.Lines.Count < 2)
@@ -106,11 +116,14 @@ public static class VoucherValidator
                 throw new InvalidVoucherException(
                     $"Item-invoice line direction {line.Direction} does not match the '{type.Name}' nature " +
                     $"(expected {expectedDir}).");
-            // Defense in depth (the VoucherInventoryLine constructor already rejects a non-positive rate): every
-            // item line must carry a positive value, so no line can move stock with no accounting backing. A
-            // zero-value line would add real quantity but ₹0 to the value sum, slipping through the pairing
-            // check below while injecting unbacked stock (phantom on-hand / phantom profit).
-            if (line.Rate.Amount <= 0m || line.Value.Amount <= 0m)
+            // Zero-value guard (Phase 6 slice 4 RQ-21, ER-7 surgical relaxation). A zero-rate / zero-value line
+            // normally injects unbacked stock (phantom on-hand / phantom profit) that slips through the pairing
+            // check, so it stays rejected — UNLESS this Sales/Purchase type has "Allow zero-valued transactions"
+            // on, in which case a ₹0 free-goods line is a legitimate entry (it moves stock but posts ₹0, and the
+            // pairing invariant still balances ₹0 against ₹0). The relaxation is scoped to zero-valued-enabled
+            // types only; a normal invoice still rejects a fat-finger ₹0 line, and a positive-value line is never
+            // affected.
+            if (!type.AllowZeroValuedTransactions && (line.Rate.Amount <= 0m || line.Value.Amount <= 0m))
                 throw new InvalidVoucherException(
                     "Item-invoice line rate must be greater than zero (a zero-rate line would move stock with no " +
                     "accounting backing).");

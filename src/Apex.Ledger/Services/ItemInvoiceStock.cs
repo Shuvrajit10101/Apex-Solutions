@@ -70,12 +70,23 @@ internal static class ItemInvoiceStock
             for (var i = 0; i < v.InventoryLines.Count; i++)
             {
                 var line = v.InventoryLines[i];
+                // The synthetic allocation moves stock by the ACTUAL quantity (line.Quantity) — on-hand is driven by
+                // Actual, correctly and unchanged (Phase 6 slice 4 RQ-22/RQ-23).
                 var alloc = new InventoryAllocation(
                     line.StockItemId, line.GodownId, line.Quantity, line.Direction,
                     rate: line.Rate, batchLabel: line.BatchLabel);
+                // The effective inward unit cost for VALUATION (the LandedUnitRate override channel):
+                //   • additional-cost load (slice 3, incl. composition with A/B): (billed value + apportioned
+                //     share) ÷ Actual — LandedLine already computes this over the item's Actual quantity;
+                //   • else Actual/Billed split or zero-valued (Billed ≠ Actual, incl. Billed 0): billed value ÷
+                //     Actual, so free/short-billed goods drag the moving average down (RQ-24) and closing stock
+                //     reconciles to the billed value to the paisa (ER-4);
+                //   • else (feature off / Billed ≡ Actual, no load): null ⇒ keeps the bare rate ⇒ byte-identical (ER-13).
                 decimal? landedRate = null;
                 if (landed is { } ll && ll[i].HasLoad)
                     landedRate = ll[i].LandedUnitRate;
+                else if (line.BilledQuantity != line.Quantity)
+                    landedRate = line.StockValuationUnitRate;
                 yield return new Movement(v.Date, v.Number, v.Id, alloc, landedRate);
             }
         }

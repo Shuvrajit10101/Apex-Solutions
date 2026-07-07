@@ -133,6 +133,20 @@ public sealed class Company
     /// </summary>
     public bool DefineBomComponentType { get; set; }
 
+    /// <summary>
+    /// Company feature flag <b>"Use separate Actual and Billed Quantity columns in Invoices"</b> (F11 Company
+    /// Features; Book p.145; Phase 6 slice 4; requirements RQ-22/RQ-52; DP-7). When on, each Sales/Purchase
+    /// item-invoice line exposes a Quantity (Actual — updates stock) and a Quantity (Billed — updates accounts &amp;
+    /// GST); when off, one quantity shows and Billed ≡ Actual, byte-identical to today (ER-13).
+    /// <para>
+    /// Unlike <see cref="MaintainBatchwiseDetails"/> / <see cref="SetComponentsBom"/> (inferred from data), this is
+    /// a <b>pure user toggle</b> that <b>cannot be inferred</b> — a company may enable it before entering any
+    /// Actual/Billed line — so it is a plain persisted <c>get; set;</c> backed by a real <c>companies</c> column
+    /// (v20; DP-7). Defaults to <c>false</c>.
+    /// </para>
+    /// </summary>
+    public bool UseSeparateActualBilledQuantity { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

@@ -1531,17 +1531,23 @@
                               <!-- Item-lines column header band. Stock Item (star) is given extra room by
                                    trimming Godown/Rate/Batch so typical item names show in full. -->
                               <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                                <Grid ColumnDefinitions="*,116,84,72,64,36,Auto,Auto">
+                                <Grid ColumnDefinitions="*,116,84,Auto,72,64,36,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
-                                  <TextBlock Grid.Column="2" Text="Quantity" Classes="colHdr" TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="4" Text="Batch/Lot" Classes="colHdr"/>
-                                  <TextBlock Grid.Column="5" Text="" Classes="colHdr"/>
+                                  <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on. -->
+                                  <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Classes="colHdr" TextAlignment="Right"/>
+                                  <!-- Billed-quantity column — shown only when the company "Use separate Actual &amp; Billed
+                                       Qty" flag is on (Sales/Purchase item-invoice only). Value + GST derive from Billed. -->
+                                  <TextBlock Grid.Column="3" Text="Qty (Billed)" Classes="colHdr" TextAlignment="Right"
+                                             Width="78" Margin="6,0,0,0"
+                                             IsVisible="{Binding ShowActualBilledColumns}"/>
+                                  <TextBlock Grid.Column="4" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="5" Text="Batch/Lot" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="6" Text="" Classes="colHdr"/>
                                   <!-- Landed (effective) rate/value columns — shown only when additional costs are tracked. -->
-                                  <TextBlock Grid.Column="6" Text="Landed Rate" Classes="colHdr" TextAlignment="Right"
+                                  <TextBlock Grid.Column="7" Text="Landed Rate" Classes="colHdr" TextAlignment="Right"
                                              Width="90" IsVisible="{Binding ShowAdditionalCosts}"/>
-                                  <TextBlock Grid.Column="7" Text="Landed Value" Classes="colHdr" TextAlignment="Right"
+                                  <TextBlock Grid.Column="8" Text="Landed Value" Classes="colHdr" TextAlignment="Right"
                                              Width="96" IsVisible="{Binding ShowAdditionalCosts}"/>
                                 </Grid>
                               </Border>
@@ -1554,7 +1560,7 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,116,84,72,64,36,Auto,Auto">
+                                          <Grid ColumnDefinitions="*,116,84,Auto,72,64,36,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
@@ -1578,23 +1584,30 @@
                                                 </DataTemplate>
                                               </ComboBox.ItemTemplate>
                                             </ComboBox>
+                                            <!-- Actual (stock) quantity. -->
                                             <TextBox Grid.Column="2" Width="78"
                                                      Text="{Binding QuantityText, Mode=TwoWay}"
                                                      TextAlignment="Right" PlaceholderText="0"/>
-                                            <TextBox Grid.Column="3" Width="64" Margin="6,0"
+                                            <!-- Billed (accounts/GST) quantity — shown only when the company A/B flag is
+                                                 on (ShowActualBilled). Blank ⇒ Billed defaults to Actual (RQ-22/25). -->
+                                            <TextBox Grid.Column="3" Width="78" Margin="6,0,0,0"
+                                                     Text="{Binding BilledQuantityText, Mode=TwoWay}"
+                                                     TextAlignment="Right" PlaceholderText="= Actual"
+                                                     IsVisible="{Binding ShowActualBilled}"/>
+                                            <TextBox Grid.Column="4" Width="64" Margin="6,0"
                                                      Text="{Binding RateText, Mode=TwoWay}"
                                                      TextAlignment="Right" PlaceholderText="0.00"/>
-                                            <TextBox Grid.Column="4" Width="62"
+                                            <TextBox Grid.Column="5" Width="62"
                                                      Text="{Binding BatchLabel, Mode=TwoWay}"
                                                      PlaceholderText="—"/>
                                             <!-- Read-only landed (effective) rate + value from the apportionment engine
                                                  (ER-4). Auto columns collapse to 0 when ShowLanded is off. -->
-                                            <TextBlock Grid.Column="6" Width="90" Margin="6,0,0,0"
+                                            <TextBlock Grid.Column="7" Width="90" Margin="6,0,0,0"
                                                        Text="{Binding LandedRateText}" TextAlignment="Right"
                                                        VerticalAlignment="Center" FontWeight="SemiBold"
                                                        Foreground="{StaticResource BrandNavy}"
                                                        IsVisible="{Binding ShowLanded}"/>
-                                            <TextBlock Grid.Column="7" Width="96" Margin="6,0,0,0"
+                                            <TextBlock Grid.Column="8" Width="96" Margin="6,0,0,0"
                                                        Text="{Binding LandedValueText}" TextAlignment="Right"
                                                        VerticalAlignment="Center" FontWeight="SemiBold"
                                                        Foreground="{StaticResource BrandNavy}"
@@ -1615,6 +1628,23 @@
                                   <CheckBox Content="Track Additional Costs for Purchases"
                                             IsChecked="{Binding TrackAdditionalCosts, Mode=TwoWay}"
                                             IsVisible="{Binding CanTrackAdditionalCosts}"
+                                            FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
+                                            Foreground="{StaticResource BrandNavy}"/>
+
+                                  <!-- Company feature (Book pp.145–147): "Use separate Actual & Billed Quantity columns
+                                       in invoices" — Sales/Purchase item-invoice only. On ⇒ a Billed-qty column shows;
+                                       stock moves on Actual, accounts/GST on Billed. -->
+                                  <CheckBox Content="Use separate Actual &amp; Billed Quantity columns in invoices"
+                                            IsChecked="{Binding UseSeparateActualBilledQuantity, Mode=TwoWay}"
+                                            IsVisible="{Binding CanUseSeparateActualBilled}"
+                                            FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
+                                            Foreground="{StaticResource BrandNavy}"/>
+
+                                  <!-- Voucher-type flag (Book pp.142–143): "Allow zero-valued transactions" — on ⇒ a
+                                       ₹0 free-goods line is accepted (moves stock, posts ₹0). Sales/Purchase only. -->
+                                  <CheckBox Content="Allow zero-valued transactions"
+                                            IsChecked="{Binding AllowZeroValued, Mode=TwoWay}"
+                                            IsVisible="{Binding CanAllowZeroValued}"
                                             FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
                                             Foreground="{StaticResource BrandNavy}"/>
 

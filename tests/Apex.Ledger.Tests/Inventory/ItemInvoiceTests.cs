@@ -213,9 +213,11 @@ public class ItemInvoiceTests
         var k = NewKit();
         var purchaseId = Guid.NewGuid();
         // A zero-rate item line adds real quantity to stock but ₹0 to the value sum — it would slip through
-        // the pairing check while injecting stock no accounting amount backs (phantom on-hand). Rejected at the
-        // domain boundary: constructing the line throws a clean ArgumentException.
-        var ex = Assert.Throws<ArgumentException>(() =>
+        // the pairing check while injecting stock no accounting amount backs (phantom on-hand). On a NORMAL
+        // Purchase type (zero-valued transactions NOT enabled — slice 4) the validator rejects it with a clean
+        // InvalidVoucherException before anything persists. (The domain ctor now permits a ₹0 rate so the
+        // zero-valued feature can use it; the per-type flag decides whether it is allowed.)
+        var ex = Assert.Throws<InvalidVoucherException>(() =>
             k.Ledgers.Post(new Voucher(purchaseId, k.PurchaseTypeId, D1, new[]
             {
                 new EntryLine(k.Purchases.Id, Money.FromRupees(1000m), DrCr.Debit),
@@ -240,8 +242,9 @@ public class ItemInvoiceTests
         }, inventoryLines: new[] { Item(k, 10m, 100m) }));
 
         var salesId = Guid.NewGuid();
-        // A Sales zero-rate line would move units out at zero revenue (symmetric phantom). Rejected.
-        var ex = Assert.Throws<ArgumentException>(() =>
+        // A Sales zero-rate line would move units out at zero revenue (symmetric phantom). On a normal Sales type
+        // (zero-valued transactions NOT enabled) the validator rejects it with a clean InvalidVoucherException.
+        var ex = Assert.Throws<InvalidVoucherException>(() =>
             k.Ledgers.Post(new Voucher(salesId, k.SalesTypeId, D2, new[]
             {
                 new EntryLine(k.Debtor.Id, Money.FromRupees(600m), DrCr.Debit),
@@ -268,7 +271,7 @@ public class ItemInvoiceTests
         item.StandardCost = Money.FromRupees(100m);
 
         var purchaseId = Guid.NewGuid();
-        Assert.Throws<ArgumentException>(() =>
+        Assert.Throws<InvalidVoucherException>(() =>
             k.Ledgers.Post(new Voucher(purchaseId, k.PurchaseTypeId, D1, new[]
             {
                 new EntryLine(k.Purchases.Id, Money.FromRupees(1000m), DrCr.Debit),

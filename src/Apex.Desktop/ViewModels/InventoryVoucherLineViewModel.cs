@@ -58,8 +58,19 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     [ObservableProperty] private StockItem? _selectedItem;
     [ObservableProperty] private Godown? _selectedGodown;
     [ObservableProperty] private string _quantityText = string.Empty;
+    [ObservableProperty] private string _billedQuantityText = string.Empty;
     [ObservableProperty] private string _rateText = string.Empty;
     [ObservableProperty] private string _batchLabel = string.Empty;
+
+    /// <summary>
+    /// True when this line shows the separate <b>Billed</b> quantity column alongside the <b>Actual</b>
+    /// quantity (Book pp.145–147; Phase 6 slice 4 RQ-22). Kept in sync by the parent
+    /// <see cref="VoucherEntryViewModel"/>: on only when the company's "Use separate Actual &amp; Billed Qty"
+    /// flag (<see cref="Company.UseSeparateActualBilledQuantity"/>) is on <b>and</b> this is a Sales/Purchase
+    /// item-invoice (Movement) line. Off ⇒ the Billed column collapses and <see cref="ParsedBilledQuantity"/>
+    /// ≡ <see cref="ParsedActualQuantity"/> (byte-identical to a non-A/B line, ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showActualBilled;
 
     /// <summary>
     /// True only when the batch-allocation sub-screen actually applies to this line (RQ-52 UI leak fix): the
@@ -108,11 +119,24 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     partial void OnSelectedItemChanged(StockItem? value) => _onChanged();
     partial void OnSelectedGodownChanged(Godown? value) => _onChanged();
     partial void OnQuantityTextChanged(string value) => _onChanged();
+    partial void OnBilledQuantityTextChanged(string value) => _onChanged();
     partial void OnRateTextChanged(string value) => _onChanged();
     partial void OnBatchLabelChanged(string value) => _onChanged();
 
-    /// <summary>The parsed quantity (0 when blank/unparsable).</summary>
+    /// <summary>The parsed quantity (0 when blank/unparsable). This is the <b>Actual</b> (stock) quantity.</summary>
     public decimal ParsedQuantity => TryParse(QuantityText, out var q) ? q : 0m;
+
+    /// <summary>The parsed <b>Actual</b> (stock) quantity — the same value as <see cref="ParsedQuantity"/>,
+    /// named to make the Actual/Billed split explicit at the call site (Phase 6 slice 4 RQ-22/RQ-23).</summary>
+    public decimal ParsedActualQuantity => ParsedQuantity;
+
+    /// <summary>
+    /// The parsed <b>Billed</b> quantity — the quantity the <b>accounts</b> (and GST) are updated with (RQ-23).
+    /// When the A/B column is shown (<see cref="ShowActualBilled"/>) and a billed value is typed, it is used;
+    /// otherwise it defaults to the <b>Actual</b> quantity, so a feature-off line is byte-identical (ER-13).
+    /// </summary>
+    public decimal ParsedBilledQuantity =>
+        ShowActualBilled && TryParse(BilledQuantityText, out var b) ? b : ParsedActualQuantity;
 
     /// <summary>The parsed rate (null when blank; 0 or more otherwise).</summary>
     public decimal? ParsedRate =>
@@ -132,6 +156,7 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     public bool IsBlank =>
         SelectedItem is null
         && string.IsNullOrWhiteSpace(QuantityText)
+        && string.IsNullOrWhiteSpace(BilledQuantityText)
         && string.IsNullOrWhiteSpace(RateText)
         && string.IsNullOrWhiteSpace(BatchLabel);
 
@@ -148,6 +173,15 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
             if (!TryParse(QuantityText, out var qty)) return false;
             if (!Quantities.IsWithinPrecision(qty)) return false;
             if (Kind == InventoryLineKind.Counted ? qty < 0m : qty <= 0m) return false;
+
+            // Billed quantity (only when the A/B column is shown, RQ-22): when typed it must parse, be ≥ 0 and
+            // 6-dp exact (no upper bound vs Actual — RQ-25); when blank it defaults to Actual, so no extra rule.
+            if (ShowActualBilled && !string.IsNullOrWhiteSpace(BilledQuantityText))
+            {
+                if (!TryParse(BilledQuantityText, out var billed)) return false;
+                if (billed < 0m) return false;
+                if (!Quantities.IsWithinPrecision(billed)) return false;
+            }
 
             if (HasRate)
             {

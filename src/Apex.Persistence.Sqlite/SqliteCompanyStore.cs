@@ -472,6 +472,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 19;
         }
 
+        // v19 → v20: apply the Actual/Billed-quantity + zero-valued schema (four nullable qty columns on the two
+        // stock-line tables + a company F11 flag + a voucher-type flag), then bump the marker. Existing v19 data
+        // survives untouched (four additive ALTER ADD COLUMN NULL + two ALTER ADD COLUMN DEFAULT 0; no row rewrites —
+        // Phase 6 slice 4).
+        if (version == 19)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV19ToV20;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 20);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 20;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -489,7 +513,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    financial_year_start, books_begin_from, base_currency_symbol,
                    base_currency_name, decimal_places, decimal_unit_name,
                    primary_cost_category, main_location, profit_and_loss_head_id,
-                   gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity
+                   gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
+                   use_separate_actual_billed_qty
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -516,6 +541,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 DecimalUnitName = r.GetString(12),
                 PrimaryCostCategoryName = r.GetString(13),
                 MainLocationName = r.GetString(14),
+                // v20 (RQ-22): F11 "Use separate Actual & Billed Quantity" — a plain persisted toggle, read verbatim.
+                UseSeparateActualBilledQuantity = r.GetInt64(22) != 0,
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -899,7 +926,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                   affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs
+                   affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
+                   allow_zero_valued
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -921,7 +949,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v18 (RQ-11): "Use as Manufacturing Journal" flag, read verbatim.
                 useAsManufacturingJournal: r.GetInt64(10) != 0,
                 // v19 (RQ-16..RQ-20): "Track Additional Costs for Purchases" flag, read verbatim.
-                trackAdditionalCosts: r.GetInt64(11) != 0));
+                trackAdditionalCosts: r.GetInt64(11) != 0,
+                // v20 (RQ-21): "Allow zero-valued transactions" flag, read verbatim.
+                allowZeroValuedTransactions: r.GetInt64(12) != 0));
         }
         return list;
     }
@@ -1571,7 +1601,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label
+            SELECT stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label,
+                   billed_qty_micro
             FROM voucher_inventory_lines WHERE voucher_id = $vid ORDER BY line_order, id;
             """;
         cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -1579,13 +1610,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         var list = new List<VoucherInventoryLine>();
         while (r.Read())
         {
+            // v20 (RQ-22/RQ-23): quantity_micro is the Actual (stock) quantity; Billed = billed_qty_micro when
+            // present, else defaults to Actual (feature off / no split — byte-identical, ER-13).
+            var actual = QtyMicroToDecimal(r.GetInt64(2));
+            var billed = r.IsDBNull(6) ? actual : QtyMicroToDecimal(r.GetInt64(6));
             list.Add(new VoucherInventoryLine(
                 Guid.Parse(r.GetString(0)),
                 Guid.Parse(r.GetString(1)),
-                QtyMicroToDecimal(r.GetInt64(2)),
+                actual,
                 Paisa.ToMoney(r.GetInt64(4)),
                 (StockDirection)(int)r.GetInt64(3),
-                batchLabel: r.IsDBNull(5) ? null : r.GetString(5)));
+                batchLabel: r.IsDBNull(5) ? null : r.GetString(5),
+                billedQuantity: billed));
         }
         return list;
     }
@@ -1819,11 +1855,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  financial_year_start, books_begin_from, base_currency_symbol,
                  base_currency_name, decimal_places, decimal_unit_name,
                  primary_cost_category, main_location, profit_and_loss_head_id,
-                 gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity)
+                 gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
+                 use_separate_actual_billed_qty)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
-                 $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper);
+                 $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper,
+                 $abqty);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -1849,6 +1887,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$gstreg", gst is null ? (object)DBNull.Value : (int)gst.RegistrationType);
         cmd.Parameters.AddWithValue("$gstfrom", gst?.ApplicableFrom is { } af ? FormatDate(af) : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$gstper", gst is null ? (object)DBNull.Value : (int)gst.Periodicity);
+        // v20 (RQ-22): the F11 Actual/Billed toggle, written verbatim (default 0 for an existing company — ER-13).
+        cmd.Parameters.AddWithValue("$abqty", c.UseSeparateActualBilledQuantity ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
@@ -2033,8 +2073,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                     affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac);
+                     affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2049,6 +2089,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$as", t.AffectsStock ? 1 : 0);
             cmd.Parameters.AddWithValue("$mfg", t.UseAsManufacturingJournal ? 1 : 0); // v18 (RQ-11)
             cmd.Parameters.AddWithValue("$tac", t.TrackAdditionalCosts ? 1 : 0);      // v19 (RQ-16..RQ-20)
+            cmd.Parameters.AddWithValue("$azv", t.AllowZeroValuedTransactions ? 1 : 0); // v20 (RQ-21)
             cmd.ExecuteNonQuery();
         }
     }
@@ -2432,8 +2473,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             INSERT INTO inventory_allocations
                 (inventory_voucher_id, line_order, role, stock_item_id, godown_id, unit_id,
-                 quantity_micro, direction, rate_paisa, batch_label)
-            VALUES ($vid, $ord, $role, $item, $godown, $unit, $qty, $dir, $rate, $batch);
+                 quantity_micro, direction, rate_paisa, batch_label, actual_qty_micro, billed_qty_micro)
+            VALUES ($vid, $ord, $role, $item, $godown, $unit, $qty, $dir, $rate, $batch, NULL, NULL);
             """;
         cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
         cmd.Parameters.AddWithValue("$ord", order);
@@ -2612,8 +2653,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO voucher_inventory_lines
-                    (voucher_id, line_order, stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label)
-                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch);
+                    (voucher_id, line_order, stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label,
+                     actual_qty_micro, billed_qty_micro)
+                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch, $aqty, $bqty);
                 """;
             cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$ord", order++);
@@ -2623,6 +2665,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$dir", (int)line.Direction);
             cmd.Parameters.AddWithValue("$rate", Paisa.FromMoney(line.Rate));
             cmd.Parameters.AddWithValue("$batch", (object?)line.BatchLabel ?? DBNull.Value);
+            // v20 (RQ-22/RQ-23; DP-7): persist the Actual/Billed split only when it is active (Billed ≠ Actual);
+            // otherwise both columns stay NULL so quantity_micro alone drives Billed ≡ Actual (byte-identical, ER-13).
+            var split = line.BilledQuantity != line.Quantity;
+            cmd.Parameters.AddWithValue("$aqty", split ? QtyMicroFromDecimal(line.Quantity) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$bqty", split ? QtyMicroFromDecimal(line.BilledQuantity) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

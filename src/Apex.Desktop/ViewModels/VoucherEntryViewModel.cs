@@ -150,6 +150,79 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// that can be entered as an item invoice (never on a Sales or a non-invoiceable type).</summary>
     public bool CanTrackAdditionalCosts => IsPurchaseInvoice && CanBeItemInvoice;
 
+    // =============================================================== Actual vs Billed qty (Book pp.145–147; slice 6.4)
+
+    /// <summary>
+    /// "Use separate Actual and Billed Quantity columns in invoices" (Book pp.145–147; Phase 6 slice 4 RQ-22) —
+    /// the company/F11 flag proxied for the checkbox on the Sales/Purchase item-invoice screen. Reading returns
+    /// the live <see cref="Company.UseSeparateActualBilledQuantity"/>; setting it mutates the (persisted) company
+    /// and saves it, then re-gates each item line's Billed column + recomputes the totals. Off ⇒ one Qty column
+    /// and Billed ≡ Actual (byte-identical to today, ER-13).
+    /// </summary>
+    public bool UseSeparateActualBilledQuantity
+    {
+        get => _company.UseSeparateActualBilledQuantity;
+        set
+        {
+            if (_company.UseSeparateActualBilledQuantity == value) return;
+            _company.UseSeparateActualBilledQuantity = value;
+            _storage.Save(_company);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowActualBilledColumns));
+            OnPropertyChanged(nameof(QuantityHeader));
+            SyncActualBilledOnLines();
+            RecalculateItemInvoice();
+        }
+    }
+
+    /// <summary>True iff the "Use separate Actual &amp; Billed Qty" checkbox is shown — a Sales/Purchase that can be
+    /// entered as an item invoice (Note 2: Actual/Billed is Sales/Purchase-only). Never on a non-invoiceable type.</summary>
+    public bool CanUseSeparateActualBilled => CanBeItemInvoice;
+
+    /// <summary>True when the Billed-quantity column band + the "Qty (Actual)" relabel are shown — the company flag
+    /// is on AND this is a Sales/Purchase item invoice. Drives the header column's visibility (per-line visibility
+    /// is <see cref="InventoryVoucherLineViewModel.ShowActualBilled"/>).</summary>
+    public bool ShowActualBilledColumns =>
+        IsItemInvoice && CanBeItemInvoice && _company.UseSeparateActualBilledQuantity;
+
+    /// <summary>The Quantity column header: "Qty (Actual)" when the A/B split is shown, plain "Quantity" otherwise
+    /// (brand-neutral — never any "Tally" text).</summary>
+    public string QuantityHeader => ShowActualBilledColumns ? "Qty (Actual)" : "Quantity";
+
+    // =============================================================== zero-valued transactions (Book pp.142–143; slice 6.4)
+
+    /// <summary>
+    /// "Allow zero-valued transactions" (Book pp.142–143; Phase 6 slice 4 RQ-21) — the voucher-type flag proxied
+    /// for the checkbox on the Sales/Purchase item-invoice screen (mirrors <see cref="TrackAdditionalCosts"/>).
+    /// Reading returns the live <see cref="VoucherType.AllowZeroValuedTransactions"/>; setting it mutates the
+    /// (persisted) type and saves the company, then re-gates. When on, an item line entered <i>free</i> (Rate/Value
+    /// = ₹0) is accepted — it moves stock but posts ₹0 to accounts and ₹0 to GST. Off ⇒ a fat-finger ₹0 line is
+    /// still rejected (ER-13). Only surfaced on a Sales/Purchase base type.
+    /// </summary>
+    public bool AllowZeroValued
+    {
+        get => _type.AllowZeroValuedTransactions;
+        set
+        {
+            if (_type.AllowZeroValuedTransactions == value) return;
+            _type.AllowZeroValuedTransactions = value;
+            _storage.Save(_company);
+            OnPropertyChanged();
+            RecalculateItemInvoice();
+        }
+    }
+
+    /// <summary>True iff the "Allow zero-valued transactions" checkbox is shown — only a Sales/Purchase that can be
+    /// entered as an item invoice (RQ-21: Sales/Purchase-only). Never on a non-invoiceable type.</summary>
+    public bool CanAllowZeroValued => CanBeItemInvoice;
+
+    /// <summary>Pushes the company's Actual/Billed flag to every item line so its Billed column shows/hides in sync.</summary>
+    private void SyncActualBilledOnLines()
+    {
+        var on = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity;
+        foreach (var l in InventoryLines) l.ShowActualBilled = on;
+    }
+
     /// <summary>
     /// True when the additional-cost entry area is shown (Book pp.133–141; RQ-16): a Purchase entered as an item
     /// invoice whose voucher type has <see cref="VoucherType.TrackAdditionalCosts"/> on. Off ⇒ the area is hidden
@@ -568,10 +641,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     partial void OnIsItemInvoiceChanged(bool value)
     {
-        // Turning the mode on/off changes which grid gates Accept AND whether GST / additional-cost tracking is
-        // wired in; recompute all.
+        // Turning the mode on/off changes which grid gates Accept AND whether GST / additional-cost tracking / the
+        // Actual-Billed columns are wired in; recompute all.
         OnPropertyChanged(nameof(IsGstInvoice));
         OnPropertyChanged(nameof(ShowAdditionalCosts));
+        OnPropertyChanged(nameof(ShowActualBilledColumns));
+        OnPropertyChanged(nameof(QuantityHeader));
+        SyncActualBilledOnLines();
         RecalculateItemInvoice();
         Recalculate();
     }
@@ -595,7 +671,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     public InventoryVoucherLineViewModel AddInventoryLine()
     {
         var line = new InventoryVoucherLineViewModel(
-            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice);
+            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice)
+        {
+            ShowActualBilled = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity,
+        };
         InventoryLines.Add(line);
         RecalculateItemInvoice();
         return line;
@@ -609,7 +688,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         RecalculateItemInvoice();
     }
 
-    /// <summary>The Σ of the complete item lines' values (each qty × rate, paisa-exact).</summary>
+    /// <summary>The Σ of the complete item lines' values (each <b>Billed</b> qty × rate, paisa-exact). Value derives
+    /// from Billed, NOT Actual (RQ-23): a short-billed / zero-valued line contributes its billed value only.</summary>
     public decimal ItemsTotal
     {
         get
@@ -617,7 +697,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             var sum = 0m;
             foreach (var l in InventoryLines)
                 if (l.IsComplete && l.ParsedRate is { } rate)
-                    sum += Money.ForexBase(new Money(rate), l.ParsedQuantity).Amount;
+                    sum += Money.ForexBase(new Money(rate), l.ParsedBilledQuantity).Amount;
             return sum;
         }
     }
@@ -656,7 +736,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         foreach (var l in InventoryLines.Where(l => l.IsComplete))
         {
             if (l.ParsedRate is not { } rate || rate <= 0m) continue;
-            var lineValue = Money.ForexBase(new Money(rate), l.ParsedQuantity);
+            // GST taxable value derives from Billed, NOT Actual (RQ-23) — a short-billed line taxes only the
+            // billed quantity, and a zero-valued (rate 0) free line is skipped above so it bears no GST.
+            var lineValue = Money.ForexBase(new Money(rate), l.ParsedBilledQuantity);
 
             var res = _gst.ResolveRate(l.SelectedItem, valueLedger);
             if (GstService.IsUnresolved(res))
@@ -718,17 +800,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
         var completeLines = InventoryLines.Count(l => l.IsComplete);
         var hasHalfFilled = InventoryLines.Any(l => !l.IsBlank && !l.IsComplete);
-        var everyLineHasPositiveRate = InventoryLines
+        // Every complete line needs a positive rate — UNLESS the voucher type allows zero-valued transactions
+        // (RQ-21), in which case a ₹0 free-goods line (rate ≥ 0) is legitimate. Without the flag a 0 rate blocks
+        // Accept exactly as before (ER-13).
+        var allowZero = _type.AllowZeroValuedTransactions;
+        var everyLineRateOk = InventoryLines
             .Where(l => l.IsComplete)
-            .All(l => l.ParsedRate is { } r && r > 0m);
+            .All(l => l.ParsedRate is { } r && (r > 0m || (allowZero && r >= 0m)));
 
         CanAccept =
             SelectedParty?.Ledger is not null
             && SelectedStockLedger is not null
             && completeLines >= 1
             && !hasHalfFilled
-            && everyLineHasPositiveRate
-            && total > 0m;
+            && everyLineRateOk
+            // A zero-valued invoice may total ₹0 (all lines free); otherwise the value must be positive.
+            && (total > 0m || allowZero);
     }
 
     /// <summary>
@@ -788,12 +875,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         if (!ShowAdditionalCosts || completeItems.Count == 0) return;
 
         var invLines = new List<VoucherInventoryLine>(completeItems.Count);
+        var allowZero = _type.AllowZeroValuedTransactions;
         foreach (var l in completeItems)
         {
-            if (l.ParsedRate is not { } rate || rate <= 0m) return; // wait for every item line to be valid
+            // Wait for every item line to be valid; a ₹0 rate is only valid on a zero-valued-enabled type (RQ-21).
+            if (l.ParsedRate is not { } rate || rate < 0m || (rate == 0m && !allowZero)) return;
+            // Actual drives stock; Billed drives value — the landed apportionment uses each line's billed value.
             invLines.Add(new VoucherInventoryLine(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, new Money(rate),
-                StockDirection.Inward, l.Batch));
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, new Money(rate),
+                StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity));
         }
 
         var costLines = new List<EntryLine>();
@@ -852,22 +942,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
-        // Build the item-invoice stock lines; every line must carry a positive rate (the engine rejects a
-        // zero-rate line, but we pre-validate so the message is friendly).
+        // Build the item-invoice stock lines. Each line normally needs a positive rate; a ₹0 rate is accepted only
+        // when the voucher type allows zero-valued transactions (RQ-21) — a legitimate free-goods line that moves
+        // stock (Actual qty) but posts ₹0. Without the flag a ₹0 line is still rejected with a friendly message.
+        var allowZero = _type.AllowZeroValuedTransactions;
         var inventoryLines = new List<VoucherInventoryLine>(complete.Count);
         foreach (var l in complete)
         {
-            if (l.ParsedRate is not { } rate || rate <= 0m)
+            if (l.ParsedRate is not { } rate || rate < 0m || (rate == 0m && !allowZero))
             {
                 Message = $"Item '{l.SelectedItem!.Name}' needs a rate greater than zero " +
-                          "(a zero-rate line would move stock with no accounting backing).";
+                          "(enable 'Allow zero-valued transactions' to enter a free-goods line at ₹0).";
                 return false;
             }
+            // Actual (ParsedActualQuantity) moves stock; Billed (ParsedBilledQuantity) drives value + GST (RQ-23).
+            // When the A/B column is off, Billed ≡ Actual so the line is byte-identical to today (ER-13).
             inventoryLines.Add(new VoucherInventoryLine(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, new Money(rate),
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, new Money(rate),
                 // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
                 direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
-                batchLabel: l.Batch));
+                batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity));
         }
 
         // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant
