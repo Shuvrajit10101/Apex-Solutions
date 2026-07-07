@@ -180,13 +180,31 @@ public sealed class StockValuationService
                 continue;
             }
 
-            foreach (var a in v.Allocations.Concat(v.DestinationAllocations))
+            // Source (outward) allocations keep their own rate.
+            foreach (var a in v.Allocations)
             {
                 if (a.StockItemId != stockItemId) continue;
                 var qty = QuantityInBase(a);
                 tagged.Add((v.Date, physicalLast, v.Number, v.Id, a.Direction == StockDirection.Inward
                     ? MovementEvent.Inward(qty, a.Rate?.Amount)
                     : MovementEvent.Outward(qty, a.Rate?.Amount)));
+            }
+
+            // Destination (inward) allocations: on a Stock-Journal transfer carrying additional-cost lines, load
+            // the destination landed inward rate via the SAME apportionment engine (RQ-20); otherwise the bare
+            // rate. Landed lines align 1:1 with DestinationAllocations by index.
+            IReadOnlyList<AdditionalCostApportionment.LandedLine>? landed =
+                v.AdditionalCostLines.Count > 0 ? AdditionalCostApportionment.ForTransfer(_company, v) : null;
+            for (var di = 0; di < v.DestinationAllocations.Count; di++)
+            {
+                var a = v.DestinationAllocations[di];
+                if (a.StockItemId != stockItemId) continue;
+                var qty = QuantityInBase(a);
+                var rate = a.Rate?.Amount;
+                if (landed is { } ll && ll[di].HasLoad) rate = ll[di].LandedUnitRate;
+                tagged.Add((v.Date, physicalLast, v.Number, v.Id, a.Direction == StockDirection.Inward
+                    ? MovementEvent.Inward(qty, rate)
+                    : MovementEvent.Outward(qty, rate)));
             }
         }
 
@@ -196,8 +214,11 @@ public sealed class StockValuationService
         {
             var a = m.Allocation;
             if (a.StockItemId != stockItemId) continue;
+            // Additional Cost of Purchase (RQ-16..RQ-19): an inward item line takes its landed rate when the
+            // purchase tracks additional costs; otherwise the bare purchase rate (LandedUnitRate ?? a.Rate — the
+            // untracked path is byte-identical, ER-13).
             tagged.Add((m.Date, 0, m.Number, m.VoucherId, a.Direction == StockDirection.Inward
-                ? MovementEvent.Inward(a.Quantity, a.Rate?.Amount)
+                ? MovementEvent.Inward(a.Quantity, m.LandedUnitRate ?? a.Rate?.Amount)
                 : MovementEvent.Outward(a.Quantity, a.Rate?.Amount)));
         }
 

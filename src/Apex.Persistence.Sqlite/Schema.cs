@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 18;
+    public const int CurrentVersion = 19;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -170,7 +170,11 @@ public static class Schema
             sp_gst_rate_bp       INTEGER     NULL,             -- sales/purchase ledger rate in basis points
             sp_gst_supply_type   INTEGER     NULL,             -- GstSupplyType enum ordinal
             gst_tax_head         INTEGER     NULL,             -- GstTaxHead enum ordinal (tax ledger only)
-            gst_tax_direction    INTEGER     NULL              -- GstTaxDirection enum ordinal (tax ledger only)
+            gst_tax_direction    INTEGER     NULL,             -- GstTaxDirection enum ordinal (tax ledger only)
+            -- v19 (Phase 6 slice 3; RQ-16..RQ-20): "Method of Appropriation in Purchase invoice" — a NON-NULL value
+            -- marks this Direct-Expenses ledger as an additional-cost ledger (0 = ByQuantity, 1 = ByValue). NULL
+            -- (the default) = a plain P&L ledger that never touches a stock rate (RQ-19).
+            method_of_appropriation INTEGER  NULL              -- MethodOfAppropriation enum ordinal, or NULL
         );
 
         CREATE TABLE currencies (
@@ -207,7 +211,10 @@ public static class Schema
             affects_stock    INTEGER NOT NULL DEFAULT 0,   -- 0/1
             -- v18 (RQ-11): "Use as Manufacturing Journal" — a user-created Stock-Journal type flagged as a
             -- Manufacturing Journal. 0/1, default 0 so every existing Stock Journal is byte-identical (ER-13).
-            use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0    -- 0/1
+            use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- v19 (Phase 6 slice 3; RQ-16..RQ-20): "Track Additional Costs for Purchases" — a Purchase voucher-type
+            -- flag enabling the additional-cost apportionment path. 0/1, default 0 so an existing type is unchanged (ER-13).
+            track_additional_costs INTEGER NOT NULL DEFAULT 0          -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -473,6 +480,18 @@ public static class Schema
             batch_id          TEXT        NULL REFERENCES batch_masters(id)
         );
 
+        -- v19 (Phase 6 slice 3; RQ-20): additional-cost lines on a Stock-Journal TRANSFER inventory voucher. Each
+        -- row apportions an additional-cost ledger amount across the voucher's destination allocations (raising
+        -- their landed inward rate by the ledger's method_of_appropriation). Backs ONLY the transfer case — a
+        -- Purchase item-invoice needs no row (its additional cost is an ordinary entry_lines Dr to the ledger).
+        CREATE TABLE additional_cost_lines (
+            id                   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT    NOT NULL REFERENCES inventory_vouchers(id),
+            line_order           INTEGER NOT NULL,
+            ledger_id            TEXT    NOT NULL REFERENCES ledgers(id),
+            amount_paisa         INTEGER NOT NULL
+        );
+
         -- v16 (RQ-1/RQ-4/RQ-6; DP-8): the BATCH master — one first-class row per (stock item, batch number),
         -- REPLACING today's bare batch_label text. batch_no is unique WITHIN an item (the ux index below), NOT
         -- globally (Cluster 1 subtlety d), so two different items may reuse the same batch number. mfg_date and
@@ -581,6 +600,7 @@ public static class Schema
         CREATE INDEX ix_order_lines_voucher      ON order_lines(inventory_voucher_id);
         CREATE INDEX ix_physical_lines_voucher   ON physical_stock_lines(inventory_voucher_id);
         CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
+        CREATE INDEX ix_additional_cost_lines_voucher ON additional_cost_lines(inventory_voucher_id);
         -- v16: batch masters — one lookup index by company + item, and the per-item-unique batch number key
         -- (batch numbers are unique WITHIN an item, not globally — RQ-1 / Cluster 1 subtlety d).
         CREATE INDEX ix_batch_masters_company        ON batch_masters(company_id);
@@ -1174,5 +1194,33 @@ public static class Schema
     public const string MigrateV17ToV18 = """
         ALTER TABLE voucher_types ADD COLUMN use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE stock_items   ADD COLUMN set_components                INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v18 → v19: <b>Additional Cost of Purchase</b> (Phase 6 slice 3; RQ-16..RQ-20; ER-1). Adds
+    /// <c>voucher_types.track_additional_costs</c> (a Purchase voucher-type flag) and
+    /// <c>ledgers.method_of_appropriation</c> (a non-null value marks an additional-cost Direct-Expenses ledger —
+    /// 0 = ByQuantity, 1 = ByValue), and creates the <c>additional_cost_lines</c> child table + index that backs the
+    /// Stock-Journal-transfer variant (RQ-20). Two additive <c>ALTER TABLE … ADD COLUMN</c> (one <c>DEFAULT 0</c>,
+    /// one <c>NULL</c>) plus one pure <c>CREATE TABLE</c>/<c>INDEX</c> — no row rewrites — so an existing v18 database
+    /// keeps every row untouched: the flag defaults off and the method defaults NULL, i.e. a plain freight ledger
+    /// stays purely P&amp;L (RQ-19) and non-additional-cost data behaves byte-identically (ER-13). The Purchase case
+    /// needs NO new row storage (its additional cost is an ordinary <c>entry_lines</c> Dr to the Direct-Expenses
+    /// ledger, from which the engine derives the apportionment). Run inside a transaction that also bumps
+    /// <c>schema_version</c> to 19. A fresh DB is stamped straight to v19 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV18ToV19 = """
+        ALTER TABLE voucher_types ADD COLUMN track_additional_costs  INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers       ADD COLUMN method_of_appropriation INTEGER     NULL;
+
+        CREATE TABLE additional_cost_lines (
+            id                   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            inventory_voucher_id TEXT    NOT NULL REFERENCES inventory_vouchers(id),
+            line_order           INTEGER NOT NULL,
+            ledger_id            TEXT    NOT NULL REFERENCES ledgers(id),
+            amount_paisa         INTEGER NOT NULL
+        );
+
+        CREATE INDEX ix_additional_cost_lines_voucher ON additional_cost_lines(inventory_voucher_id);
         """;
 }

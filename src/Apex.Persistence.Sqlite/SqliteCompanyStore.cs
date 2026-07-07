@@ -449,6 +449,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 18;
         }
 
+        // v18 → v19: apply the Additional-Cost-of-Purchase schema (track_additional_costs flag +
+        // method_of_appropriation column + additional_cost_lines table), then bump the marker. Existing v18 data
+        // survives untouched (two additive ALTER + one CREATE TABLE/INDEX; no row rewrites — Phase 6 slice 3).
+        if (version == 18)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV18ToV19;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 19);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 19;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -786,7 +809,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    interest_round_method, interest_round_decimals, currency_id,
                    party_gst_reg_type, party_gstin, party_gst_state,
                    sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
-                   gst_tax_head, gst_tax_direction
+                   gst_tax_head, gst_tax_direction, method_of_appropriation
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -811,7 +834,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 currencyId: r.IsDBNull(21) ? (Guid?)null : Guid.Parse(r.GetString(21)),
                 partyGst: ReadPartyGst(r),
                 salesPurchaseGst: ReadSalesPurchaseGst(r),
-                gstClassification: ReadLedgerGstClassification(r)));
+                gstClassification: ReadLedgerGstClassification(r),
+                // v19 (RQ-16..RQ-20): method of appropriation (NULL = plain P&L ledger, not additional-cost).
+                methodOfAppropriation: r.IsDBNull(31) ? (MethodOfAppropriation?)null : (MethodOfAppropriation)(int)r.GetInt64(31)));
         }
         return list;
     }
@@ -874,7 +899,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                   affects_accounts, affects_stock, use_as_manufacturing_journal
+                   affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -894,7 +919,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 affectsAccounts: r.GetInt64(8) != 0,
                 affectsStock: r.GetInt64(9) != 0,
                 // v18 (RQ-11): "Use as Manufacturing Journal" flag, read verbatim.
-                useAsManufacturingJournal: r.GetInt64(10) != 0));
+                useAsManufacturingJournal: r.GetInt64(10) != 0,
+                // v19 (RQ-16..RQ-20): "Track Additional Costs for Purchases" flag, read verbatim.
+                trackAdditionalCosts: r.GetInt64(11) != 0));
         }
         return list;
     }
@@ -1305,9 +1332,25 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 narration: h.Narration,
                 partyId: h.PartyId,
                 cancelled: h.Cancelled,
-                postDated: h.PostDated));
+                postDated: h.PostDated,
+                additionalCostLines: ReadAdditionalCostLines(h.Id)));
         }
         return result;
+    }
+
+    private List<AdditionalCostLine> ReadAdditionalCostLines(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT ledger_id, amount_paisa
+            FROM additional_cost_lines WHERE inventory_voucher_id = $vid ORDER BY line_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<AdditionalCostLine>();
+        while (r.Read())
+            list.Add(new AdditionalCostLine(Guid.Parse(r.GetString(0)), Paisa.ToMoney(r.GetInt64(1))));
+        return list;
     }
 
     private (List<InventoryAllocation> Source, List<InventoryAllocation> Destination) ReadInventoryAllocations(Guid voucherId)
@@ -1718,6 +1761,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             DELETE FROM physical_stock_lines WHERE inventory_voucher_id IN (
                 SELECT id FROM inventory_vouchers WHERE company_id = $cid);
             """, ("$cid", cid));
+        // v19 additional-cost lines FK the inventory-voucher header AND a ledger → delete before the header and
+        // before ledgers below (FK order).
+        ExecTx(tx, """
+            DELETE FROM additional_cost_lines WHERE inventory_voucher_id IN (
+                SELECT id FROM inventory_vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM inventory_vouchers WHERE company_id = $cid;", ("$cid", cid));
         // Budgets (and their lines) FK groups + ledgers → delete them before those masters.
         ExecTx(tx, """
@@ -1874,10 +1923,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      interest_round_method, interest_round_decimals, currency_id,
                      party_gst_reg_type, party_gstin, party_gst_state,
                      sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
-                     gst_tax_head, gst_tax_direction)
+                     gst_tax_head, gst_tax_direction, method_of_appropriation)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
-                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir);
+                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1926,6 +1975,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var gc = l.GstClassification;
             cmd.Parameters.AddWithValue("$gthead", gc is null ? (object)DBNull.Value : (int)gc.TaxHead);
             cmd.Parameters.AddWithValue("$gtdir", gc is null ? (object)DBNull.Value : (int)gc.Direction);
+
+            // v19 additional-cost ledger method (NULL for a plain P&L ledger).
+            cmd.Parameters.AddWithValue("$moa", l.MethodOfAppropriation is { } moa ? (int)moa : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1981,8 +2033,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                     affects_accounts, affects_stock, use_as_manufacturing_journal)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg);
+                     affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -1996,6 +2048,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$aa", t.AffectsAccounts ? 1 : 0);
             cmd.Parameters.AddWithValue("$as", t.AffectsStock ? 1 : 0);
             cmd.Parameters.AddWithValue("$mfg", t.UseAsManufacturingJournal ? 1 : 0); // v18 (RQ-11)
+            cmd.Parameters.AddWithValue("$tac", t.TrackAdditionalCosts ? 1 : 0);      // v19 (RQ-16..RQ-20)
             cmd.ExecuteNonQuery();
         }
     }
@@ -2349,6 +2402,24 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$godown", pl.GodownId.ToString("D"));
                 cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(pl.CountedQuantity));
                 cmd.Parameters.AddWithValue("$batch", (object?)pl.BatchLabel ?? DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
+
+            // v19 (RQ-20): additional-cost lines on a Stock-Journal transfer (empty for every other voucher).
+            order = 0;
+            foreach (var acl in v.AdditionalCostLines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO additional_cost_lines
+                        (inventory_voucher_id, line_order, ledger_id, amount_paisa)
+                    VALUES ($vid, $ord, $ledger, $amt);
+                    """;
+                cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", order++);
+                cmd.Parameters.AddWithValue("$ledger", acl.LedgerId.ToString("D"));
+                cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(acl.Amount));
                 cmd.ExecuteNonQuery();
             }
         }

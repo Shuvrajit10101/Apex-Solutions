@@ -256,6 +256,10 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS inventory_allocations;");
         Exec(conn, "DROP TABLE IF EXISTS order_lines;");
         Exec(conn, "DROP TABLE IF EXISTS physical_stock_lines;");
+        // Drop the v19 additional-cost table (+ its index) before inventory_vouchers so the reopen's v18→v19
+        // CREATE TABLE does not collide with an already-present table.
+        Exec(conn, "DROP INDEX IF EXISTS ix_additional_cost_lines_voucher;");
+        Exec(conn, "DROP TABLE IF EXISTS additional_cost_lines;");
         Exec(conn, "DROP TABLE IF EXISTS inventory_vouchers;");
         // Drop the v12 item-invoice table too, so the reopen's v11→v12 CREATE TABLE does not collide with an
         // already-present table (this is a faithful v9 shape that predates every later slice).

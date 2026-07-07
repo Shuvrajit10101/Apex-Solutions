@@ -69,6 +69,20 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _wantsBatchAllocation;
 
+    /// <summary>
+    /// True when this line should show the read-only <b>landed</b> (effective) rate + value columns (Book
+    /// pp.133–141; Phase 6 slice 3 ER-4). Kept in sync by the parent VM: on when the voucher tracks additional
+    /// costs (a Purchase item-invoice with a tracked type, or a Stock-Journal transfer with additional-cost
+    /// lines). Off ⇒ the Auto landed columns collapse to zero width, so an untracked screen is byte-unchanged.
+    /// </summary>
+    [ObservableProperty] private bool _showLanded;
+
+    /// <summary>The engine's landed unit rate for this line (read-only display; blank until computed, ER-4).</summary>
+    [ObservableProperty] private string _landedRateText = string.Empty;
+
+    /// <summary>The engine's landed value for this line = purchase value + apportioned additional cost (read-only).</summary>
+    [ObservableProperty] private string _landedValueText = string.Empty;
+
     /// <summary>True when this line's kind carries a per-unit Rate column (Order / Movement, not Counted).</summary>
     public bool ShowsRate => Kind is InventoryLineKind.Order or InventoryLineKind.Movement;
 

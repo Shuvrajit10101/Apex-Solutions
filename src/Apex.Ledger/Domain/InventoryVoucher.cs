@@ -24,6 +24,7 @@ public sealed class InventoryVoucher
     private readonly List<InventoryAllocation> _destinationAllocations;
     private readonly List<OrderLine> _orderLines;
     private readonly List<PhysicalStockLine> _physicalLines;
+    private readonly List<AdditionalCostLine> _additionalCostLines;
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -62,6 +63,14 @@ public sealed class InventoryVoucher
     public IReadOnlyList<PhysicalStockLine> PhysicalLines => _physicalLines;
 
     /// <summary>
+    /// The <b>additional-cost</b> lines on a Stock-Journal <b>transfer</b> (Phase 6 slice 3 RQ-20): each names an
+    /// additional-cost ledger + amount to apportion across the <see cref="DestinationAllocations"/> (raising their
+    /// landed inward rate by the ledger's <see cref="Ledger.MethodOfAppropriation"/>). Empty for every other
+    /// voucher, so a plain Stock Journal / Receipt / order behaves byte-identically (ER-13).
+    /// </summary>
+    public IReadOnlyList<AdditionalCostLine> AdditionalCostLines => _additionalCostLines;
+
+    /// <summary>
     /// Creates a stock-moving voucher (Receipt/Delivery/Rejection In/Out) from its allocations. For a Stock
     /// Journal use <see cref="StockJournal"/>; for an order use <see cref="Order"/>; for a physical count use
     /// <see cref="PhysicalStock"/>.
@@ -77,7 +86,7 @@ public sealed class InventoryVoucher
         bool cancelled = false,
         bool postDated = false)
         : this(id, typeId, date, allocations, destinationAllocations: null, orderLines: null,
-            physicalLines: null, number, narration, partyId, cancelled, postDated)
+            physicalLines: null, additionalCostLines: null, number, narration, partyId, cancelled, postDated)
     {
     }
 
@@ -89,6 +98,7 @@ public sealed class InventoryVoucher
         IEnumerable<InventoryAllocation>? destinationAllocations,
         IEnumerable<OrderLine>? orderLines,
         IEnumerable<PhysicalStockLine>? physicalLines,
+        IEnumerable<AdditionalCostLine>? additionalCostLines,
         int number,
         string? narration,
         Guid? partyId,
@@ -102,6 +112,7 @@ public sealed class InventoryVoucher
         _destinationAllocations = destinationAllocations?.ToList() ?? new List<InventoryAllocation>();
         _orderLines = orderLines?.ToList() ?? new List<OrderLine>();
         _physicalLines = physicalLines?.ToList() ?? new List<PhysicalStockLine>();
+        _additionalCostLines = additionalCostLines?.ToList() ?? new List<AdditionalCostLine>();
         Number = number;
         Narration = narration;
         PartyId = partyId;
@@ -121,12 +132,13 @@ public sealed class InventoryVoucher
         bool cancelled = false,
         bool postDated = false)
         => new(id, typeId, date, allocations: null, destinationAllocations: null, orderLines: orderLines,
-            physicalLines: null, number, narration, partyId, cancelled, postDated);
+            physicalLines: null, additionalCostLines: null, number, narration, partyId, cancelled, postDated);
 
     /// <summary>
     /// Creates a Stock-Journal voucher — <paramref name="source"/> lines (consumption, outward) plus
     /// <paramref name="destination"/> lines (production, inward). The two sides must balance in the base unit
-    /// (enforced at posting).
+    /// (enforced at posting). Optional <paramref name="additionalCostLines"/> load the destination landed rate on
+    /// an inter-godown transfer (RQ-20).
     /// </summary>
     public static InventoryVoucher StockJournal(
         Guid id,
@@ -137,9 +149,11 @@ public sealed class InventoryVoucher
         int number = 0,
         string? narration = null,
         bool cancelled = false,
-        bool postDated = false)
+        bool postDated = false,
+        IEnumerable<AdditionalCostLine>? additionalCostLines = null)
         => new(id, typeId, date, allocations: source, destinationAllocations: destination, orderLines: null,
-            physicalLines: null, number, narration, partyId: null, cancelled, postDated);
+            physicalLines: null, additionalCostLines: additionalCostLines, number, narration, partyId: null,
+            cancelled, postDated);
 
     /// <summary>Creates a Physical-Stock voucher — counted-quantity lines only (DP-3).</summary>
     public static InventoryVoucher PhysicalStock(
@@ -152,7 +166,7 @@ public sealed class InventoryVoucher
         bool cancelled = false,
         bool postDated = false)
         => new(id, typeId, date, allocations: null, destinationAllocations: null, orderLines: null,
-            physicalLines: lines, number, narration, partyId: null, cancelled, postDated);
+            physicalLines: lines, additionalCostLines: null, number, narration, partyId: null, cancelled, postDated);
 
     /// <summary>Rehydrates an inventory voucher from persisted parts (the SQLite adapter).</summary>
     public static InventoryVoucher FromStorage(
@@ -167,7 +181,8 @@ public sealed class InventoryVoucher
         string? narration,
         Guid? partyId,
         bool cancelled,
-        bool postDated)
+        bool postDated,
+        IEnumerable<AdditionalCostLine>? additionalCostLines = null)
         => new(id, typeId, date, allocations, destinationAllocations, orderLines, physicalLines,
-            number, narration, partyId, cancelled, postDated);
+            additionalCostLines, number, narration, partyId, cancelled, postDated);
 }

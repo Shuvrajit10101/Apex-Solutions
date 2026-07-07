@@ -68,6 +68,22 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
     /// <summary>The Stock-Journal <b>destination</b> (production/inward) lines; empty for every other type.</summary>
     public ObservableCollection<InventoryVoucherLineViewModel> DestinationLines { get; } = new();
 
+    // ---- additional cost of a Stock-Journal transfer (Book pp.133–141; catalog §11; Phase 6 slice 3 RQ-20) ----
+
+    /// <summary>The additional-cost ledgers a transfer's rows choose from — ledgers whose
+    /// <c>MethodOfAppropriation</c> is non-null (a plain Direct-Expenses ledger stays out, RQ-19).</summary>
+    public IReadOnlyList<DomainLedger> AdditionalCostLedgers { get; }
+
+    /// <summary>The repeatable additional-cost rows (ledger + amount) on a Stock-Journal transfer; one blank trailing row.</summary>
+    public ObservableCollection<AdditionalCostRowViewModel> AdditionalCosts { get; } = new();
+
+    /// <summary>True when the transfer additional-cost area is shown — only on a Stock Journal (RQ-20). Off for
+    /// every other inventory voucher, so those screens are byte-unchanged (ER-13).</summary>
+    public bool ShowAdditionalCosts => IsStockJournal;
+
+    /// <summary>The running Σ of the complete additional-cost rows (paisa-exact display).</summary>
+    [ObservableProperty] private string _additionalCostTotalText = "0.00";
+
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private DateOnly _date;
     [ObservableProperty] private int _voucherNumber;
@@ -221,6 +237,13 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
         StockItems = company.StockItems;
         Godowns = company.Godowns;
 
+        // Additional-cost ledgers (Book pp.133–141): the Direct-Expenses ledgers marked as additional-cost
+        // ledgers (a non-null Method of Appropriation). A plain Direct-Expenses ledger stays out (RQ-19).
+        AdditionalCostLedgers = company.Ledgers
+            .Where(l => l.IsAdditionalCostLedger)
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         // Party pickers (PO/SO only): "(none)" plus every ledger — the supplier/customer is optional.
         Parties.Add(new PartyOption { Ledger = null, Display = "◦ (none)" });
         foreach (var l in company.Ledgers.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
@@ -241,7 +264,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
 
         // Seed a first blank line (two for a Stock Journal — one on each side).
         AddLine();
-        if (IsStockJournal) AddDestinationLine();
+        if (IsStockJournal) { AddDestinationLine(); AddAdditionalCostRow(); }
         Recalculate();
     }
 
@@ -288,6 +311,75 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
         Recalculate();
     }
 
+    /// <summary>Adds a blank additional-cost row (ledger + amount) on a Stock-Journal transfer; keeps one trailing blank row.</summary>
+    public AdditionalCostRowViewModel AddAdditionalCostRow()
+    {
+        var row = new AdditionalCostRowViewModel(AdditionalCostLedgers, OnAdditionalCostChanged);
+        AdditionalCosts.Add(row);
+        return row;
+    }
+
+    private void OnAdditionalCostChanged()
+    {
+        if (AdditionalCosts.Count == 0 || !AdditionalCosts[^1].IsBlank)
+            AddAdditionalCostRow();
+        Recalculate();
+    }
+
+    /// <summary>The Σ of the complete additional-cost rows (paisa-exact); 0 when the area is off/untracked.</summary>
+    private decimal AdditionalCostsTotal()
+    {
+        if (!ShowAdditionalCosts) return 0m;
+        var sum = 0m;
+        foreach (var r in AdditionalCosts)
+            if (r.IsComplete && r.ParsedAmount is { } a) sum += a;
+        return sum;
+    }
+
+    /// <summary>
+    /// Stamps each complete destination line's read-only <b>landed</b> (effective) inward rate + value using the
+    /// SAME engine the post/valuation uses (<see cref="AdditionalCostApportionment.ForTransfer"/>, ER-4 / RQ-20):
+    /// builds a throwaway Stock-Journal carrying the destination allocations + the additional-cost lines and lets
+    /// the engine apportion by each ledger's method. No-op (columns cleared) when off or no additional cost.
+    /// </summary>
+    private void RefreshTransferLanded()
+    {
+        foreach (var l in DestinationLines)
+        {
+            l.ShowLanded = false;
+            l.LandedRateText = string.Empty;
+            l.LandedValueText = string.Empty;
+        }
+        if (!ShowAdditionalCosts) return;
+
+        var destComplete = DestinationLines.Where(l => l.IsComplete).ToList();
+        if (destComplete.Count == 0) return;
+
+        var costLines = new List<AdditionalCostLine>();
+        foreach (var r in AdditionalCosts)
+            if (r.IsComplete && r.SelectedLedger is { } led && r.ParsedAmount is { } amt)
+                costLines.Add(new AdditionalCostLine(led.Id, new Money(amt)));
+        if (costLines.Count == 0) return;
+
+        var dest = destComplete
+            .Select(l => new InventoryAllocation(
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch))
+            .ToList();
+
+        var temp = InventoryVoucher.StockJournal(
+            Guid.NewGuid(), _type.Id, Date, Array.Empty<InventoryAllocation>(), dest,
+            additionalCostLines: costLines);
+        var landed = AdditionalCostApportionment.ForTransfer(_company, temp);
+
+        for (var i = 0; i < destComplete.Count && i < landed.Count; i++)
+        {
+            var ll = landed[i];
+            destComplete[i].ShowLanded = true;
+            destComplete[i].LandedRateText = IndianFormat.AmountAlways(ll.LandedUnitRate);
+            destComplete[i].LandedValueText = IndianFormat.AmountAlways(ll.LandedValue.Amount);
+        }
+    }
+
     /// <summary>
     /// Recomputes the Stock-Journal balance indicator (source base total vs destination base total) and
     /// whether Accept is allowed: at least one complete line, no half-filled (touched-but-incomplete) row,
@@ -321,6 +413,10 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
                 BalanceText = $"Source exceeds destination by {Qty(diff)} (base unit) — must balance.";
             else
                 BalanceText = $"Destination exceeds source by {Qty(-diff)} (base unit) — must balance.";
+
+            AdditionalCostTotalText = IndianFormat.AmountAlways(AdditionalCostsTotal());
+            // Stamp the read-only destination landed rate via the SAME engine the post/valuation uses (ER-4/RQ-20).
+            RefreshTransferLanded();
 
             CanAccept = completeLines >= 1 && srcComplete >= 1 && !halfFilled && !destHalf
                         && IsBalanced && source > 0m;
@@ -455,9 +551,21 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
             throw new InvalidValidationException(
                 $"Stock Journal is out of balance — source {Qty(srcBase)} ≠ destination {Qty(destBase)} (base unit). Not saved.");
 
+        // Additional cost of a transfer (RQ-20): each names an additional-cost ledger + amount to apportion onto
+        // the destination landed rate by the ledger's method. Only complete rows are carried.
+        var additionalCostLines = new List<AdditionalCostLine>();
+        foreach (var r in AdditionalCosts.Where(r => !r.IsBlank))
+        {
+            if (!r.IsComplete || r.SelectedLedger is not { } led || r.ParsedAmount is not { } amt)
+                throw new InvalidValidationException(
+                    "Every additional-cost line needs a ledger and a paisa-exact amount greater than zero.");
+            additionalCostLines.Add(new AdditionalCostLine(led.Id, new Money(amt)));
+        }
+
         return InventoryVoucher.StockJournal(
             Guid.NewGuid(), _type.Id, Date, source, dest,
-            number: 0, narration: narration, postDated: IsPostDated);
+            number: 0, narration: narration, postDated: IsPostDated,
+            additionalCostLines: additionalCostLines.Count > 0 ? additionalCostLines : null);
     }
 
     private InventoryVoucher BuildPhysical(string? narration)

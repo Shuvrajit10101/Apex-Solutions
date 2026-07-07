@@ -220,6 +220,10 @@ public sealed class ItemInvoiceRoundTripTests
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
         Exec(conn, "DROP TABLE IF EXISTS voucher_inventory_lines;");
+        // Drop the v19 additional-cost table (+ its index) so the reopen's v18→v19 CREATE TABLE does not collide
+        // with a table a fresh save at the current version already created.
+        Exec(conn, "DROP INDEX IF EXISTS ix_additional_cost_lines_voucher;");
+        Exec(conn, "DROP TABLE IF EXISTS additional_cost_lines;");
         // Drop the v14 saved-views table + its unique index so the reopen's v13→v14 CREATE TABLE does not
         // collide with an already-present table (this is a faithful v11 shape that predates every later slice).
         Exec(conn, "DROP INDEX IF EXISTS ux_saved_views_company_name;");

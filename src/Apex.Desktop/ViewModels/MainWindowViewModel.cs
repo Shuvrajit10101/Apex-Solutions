@@ -3012,6 +3012,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== right button bar
 
+    /// <summary>
+    /// F12 Configure — context-sensitive ledger-screen configuration (Book pp.133–141): on the Ledger master it
+    /// toggles the "Method of Appropriation" additional-cost field's visibility; elsewhere a Phase-1 hint.
+    /// </summary>
+    private void F12Configure()
+    {
+        if (CurrentScreen == Screen.LedgerMaster && LedgerMaster is { } lm)
+        {
+            lm.ToggleConfiguration();
+            return;
+        }
+        Message = "F12 Configure — display options (Phase 1 defaults).";
+    }
+
     private void BuildButtonBar()
     {
         ButtonBar.Clear();
@@ -3063,6 +3077,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));
-        ButtonBar.Add(new ButtonBarItem("F12", "Configure", () => Message = "F12 Configure — display options (Phase 1 defaults)."));
+        ButtonBar.Add(new ButtonBarItem("F12", "Configure", F12Configure));
     }
 }

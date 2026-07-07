@@ -304,6 +304,11 @@ public sealed class SmtpProfileRoundTripTests
             valuation_method INTEGER NOT NULL DEFAULT 0, hsn_sac_code TEXT NULL, is_taxable INTEGER NOT NULL DEFAULT 0,
             reorder_level_micro INTEGER NULL, min_order_qty_micro INTEGER NULL, standard_cost_paisa INTEGER NULL,
             gst_hsn_sac TEXT NULL, gst_taxability INTEGER NULL, gst_rate_bp INTEGER NULL, gst_supply_type INTEGER NULL);
+        -- A minimal ledgers table so the v18→v19 ALTER (adds method_of_appropriation) applies (v13–v18 never
+        -- touched ledgers, so earlier authors could omit it; v19 does).
+        CREATE TABLE ledgers (
+            id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, group_id TEXT NOT NULL,
+            opening_balance_paisa INTEGER NOT NULL DEFAULT 0, opening_is_debit INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE voucher_types (
             id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, base_type INTEGER NOT NULL,
             default_shortcut TEXT NULL, numbering INTEGER NOT NULL, abbreviation TEXT NULL,

@@ -1531,13 +1531,18 @@
                               <!-- Item-lines column header band. Stock Item (star) is given extra room by
                                    trimming Godown/Rate/Batch so typical item names show in full. -->
                               <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                                <Grid ColumnDefinitions="*,116,84,72,64,36">
+                                <Grid ColumnDefinitions="*,116,84,72,64,36,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
                                   <TextBlock Grid.Column="2" Text="Quantity" Classes="colHdr" TextAlignment="Right"/>
                                   <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
                                   <TextBlock Grid.Column="4" Text="Batch/Lot" Classes="colHdr"/>
                                   <TextBlock Grid.Column="5" Text="" Classes="colHdr"/>
+                                  <!-- Landed (effective) rate/value columns — shown only when additional costs are tracked. -->
+                                  <TextBlock Grid.Column="6" Text="Landed Rate" Classes="colHdr" TextAlignment="Right"
+                                             Width="90" IsVisible="{Binding ShowAdditionalCosts}"/>
+                                  <TextBlock Grid.Column="7" Text="Landed Value" Classes="colHdr" TextAlignment="Right"
+                                             Width="96" IsVisible="{Binding ShowAdditionalCosts}"/>
                                 </Grid>
                               </Border>
 
@@ -1549,7 +1554,7 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,116,84,72,64,36">
+                                          <Grid ColumnDefinitions="*,116,84,72,64,36,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
@@ -1582,6 +1587,18 @@
                                             <TextBox Grid.Column="4" Width="62"
                                                      Text="{Binding BatchLabel, Mode=TwoWay}"
                                                      PlaceholderText="—"/>
+                                            <!-- Read-only landed (effective) rate + value from the apportionment engine
+                                                 (ER-4). Auto columns collapse to 0 when ShowLanded is off. -->
+                                            <TextBlock Grid.Column="6" Width="90" Margin="6,0,0,0"
+                                                       Text="{Binding LandedRateText}" TextAlignment="Right"
+                                                       VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrandNavy}"
+                                                       IsVisible="{Binding ShowLanded}"/>
+                                            <TextBlock Grid.Column="7" Width="96" Margin="6,0,0,0"
+                                                       Text="{Binding LandedValueText}" TextAlignment="Right"
+                                                       VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrandNavy}"
+                                                       IsVisible="{Binding ShowLanded}"/>
                                           </Grid>
                                         </Border>
                                       </DataTemplate>
@@ -1592,6 +1609,56 @@
                                           Margin="0,6" Padding="10,4"
                                           Background="{StaticResource Panel}"
                                           Click="OnAddItemInvoiceLineClick"/>
+
+                                  <!-- Voucher-type editor affordance (Book pp.133–141): "Track Additional Costs for
+                                       Purchases" — a Purchase voucher-type flag; on ⇒ the additional-cost area shows. -->
+                                  <CheckBox Content="Track Additional Costs for Purchases"
+                                            IsChecked="{Binding TrackAdditionalCosts, Mode=TwoWay}"
+                                            IsVisible="{Binding CanTrackAdditionalCosts}"
+                                            FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
+                                            Foreground="{StaticResource BrandNavy}"/>
+
+                                  <!-- Additional-cost entry area (shown only when tracking is on). Each row picks an
+                                       additional-cost ledger (a Direct-Expenses ledger with a Method of Appropriation)
+                                       + an amount; the amount posts its own Dr (P&L) AND loads the item landed rate. -->
+                                  <Border IsVisible="{Binding ShowAdditionalCosts}"
+                                          Background="#FBF7EE" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10,8" Margin="0,4,0,0">
+                                    <StackPanel Spacing="6">
+                                      <TextBlock Text="Additional Cost of Purchase" FontWeight="Bold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ItemsControl ItemsSource="{Binding AdditionalCosts}">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:AdditionalCostRowViewModel">
+                                            <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
+                                              <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
+                                                        ItemsSource="{Binding AdditionalCostLedgers}"
+                                                        SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                        PlaceholderText="Additional-cost ledger…">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:Ledger">
+                                                    <TextBlock Text="{Binding Name}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <TextBox Grid.Column="1"
+                                                       Text="{Binding AmountText, Mode=TwoWay}"
+                                                       TextAlignment="Right" PlaceholderText="0.00"/>
+                                            </Grid>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                      <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Button Grid.Column="0" Content="+ Add cost" Padding="10,4"
+                                                Background="{StaticResource Panel}"
+                                                Click="OnAddAdditionalCostClick"/>
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                   FontSize="12.5" Foreground="{StaticResource BrandNavy}">
+                                          <Run Text="Additional ₹ "/><Run Text="{Binding AdditionalCostTotalText}"/>
+                                        </TextBlock>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
                                 </StackPanel>
                               </ScrollViewer>
 
@@ -1828,7 +1895,7 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,152,84,88,86,36">
+                                          <Grid ColumnDefinitions="*,152,84,88,86,36,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
@@ -1863,6 +1930,18 @@
                                                      Text="{Binding BatchLabel, Mode=TwoWay}"
                                                      PlaceholderText="—"
                                                      IsVisible="{Binding ShowsBatch}"/>
+                                            <!-- Read-only landed (effective) inward rate + value from the transfer
+                                                 apportionment engine (ER-4/RQ-20). Collapse when ShowLanded is off. -->
+                                            <TextBlock Grid.Column="6" Width="90" Margin="6,0,0,0"
+                                                       Text="{Binding LandedRateText}" TextAlignment="Right"
+                                                       VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrandNavy}"
+                                                       IsVisible="{Binding ShowLanded}"/>
+                                            <TextBlock Grid.Column="7" Width="96" Margin="6,0,0,0"
+                                                       Text="{Binding LandedValueText}" TextAlignment="Right"
+                                                       VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrandNavy}"
+                                                       IsVisible="{Binding ShowLanded}"/>
                                           </Grid>
                                         </Border>
                                       </DataTemplate>
@@ -1872,6 +1951,47 @@
                                           Margin="0,6" Padding="10,4"
                                           Background="{StaticResource Panel}"
                                           Click="OnAddInventoryDestinationLineClick"/>
+
+                                  <!-- Additional cost of a transfer (RQ-20): each row picks an additional-cost ledger
+                                       + amount, apportioned onto the destination landed rate by the ledger's method. -->
+                                  <Border IsVisible="{Binding ShowAdditionalCosts}"
+                                          Background="#FBF7EE" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10,8" Margin="0,4,0,0">
+                                    <StackPanel Spacing="6">
+                                      <TextBlock Text="Additional Cost of Transfer" FontWeight="Bold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ItemsControl ItemsSource="{Binding AdditionalCosts}">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:AdditionalCostRowViewModel">
+                                            <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
+                                              <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
+                                                        ItemsSource="{Binding AdditionalCostLedgers}"
+                                                        SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                        PlaceholderText="Additional-cost ledger…">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:Ledger">
+                                                    <TextBlock Text="{Binding Name}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <TextBox Grid.Column="1"
+                                                       Text="{Binding AmountText, Mode=TwoWay}"
+                                                       TextAlignment="Right" PlaceholderText="0.00"/>
+                                            </Grid>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                      <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Button Grid.Column="0" Content="+ Add cost" Padding="10,4"
+                                                Background="{StaticResource Panel}"
+                                                Click="OnAddTransferAdditionalCostClick"/>
+                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                   FontSize="12.5" Foreground="{StaticResource BrandNavy}">
+                                          <Run Text="Additional ₹ "/><Run Text="{Binding AdditionalCostTotalText}"/>
+                                        </TextBlock>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
                                 </StackPanel>
                               </StackPanel>
                             </ScrollViewer>
@@ -1964,6 +2084,32 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+
+                                <!-- Method of Appropriation in Purchase invoice (Book pp.133–141): shown ONLY when
+                                     the ledger-screen F12 configuration is on AND the group is under Direct
+                                     Expenses. A non-None pick marks this an additional-cost ledger (RQ-16..RQ-20). -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowAppropriation}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Additional Cost of Purchase (F12)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="150,*">
+                                      <TextBlock Grid.Column="0" Text="Method of Appropriation" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding MethodChoices}"
+                                                SelectedItem="{Binding SelectedMethod, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MethodOfAppropriationChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
 
                                 <!-- Bill-wise options (shown for party groups: Sundry Debtors/Creditors) -->
                                 <StackPanel Spacing="8" IsVisible="{Binding IsPartyGroup}">

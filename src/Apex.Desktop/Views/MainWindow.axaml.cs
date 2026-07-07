@@ -432,6 +432,12 @@ public partial class MainWindow : Window
     private void OnAddItemInvoiceLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddItemInvoiceLine();
 
+    private void OnAddAdditionalCostClick(object? sender, RoutedEventArgs e)
+        => Vm?.VoucherEntry?.AddAdditionalCostRow();
+
+    private void OnAddTransferAdditionalCostClick(object? sender, RoutedEventArgs e)
+        => Vm?.InventoryVoucherEntry?.AddAdditionalCostRow();
+
     private void OnAcceptInventoryVoucherClick(object? sender, RoutedEventArgs e)
         => Vm?.InventoryVoucherEntry?.Accept();
 

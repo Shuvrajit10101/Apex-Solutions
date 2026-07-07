@@ -21,7 +21,12 @@ internal static class ItemInvoiceStock
     /// (date/number/id) mirroring the inventory replay ordering, plus the synthetic allocation. The line's
     /// direction was stamped from the voucher nature at posting time (Purchase ⇒ Inward, Sales ⇒ Outward).
     /// </summary>
-    internal readonly record struct Movement(DateOnly Date, int Number, Guid VoucherId, InventoryAllocation Allocation);
+    /// <param name="LandedUnitRate">The <b>landed</b> (effective) inward unit rate when this movement is an item
+    /// line on a Purchase whose voucher type tracks additional costs AND additional cost actually loaded it
+    /// (Phase 6 slice 3 RQ-16..RQ-19); <c>null</c> otherwise, so an untracked/zero-load movement takes the
+    /// identical old valuation path (<c>LandedUnitRate ?? Allocation.Rate</c> — ER-13).</param>
+    internal readonly record struct Movement(
+        DateOnly Date, int Number, Guid VoucherId, InventoryAllocation Allocation, decimal? LandedUnitRate = null);
 
     /// <summary>
     /// Whether an item-invoice accounting voucher contributes stock at <paramref name="asOf"/> — the same rule
@@ -52,12 +57,26 @@ internal static class ItemInvoiceStock
         {
             if (excludeVoucherId is { } ex && v.Id == ex) continue;
             if (!Counts(company, v, asOf)) continue;
-            foreach (var line in v.InventoryLines)
+
+            // Additional Cost of Purchase (RQ-16..RQ-19): for a Purchase whose type tracks additional costs,
+            // compute the per-item landed rates ONCE per voucher via the shared apportionment engine (ER-4). A
+            // non-Purchase, an untracked type, or a purchase with no additional-cost ledger yields no load, so the
+            // movement keeps its bare rate and the valuation is byte-identical (ER-13).
+            IReadOnlyList<AdditionalCostApportionment.LandedLine>? landed = null;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is not null && type.TrackAdditionalCosts && type.BaseType == VoucherBaseType.Purchase)
+                landed = AdditionalCostApportionment.ForPurchase(company, v);
+
+            for (var i = 0; i < v.InventoryLines.Count; i++)
             {
+                var line = v.InventoryLines[i];
                 var alloc = new InventoryAllocation(
                     line.StockItemId, line.GodownId, line.Quantity, line.Direction,
                     rate: line.Rate, batchLabel: line.BatchLabel);
-                yield return new Movement(v.Date, v.Number, v.Id, alloc);
+                decimal? landedRate = null;
+                if (landed is { } ll && ll[i].HasLoad)
+                    landedRate = ll[i].LandedUnitRate;
+                yield return new Movement(v.Date, v.Number, v.Id, alloc, landedRate);
             }
         }
     }

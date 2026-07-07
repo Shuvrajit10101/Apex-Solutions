@@ -51,6 +51,20 @@ public sealed class CurrencyChoice
 }
 
 /// <summary>
+/// A "Method of Appropriation in Purchase invoice" picker option (Book pp.133–141; catalog §11; Phase 6 slice 3):
+/// None (a plain Direct-Expenses ledger — pure P&amp;L, RQ-19), Appropriate by Quantity, or Appropriate by Value.
+/// A non-null <see cref="Value"/> MARKS the ledger as an additional-cost ledger.
+/// </summary>
+public sealed class MethodOfAppropriationChoice
+{
+    /// <summary>The stored method — null means "None" (not an additional-cost ledger).</summary>
+    public MethodOfAppropriation? Value { get; }
+    public string Display { get; }
+    public MethodOfAppropriationChoice(MethodOfAppropriation? value, string display) { Value = value; Display = display; }
+    public override string ToString() => Display;
+}
+
+/// <summary>
 /// The Ledger-creation master ("Create → Ledger", Alt+C): pick a name and an under-group
 /// from the 28 predefined groups, create the ledger on the current company, and see it appear in
 /// the list. Persists the company to its <c>.db</c> via <see cref="CompanyStorage.Save"/> on create.
@@ -159,6 +173,42 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>The chosen "Currency of ledger" — base by default; a foreign currency holds forex balances.</summary>
     [ObservableProperty] private CurrencyChoice? _selectedCurrency;
 
+    // --------------------------------------------------------------- additional-cost method (Book pp.133–141; catalog §11)
+
+    /// <summary>
+    /// F12 ledger-screen configuration toggle (Book pp.133–141; Phase 6 slice 3). The
+    /// "Method of Appropriation in Purchase invoice" field renders on the ledger master ONLY when this is on
+    /// (and the chosen group is under Direct Expenses). Off by default, so an untracked ledger screen is
+    /// byte-unchanged (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showConfiguration;
+
+    /// <summary>
+    /// The "Method of Appropriation in Purchase invoice" choices — None (a plain P&amp;L Direct-Expenses ledger),
+    /// Appropriate by Quantity, Appropriate by Value. A non-None pick makes the ledger an additional-cost ledger.
+    /// </summary>
+    public IReadOnlyList<MethodOfAppropriationChoice> MethodChoices { get; } = new[]
+    {
+        new MethodOfAppropriationChoice(null, "None (plain expense)"),
+        new MethodOfAppropriationChoice(MethodOfAppropriation.ByQuantity, "Appropriate by Quantity"),
+        new MethodOfAppropriationChoice(MethodOfAppropriation.ByValue, "Appropriate by Value"),
+    };
+
+    /// <summary>The chosen appropriation method — None by default (every existing ledger stays a plain expense).</summary>
+    [ObservableProperty] private MethodOfAppropriationChoice? _selectedMethod;
+
+    /// <summary>
+    /// True iff the chosen group is under <b>Direct Expenses</b> — an additional-cost ledger (Freight/Packing/…)
+    /// lives there. The Method-of-Appropriation field only ever applies to such a ledger.
+    /// </summary>
+    public bool IsDirectExpensesGroup => SelectedGroup is not null && IsUnderDirectExpenses(SelectedGroup);
+
+    /// <summary>
+    /// True iff the "Method of Appropriation" field should render: the ledger-screen F12 configuration is on
+    /// AND the chosen group is under Direct Expenses. Gated so an untracked screen is byte-unchanged (ER-13).
+    /// </summary>
+    public bool ShowAppropriation => ShowConfiguration && IsDirectExpensesGroup;
+
     // --------------------------------------------------------------- party GST (catalog §12; phase4 RQ-7)
 
     /// <summary>True iff GST is enabled for the company — the party-GST sub-form is only offered then.</summary>
@@ -207,6 +257,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         CurrencyChoices = BuildCurrencyChoices(company);
         _selectedCurrency = CurrencyChoices[0]; // base currency
+        _selectedMethod = MethodChoices[0]; // None (a plain expense)
 
         PartyStates = IndianState.All.Select(s => new IndianStateOption { State = s }).ToList();
         _partyRegistrationType = PartyRegistrationTypes[2]; // Unregistered (a plain B2C party) by default
@@ -247,7 +298,15 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         MaintainBillByBill = value is not null && IsUnderParty(value);
         OnPropertyChanged(nameof(IsPartyGroup));
         OnPropertyChanged(nameof(ShowPartyGst));
+        OnPropertyChanged(nameof(IsDirectExpensesGroup));
+        OnPropertyChanged(nameof(ShowAppropriation));
     }
+
+    partial void OnShowConfigurationChanged(bool value) => OnPropertyChanged(nameof(ShowAppropriation));
+
+    /// <summary>F12 on the ledger master — toggles the ledger-screen configuration (reveals the
+    /// Method-of-Appropriation field for a Direct-Expenses ledger).</summary>
+    public void ToggleConfiguration() => ShowConfiguration = !ShowConfiguration;
 
     private bool IsUnderParty(Group group)
     {
@@ -257,6 +316,19 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         {
             if (g.Name.Equals("Sundry Debtors", StringComparison.OrdinalIgnoreCase) ||
                 g.Name.Equals("Sundry Creditors", StringComparison.OrdinalIgnoreCase))
+                return true;
+            g = g.ParentId is { } pid ? _company.FindGroup(pid) : null;
+        }
+        return false;
+    }
+
+    private bool IsUnderDirectExpenses(Group group)
+    {
+        var g = group;
+        var guard = 0;
+        while (g is not null && guard++ < 64)
+        {
+            if (g.Name.Equals("Direct Expenses", StringComparison.OrdinalIgnoreCase))
                 return true;
             g = g.ParentId is { } pid ? _company.FindGroup(pid) : null;
         }
@@ -355,6 +427,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             }
         }
 
+        // "Method of Appropriation in Purchase invoice" — captured only when the F12 configuration is on AND
+        // the ledger is under Direct Expenses; a non-null value marks it an additional-cost ledger (RQ-16..RQ-20).
+        MethodOfAppropriation? methodOfAppropriation =
+            ShowAppropriation ? SelectedMethod?.Value : null;
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
@@ -366,7 +443,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             // "Currency of ledger" — null (base ₹/INR) for every existing ledger; a foreign currency
             // makes this a forex ledger whose lines carry forex amounts + rates.
             currencyId: SelectedCurrency?.CurrencyId,
-            partyGst: partyGst);
+            partyGst: partyGst,
+            methodOfAppropriation: methodOfAppropriation);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -380,6 +458,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         EnableInterest = false;
         InterestRateText = string.Empty;
         SelectedCurrency = CurrencyChoices[0]; // reset to base for the next entry
+        SelectedMethod = MethodChoices[0];     // reset to None for the next entry
         PartyGstin = string.Empty;
         PartyRegistrationType = PartyRegistrationTypes[2]; // back to Unregistered
         PartyState = null;

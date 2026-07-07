@@ -121,8 +121,51 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>The invoice IGST total (paisa-exact display); "0.00" when off/intra-state/exempt.</summary>
     [ObservableProperty] private string _gstIgstText = "0.00";
 
-    /// <summary>The invoice party total = Σ taxable + Σ tax (what the customer pays / supplier is owed).</summary>
+    /// <summary>The invoice party total = Σ taxable + Σ additional cost + Σ tax (what the supplier is owed).</summary>
     [ObservableProperty] private string _partyTotalText = "0.00";
+
+    // =============================================================== additional cost of purchase (Book pp.133–141; catalog §11; slice 6.3)
+
+    /// <summary>
+    /// "Track Additional Costs for Purchases" (Book pp.133–141; Phase 6 slice 3 RQ-16..RQ-20) — the voucher-type
+    /// flag proxied for the voucher-type-editor checkbox on the Purchase entry screen. Reading returns the live
+    /// <see cref="VoucherType.TrackAdditionalCosts"/>; setting it mutates the (persisted) type and saves the
+    /// company, then refreshes the additional-cost gating. Only meaningful on a Purchase type.
+    /// </summary>
+    public bool TrackAdditionalCosts
+    {
+        get => _type.TrackAdditionalCosts;
+        set
+        {
+            if (_type.TrackAdditionalCosts == value) return;
+            _type.TrackAdditionalCosts = value;
+            _storage.Save(_company);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowAdditionalCosts));
+            RecalculateItemInvoice();
+        }
+    }
+
+    /// <summary>True iff the voucher-type-editor "Track Additional Costs" checkbox is shown — only on a Purchase
+    /// that can be entered as an item invoice (never on a Sales or a non-invoiceable type).</summary>
+    public bool CanTrackAdditionalCosts => IsPurchaseInvoice && CanBeItemInvoice;
+
+    /// <summary>
+    /// True when the additional-cost entry area is shown (Book pp.133–141; RQ-16): a Purchase entered as an item
+    /// invoice whose voucher type has <see cref="VoucherType.TrackAdditionalCosts"/> on. Off ⇒ the area is hidden
+    /// and no additional cost loads any stock rate (a plain freight line stays purely P&amp;L, RQ-19 / ER-13).
+    /// </summary>
+    public bool ShowAdditionalCosts => IsItemInvoice && IsPurchaseInvoice && _type.TrackAdditionalCosts;
+
+    /// <summary>The additional-cost ledgers the row pickers choose from — ledgers whose
+    /// <see cref="Ledger.MethodOfAppropriation"/> is non-null (a plain Direct-Expenses ledger stays out, RQ-19).</summary>
+    public IReadOnlyList<DomainLedger> AdditionalCostLedgers { get; }
+
+    /// <summary>The repeatable additional-cost entry rows (ledger + amount); always one blank trailing row.</summary>
+    public ObservableCollection<AdditionalCostRowViewModel> AdditionalCosts { get; } = new();
+
+    /// <summary>The running Σ of the complete additional-cost rows (paisa-exact display).</summary>
+    [ObservableProperty] private string _additionalCostTotalText = "0.00";
 
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private DateOnly _date;
@@ -217,7 +260,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         // Item-invoice masters (only meaningful on a Purchase/Sales, but always populated so the toggle is cheap).
         StockItems = company.StockItems;
         Godowns = company.Godowns;
+
+        // Additional-cost ledgers (Book pp.133–141): the Direct-Expenses ledgers marked as additional-cost
+        // ledgers (a non-null Method of Appropriation). A plain Direct-Expenses ledger stays out (RQ-19).
+        AdditionalCostLedgers = company.Ledgers
+            .Where(l => l.IsAdditionalCostLedger)
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         BuildItemInvoicePickers();
+        AddAdditionalCostRow(); // one blank trailing row ready to type into
 
         // Default date: last voucher date, else books-begin (never before books, which Post rejects).
         var last = company.Vouchers.Count == 0
@@ -516,10 +568,27 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     partial void OnIsItemInvoiceChanged(bool value)
     {
-        // Turning the mode on/off changes which grid gates Accept AND whether GST is wired in; recompute both.
+        // Turning the mode on/off changes which grid gates Accept AND whether GST / additional-cost tracking is
+        // wired in; recompute all.
         OnPropertyChanged(nameof(IsGstInvoice));
+        OnPropertyChanged(nameof(ShowAdditionalCosts));
         RecalculateItemInvoice();
         Recalculate();
+    }
+
+    /// <summary>Adds a blank additional-cost row (ledger + amount); keeps one trailing blank row.</summary>
+    public AdditionalCostRowViewModel AddAdditionalCostRow()
+    {
+        var row = new AdditionalCostRowViewModel(AdditionalCostLedgers, OnAdditionalCostChanged);
+        AdditionalCosts.Add(row);
+        return row;
+    }
+
+    private void OnAdditionalCostChanged()
+    {
+        if (AdditionalCosts.Count == 0 || !AdditionalCosts[^1].IsBlank)
+            AddAdditionalCostRow();
+        RecalculateItemInvoice();
     }
 
     /// <summary>Adds a blank item-invoice inventory line (Movement kind: Item / Godown / Qty / Rate / Batch).</summary>
@@ -620,6 +689,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
         var party = SelectedParty?.Ledger?.Name ?? "party";
 
+        // Additional cost of purchase (Book pp.133–141) — Σ of the complete additional-cost rows (0 when untracked),
+        // added to the party total and apportioned onto the item landed rates below (RQ-16..RQ-20).
+        var additionalTotal = AdditionalCostsTotal();
+        AdditionalCostTotalText = IndianFormat.AmountAlways(additionalTotal);
+
         // GST summary (only when wired in) — computed once, shown as CGST/SGST/IGST + party total, and folded
         // into the derived-Dr/Cr summary so it reflects the additive tax legs.
         var gst = ComputeItemInvoiceGst();
@@ -627,14 +701,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         var sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
         var igst = gst?.Tax.TotalIgst.Amount ?? 0m;
         var taxTotal = cgst + sgst + igst;
-        var partyTotal = total + taxTotal;
+        var partyTotal = total + additionalTotal + taxTotal;
 
         GstCgstText = IndianFormat.AmountAlways(cgst);
         GstSgstText = IndianFormat.AmountAlways(sgst);
         GstIgstText = IndianFormat.AmountAlways(igst);
         PartyTotalText = IndianFormat.AmountAlways(partyTotal);
 
-        DerivedSummary = BuildDerivedSummary(party, total, cgst, sgst, igst, partyTotal);
+        // Stamp the read-only landed (effective) stock rate onto each complete item line via the SAME engine the
+        // post/valuation uses (ER-4). No-op when tracking is off (columns collapse — untracked screen unchanged).
+        RefreshLandedRates(InventoryLines.Where(l => l.IsComplete).ToList());
+
+        DerivedSummary = BuildDerivedSummary(party, total, additionalTotal, cgst, sgst, igst, partyTotal);
 
         if (!IsItemInvoice) return; // plain-mode Accept is governed by Recalculate()
 
@@ -659,24 +737,81 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// Output CGST/SGST (or IGST) on a sale — and the party leg carries taxable + tax, e.g.
     /// "Dr Purchases 1,000.00 · Dr Input CGST 90.00 · Dr Input SGST 90.00 · Cr Supplier 1,180.00".
     /// </summary>
-    private string BuildDerivedSummary(string party, decimal taxable, decimal cgst, decimal sgst, decimal igst, decimal partyTotal)
+    private string BuildDerivedSummary(string party, decimal taxable, decimal additional, decimal cgst, decimal sgst, decimal igst, decimal partyTotal)
     {
         string A(decimal v) => IndianFormat.AmountAlways(v);
         var stock = StockLedgerCaption;
         var side = IsPurchaseInvoice ? "Dr" : "Cr"; // tax follows the value leg's side (Input Dr / Output Cr)
 
-        var taxLegs = new List<string>();
-        if (igst != 0m) taxLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} IGST {A(igst)}");
+        var extraLegs = new List<string>();
+        // Additional-cost legs (Purchase only) — each posts a Dr to its Direct-Expenses ledger (hits P&L, RQ-19).
+        if (IsPurchaseInvoice && additional != 0m)
+            extraLegs.Add($"Dr Additional Costs {A(additional)}");
+        if (igst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} IGST {A(igst)}");
         else
         {
-            if (cgst != 0m) taxLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} CGST {A(cgst)}");
-            if (sgst != 0m) taxLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} SGST {A(sgst)}");
+            if (cgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} CGST {A(cgst)}");
+            if (sgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} SGST {A(sgst)}");
         }
-        var taxPart = taxLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", taxLegs) : string.Empty;
+        var taxPart = extraLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", extraLegs) : string.Empty;
 
         return IsPurchaseInvoice
             ? $"Dr {stock} {A(taxable)}{taxPart}  ·  Cr {party} {A(partyTotal)}"
             : $"Dr {party} {A(partyTotal)}{taxPart}  ·  Cr {stock} {A(taxable)}";
+    }
+
+    /// <summary>The Σ of the complete additional-cost rows (paisa-exact); 0 when the area is off/untracked.</summary>
+    private decimal AdditionalCostsTotal()
+    {
+        if (!ShowAdditionalCosts) return 0m;
+        var sum = 0m;
+        foreach (var r in AdditionalCosts)
+            if (r.IsComplete && r.ParsedAmount is { } a) sum += a;
+        return sum;
+    }
+
+    /// <summary>
+    /// Stamps each complete item line's read-only <b>landed</b> (effective) stock rate + value using the SAME
+    /// engine the post/valuation uses (<see cref="AdditionalCostApportionment.ForPurchase"/>, ER-4): builds a
+    /// throwaway Voucher of this type carrying the item lines + the additional-cost Dr lines and lets the engine
+    /// derive the apportionment from each ledger's method. No-op (columns cleared/collapsed) when tracking is off
+    /// or an item line is incomplete, so an untracked screen is byte-unchanged (ER-13).
+    /// </summary>
+    private void RefreshLandedRates(IReadOnlyList<InventoryVoucherLineViewModel> completeItems)
+    {
+        foreach (var l in InventoryLines)
+        {
+            l.ShowLanded = false;
+            l.LandedRateText = string.Empty;
+            l.LandedValueText = string.Empty;
+        }
+        if (!ShowAdditionalCosts || completeItems.Count == 0) return;
+
+        var invLines = new List<VoucherInventoryLine>(completeItems.Count);
+        foreach (var l in completeItems)
+        {
+            if (l.ParsedRate is not { } rate || rate <= 0m) return; // wait for every item line to be valid
+            invLines.Add(new VoucherInventoryLine(
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, new Money(rate),
+                StockDirection.Inward, l.Batch));
+        }
+
+        var costLines = new List<EntryLine>();
+        foreach (var r in AdditionalCosts)
+            if (r.IsComplete && r.SelectedLedger is { } led && r.ParsedAmount is { } amt)
+                costLines.Add(new EntryLine(led.Id, new Money(amt), DrCr.Debit));
+        if (costLines.Count == 0) return; // no additional cost ⇒ no landed columns (identical old valuation path)
+
+        var temp = new Voucher(Guid.NewGuid(), _type.Id, Date, costLines, inventoryLines: invLines);
+        var landed = AdditionalCostApportionment.ForPurchase(_company, temp);
+
+        for (var i = 0; i < completeItems.Count && i < landed.Count; i++)
+        {
+            var ll = landed[i];
+            completeItems[i].ShowLanded = true;
+            completeItems[i].LandedRateText = IndianFormat.AmountAlways(ll.LandedUnitRate);
+            completeItems[i].LandedValueText = IndianFormat.AmountAlways(ll.LandedValue.Amount);
+        }
     }
 
     /// <summary>
@@ -736,15 +871,35 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         }
 
         // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant
-        // (value leg == Σ item value) holds by construction; GST is additive on top of it.
+        // (value leg == Σ item value) holds by construction; GST + additional cost are additive on top of it.
         var taxable = Money.Zero;
         foreach (var il in inventoryLines) taxable += il.Value;
+
+        // Additional cost of purchase (Book pp.133–141; RQ-16): each additional-cost ledger posts its own Dr to
+        // its Direct-Expenses ledger (so the expense hits P&L — it is NOT swallowed), AND its amount raises the
+        // party total (it is part of the invoice payable to the supplier). The SAME amounts are apportioned onto
+        // the item landed rates by the valuation engine — a valuation adjustment, not a second GL posting.
+        var additionalCostLines = new List<EntryLine>();
+        var additionalTotal = Money.Zero;
+        if (ShowAdditionalCosts)
+        {
+            foreach (var r in AdditionalCosts.Where(r => !r.IsBlank))
+            {
+                if (!r.IsComplete || r.SelectedLedger is not { } led || r.ParsedAmount is not { } amt)
+                {
+                    Message = "Every additional-cost line needs a ledger and a paisa-exact amount greater than zero.";
+                    return false;
+                }
+                additionalCostLines.Add(new EntryLine(led.Id, new Money(amt), DrCr.Debit));
+                additionalTotal += new Money(amt);
+            }
+        }
 
         // GST (only when enabled): resolve each line's rate + taxability, split intra CGST/SGST vs inter IGST, and
         // build the additive tax entry lines (posted to the correct Output/Input ledgers, carrying GstLineTax so
         // the invoice flows into GSTR-1/3B/Tax Analysis). A taxable line with no resolvable rate fails fast.
         var taxLines = new List<EntryLine>();
-        var partyAmount = taxable;
+        var partyAmount = new Money(taxable.Amount + additionalTotal.Amount);
         if (IsGstInvoice)
         {
             ItemInvoiceGst gst;
@@ -764,12 +919,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 return false;
             }
             taxLines.AddRange(gst.Tax.TaxLines);
-            partyAmount = new Money(taxable.Amount + gst.Tax.TotalTax.Amount); // party = taxable + tax
+            // party = taxable + additional cost + tax
+            partyAmount = new Money(taxable.Amount + additionalTotal.Amount + gst.Tax.TotalTax.Amount);
         }
 
-        // Auto-derive the accounting legs (no hand-balancing): the party carries taxable + tax; the stock/value
-        // leg carries taxable only; the tax lines are additive. Purchase → Dr Purchases (taxable) / Dr Input tax /
-        // Cr Supplier (taxable+tax); Sales → Dr Customer (taxable+tax) / Cr Sales (taxable) / Cr Output tax.
+        // Auto-derive the accounting legs (no hand-balancing): the party carries taxable + additional + tax; the
+        // stock/value leg carries taxable only; the additional-cost + tax lines are additive. Purchase → Dr
+        // Purchases (taxable) / Dr Additional Costs / Dr Input tax / Cr Supplier (taxable+additional+tax).
         var partyLine = IsPurchaseInvoice
             ? new EntryLine(party.Id, partyAmount, DrCr.Credit)
             : new EntryLine(party.Id, partyAmount, DrCr.Debit);
@@ -777,7 +933,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit)
             : new EntryLine(valueLedger.Id, taxable, DrCr.Credit);
 
-        var entryLines = new List<EntryLine>(2 + taxLines.Count) { stockLine, partyLine };
+        var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count) { stockLine, partyLine };
+        entryLines.AddRange(additionalCostLines);
         entryLines.AddRange(taxLines);
 
         var voucher = new Voucher(

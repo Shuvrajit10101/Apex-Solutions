@@ -63,6 +63,16 @@ public sealed class VoucherType
     public bool IsManufacturingJournal =>
         BaseType == VoucherBaseType.StockJournal && UseAsManufacturingJournal;
 
+    /// <summary>
+    /// "<b>Track Additional Costs for Purchases</b>" (Book pp.133–141; catalog §11; Phase 6 slice 3
+    /// RQ-16..RQ-20). A voucher-type flag (NOT F11/F12): when <b>Yes</b> on a Purchase type, the additional-cost
+    /// entry area appears and any entry line posting to an additional-cost ledger (one with a non-null
+    /// <see cref="Ledger.MethodOfAppropriation"/>) is apportioned across the item lines to raise their landed
+    /// stock rate. Defaults to <c>false</c>, so every existing Purchase is byte-identical (ER-13) — with the flag
+    /// off, a Direct-Expenses freight line stays purely P&amp;L and touches no stock rate (RQ-19).
+    /// </summary>
+    public bool TrackAdditionalCosts { get; set; }
+
     public VoucherType(
         Guid id,
         string name,
@@ -74,7 +84,8 @@ public sealed class VoucherType
         bool isPredefined = false,
         bool? affectsAccounts = null,
         bool? affectsStock = null,
-        bool useAsManufacturingJournal = false)
+        bool useAsManufacturingJournal = false,
+        bool trackAdditionalCosts = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -90,5 +101,6 @@ public sealed class VoucherType
         AffectsAccounts = affectsAccounts ?? VoucherEffects.AffectsAccounts(baseType);
         AffectsStock = affectsStock ?? VoucherEffects.AffectsStock(baseType);
         UseAsManufacturingJournal = useAsManufacturingJournal;
+        TrackAdditionalCosts = trackAdditionalCosts;
     }
 }
