@@ -2466,10 +2466,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Alt+C: open the Ledger-creation master whenever a company is open.</summary>
+    /// <summary>
+    /// Alt+C: create the master appropriate to the active screen. On the stock-only Manufacturing Journal and
+    /// BOM screens it inline-creates a COMPONENT stock item (RQ-53) — opening the accounting Ledger master there
+    /// is nonsensical. Everywhere else (with a company open) it opens the Ledger-creation master.
+    /// </summary>
     public void CreateLedgerShortcut()
     {
-        if (Company is not null && CurrentScreen != Screen.LedgerMaster)
+        if (Company is null) return;
+        if (CurrentScreen is Screen.ManufacturingJournalEntry or Screen.BomMaster)
+        {
+            ShowStockItemMaster();
+            return;
+        }
+        if (CurrentScreen != Screen.LedgerMaster)
             ShowLedgerMaster();
     }
 

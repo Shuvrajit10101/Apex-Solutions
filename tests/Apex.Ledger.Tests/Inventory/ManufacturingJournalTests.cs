@@ -514,6 +514,110 @@ public class ManufacturingJournalTests
         Assert.Equal(Money.FromRupees(8440m), k.Valuation.ClosingValue(fg, D2).Value); // exact under FIFO too
     }
 
+    // ================================================================ REGRESSION: paisa-conservation across ALL lines
+
+    [Fact]
+    public void Regression_percent_basis_carve_out_conserves_every_paisa_across_all_inventory_lines()
+    {
+        // REGRESSION (percent-basis carve-out remainder leak). A carve-out priced by PercentOfFinishedGoodCost
+        // yields a total value (₹10.00) that does NOT divide evenly across the produced scrap quantity (3), so the
+        // back-derived per-unit rate re-rounds (₹10.00 ÷ 3 = ₹3.3333… → ₹3.33). Pre-fix the carve-out was booked as
+        // a SINGLE inward line at that rate: round(₹3.33 × 3) = ₹9.99 — a 1-paisa leak with no counter-entry, so the
+        // net stock-value delta across all lines was −₹0.01 (a paisa vanished). The fix splits the carve-out inward
+        // (2 @ ₹3.33 + 1 @ ₹3.34) so its booked stock value equals the ₹10.00 carved out, to the paisa (DP-3/PR-4).
+        var k = NewKit();
+        var fg = Item(k, "Widget");
+        var steel = Item(k, "Steel");
+        var scrap = Item(k, "Scrap");
+        // Component Steel opening 200 @ ₹1.00 = ₹200.00 of stock value in the system before any manufacture.
+        Receive(k, steel, D1, 200m, Money.FromRupees(1m));
+        var totalBefore = k.Valuation.TotalClosingStockValue(D1);
+        Assert.Equal(Money.FromRupees(200m), totalBefore);
+
+        var bom = k.Boms.CreateBom(fg, "Std", unitOfManufacture: 1m, new[]
+        {
+            new BomLine(BomLineType.Component, steel, quantityPerBlock: 100m),   // 100 Steel @ ₹1 = ₹100 pre-carve
+            new BomLine(BomLineType.Scrap, scrap, quantityPerBlock: 3m,          // percent basis (NOT a rate)
+                percentOfFinishedGoodCost: 10m),                                 // 10% of ₹100 = ₹10.00 carved out
+        });
+        var mjType = k.Mfg.CreateManufacturingJournalType("Mfg");
+
+        var result = k.Mfg.Manufacture(mjType.Id, bom.Id, quantity: 1m, D2, k.GodownId, k.GodownId);
+
+        // Components out ₹100.00 == FG ₹90.00 + carve-out ₹10.00 — figures reconcile exactly.
+        Assert.Equal(Money.FromRupees(100m), result.ComponentCostTotal);
+        Assert.Equal(Money.FromRupees(10m), result.CarveOutTotal);
+        Assert.Equal(Money.FromRupees(90m), result.FinishedGoodValue);
+
+        // FG stock value = ₹90.00; the carve-out (scrap) stock value booked = ₹10.00 EXACTLY (₹9.99 pre-fix).
+        Assert.Equal(Money.FromRupees(90m), k.Valuation.ClosingValue(fg, D2).Value);
+        Assert.Equal(Money.FromRupees(10m), k.Valuation.ClosingValue(scrap, D2).Value);
+        Assert.Equal(3m, k.OnHand.OnHand(scrap, D2)); // 3 scrap produced, on-hand intact
+        // Steel drained by exactly the consumed value: 100 remaining @ ₹1 = ₹100.00.
+        Assert.Equal(Money.FromRupees(100m), k.Valuation.ClosingValue(steel, D2).Value);
+
+        // THE LOCK: net stock-value delta across ALL inventory lines = 0 paisa. Nothing vanished, nothing appeared.
+        // components out ₹100.00 == FG ₹90.00 + carve-out ₹10.00 ⇒ total after == total before (₹200.00). Pre-fix
+        // this was ₹199.99 (a paisa leaked), so this assertion FAILS on the pre-fix code and PASSES now.
+        var totalAfter = k.Valuation.TotalClosingStockValue(D2);
+        Assert.Equal(Money.FromRupees(200m), totalAfter);
+        Assert.Equal(totalBefore, totalAfter); // net delta == exactly 0 paisa
+    }
+
+    [Theory]
+    // FIFO issues the OLDEST layer (10 @ ₹10 = ₹100), leaving 10 @ ₹20 = ₹200 of Bolt stock.
+    [InlineData(StockValuationMethod.Fifo, 100, 200)]
+    // LIFO issues the NEWEST layer (10 @ ₹20 = ₹200), leaving 10 @ ₹10 = ₹100 of Bolt stock.
+    [InlineData(StockValuationMethod.Lifo, 200, 100)]
+    public void Regression_non_batch_layer_component_absorbs_the_true_issue_cost_not_the_average(
+        StockValuationMethod method, decimal expectedIssueRupees, decimal expectedRemainingBoltRupees)
+    {
+        // REGRESSION (non-batch FIFO/LIFO component costed at the AVERAGE instead of the layer issue cost). A
+        // FIFO/LIFO component's outward drains cost LAYERS and the valuation engine IGNORES the outward line's own
+        // rate — so the finished good must absorb the method-consistent ISSUE cost, not the surviving-layer average.
+        // Bolt (2 layers, 10 @ ₹10 then 10 @ ₹20) has a closing average of ₹15.00; pre-fix the FG absorbed 10 × ₹15
+        // = ₹150.00 while the stock actually drained at the FIFO issue cost ₹100.00 — injecting ₹50 of phantom stock
+        // value with no counter-entry (PR-4). The fix values the consumption through IssueValue, so the value booked
+        // into the FG equals exactly what the component's stock loses, to the paisa.
+        var k = NewKit();
+        var fg = Item(k, "Widget");                                   // FG default (Average) — only the component method matters
+        var bolt = Item(k, "Bolt", method: method);
+        Receive(k, bolt, D1, 10m, Money.FromRupees(10m));             // layer 1: 10 @ ₹10 (oldest)
+        Receive(k, bolt, D2, 10m, Money.FromRupees(20m));             // layer 2: 10 @ ₹20 (newest)
+
+        // Sanity: closing average would be ₹15.00 (₹300 ÷ 20) — the WRONG number the FG must NOT absorb.
+        var boltBefore = k.Valuation.ClosingValue(bolt, D2);
+        Assert.Equal(20m, boltBefore.Quantity);
+        Assert.Equal(Money.FromRupees(300m), boltBefore.Value);
+        var totalBefore = k.Valuation.TotalClosingStockValue(D2);
+        Assert.Equal(Money.FromRupees(300m), totalBefore);
+
+        var bom = k.Boms.CreateBom(fg, "Std", unitOfManufacture: 1m, new[]
+        {
+            new BomLine(BomLineType.Component, bolt, quantityPerBlock: 10m),
+        });
+        var mjType = k.Mfg.CreateManufacturingJournalType("Mfg");
+
+        var result = k.Mfg.Manufacture(mjType.Id, bom.Id, quantity: 1m, D3, k.GodownId, k.GodownId);
+
+        // The FG absorbs the true FIFO/LIFO issue cost (₹100 / ₹200), NOT the ₹150 average.
+        Assert.Equal(Money.FromRupees(expectedIssueRupees), result.ComponentCostTotal);
+        Assert.Equal(Money.FromRupees(expectedIssueRupees), result.FinishedGoodValue);
+        Assert.Equal(Money.FromRupees(expectedIssueRupees), k.Valuation.ClosingValue(fg, D3).Value);
+
+        // The Bolt's surviving layer values to the expected remainder (₹200 / ₹100).
+        var boltAfter = k.Valuation.ClosingValue(bolt, D3);
+        Assert.Equal(10m, boltAfter.Quantity);
+        Assert.Equal(Money.FromRupees(expectedRemainingBoltRupees), boltAfter.Value);
+
+        // THE LOCK: the component's stock-value reduction == the value booked into the FG, to the paisa — no phantom
+        // stock. Pre-fix the reduction (₹100 FIFO) ≠ the value booked (₹150 average), leaking ₹50; PASSES now.
+        var boltReduction = boltBefore.Value - boltAfter.Value;
+        Assert.Equal(result.FinishedGoodValue, boltReduction);
+        // And total stock value is conserved end-to-end: Bolt-out == FG-in ⇒ total unchanged at ₹300.00.
+        Assert.Equal(totalBefore, k.Valuation.TotalClosingStockValue(D3));
+    }
+
     // ================================================================ posting-path guards (RQ-15 / ER-7)
 
     [Fact]

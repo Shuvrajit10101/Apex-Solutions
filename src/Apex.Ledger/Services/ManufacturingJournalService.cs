@@ -216,8 +216,15 @@ public sealed class ManufacturingJournalService
 
             var (unitRate, lineValue) = CarveOutValue(line, producedQty, preCarveCost);
             carveOutTotal += lineValue;
-            destination.Add(new InventoryAllocation(
-                line.ComponentStockItemId, godown, producedQty, StockDirection.Inward, unitRate));
+            // Book the carve-out destination so its stock value equals lineValue TO THE PAISA — exactly the
+            // amount carved OUT of the finished good (DP-3/PR-4). A percent-basis carve-out prices the line at a
+            // back-derived, re-rounded per-unit rate whose round(rate × qty) ≠ lineValue whenever qty does not
+            // divide the value evenly; a single line would then leak that sub-paisa remainder with no counter-
+            // entry. The same remainder-correction split the finished good uses conserves it (rate-/standard-
+            // basis carve-outs value at the same rate they book, so the split degenerates to one line — no change).
+            foreach (var alloc in ConservedInwardLines(
+                         line.ComponentStockItemId, godown, producedQty, lineValue, unitRate))
+                destination.Add(alloc);
         }
 
         // Finished-good value = Σ components + Σ additional − Σ carve-outs (RQ-13). Per-unit rate is the value
@@ -234,7 +241,7 @@ public sealed class ManufacturingJournalService
         // whenever value ÷ N does not divide evenly (A10 finding #2). We therefore split off a one-unit
         // correction line carrying the exact remainder so Σ line values = finishedGoodValue — the DP-2
         // remainder-to-last-line technique. The lines still sum to exactly N units, so on-hand is unchanged.
-        foreach (var fg in FinishedGoodLines(bom.StockItemId, productionGodownId, quantity, finishedGoodValue, fgUnitRate)
+        foreach (var fg in ConservedInwardLines(bom.StockItemId, productionGodownId, quantity, finishedGoodValue, fgUnitRate)
                      .Reverse())
             destination.Insert(0, fg);
 
@@ -274,6 +281,22 @@ public sealed class ManufacturingJournalService
 
         if (!item.MaintainInBatches)
         {
+            // For a FIFO/LIFO item the outward drains cost LAYERS, and the valuation engine IGNORES the outward
+            // line's own rate when it consumes them — so the finished good must absorb the true method-consistent
+            // ISSUE cost (the layers FIFO/LIFO actually draws), not the surviving-layer AVERAGE. Booking the FG at
+            // the average while the stock drains at layer cost injects phantom stock value with no counter-entry
+            // (PR-4). Average/flat methods issue at the running/closing unit rate (the reduction they actually book).
+            if (item.ValuationMethod is StockValuationMethod.Fifo or StockValuationMethod.Lifo)
+            {
+                var issueValue = _valuation.IssueValue(componentId, consumedQty, asOf);
+                var issueRate = consumedQty > 0m
+                    ? new Money(issueValue.Amount / consumedQty).RoundToPaisa()
+                    : Money.Zero;
+                source.Add(new InventoryAllocation(
+                    componentId, godownId, consumedQty, StockDirection.Outward, issueRate));
+                return issueValue;
+            }
+
             var unitRate = ItemUnitRate(componentId, asOf);
             source.Add(new InventoryAllocation(
                 componentId, godownId, consumedQty, StockDirection.Outward, unitRate));
@@ -311,48 +334,51 @@ public sealed class ManufacturingJournalService
     }
 
     /// <summary>
-    /// The finished-good inward line(s) whose booked stock value equals <paramref name="finishedGoodValue"/>
-    /// <b>to the paisa</b> (PR-4/ER-2, A10 finding #2). A single line at <paramref name="fgUnitRate"/> books
-    /// <c>round(fgUnitRate × N)</c>, which drops the sub-paisa remainder whenever value ÷ N does not divide
-    /// evenly. When that remainder is non-zero (and a clean one-unit correction slice exists — the integer-unit
-    /// case that covers every real manufacture), this splits the inward into a bulk line of <c>N − 1</c> units
-    /// at <paramref name="fgUnitRate"/> plus a one-unit correction line carrying the exact remainder, so
-    /// <c>Σ line values = finishedGoodValue</c> exactly (DP-2 remainder-to-last-line). Both quantities sum to
-    /// exactly <c>N</c>, so on-hand is unchanged. If no exact paisa split exists (e.g. a fractional produced
+    /// Inward line(s) for <paramref name="itemId"/> whose booked stock value equals <paramref name="targetValue"/>
+    /// <b>to the paisa</b> (PR-4/ER-2, A10 finding #2). Used for the finished good AND for every
+    /// by-product/co-product/scrap carve-out, so each destination item's stock carries exactly the value put into
+    /// it. A single line at <paramref name="unitRate"/> books <c>round(unitRate × qty)</c>, which drops the
+    /// sub-paisa remainder whenever the target ÷ qty does not divide evenly. When that remainder is non-zero (and
+    /// a clean one-unit correction slice exists — the integer-unit case that covers every real manufacture), this
+    /// splits the inward into a bulk line of <c>qty − 1</c> units at <paramref name="unitRate"/> plus a one-unit
+    /// correction line carrying the exact remainder, so <c>Σ line values = targetValue</c> exactly (DP-2
+    /// remainder-to-last-line). Both quantities sum to exactly <c>qty</c>, so on-hand is unchanged. A line whose
+    /// value already equals <c>round(unitRate × qty)</c> (every rate-/standard-basis carve-out) has zero remainder
+    /// and returns the single line unchanged. If no exact paisa split exists (e.g. a fractional produced
     /// quantity), it falls back to the single rounded line — never worse than before, and no such case arises in
     /// scope.
     /// </summary>
-    private static IReadOnlyList<InventoryAllocation> FinishedGoodLines(
-        Guid itemId, Guid godownId, decimal quantity, Money finishedGoodValue, Money fgUnitRate)
+    private static IReadOnlyList<InventoryAllocation> ConservedInwardLines(
+        Guid itemId, Guid godownId, decimal quantity, Money targetValue, Money unitRate)
     {
         var single = new[]
         {
-            new InventoryAllocation(itemId, godownId, quantity, StockDirection.Inward, fgUnitRate),
+            new InventoryAllocation(itemId, godownId, quantity, StockDirection.Inward, unitRate),
         };
 
         // Remainder lost by a single rounded per-unit line. Both terms are paisa-exact, so δ is a whole number of
         // paisa; nothing to correct when it is zero.
-        var bookedBySingleLine = Money.ForexBase(fgUnitRate, quantity);
-        var delta = finishedGoodValue.Amount - bookedBySingleLine.Amount;
+        var bookedBySingleLine = Money.ForexBase(unitRate, quantity);
+        var delta = targetValue.Amount - bookedBySingleLine.Amount;
         if (delta == 0m)
             return single;
 
-        // A one-unit correction slice requires ≥ 1 whole spare unit (bulk = N − 1 > 0). The correction unit
-        // carries fgUnitRate + δ so the two lines foot to finishedGoodValue exactly; δ is a multiple of a paisa
-        // and fgUnitRate is paisa-exact, so the correction rate is paisa-exact too.
+        // A one-unit correction slice requires ≥ 1 whole spare unit (bulk = qty − 1 > 0). The correction unit
+        // carries unitRate + δ so the two lines foot to targetValue exactly; δ is a multiple of a paisa and
+        // unitRate is paisa-exact, so the correction rate is paisa-exact too.
         var bulkQty = quantity - 1m;
-        var correctionRate = new Money(fgUnitRate.Amount + delta);
+        var correctionRate = new Money(unitRate.Amount + delta);
         if (bulkQty <= 0m || !correctionRate.IsPaisaExact || correctionRate.Amount < 0m)
-            return single; // no clean split (fractional/degenerate qty) — keep today's single-line behaviour
+            return single; // no clean split (fractional/degenerate qty) — keep the single-line behaviour
 
-        var bulkValue = Money.ForexBase(fgUnitRate, bulkQty);
+        var bulkValue = Money.ForexBase(unitRate, bulkQty);
         // Sanity: the two lines must reconcile to the paisa; if not, keep the single line (never make it worse).
-        if ((bulkValue.Amount + correctionRate.Amount) != finishedGoodValue.Amount)
+        if ((bulkValue.Amount + correctionRate.Amount) != targetValue.Amount)
             return single;
 
         return new[]
         {
-            new InventoryAllocation(itemId, godownId, bulkQty, StockDirection.Inward, fgUnitRate),
+            new InventoryAllocation(itemId, godownId, bulkQty, StockDirection.Inward, unitRate),
             new InventoryAllocation(itemId, godownId, 1m, StockDirection.Inward, correctionRate),
         };
     }

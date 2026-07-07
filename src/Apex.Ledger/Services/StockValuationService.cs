@@ -103,6 +103,49 @@ public sealed class StockValuationService
         return total;
     }
 
+    /// <summary>
+    /// The paisa-exact stock value that issuing <paramref name="quantity"/> of an item as of a date would remove
+    /// under its own valuation method: for FIFO/LIFO the actual cost of the layers the outward drains (the engine
+    /// ignores an outward line's own rate and consumes layers), else quantity × the item's running/closing unit
+    /// rate. A Manufacturing Journal values each non-batch component consumption through this so the finished good
+    /// absorbs exactly what the component's stock loses — never phantom stock value with no counter-entry (PR-4).
+    /// Deterministic and paisa-exact; returns ₹0 for a non-positive quantity.
+    /// </summary>
+    public Money IssueValue(Guid stockItemId, decimal quantity, DateOnly asOf)
+    {
+        var item = _company.FindStockItem(stockItemId)
+            ?? throw new InvalidOperationException($"Stock item {stockItemId} not found.");
+        if (quantity <= 0m) return Money.Zero;
+
+        if (item.ValuationMethod is not (StockValuationMethod.Fifo or StockValuationMethod.Lifo))
+        {
+            // Average/flat methods: an outward at the running/closing unit rate reduces stock by qty × that rate.
+            var closing = ClosingValue(stockItemId, asOf);
+            var rate = closing.Quantity > 0m
+                ? new Money(closing.Value.Amount / closing.Quantity).RoundToPaisa()
+                : item.StandardCost ?? Money.Zero;
+            return Money.ForexBase(rate, quantity);
+        }
+
+        var events = MovementEvents(stockItemId, asOf);
+        var cost = CostContext.For(item, events);
+        var layers = BuildLayers(events, lifo: item.ValuationMethod == StockValuationMethod.Lifo, cost);
+
+        var remaining = quantity;
+        var consumed = 0m;
+        while (remaining > 0m && layers.Count > 0)
+        {
+            var idx = item.ValuationMethod == StockValuationMethod.Lifo ? layers.Count - 1 : 0;
+            var layer = layers[idx];
+            var take = Math.Min(layer.Quantity, remaining);
+            consumed += take * layer.UnitCost;
+            remaining -= take;
+            if (take >= layer.Quantity) layers.RemoveAt(idx);
+            else layers[idx] = new Layer(layer.Quantity - take, layer.UnitCost);
+        }
+        return new Money(consumed).RoundToPaisa();
+    }
+
     // ------------------------------------------------------------------ movement enumeration
 
     /// <summary>
@@ -180,6 +223,25 @@ public sealed class StockValuationService
     /// </summary>
     private static Money LayerValue(IReadOnlyList<MovementEvent> events, decimal closingQty, bool lifo, CostContext cost)
     {
+        var layers = BuildLayers(events, lifo, cost);
+
+        // Value the surviving layers (their quantities already sum to the closing quantity).
+        var value = 0m;
+        foreach (var l in layers)
+            value += l.Quantity * l.UnitCost;
+        _ = closingQty; // layers already reconcile to closing qty via the same movement set
+        return new Money(value).RoundToPaisa();
+    }
+
+    /// <summary>
+    /// Replays the movement history into the surviving FIFO/LIFO cost layers as of the events' cut-off: an inward
+    /// pushes a layer (no-rate lots costed via the best-available-cost chain), an outward consumes the oldest
+    /// (FIFO) or newest (LIFO) layers, a Physical-Stock count reconciles the stack to the counted total. The
+    /// resulting layers back both closing valuation (<see cref="LayerValue"/>) and issue costing
+    /// (<see cref="IssueValue"/>), so quantity and value stay in lock-step.
+    /// </summary>
+    private static List<Layer> BuildLayers(IReadOnlyList<MovementEvent> events, bool lifo, CostContext cost)
+    {
         var layers = new List<Layer>(); // oldest-first
         var runningQty = 0m;
         var runningCost = 0m;
@@ -221,12 +283,7 @@ public sealed class StockValuationService
             }
         }
 
-        // Value the surviving layers (their quantities already sum to the closing quantity).
-        var value = 0m;
-        foreach (var l in layers)
-            value += l.Quantity * l.UnitCost;
-        _ = closingQty; // layers already reconcile to closing qty via the same movement set
-        return new Money(value).RoundToPaisa();
+        return layers;
     }
 
     /// <summary>Flat closing value = closing qty × a single rate (Last Purchase / Last Sale / Standard).</summary>
