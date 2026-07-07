@@ -94,6 +94,45 @@ public sealed class Company
     private bool HasAnyBatchState =>
         _batchMasters.Count > 0 || _stockItems.Any(i => i.MaintainInBatches);
 
+    /// <summary>
+    /// Backing field for <see cref="SetComponentsBom"/>: <c>null</c> ⇒ "not explicitly set", so the getter
+    /// falls back to inferring the flag from persisted BOM state (see below).
+    /// </summary>
+    private bool? _setComponentsBom;
+
+    /// <summary>
+    /// F12-configuration flag <b>"Set Components (BOM)"</b> (Phase 6 Cluster 2; requirements RQ-9/RQ-10/RQ-52).
+    /// This is the master gate for the whole Bill-of-Materials / Manufacturing feature: the per-item
+    /// <see cref="StockItem.SetComponents"/> switch, the BOM master, and the Manufacturing-Journal voucher are
+    /// all hidden/inert when it is off.
+    /// <para>
+    /// It is an <b>in-memory</b> flag (no schema column — the BOM backend added none on the company row, ER-1).
+    /// When never explicitly set it is <b>inferred</b> as true whenever the company already carries any BOM state
+    /// — a Bill of Materials exists, or an item has <see cref="StockItem.SetComponents"/> on — so a company that
+    /// was configured for BOMs keeps the flag on across a reload without a new column. The F12 toggle sets it
+    /// explicitly; turning it off does not delete any BOM data (harmless — the BOM UI simply hides).
+    /// </para>
+    /// </summary>
+    public bool SetComponentsBom
+    {
+        get => _setComponentsBom ?? HasAnyBomState;
+        set => _setComponentsBom = value;
+    }
+
+    /// <summary>True iff the company already carries persisted BOM state (a Bill of Materials or an item with
+    /// <see cref="StockItem.SetComponents"/> on) — the basis for inferring <see cref="SetComponentsBom"/> when it
+    /// was never set explicitly.</summary>
+    private bool HasAnyBomState =>
+        _billsOfMaterials.Count > 0 || _stockItems.Any(i => i.SetComponents);
+
+    /// <summary>
+    /// F12-configuration flag <b>"Define type of component for BOM"</b> (Phase 6 Cluster 2; requirement RQ-10).
+    /// When on, a BOM line may be typed as a By-Product / Co-Product / Scrap carve-out (the type picker is
+    /// surfaced); when off, every line is a plain Component. Defaults to <c>false</c>. In-memory (no schema
+    /// column); only meaningful while <see cref="SetComponentsBom"/> is on.
+    /// </summary>
+    public bool DefineBomComponentType { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

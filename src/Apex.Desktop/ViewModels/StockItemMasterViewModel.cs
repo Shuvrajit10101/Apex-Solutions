@@ -141,6 +141,22 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// </summary>
     public bool ShowBatchSwitches => _company.MaintainBatchwiseDetails;
 
+    // ---- BOM switch (Phase 6 Cluster 2; RQ-10) — only offered when the F12 "Set Components (BOM)" config is on ----
+
+    /// <summary>
+    /// The item's <b>Set Components (BOM)</b> field (RQ-10): when on, the item is a manufactured finished good
+    /// with one or more Bills of Materials. Offered only when the F12 config <see cref="ShowBomSwitch"/> is on.
+    /// Creating a BOM through the BOM master also turns the persisted flag on, so this master's checkbox is the
+    /// declaration a user makes up front.
+    /// </summary>
+    [ObservableProperty] private bool _setComponents;
+
+    /// <summary>
+    /// True iff the F12 company config <see cref="Company.SetComponentsBom"/> is on (RQ-10/RQ-52) — the item's
+    /// "Set Components (BOM)" switch is surfaced only then, per the config-driven visibility model.
+    /// </summary>
+    public bool ShowBomSwitch => _company.SetComponentsBom;
+
     // ---- GST details (catalog §12; phase4 RQ-8) — only offered when GST is enabled ----
     [ObservableProperty] private GstTaxabilityOption? _taxability;
     [ObservableProperty] private GstRateOption? _gstRate;
@@ -311,6 +327,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 item.UseExpiryDates = UseExpiryDates;
             }
 
+            // BOM switch (RQ-10) — captured only when the F12 config is on. When off the flag stays false so an
+            // existing (non-BOM) company is byte-identical (ER-13). A BOM created later also flips this on.
+            if (ShowBomSwitch)
+                item.SetComponents = SetComponents;
+
             if (wantsOpening && openingQty > 0m)
             {
                 var batch = string.IsNullOrWhiteSpace(OpeningBatchLabel) ? null : OpeningBatchLabel.Trim();
@@ -345,6 +366,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         MaintainInBatches = false;
         TrackManufacturingDate = false;
         UseExpiryDates = false;
+        SetComponents = false;
         _onChanged();
         return true;
     }

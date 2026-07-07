@@ -52,6 +52,8 @@ public enum Screen
     StockItemMaster,
     BatchMaster,
     BatchAllocation,
+    BomMaster,
+    ManufacturingJournalEntry,
     GstConfig,
     LedgerVouchers,
     VoucherDetail,
@@ -207,6 +209,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The batch-allocation sub-screen view model (Phase 6 Cluster 1; RQ-3), non-null only while it is open.</summary>
     [ObservableProperty] private BatchAllocationViewModel? _batchAllocation;
 
+    /// <summary>The Bill-of-Materials master view model (Phase 6 Cluster 2; RQ-9), non-null only while that page is open.</summary>
+    [ObservableProperty] private BomMasterViewModel? _bomMaster;
+
+    /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
+    [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
+
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
@@ -268,6 +276,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
+        && BomMaster is null && ManufacturingJournalEntry is null
         && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -299,6 +308,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -554,6 +565,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Rejection Out", () => { }, "Ctrl+F5", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Stock Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Physical Stock", () => { }, "F10", isSubItem: true, kind: MenuItemKind.Page));
+        // Manufacturing Journal (Phase 6 Cluster 2; RQ-11/RQ-53) — a Stock-Journal-derived type reached under
+        // Inventory Vouchers via Alt+F7 (the manufacturing shortcut), surfaced only when the F12 config
+        // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
+        if (Company is { SetComponentsBom: true })
+            col.Add(new MenuItemViewModel("Manufacturing Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -647,6 +663,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "Maintain Batch-wise details" is on (RQ-52), so a non-batch company is unaffected.
         if (Company is { MaintainBatchwiseDetails: true })
             col.Add(new MenuItemViewModel("Batch", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Bill of Materials master (Phase 6 Cluster 2; RQ-9/RQ-54) — surfaced only when the F12 config
+        // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
+        if (Company is { SetComponentsBom: true })
+            col.Add(new MenuItemViewModel("Bill of Materials", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -1975,6 +1995,66 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    /// <summary>
+    /// Opens the Bill-of-Materials creation master (Masters → Create → Inventory Masters → Bill of Materials;
+    /// Phase 6 Cluster 2; RQ-9) as a page column. A no-op unless the F12 config "Set Components (BOM)" is on
+    /// (RQ-10/RQ-52), so the screen can never be reached on a non-BOM company.
+    /// </summary>
+    public void ShowBomMaster()
+    {
+        if (Company is null) return;
+        if (!Company.SetComponentsBom) return;   // gated by the F12 config (RQ-10/RQ-52)
+
+        var master = new BomMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Bill of Materials Creation", master), Screen.BomMaster,
+            "Bill of Materials Creation", () => BomMaster = master);
+    }
+
+    // =============================================================== screen: manufacturing journal
+
+    /// <summary>
+    /// Opens the Manufacturing-Journal voucher-entry screen (Vouchers → Inventory Vouchers → Manufacturing
+    /// Journal; Alt+F7; Phase 6 Cluster 2; RQ-11/RQ-12/RQ-13/RQ-15) as a page column. Resolves the company's
+    /// Manufacturing-Journal voucher type — creating one via
+    /// <see cref="Apex.Ledger.Services.ManufacturingJournalService.CreateManufacturingJournalType"/> if none
+    /// exists yet (RQ-11) — then hosts the entry screen that posts through the engine. A no-op unless the F12
+    /// config "Set Components (BOM)" is on (RQ-10/RQ-52).
+    /// </summary>
+    public void OpenManufacturingJournal()
+    {
+        if (Company is null) return;
+        if (!Company.SetComponentsBom) return;   // gated by the F12 config (RQ-10/RQ-52)
+
+        var service = new Apex.Ledger.Services.ManufacturingJournalService(Company);
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsManufacturingJournal);
+        if (type is null)
+        {
+            // Create the Manufacturing-Journal voucher type on first use (RQ-11), avoiding a name clash.
+            var name = "Manufacturing Journal";
+            var n = 1;
+            while (Company.VoucherTypes.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+                name = $"Manufacturing Journal {++n}";
+            try
+            {
+                type = service.CreateManufacturingJournalType(name);
+                _storage.Save(Company);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = ex.Message;
+                return;
+            }
+        }
+
+        var entry = new ManufacturingJournalEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Manufacturing Journal — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.ManufacturingJournalEntry, title,
+            () => ManufacturingJournalEntry = entry);
+    }
+
     // =============================================================== screen: statutory (GST config)
 
     /// <summary>
@@ -2250,6 +2330,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         StockItemMaster = null;
         BatchMaster = null;
         BatchAllocation = null;
+        BomMaster = null;
+        ManufacturingJournalEntry = null;
         GstConfig = null;
         ReportConfig = null;
         ReportSortFilter = null;
@@ -2294,11 +2376,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.Cancel();
         else if (CurrentScreen == Screen.InventoryVoucherEntry)
             InventoryVoucherEntry?.Cancel();
+        else if (CurrentScreen == Screen.ManufacturingJournalEntry)
+            ManufacturingJournalEntry?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
+                 or Screen.BomMaster
                  or Screen.GstConfig)
             BackFromPage();
     }
@@ -2543,6 +2628,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 // Ctrl+A commits the batch allocation; on success pop the sub-screen back to the voucher.
                 if (BatchAllocation?.Apply() == true) BackFromPage();
                 return;
+            case Screen.BomMaster:
+                BomMaster?.Create();
+                return;
+            case Screen.ManufacturingJournalEntry:
+                ManufacturingJournalEntry?.Accept();
+                return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
@@ -2695,6 +2786,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Godown": ShowGodownMaster(); break;
             case "Stock Item": ShowStockItemMaster(); break;
             case "Batch": ShowBatchMaster(); break;
+            case "Bill of Materials": ShowBomMaster(); break;
             case "Batch-wise": OpenReport(ReportKind.Batchwise); break;
             case "Age Analysis": OpenReport(ReportKind.BatchAgeAnalysis); break;
             case "Budget": ShowBudgetMaster(); break;
@@ -2745,6 +2837,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Rejection Out": OpenInventoryVoucher(VoucherBaseType.RejectionOut); break;
             case "Stock Journal": OpenInventoryVoucher(VoucherBaseType.StockJournal); break;
             case "Physical Stock": OpenInventoryVoucher(VoucherBaseType.PhysicalStock); break;
+            case "Manufacturing Journal": OpenManufacturingJournal(); break;
         }
     }
 

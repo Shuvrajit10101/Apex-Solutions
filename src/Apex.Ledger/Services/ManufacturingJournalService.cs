@@ -96,6 +96,58 @@ public sealed class ManufacturingJournalService
         Guid productionGodownId,
         IReadOnlyList<ManufacturingAdditionalCost>? additionalCosts = null)
     {
+        var plan = PlanManufacture(
+            manufacturingJournalTypeId, bomId, quantity, date,
+            consumptionGodownId, productionGodownId, additionalCosts);
+
+        var posted = _posting.Post(plan.Voucher);
+
+        return new ManufacturingResult(
+            posted, bomId, quantity,
+            plan.Result.ComponentCostTotal, plan.Result.AdditionalCostTotal, plan.Result.CarveOutTotal,
+            plan.Result.FinishedGoodValue, plan.Result.FinishedGoodUnitRate);
+    }
+
+    /// <summary>
+    /// Computes the manufacture <b>without posting</b> (Phase 6 Cluster 2; RQ-12/RQ-13, ER-4): validates the
+    /// inputs, explodes the BOM by the output quantity (auto-scaled consumption, RQ-12), values the finished
+    /// good = Σ component cost + Σ additional cost − Σ carve-outs (RQ-13/DP-3), and returns the same
+    /// <see cref="ManufacturingResult"/> figures a real <see cref="Manufacture"/> would post (the voucher on the
+    /// result carries the yet-to-be-posted lines, so its <c>Number</c> is 0). This is the single source of the
+    /// on-screen breakdown, so the screen never recomputes valuation (ER-4). Throws (persisting nothing) on the
+    /// same invalid-input conditions as <see cref="Manufacture"/>.
+    /// </summary>
+    public ManufacturingResult PreviewManufacture(
+        Guid manufacturingJournalTypeId,
+        Guid bomId,
+        decimal quantity,
+        DateOnly date,
+        Guid consumptionGodownId,
+        Guid productionGodownId,
+        IReadOnlyList<ManufacturingAdditionalCost>? additionalCosts = null)
+    {
+        var plan = PlanManufacture(
+            manufacturingJournalTypeId, bomId, quantity, date,
+            consumptionGodownId, productionGodownId, additionalCosts);
+        return plan.Result;
+    }
+
+    /// <summary>
+    /// The shared plan-then-post core: builds the Stock-Journal voucher (source consumption + destination
+    /// production/carve-outs) and the reconciled figures for a manufacture, WITHOUT touching the ledger. Both
+    /// <see cref="Manufacture"/> (which posts <see cref="ManufacturePlan.Voucher"/>) and
+    /// <see cref="PreviewManufacture"/> (which reads <see cref="ManufacturePlan.Result"/>) route through here, so
+    /// the on-screen preview and the posted voucher are computed by the SAME code (ER-4).
+    /// </summary>
+    private ManufacturePlan PlanManufacture(
+        Guid manufacturingJournalTypeId,
+        Guid bomId,
+        decimal quantity,
+        DateOnly date,
+        Guid consumptionGodownId,
+        Guid productionGodownId,
+        IReadOnlyList<ManufacturingAdditionalCost>? additionalCosts)
+    {
         if (quantity <= 0m)
             throw new ArgumentException("Manufacture quantity must be > 0.", nameof(quantity));
         if (!Quantities.IsWithinPrecision(quantity))
@@ -190,12 +242,14 @@ public sealed class ManufacturingJournalService
             Guid.NewGuid(), type.Id, date, source, destination,
             narration: $"Manufacture {quantity} × '{_company.FindStockItem(bom.StockItemId)!.Name}' (BOM '{bom.Name}').");
 
-        var posted = _posting.Post(voucher);
-
-        return new ManufacturingResult(
-            posted, bom.Id, quantity,
+        var result = new ManufacturingResult(
+            voucher, bom.Id, quantity,
             componentCost, additionalCostTotal, carveOutTotal, finishedGoodValue, fgUnitRate);
+        return new ManufacturePlan(voucher, result);
     }
+
+    /// <summary>An un-posted manufacture: the Stock-Journal voucher ready to post and the reconciled figures.</summary>
+    private readonly record struct ManufacturePlan(InventoryVoucher Voucher, ManufacturingResult Result);
 
     // ------------------------------------------------------------------ costing helpers
 

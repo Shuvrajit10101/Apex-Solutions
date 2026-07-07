@@ -114,6 +114,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted batch-allocation sub-screen (non-null only for that column; Phase 6 Cluster 1; RQ-3).</summary>
     public BatchAllocationViewModel? BatchAllocation => Page as BatchAllocationViewModel;
 
+    /// <summary>The hosted Bill-of-Materials master (non-null only for the BOM-creation column; Phase 6 Cluster 2; RQ-9).</summary>
+    public BomMasterViewModel? BomMaster => Page as BomMasterViewModel;
+
+    /// <summary>The hosted Manufacturing-Journal voucher-entry screen (non-null only for that column; Phase 6 Cluster 2; RQ-11).</summary>
+    public ManufacturingJournalEntryViewModel? ManufacturingJournalEntry => Page as ManufacturingJournalEntryViewModel;
+
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
 

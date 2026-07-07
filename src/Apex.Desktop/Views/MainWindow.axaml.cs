@@ -304,6 +304,11 @@ public partial class MainWindow : Window
             {
                 case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.ReceiptNote); e.Handled = true; return;
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.DeliveryNote); e.Handled = true; return;
+                // Alt+F7 (RQ-53): a Manufacturing Journal is a Stock-Journal-derived type, so once the BOM feature
+                // is on (F12 "Set Components (BOM)") Alt+F7 opens the Manufacturing Journal; otherwise it stays the
+                // plain Stock Journal, so a non-BOM company is unaffected.
+                case Key.F7 when vm.Company is { SetComponentsBom: true }:
+                    vm.OpenManufacturingJournal(); e.Handled = true; return;
                 case Key.F7: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.StockJournal); e.Handled = true; return;
             }
         }
@@ -504,6 +509,21 @@ public partial class MainWindow : Window
 
     private void OnAcceptBatchAllocationClick(object? sender, RoutedEventArgs e)
         => Vm?.AcceptCurrent();
+
+    private void OnCreateBomClick(object? sender, RoutedEventArgs e)
+        => Vm?.BomMaster?.Create();
+
+    private void OnAddBomLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.BomMaster?.AddBlankLine();
+
+    private void OnAcceptManufacturingJournalClick(object? sender, RoutedEventArgs e)
+        => Vm?.ManufacturingJournalEntry?.Accept();
+
+    private void OnCancelManufacturingJournalClick(object? sender, RoutedEventArgs e)
+        => Vm?.CancelVoucher();
+
+    private void OnAddManufacturingCostClick(object? sender, RoutedEventArgs e)
+        => Vm?.ManufacturingJournalEntry?.AddBlankAdditionalCost();
 
     /// <summary>Opens the batch-allocation sub-screen (RQ-3) for the inventory-voucher line the button sits on.</summary>
     private void OnOpenBatchAllocationClick(object? sender, RoutedEventArgs e)

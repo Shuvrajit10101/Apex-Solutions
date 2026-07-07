@@ -73,6 +73,22 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _maintainBatchwiseDetails;
 
+    /// <summary>
+    /// The F12-configuration flag <b>"Set Components (BOM)"</b> (Phase 6 Cluster 2; requirements
+    /// RQ-9/RQ-10/RQ-52). The master gate for the whole Bill-of-Materials / Manufacturing feature — the per-item
+    /// "Set Components (BOM)" switch, the BOM master, and the Manufacturing-Journal voucher are all hidden/inert
+    /// when it is off. Applied to the live company the moment it changes and persisted; turning it off deletes no
+    /// BOM data (harmless, the UI simply hides).
+    /// </summary>
+    [ObservableProperty] private bool _setComponentsBom;
+
+    /// <summary>
+    /// The F12-configuration flag <b>"Define type of component for BOM"</b> (Phase 6 Cluster 2; requirement
+    /// RQ-10). When on, a BOM line may be typed as a By-Product / Co-Product / Scrap carve-out (the type picker
+    /// is surfaced); only meaningful while <see cref="SetComponentsBom"/> is on.
+    /// </summary>
+    [ObservableProperty] private bool _defineBomComponentType;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -125,6 +141,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         var cfg = _company.Gst;
         GstEnabled = cfg is { Enabled: true };
         MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
+        SetComponentsBom = _company.SetComponentsBom;
+        DefineBomComponentType = _company.DefineBomComponentType;
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -172,6 +190,50 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             // Reflect the company's real (persisted) state on failure.
             if (MaintainBatchwiseDetails != _company.MaintainBatchwiseDetails)
                 MaintainBatchwiseDetails = _company.MaintainBatchwiseDetails;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Set Components (BOM)" F12 toggle to the live company the moment it changes (RQ-52), so the
+    /// per-item BOM switch / BOM master / Manufacturing-Journal voucher surface (or hide) immediately, and
+    /// persists the company. Errors are surfaced without crashing and the toggle reverts to the company's real
+    /// state. Independent of GST — flipping the BOM feature does not require enabling GST.
+    /// </summary>
+    partial void OnSetComponentsBomChanged(bool value)
+    {
+        _company.SetComponentsBom = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (SetComponentsBom != _company.SetComponentsBom)
+                SetComponentsBom = _company.SetComponentsBom;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Define type of component for BOM" F12 toggle to the live company (RQ-10) and persists, so the
+    /// By-Product/Co-Product/Scrap line-type picker on the BOM master surfaces (or hides) immediately.
+    /// </summary>
+    partial void OnDefineBomComponentTypeChanged(bool value)
+    {
+        _company.DefineBomComponentType = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (DefineBomComponentType != _company.DefineBomComponentType)
+                DefineBomComponentType = _company.DefineBomComponentType;
             return;
         }
         _onChanged();

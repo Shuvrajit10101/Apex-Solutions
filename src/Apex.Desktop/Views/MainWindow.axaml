@@ -3480,6 +3480,20 @@
                                     </StackPanel>
                                   </Border>
 
+                                  <!-- BOM switch (Phase 6 Cluster 2; RQ-10) — shown only when the F12 config
+                                       "Set Components (BOM)" is on. Declares the item a manufactured finished good;
+                                       its recipes are defined on the Bill of Materials master. -->
+                                  <Border Background="#EEF4FB"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding ShowBomSwitch}">
+                                    <StackPanel Spacing="6">
+                                      <TextBlock Text="Manufacturing" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <CheckBox Content="Set Components (BOM)"
+                                                IsChecked="{Binding SetComponents, Mode=TwoWay}" FontSize="12.5"/>
+                                    </StackPanel>
+                                  </Border>
+
                                   <!-- Opening balance (optional) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -3840,6 +3854,417 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Bill of Materials master (create + list) — Phase 6 Cluster 2 (RQ-9/RQ-10/RQ-54) -->
+                    <ContentControl IsVisible="{Binding BomMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BomMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BomMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Bill of Materials Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                            <!-- Create form -->
+                            <ScrollViewer Grid.Row="1" MaxHeight="370" Margin="0,0,0,10">
+                              <Border Background="White"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="16">
+                                <StackPanel Spacing="10">
+                                  <Grid ColumnDefinitions="120,*,120,90">
+                                    <TextBlock Grid.Column="0" Text="BOM name" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                             PlaceholderText="e.g. Standard"/>
+                                    <TextBlock Grid.Column="2" Text="Unit of Mfg" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding UnitOfManufactureText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="1"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="120,*">
+                                    <TextBlock Grid.Column="0" Text="Finished good" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding FinishedGoods}"
+                                              SelectedItem="{Binding SelectedFinishedGood, Mode=TwoWay}"
+                                              PlaceholderText="finished-good item…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:StockItem">
+                                          <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+
+                                  <!-- Component / output line grid -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="10,8">
+                                    <StackPanel Spacing="6">
+                                      <TextBlock Text="Components &amp; outputs (per unit-of-manufacture block)"
+                                                 FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                                    VerticalScrollBarVisibility="Disabled">
+                                        <Grid RowDefinitions="Auto,*" Width="596" HorizontalAlignment="Left">
+                                          <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                            <Grid ColumnDefinitions="176,110,110,70,60,70">
+                                              <TextBlock Grid.Column="0" Text="Item" Classes="colHdr"/>
+                                              <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
+                                              <TextBlock Grid.Column="2" Text="Type" Classes="colHdr"/>
+                                              <TextBlock Grid.Column="3" Text="Qty/blk" Classes="colHdr" TextAlignment="Right"/>
+                                              <TextBlock Grid.Column="4" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                              <TextBlock Grid.Column="5" Text="%" Classes="colHdr" TextAlignment="Right"/>
+                                            </Grid>
+                                          </Border>
+                                          <ItemsControl Grid.Row="1" ItemsSource="{Binding Lines}">
+                                            <ItemsControl.ItemTemplate>
+                                              <DataTemplate x:DataType="vm:BomLineRowViewModel">
+                                                <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                                        Padding="0,2">
+                                                  <Grid ColumnDefinitions="176,110,110,70,60,70">
+                                                    <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="2,0"
+                                                              ItemsSource="{Binding ItemOptions}"
+                                                              SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                                              PlaceholderText="item…">
+                                                      <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="ledger:StockItem">
+                                                          <TextBlock Text="{Binding Name}"/>
+                                                        </DataTemplate>
+                                                      </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" Margin="2,0"
+                                                              ItemsSource="{Binding GodownOptions}"
+                                                              SelectedItem="{Binding SelectedGodown, Mode=TwoWay}">
+                                                      <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:OptionalGodownOption">
+                                                          <TextBlock Text="{Binding Display}"/>
+                                                        </DataTemplate>
+                                                      </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <!-- Type picker only when the F12 "Define type of component"
+                                                         config is on (RQ-10); otherwise every line is a Component. -->
+                                                    <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" Margin="2,0"
+                                                              IsVisible="{Binding ShowTypePicker}"
+                                                              ItemsSource="{Binding TypeOptions}"
+                                                              SelectedItem="{Binding SelectedType, Mode=TwoWay}">
+                                                      <ComboBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:BomLineTypeOption">
+                                                          <TextBlock Text="{Binding Display}"/>
+                                                        </DataTemplate>
+                                                      </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <TextBlock Grid.Column="2" Text="Component" FontSize="11"
+                                                               IsVisible="{Binding !ShowTypePicker}"
+                                                               VerticalAlignment="Center" Margin="6,0,0,0"
+                                                               Foreground="#6A6A6A"/>
+                                                    <TextBox Grid.Column="3" Text="{Binding QuantityText, Mode=TwoWay}"
+                                                             Margin="2,0" TextAlignment="Right"/>
+                                                    <TextBox Grid.Column="4" Text="{Binding CarveOutRateText, Mode=TwoWay}"
+                                                             Margin="2,0" TextAlignment="Right" FontSize="11"
+                                                             IsVisible="{Binding IsCarveOut}"/>
+                                                    <TextBox Grid.Column="5" Text="{Binding CarveOutPercentText, Mode=TwoWay}"
+                                                             Margin="2,0" TextAlignment="Right" FontSize="11"
+                                                             IsVisible="{Binding IsCarveOut}"/>
+                                                  </Grid>
+                                                </Border>
+                                              </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                          </ItemsControl>
+                                        </Grid>
+                                      </ScrollViewer>
+                                      <Button Content="+ Add line" Padding="10,3" HorizontalAlignment="Left"
+                                              FontSize="11" Click="OnAddBomLineClick"/>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Foreground="{StaticResource AlertRed}" FontSize="12"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnCreateBomClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+                            </ScrollViewer>
+
+                            <!-- Existing BOMs header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="140,150,70,*,*">
+                                <TextBlock Grid.Column="0" Text="BOM" Classes="colHdr" Margin="8,0,0,0"/>
+                                <TextBlock Grid.Column="1" Text="Finished Good" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Unit" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Components" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Carve-outs" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:BomListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="140,150,70,*,*" Height="26">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding FinishedGood}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding UnitOfManufacture}"
+                                                   TextAlignment="Right" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Components}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding CarveOuts}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Manufacturing Journal voucher entry — Phase 6 Cluster 2 (RQ-11/12/13/15) -->
+                    <ContentControl IsVisible="{Binding ManufacturingJournalEntry, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ManufacturingJournalEntry}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ManufacturingJournalEntryViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                            <!-- Header form: finished good + BOM + qty + date + godowns -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="14" Margin="0,0,0,8">
+                              <StackPanel Spacing="9">
+                                <Grid ColumnDefinitions="110,*,90,110">
+                                  <TextBlock Grid.Column="0" Text="Finished good" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding FinishedGoods}"
+                                            SelectedItem="{Binding SelectedFinishedGood, Mode=TwoWay}"
+                                            PlaceholderText="finished-good item…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:StockItem">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Qty" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding QuantityText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="1"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="110,*,90,110">
+                                  <TextBlock Grid.Column="0" Text="BOM" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Boms}"
+                                            SelectedItem="{Binding SelectedBom, Mode=TwoWay}"
+                                            PlaceholderText="BOM…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:BomOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Date" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="110,*,110,*">
+                                  <TextBlock Grid.Column="0" Text="Consume from" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Godowns}"
+                                            SelectedItem="{Binding ConsumptionGodown, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Godown">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Produce into" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Godowns}"
+                                            SelectedItem="{Binding ProductionGodown, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Godown">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Scrollable body: consumption + additional cost + carve-outs -->
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                              <StackPanel Spacing="8">
+                                <!-- Auto-scaled component consumption (read-only, RQ-12) — from the engine preview -->
+                                <TextBlock Text="Component consumption (auto-scaled — from the engine)"
+                                           FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,110,110,110,120">
+                                    <TextBlock Grid.Column="0" Text="Component" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Batch" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding Consumption}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ManufacturingConsumptionRow">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              Background="White">
+                                        <Grid ColumnDefinitions="*,110,110,110,120" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Item}" Margin="8,0"
+                                                     VerticalAlignment="Center" FontSize="12"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Batch}"
+                                                     VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Quantity}" TextAlignment="Right"
+                                                     Margin="0,0,6,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Rate}" TextAlignment="Right"
+                                                     Margin="0,0,6,0" VerticalAlignment="Center" FontSize="11.5"
+                                                     Foreground="#555555"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Value}" TextAlignment="Right"
+                                                     Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Additional cost lines (labour/overhead/freight → adds to FG value, RQ-13) -->
+                                <TextBlock Text="Additional costs (labour / overhead / freight)"
+                                           FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <ItemsControl ItemsSource="{Binding AdditionalCosts}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ManufacturingAdditionalCostRowViewModel">
+                                      <Grid ColumnDefinitions="*,140" Margin="0,1">
+                                        <TextBox Grid.Column="0" Text="{Binding Name, Mode=TwoWay}" Margin="0,0,4,0"
+                                                 PlaceholderText="cost name (e.g. Labour)"/>
+                                        <TextBox Grid.Column="1" Text="{Binding AmountText, Mode=TwoWay}"
+                                                 TextAlignment="Right" PlaceholderText="₹ amount"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="+ Add cost" Padding="10,3" HorizontalAlignment="Left"
+                                        FontSize="11" Click="OnAddManufacturingCostClick"/>
+
+                                <!-- Carve-outs (by-product / co-product / scrap, read-only, RQ-13/DP-3) -->
+                                <StackPanel Spacing="4" IsVisible="{Binding CarveOuts.Count}">
+                                  <TextBlock Text="Carve-outs (by-product / co-product / scrap — from the engine)"
+                                             FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="*,120,120,120">
+                                      <TextBlock Grid.Column="0" Text="Output" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="Kind" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="2" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="3" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding CarveOuts}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ManufacturingCarveOutRow">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                                Background="White">
+                                          <Grid ColumnDefinitions="*,120,120,120" Height="24">
+                                            <TextBlock Grid.Column="0" Text="{Binding Item}" Margin="8,0"
+                                                       VerticalAlignment="Center" FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Kind}"
+                                                       VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Quantity}" TextAlignment="Right"
+                                                       Margin="0,0,6,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Value}" TextAlignment="Right"
+                                                       Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+
+                                <!-- Finished-good valuation breakdown (RQ-13): components + add'l − carve-outs -->
+                                <Border Background="#EEF4FB" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="14,10" Margin="0,4,0,0">
+                                  <StackPanel Spacing="5">
+                                    <TextBlock Text="Finished-Good Valuation"
+                                               FontWeight="Bold" FontSize="12.5" Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="*,130">
+                                      <TextBlock Grid.Column="0" Text="Component cost" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding ComponentCostText}"
+                                                 TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,130">
+                                      <TextBlock Grid.Column="0" Text="+ Additional cost" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding AdditionalCostText}"
+                                                 TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,130">
+                                      <TextBlock Grid.Column="0" Text="− Carve-outs (by/co/scrap)" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding CarveOutText}"
+                                                 TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Border BorderBrush="{StaticResource BrandNavy}" BorderThickness="0,1,0,0"
+                                            Padding="0,4,0,0">
+                                      <Grid ColumnDefinitions="*,150">
+                                        <TextBlock Grid.Column="0" Text="= Finished-good value"
+                                                   FontWeight="Bold" FontSize="13" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding FinishedGoodValueText}"
+                                                   TextAlignment="Right" FontWeight="Bold" FontSize="13"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                      </Grid>
+                                    </Border>
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" Text="Unit rate" FontSize="12" Foreground="#555555"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding FinishedGoodUnitRateText}"
+                                                 TextAlignment="Right" FontSize="12" Foreground="#555555"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+                              </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Message + Accept / Cancel -->
+                            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource AlertRed}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <Button Grid.Column="1" Content="Cancel (Alt+X)" Padding="12,6" Margin="0,0,8,0"
+                                      Click="OnCancelManufacturingJournalClick"/>
+                              <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnAcceptManufacturingJournalClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GST — Statutory configuration (F11 Features → GST) -->
                     <ContentControl IsVisible="{Binding GstConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding GstConfig}">
@@ -3864,6 +4289,16 @@
                                 <CheckBox Content="Maintain Batch-wise details"
                                           IsChecked="{Binding MaintainBatchwiseDetails, Mode=TwoWay}"
                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <!-- BOM / Manufacturing F12 config (Phase 6 Cluster 2; RQ-10/RQ-52): the master gate
+                                     for the Bill-of-Materials + Manufacturing-Journal feature; the type sub-toggle
+                                     surfaces the By-Product/Co-Product/Scrap line-type picker on the BOM master. -->
+                                <CheckBox Content="Set Components (BOM) — enable Manufacturing"
+                                          IsChecked="{Binding SetComponentsBom, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Content="Define type of component for BOM (By-Product / Co-Product / Scrap)"
+                                          IsChecked="{Binding DefineBomComponentType, Mode=TwoWay}"
+                                          Margin="20,0,0,0" FontSize="12"
+                                          IsVisible="{Binding SetComponentsBom}"/>
                                 <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"/>
                                 <TextBlock Text="STATUTORY" FontSize="11" FontWeight="Bold"
                                            Foreground="#9098A8" LetterSpacing="1.5"/>
