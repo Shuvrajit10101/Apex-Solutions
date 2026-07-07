@@ -682,6 +682,42 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Pending A12:** the 3 A10 fixes + scratch cleanup are currently applied to the working tree, verified green, and awaiting A12's commit + push (R4) — a new-session resume must re-commit these before continuing.
 - **Next:** Phase 6 slice 3 — Additional Cost of Purchase. [A5]
 
+### Phase 6 slice 3 — Additional Cost of Purchase (RQ-16..20; PR-5) ✅ (2026-07-07) — SQLite schema v18→v19
+- **What was built:** the single, pure, deterministic, paisa-exact **`AdditionalCostApportionment`** engine that spreads
+  an additional-cost pool (Freight, Packing, Loading, …) across item lines and raises each line's **landed** (effective)
+  stock rate — the SAME engine feeds the Desktop screen and the valuation, so the displayed landed rate == the
+  posted/reported rate (ER-4). Two entry points: **`ForPurchase`** (Purchase item-invoice: sweeps the voucher's Dr
+  entry-lines whose ledger carries a `MethodOfAppropriation`, but ONLY when the voucher type is a Purchase with
+  `TrackAdditionalCosts` on) and **`ForTransfer`** (Stock-Journal transfer: apportions `InventoryVoucher.AdditionalCostLines`
+  across destination allocations, base-unit-normalised). New domain types: **`AdditionalCostLine`**,
+  **`MethodOfAppropriation`** (ByQuantity=0 / ByValue=1); `Ledger.MethodOfAppropriation` (nullable) +
+  `VoucherType.TrackAdditionalCosts` flag; `InventoryVoucher.AdditionalCostLines`. UI: **`AdditionalCostRowViewModel`** +
+  wiring into the inventory-voucher entry cascade (Miller-column, keyboard-first; figures from the engine).
+- **Apportionment method (DP-2):** **By Quantity** → weight = base-unit qty (flat ₹/unit, spread evenly); **By Value** →
+  weight = line purchase value (qty×rate; dearer lines absorb more). Shares via a deterministic **largest-remainder** rule
+  (`Allocate`): floor each proportional paisa share, hand leftover paisa one-at-a-time to the largest fractional remainder,
+  ties broken by ascending index → Σ(shares) == pool **exactly**, no paisa lost/invented. **Landed unit rate** stays an
+  exact decimal (LandedValue ÷ Quantity); the valuation snaps to paisa only on aggregation.
+- **RQ-19 fidelity trap (locked by test):** a plain Direct-Expenses ledger with NO `MethodOfAppropriation` is never swept
+  into either pool — it stays purely P&L and never touches a stock rate, even on a Purchase whose voucher type has
+  `TrackAdditionalCosts` on. The discriminator is the ledger's method + the tracking flag, not the ledger itself.
+- **PR-5 money-conservation guard (ForTransfer):** if an Appropriate-by-Value pool is positive but EVERY destination is
+  rateless (by-value basis all-zero), the by-value pool falls back to a by-quantity spread rather than silently vanishing
+  (a Stock Journal posts to neither stock nor P&L), so Σ(per-line loads) == pool always holds.
+- **Schema v18→v19 (`MigrateV18ToV19`):** additive — `voucher_types.track_additional_costs` (0/1 default 0) +
+  `ledgers.method_of_appropriation` (nullable INT; 0=ByQuantity/1=ByValue) + new child table **`additional_cost_lines`**
+  (id, inventory_voucher_id→inventory_vouchers, line_order, ledger_id→ledgers, amount_paisa) + index
+  `ix_additional_cost_lines_voucher`. Round-trip + schema tests added (`AdditionalCostRoundTripTests`,
+  `AdditionalCostSchemaTests`); existing round-trip/schema tests updated for the two new columns.
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1107 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 134 · Ledger 493 · Sqlite 75 · Desktop 405). **Schema v19.** Robert & Bright green (ER-13). No
+  scratch/probe/ZZ/temp files staged — working tree is the clean Slice-3 set (engine + schema + UI + tests). The pending
+  slice-2 A10 fixes + scratch cleanup carried forward in this same tree and are captured in the slice-3 code commit.
+- **Committed & pushed by A12 (R4):** two commits — (a) code+tests
+  `feat(inventory): Phase 6 slice 3 — Additional Cost of Purchase (apportionment by qty/value, landed stock rate), SQLite schema v19`;
+  (b) docs `docs(memory): Phase 6 slice 3 log`.
+- **Next:** Phase 6 slice 4 (Price Levels / Price Lists, per plan.md). [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
