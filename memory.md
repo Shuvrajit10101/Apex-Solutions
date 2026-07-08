@@ -808,6 +808,48 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   NOT touched** (the ff-merge of Phases 3–6 onto `main` is a separate follow-up step).
 - **Next:** Phase 6 slice 6 (Reorder level + stock-status report, schema v22 per plan.md). [A5]
 
+### Phase 6 slice 6 — Reorder Levels + Reorder Status (RQ-32..RQ-37; PR-8) ✅ (2026-07-08) — SQLite schema v21→v22
+- **What the feature is (Tally "Reorder Levels" + the Reorder Status report, Book pp.158–162):** a proper
+  **Reorder Level master** replacing the Phase-3 per-item-only fields. A `ReorderDefinition` is attachable per
+  **Item / Group / Category** (RQ-32), each carrying two independent figures — the **reorder level** and the
+  **minimum order quantity** — and each figure is independently **Simple** (a fixed typed qty; Alt+S / Alt+V) or
+  **Advanced** (the fixed figure reconciled Higher/Lower against the item's **consumption over a rolling period**,
+  RQ-33/34/35). A single shared PeriodCount/PeriodUnit + Criteria triple governs both Advanced figures (DD-1).
+- **Domain (`src/Apex.Ledger/Domain/`, all pure — no engine/DB/clock):** `ReorderDefinition` (Scope + TargetId +
+  the two Simple/Advanced flags + fixed qtys + shared period/criteria; validates qty ≥ 0 to micro precision;
+  `WindowStart(asOf)` = leap-safe calendar arithmetic, half-open `(WindowStart, asOf]`), plus enums
+  `ReorderScope` (Item/Group/Category) and `ReorderCriteria` (Higher/Lower). `Company.cs` gains the
+  `ReorderDefinitions` collection + `FindReorderDefinition(scope,targetId)`.
+- **`ReorderStatus` report (`src/Apex.Ledger/Reports/ReorderStatus.cs`, pure projection; ER-5 one engine):**
+  resolves each item's **effective** definition by specificity (RQ-36) — Item wins, else nearest ancestor **Group**
+  (walk up to Primary), else nearest ancestor **Category** (Group beats Category, DD-2), else the **legacy per-item
+  `StockItem.ReorderLevel`/`MinimumOrderQuantity`** (backward-compat, ER-13), else the item is excluded. Advanced
+  figures pull `InventoryLedger.Consumption(item, WindowStart, asOf)` (new engine method this slice) and reconcile
+  max/min against the fixed baseline. **Order to be Placed (RQ-37)** = `netShortfall = max(level−closing,0) −
+  pendingPOs`, then `max(netShortfall, MinOrderQty)` — bounded **below** by the MOQ **and** net of pending purchase
+  orders — dropping to 0 only when incoming POs actually cover the shortfall. Sales Orders Due shown for context
+  but **not** netted (DD-4). PO/SO counting reuses the Order Register's exact predicate (cancelled/post-dated
+  excluded, ER-4; partially-received PO still counts full qty — DD-5, identical to the register).
+- **PR-8 exit gate (locked by test, Book pp.159–161):** Reorder Level **20** (Simple), MOQ **25** (Simple); stock
+  sold below 20 with **NO** pending PO ⇒ **Order to be Placed = 25** (the MOQ floor, ER-13/Phase-3 parity — NOT
+  the smaller raw shortfall, and NOT zero at closing==level). A pending PO that covers the shortfall pulls the
+  order to 0; SOs Due never change the order qty (DD-4). Advanced rollup, group/category specificity, and
+  legacy-fallback all regression-locked in `ReorderLevelsTests` + `InventoryReportsTests` (Slice-6 block).
+- **Schema v21→v22 (`MigrateV21ToV22`):** purely additive — new `reorder_definitions` table (scope + target +
+  the two flags + fixed qtys + shared period_count/period_unit/criteria). Feature-off round-trips byte-identically;
+  lossless SQLite + JSON/XML round-trip proven (`ReorderRoundTripTests`, `ReorderSchemaTests`).
+- **UI (Miller-column cascade, keyboard-first):** `ReorderLevelsViewModel` (pick scope + target, set Simple/Advanced
+  reorder level & MOQ, shared period/criteria, Save) wired into `MainWindowViewModel` + `MainWindow.axaml`; the
+  Reorder Status report screen surfaces Closing / Reorder Level / MOQ / Pending POs / SOs Due / Shortfall / Order
+  to be Placed via `ReportsViewModel` + `ReportTabularProjector`.
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1204 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 134 · Ledger 539 · Sqlite 88 · Desktop 443). **Schema v22.** Robert & Bright green. No
+  scratch/probe/ZZ/temp files — clean Slice-6 set (9 new files + 16 modified, all Reorder/schema/UI/tests).
+- **Committed & pushed by A12 (R4):** `feat(inventory): Phase 6 slice 6 — Reorder Levels + Reorder Status (MOQ +
+  net-of-pending-PO bound), SQLite schema v22` + `docs(memory): Phase 6 slice 6 log`. Branch pushed; **`main` NOT
+  touched** (the origin/main ff-merge of Phases 3–6 remains a separate blocked decision).
+- **Next:** Phase 6 slice 7 — POS (multi-tender / Point-of-Sale invoice), schema v23 per plan.md. [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
