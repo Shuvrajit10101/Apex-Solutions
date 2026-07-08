@@ -927,6 +927,30 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   third-party godowns), SQLite schema v24` + `docs(memory): Phase 6 slice 8 log`. Branch pushed; **`main` NOT touched**.
 - **Next:** Phase 6 slice 9 — exit gate. [A5]
 
+### Phase 6 slice 9a — Io losslessness catch-up: restore lossless JSON/XML round-trip for advanced-inventory masters ✅ (2026-07-08) — no schema change
+- **Gap closed:** Slices 5 (Price Levels/Lists), 6 (Reorder definitions), 7 (POS config + per-voucher tenders) and 8
+  (Job Work) had never been added to the `Apex.Ledger.Io` canonical model, so they were **silently dropped on JSON/XML
+  export→import** — a Phase-5 PR-4 losslessness regression. This slice adds them to the canonical model, mapper, XML
+  reader/writer, and apply/import plan so a full advanced-inventory company survives an export→import into a fresh company
+  **paisa- and count-exact** on both wire formats.
+- **Entities added to the canonical model (`CanonicalModel.cs`):** company-level `PriceLevelDto`, `PriceListDto`
+  (+`PriceListSlabDto`), `ReorderDefinitionDto`, and `PosConfigDto` (retail-receipt config +`PosTenderLedgerDefaultDto`);
+  voucher-level `PosTenderDto` (multi-tender split: Cash residual/tendered/change, Card no, Cheque/DD bank+no) and
+  `JobWorkOrderDto` (+`JobWorkOrderLineDto`: direction In/Out, order no, process/due-date, component track, rates). Mapping
+  in `CanonicalMapper.cs`; symmetric XML in `CanonicalXml.cs`; engine-routed apply/dedup in `ApplyJournal.cs` +
+  `ImportPlan.cs`.
+- **PR-4 re-verified:** new round-trip coverage in `CanonicalRoundTripTests.cs` + `CanonicalFixture.cs` exercises all four
+  master/voucher families across JSON **and** XML, asserting paisa- and count-exact reconstruction. **Gate re-run by A12
+  (R4), fully green: `dotnet test -c Release` → Ledger 569 · Io 142 (was 139, +3) · Sqlite 97 · Desktop 460 = 1268, 0
+  failed.** Only Io source + Io test files changed; no SQLite schema change (still v24); no scratch/probe/temp files.
+- **Session-limit note:** the prior working session was interrupted mid-slice at a usage-limit signal, leaving these Io
+  edits uncommitted in the worktree; this A12 pass reconciled by re-verifying the full gate from scratch before committing.
+- **Committed & pushed by A12 (R4):** `feat(io): Phase 6 — restore lossless JSON/XML round-trip for advanced-inventory
+  masters (price levels/lists, reorder, POS, job work)` + `docs(memory): Phase 6 slice 9a — Io losslessness log`. Branch
+  pushed; **`main` NOT touched** (PR #18 auto-tracks the branch tip).
+- **Next:** Phase 6 slice 9 exit gate remainder — (9b) extend Bright with the full advanced-inventory flow + re-verify
+  PR-1..PR-11 + migration v15→v24 + de-brand sweep + run the whole Desktop app; then merge PR #18 → pause for Phase-7. [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
