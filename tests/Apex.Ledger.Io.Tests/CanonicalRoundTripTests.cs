@@ -1,6 +1,7 @@
 using System.Text;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Io.Tests;
@@ -1124,6 +1125,71 @@ public class CanonicalRoundTripTests
             new Apex.Ledger.Services.StockValuationService(source).ClosingValue(srcGadget.Id, asOf).Value);
         Assert.Equal(Money.FromRupees(157.50m),
             new Apex.Ledger.Services.StockValuationService(target).ClosingValue(tgtGadget.Id, asOf).Value);
+    }
+
+    // ------------------------------------------------------------------ Phase-6 EXIT GATE: full-set reconciliation
+
+    /// <summary>
+    /// The Phase-6 <b>exit-gate reconciliation</b> (PR-2, extended): the rich Bright fixture — which exercises the
+    /// FULL advanced-inventory set (batch movement, BOM/Manufacturing Journal, additional-cost purchase transfer,
+    /// Actual-vs-Billed invoice, price-list sale, reorder definitions, POS multi-tender sale, and a Job Work
+    /// Material In/Out to a third-party godown) — reconciles into the <b>Stock Summary</b> and the <b>Balance
+    /// Sheet</b> to the paisa. Proves (a) the per-item Stock Summary identity opening + inward − outward = closing
+    /// holds for every row; (b) the closing stock is CONSISTENT across three independent engines — the Stock
+    /// Summary total, the <see cref="StockValuationService"/> aggregate, and the derived Balance-Sheet
+    /// Stock-in-Hand asset line — all equal to the paisa; and (c) that the ONLY Balance-Sheet imbalance is the
+    /// fixture's deliberate ₹55,000 opening-balance gap (Capital ₹1,50,000 Cr vs ₹95,000 of opening asset
+    /// debits) — i.e. every advanced-inventory voucher is self-balancing and leaks nothing into the statements.
+    /// Concrete advanced-inventory closings are pinned (Gizmo 167 after the transfer/AB-sale/POS draw-downs; JW
+    /// Raw split 300 main + 200 third-party). (The balanced-books Dr = Cr paisa gate — TotalAssets ==
+    /// TotalLiabilities == ₹1,84,000 — is the sibling <c>BrightReVerificationTests.BR4</c> on the bright.json set.)
+    /// </summary>
+    [Fact]
+    public void Bright_full_advanced_inventory_set_reconciles_into_stock_summary_and_balance_sheet_to_the_paisa()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var asOf = new DateOnly(2021, 4, 30);
+
+        // ---- (a) Stock Summary per-row identity: opening + inward − outward == closing, and Σ rows == total ----
+        var summary = StockSummary.Build(company, asOf);
+        Assert.NotEmpty(summary.Rows);
+        foreach (var row in summary.Rows)
+            Assert.Equal(row.ClosingQuantity, row.OpeningQuantity + row.InwardQuantity - row.OutwardQuantity);
+
+        var rowValueSum = summary.Rows.Aggregate(Money.Zero, (acc, r) => acc + r.ClosingValue);
+        Assert.Equal(summary.TotalClosingValue, rowValueSum); // grand total foots to the paisa
+
+        // ---- (b) closing stock CONSISTENT across three independent engines, to the paisa ----
+        var valuationTotal = new StockValuationService(company).TotalClosingStockValue(asOf);
+        Assert.Equal(valuationTotal, summary.TotalClosingValue);
+
+        var bs = BalanceSheet.Build(company, asOf, ClosingStockMode.InventoryDerived);
+        var stockInHand = bs.Assets.Single(a => a.Name == "Stock-in-Hand");
+        Assert.Equal(summary.TotalClosingValue, stockInHand.Amount); // BS Stock-in-Hand == Stock Summary total
+
+        // ---- (c) the ONLY imbalance is the fixture's deliberate ₹55,000 opening-balance gap, to the paisa ----
+        // Every Phase-6 advanced-inventory voucher (transfer, AB sale, POS multi-tender, Material Out) is
+        // self-balancing, so it contributes exactly ZERO to the Balance-Sheet imbalance: the gap stays pinned at
+        // the base fixture's opening-balance difference (Capital ₹1,50,000 Cr − ₹95,000 opening asset Dr).
+        Assert.Equal(Money.FromRupees(55000m), bs.TotalLiabilities - bs.TotalAssets);
+
+        // ---- concrete advanced-inventory closings prove the FULL set moved stock (not merely round-tripped) ----
+        var onHand = new InventoryLedger(company);
+        var main = company.MainLocation!.Id;
+
+        // Slice 3/4/7: Gizmo 200 opening − 20 additional-cost transfer − 10 Actual sale − 3 POS = 167 on-hand.
+        var gizmo = company.FindStockItemByName("Gizmo")!;
+        Assert.Equal(167m, onHand.OnHand(gizmo.Id, main, asOf));
+
+        // Slice 8: Job Work Material Out issued 200 JW Raw to the third-party 'Worker Site' godown.
+        var jwRaw = company.FindStockItemByName("JW Raw")!;
+        var worker = company.FindGodownByName("Worker Site")!;
+        Assert.Equal(300m, onHand.OnHand(jwRaw.Id, main, asOf));     // 500 opening − 200 issued
+        Assert.Equal(200m, onHand.OnHand(jwRaw.Id, worker.Id, asOf)); // third-party stock held at the worker
+
+        // Slice 2: the manufactured finished good carries its conserved BOM value (₹157.50) into the closing stock.
+        var gadget = company.FindStockItemByName("Assembled Gadget")!;
+        Assert.Equal(Money.FromRupees(157.50m), new StockValuationService(company).ClosingValue(gadget.Id, asOf).Value);
     }
 
     private static Company FreshTarget() =>
