@@ -850,6 +850,41 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   touched** (the origin/main ff-merge of Phases 3–6 remains a separate blocked decision).
 - **Next:** Phase 6 slice 7 — POS (multi-tender / Point-of-Sale invoice), schema v23 per plan.md. [A5]
 
+### Phase 6 slice 7 — POS single/multi-tender invoicing (RQ-38..RQ-44; PR-9; TOP RISK #6) ✅ (2026-07-08) — SQLite schema v22→v23
+- **What shipped (catalog §11 POS voucher):** a **POS-flagged Sales voucher type** billed through a retail till with
+  **single- and multi-tender** payment and an **Alt+I** toggle between the two modes. GST reuses the Phase-4 engine
+  unchanged; the POS layer sits on top of the ordinary item-invoice Sales voucher.
+- **Engine (TDD, `PosTenderService` + domain):** four tender types (`PosTenderType` = Cash / Card / Cheque /
+  GiftVoucher). **Cash residual** auto-fills as `billTotal − Σ(non-cash tenders)`; **Change** = `cashTendered −
+  cashPayable(residual)`. Load-bearing **tender-ledger GROUPING** (DP-4): Gift → **Sundry Debtors**, Card/Cheque →
+  **Bank**, Cash → **Cash-in-Hand**. Reconciliation invariant **Σ tenders == bill total** enforced in
+  `VoucherValidator` (+ over-tender and short-tender rejection). `PosConfig`/`PosTender` domain, `PosRegister` report,
+  and a `PosReceiptPdf`/`PosReceiptData` till receipt in `Apex.Ledger.Io`.
+- **PR-9 exit gate (hard gate, TOP RISK #6 — regression-locked in `PosTenderTests`):** bill **taxable ₹10,225 @ 18%
+  intra ⇒ CGST 920.25 + SGST 920.25, total ₹12,065.50**. **Multi-tender** = Gift ₹500 (→Sundry Debtors) + Card ₹5,000
+  (→Bank) + Cheque ₹5,000 (→Bank) + **Cash residual ₹1,565.50** (→Cash-in-Hand); cash **tendered ₹1,600 ⇒ change
+  ₹34.50**. Proven that **single-tender AND multi-tender both foot to ₹12,065.50 with identical Sales+GST credits**,
+  change ₹34.50 both ways, and **cash posts the RESIDUAL, not the tendered** amount. Over-tender (non-cash Σ > total ⇒
+  negative residual) and cash-short-of-payable both rejected. Alt+I toggles both directions.
+- **Schema v22→v23 (`MigrateV22ToV23`, wired `SqliteCompanyStore.cs`):** purely additive — `pos_voucher_type_config`
+  (one retail-till config row per POS-flagged Sales type), `pos_tender_ledger_defaults` (the DP-4 tender-ledger class
+  map, up to 4 rows per type), `pos_tender_allocations` (the per-voucher tender rows the balanced entry lines can't
+  carry) + index `ix_pos_tender_allocations_voucher`. Feature-off round-trips byte-identically; lossless SQLite
+  round-trip proven (`PosSchemaTests`, `PosRoundTripTests`); pre-POS round-trip tests re-asserted (v23-stamped).
+- **UI (Miller-column cascade, keyboard-first):** `PosBillingViewModel` (POS billing screen, tender rows, Alt+I
+  single/multi toggle, live residual/change) wired into `MainWindowViewModel` + `MainWindow.axaml`; POS register/receipt
+  surfaced via `ReportsViewModel` + `PrintPreviewViewModel`.
+- **A10 adversarial review:** no surviving HIGH/MED defects on the Slice-7 set at gate time (engine invariants +
+  grouping + Alt+I round-trip all held under adversarial probing; POS invariant tests fail-on-pre-fix).
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1241 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 139 · Ledger 556 · Sqlite 93 · Desktop 453). **Schema v23.** Robert & Bright + GST golden green. No
+  scratch/probe/ZZ/temp files — clean Slice-7 set (13 new files + 16 modified, all POS/schema/UI/tests).
+- **Committed & pushed by A12 (R4):** `feat(inventory): Phase 6 slice 7 — POS single/multi-tender invoicing (Alt+I),
+  SQLite schema v23` + `docs(memory): Phase 6 slice 7 log`. Branch pushed; **`main` NOT touched** (the origin/main PR
+  #18 ff-merge of Phases 3–6 remains a separate blocked decision).
+- **Next:** Phase 6 slice 8 — Job Work (Material Out/In, third-party godown, Allow Consumption), schema v24 per
+  plan.md. [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
