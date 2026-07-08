@@ -129,6 +129,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Price List master (non-null only for the Price-List creation column; Phase 6 slice 5; RQ-27).</summary>
     public PriceListsViewModel? PriceLists => Page as PriceListsViewModel;
 
+    /// <summary>The hosted Reorder Levels master (non-null only for the Reorder-Levels column; Phase 6 slice 6; RQ-32).</summary>
+    public ReorderLevelsViewModel? ReorderLevels => Page as ReorderLevelsViewModel;
+
     /// <summary>The hosted F12 report-Configuration panel (non-null only for the report-config column).</summary>
     public ReportConfigViewModel? ReportConfig => Page as ReportConfigViewModel;
 

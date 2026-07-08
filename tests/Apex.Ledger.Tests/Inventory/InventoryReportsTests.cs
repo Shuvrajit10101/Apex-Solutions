@@ -71,6 +71,10 @@ public class InventoryReportsTests
         => k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), date,
             new[] { new InventoryAllocation(item, godown, qty, StockDirection.Outward, rate) }));
 
+    private void Order(Kit k, VoucherBaseType baseType, Guid item, DateOnly date, decimal qty)
+        => k.Posting.Post(InventoryVoucher.Order(Guid.NewGuid(), TypeId(k.Company, baseType), date,
+            new[] { new OrderLine(item, k.MainGodownId, qty, null) }));
+
     private void PhysicalCount(Kit k, Guid item, Guid godown, DateOnly date, decimal countedQty)
         => k.Posting.Post(InventoryVoucher.PhysicalStock(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PhysicalStock), date,
             new[] { new PhysicalStockLine(item, godown, countedQty, null) }));
@@ -544,19 +548,19 @@ public class InventoryReportsTests
         Assert.Equal("Low", row.ItemName);
         Assert.Equal(5m, row.ClosingQuantity);
         Assert.Equal(20m, row.ReorderLevel);
-        Assert.Equal(15m, row.Shortfall);              // 20 − 5
-        Assert.Equal(50m, row.SuggestedOrderQuantity); // max(shortfall 15, min-order 50)
+        Assert.Equal(15m, row.Shortfall);          // 20 − 5
+        Assert.Equal(50m, row.OrderToBePlaced);    // max(shortfall 15, min-order 50); no pending PO
     }
 
     [Fact]
-    public void Reorder_status_suggested_quantity_is_the_shortfall_when_it_exceeds_min_order()
+    public void Reorder_status_order_quantity_is_the_shortfall_when_it_exceeds_min_order()
     {
         var k = NewKit();
         var item = Item(k, "Widget", reorderLevel: 100m, minOrder: 10m);
         Receive(k, item, k.MainGodownId, D1, 5m, Money.FromRupees(10m));
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
-        Assert.Equal(95m, row.Shortfall);              // 100 − 5
-        Assert.Equal(95m, row.SuggestedOrderQuantity); // max(95, 10) = 95
+        Assert.Equal(95m, row.Shortfall);          // 100 − 5
+        Assert.Equal(95m, row.OrderToBePlaced);    // max(95, 10) = 95
     }
 
     [Fact]
@@ -567,6 +571,265 @@ public class InventoryReportsTests
         Receive(k, item, k.MainGodownId, D1, 5m, Money.FromRupees(10m));
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
         Assert.Equal(0m, row.Shortfall);
+        Assert.Equal(0m, row.OrderToBePlaced);
+    }
+
+    // ---- Slice 6: master definitions, rollup, Advanced consumption, PO netting, the PR-8 gate ----
+
+    [Fact]
+    public void Reorder_status_group_definition_applies_to_items_and_nested_child_group()
+    {
+        var k = NewKit();
+        var parent = k.Masters.CreateStockGroup("Beverages");
+        var child = k.Masters.CreateStockGroup("Juices", parent.Id);
+        var directItem = k.Masters.CreateStockItem("Cola", parent.Id, k.UnitId).Id;
+        var nestedItem = k.Masters.CreateStockItem("Mango", child.Id, k.UnitId).Id;
+
+        // A single Group-scoped definition on the PARENT covers the parent's item and the nested child's item.
+        new ReorderLevelsService(k.Company).CreateOrUpdate(ReorderScope.Group, parent.Id, reorderQuantity: 20m);
+        Receive(k, directItem, k.MainGodownId, D1, 5m, Money.FromRupees(10m));
+        Receive(k, nestedItem, k.MainGodownId, D1, 8m, Money.FromRupees(10m));
+
+        var rows = ReorderStatus.Build(k.Company, D4).Rows;
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.Equal(20m, r.ReorderLevel));
+    }
+
+    [Fact]
+    public void Reorder_status_item_definition_overrides_the_group_one()
+    {
+        var k = NewKit();
+        var group = k.Masters.CreateStockGroup("Snacks");
+        var item = k.Masters.CreateStockItem("Chips", group.Id, k.UnitId).Id;
+        var svc = new ReorderLevelsService(k.Company);
+        svc.CreateOrUpdate(ReorderScope.Group, group.Id, reorderQuantity: 20m);
+        svc.CreateOrUpdate(ReorderScope.Item, item, reorderQuantity: 50m);   // most-specific wins
+        Receive(k, item, k.MainGodownId, D1, 5m, Money.FromRupees(10m));
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(50m, row.ReorderLevel);
+    }
+
+    [Fact]
+    public void Reorder_status_falls_back_to_category_when_no_item_or_group_definition()
+    {
+        var k = NewKit();
+        var parentCat = k.Masters.CreateStockCategory("Perishable");
+        var childCat = k.Masters.CreateStockCategory("Dairy", parentCat.Id);
+        var item = k.Masters.CreateStockItem("Milk", k.GroupId, k.UnitId, categoryId: childCat.Id).Id;
+        // Definition on the PARENT category — resolved via the nearest-ancestor category walk.
+        new ReorderLevelsService(k.Company).CreateOrUpdate(ReorderScope.Category, parentCat.Id, reorderQuantity: 12m);
+        Receive(k, item, k.MainGodownId, D1, 3m, Money.FromRupees(10m));
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(12m, row.ReorderLevel);
+    }
+
+    [Fact]
+    public void Reorder_status_group_beats_category_when_both_apply()
+    {
+        var k = NewKit();
+        var group = k.Masters.CreateStockGroup("Hardware");
+        var cat = k.Masters.CreateStockCategory("Metal");
+        var item = k.Masters.CreateStockItem("Bolt", group.Id, k.UnitId, categoryId: cat.Id).Id;
+        var svc = new ReorderLevelsService(k.Company);
+        svc.CreateOrUpdate(ReorderScope.Category, cat.Id, reorderQuantity: 5m);
+        svc.CreateOrUpdate(ReorderScope.Group, group.Id, reorderQuantity: 30m);  // Group beats Category (DD-2)
+        Receive(k, item, k.MainGodownId, D1, 2m, Money.FromRupees(10m));
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(30m, row.ReorderLevel);
+    }
+
+    [Fact]
+    public void Reorder_status_advanced_higher_takes_max_of_fixed_and_consumption()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget");
+        // Consume 70 over the 1-month window ending D4 (an issue inside the window); closing 30.
+        Receive(k, item, k.MainGodownId, D1, 100m, Money.FromRupees(10m));
+        Deliver(k, item, k.MainGodownId, D2, 70m);
+        new ReorderLevelsService(k.Company).CreateOrUpdate(ReorderScope.Item, item,
+            reorderAdvanced: true, reorderQuantity: 25m, periodCount: 1, periodUnit: ExpiryPeriodUnit.Months,
+            criteria: ReorderCriteria.Higher);
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(70m, row.ReorderLevel);   // max(fixed 25, consumption 70)
+        Assert.Equal(30m, row.ClosingQuantity);
+    }
+
+    [Fact]
+    public void Reorder_status_advanced_lower_takes_min_of_fixed_and_consumption()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget");
+        Receive(k, item, k.MainGodownId, D1, 100m, Money.FromRupees(10m));
+        Deliver(k, item, k.MainGodownId, D2, 40m);   // consumption 40, closing 60
+        new ReorderLevelsService(k.Company).CreateOrUpdate(ReorderScope.Item, item,
+            reorderAdvanced: true, reorderQuantity: 25m, periodCount: 1, periodUnit: ExpiryPeriodUnit.Months,
+            criteria: ReorderCriteria.Lower);
+
+        // Effective level = min(25, 40) = 25; closing 60 > 25 → above level, not flagged.
+        Assert.Empty(ReorderStatus.Build(k.Company, D4).Rows);
+    }
+
+    [Fact]
+    public void Reorder_status_consumption_window_excludes_issues_before_the_window_start()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget");
+        Receive(k, item, k.MainGodownId, FyStart, 20m, Money.FromRupees(10m));
+        // A 5-day window ending D4 (2024-04-20) → windowStart 2024-04-15 (D3), half-open (D3, D4].
+        Deliver(k, item, k.MainGodownId, D3, 7m);    // ON the window start (excluded from consumption)
+        Deliver(k, item, k.MainGodownId, D4, 9m);    // inside the window (included) → closing 4
+        new ReorderLevelsService(k.Company).CreateOrUpdate(ReorderScope.Item, item,
+            reorderAdvanced: true, periodCount: 5, periodUnit: ExpiryPeriodUnit.Days,
+            criteria: ReorderCriteria.Higher);   // null fixed ⇒ consumption alone
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(9m, row.ReorderLevel);      // only the D4 issue is in (D3, D4]
+        Assert.Equal(4m, row.ClosingQuantity);   // 20 − 7 − 9 (both issues move stock)
+    }
+
+    [Fact]
+    public void Reorder_status_consumption_is_deterministic_for_a_report_date()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget");
+        Receive(k, item, k.MainGodownId, D1, 100m, Money.FromRupees(10m));
+        Deliver(k, item, k.MainGodownId, D2, 70m);   // consumption 70, closing 30
+        new ReorderLevelsService(k.Company).CreateOrUpdate(ReorderScope.Item, item,
+            reorderAdvanced: true, periodCount: 1, periodUnit: ExpiryPeriodUnit.Months,
+            criteria: ReorderCriteria.Higher);
+
+        var a = ReorderStatus.Build(k.Company, D4).Rows.Single().ReorderLevel;
+        var b = ReorderStatus.Build(k.Company, D4).Rows.Single().ReorderLevel;
+        Assert.Equal(a, b);
+        Assert.Equal(70m, a);
+    }
+
+    [Fact]
+    public void Reorder_status_pending_purchase_order_reduces_the_order_to_be_placed()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100m, minOrder: 10m);
+        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));   // closing 20, shortfall 80
+        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 30m);            // 30 incoming
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(80m, row.Shortfall);
+        Assert.Equal(30m, row.PendingPurchaseOrders);
+        Assert.Equal(50m, row.OrderToBePlaced);   // max(100 − 20 − 30, MOQ 10) = 50
+    }
+
+    [Fact]
+    public void Reorder_status_pending_po_covering_the_gap_yields_zero_order_even_with_a_shortfall()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100m, minOrder: 10m);
+        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));   // closing 20, shortfall 80
+        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 90m);            // 90 incoming ≥ the 80 gap
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(80m, row.Shortfall);              // still below the level
+        Assert.Equal(0m, row.OrderToBePlaced);         // but incoming POs cover it → nothing to place
+    }
+
+    [Fact]
+    public void Reorder_status_cancelled_and_post_dated_purchase_orders_do_not_net()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100m);
+        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));
+        // Cancelled PO — excluded.
+        var cancelled = InventoryVoucher.Order(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PurchaseOrder), D2,
+            new[] { new OrderLine(item, k.MainGodownId, 50m, null) });
+        k.Posting.Post(cancelled);
+        k.Posting.Cancel(cancelled.Id);
+        // Post-dated PO after the as-of date — excluded.
+        k.Posting.Post(InventoryVoucher.Order(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PurchaseOrder),
+            new DateOnly(2024, 5, 1), new[] { new OrderLine(item, k.MainGodownId, 50m, null) }, postDated: true));
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(80m, row.OrderToBePlaced);   // 100 − 20 − 0
+    }
+
+    [Fact]
+    public void Reorder_status_sales_orders_due_is_shown_but_not_netted()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100m);
+        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 15m);
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(15m, row.SalesOrdersDue);
+        Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(80m, row.OrderToBePlaced);   // SOs Due does NOT change the order qty (DD-4)
+    }
+
+    /// <summary>
+    /// PR-8 exit gate (Tally-Book pp.159–161): Reorder Level 20 (Simple), Minimum Order Quantity 25 (Simple);
+    /// stock sold below 20 with NO pending purchase order ⇒ Order to be Placed = 25 (the MOQ floor), Shortfall =
+    /// 20 − closing.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_order_to_be_placed_matches_book_example()
+    {
+        var k = NewKit();
+        var item = Item(k, "Nike T-shirt", reorderLevel: 20m, minOrder: 25m);
+        Receive(k, item, k.MainGodownId, D1, 30m, Money.FromRupees(10m));
+        Deliver(k, item, k.MainGodownId, D2, 22m);   // closing 8 (below 20), no pending PO
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(8m, row.ClosingQuantity);
+        Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(12m, row.Shortfall);        // 20 − 8
+        Assert.Equal(25m, row.OrderToBePlaced);  // max(netRequirement 12, MOQ 25) = 25
+    }
+
+    /// <summary>
+    /// ER-13 regression (slice-6 review): an item <b>exactly at</b> its reorder level with a Minimum Order
+    /// Quantity and NO pending purchase order still orders the MOQ (Phase-3 parity), not zero. At closing == level
+    /// the shortfall is 0, but the MOQ is a floor whenever the item is at/below its level and no incoming PO
+    /// covers it — the pre-fix refactor wrongly returned 0 here.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_at_exactly_the_level_with_min_order_qty_orders_the_min_order_qty()
+    {
+        var k = NewKit();
+        var item = Item(k, "Nike T-shirt", reorderLevel: 20m, minOrder: 25m);
+        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));   // closing exactly 20 = level, no PO
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(20m, row.ClosingQuantity);
+        Assert.Equal(20m, row.ReorderLevel);
+        Assert.Equal(0m, row.Shortfall);            // at the level, not below it
+        Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(25m, row.OrderToBePlaced);     // MOQ floor (ER-13 / Phase-3 parity), NOT 0
+    }
+
+    /// <summary>
+    /// Consumption regression (slice-6 review): a pure inter-godown Stock-Journal transfer of an item (source
+    /// Outward at one godown + destination Inward at another, same item) is <b>not</b> an issue and must not
+    /// inflate the Advanced-reorder consumption — its outward leg nets against its same-voucher inward leg. Only
+    /// the genuine delivery counts. The pre-fix code counted the transfer's outward leg, over-stating consumption.
+    /// </summary>
+    [Fact]
+    public void Consumption_excludes_inter_godown_stock_journal_transfers()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget");
+        Receive(k, item, k.MainGodownId, D1, 100m, Money.FromRupees(10m));
+        // Pure inter-godown transfer of the SAME item — moves stock, does not consume it.
+        k.Posting.Post(InventoryVoucher.StockJournal(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.StockJournal), D2,
+            source: new[] { new InventoryAllocation(item, k.MainGodownId, 40m, StockDirection.Outward) },
+            destination: new[] { new InventoryAllocation(item, k.SecondGodownId, 40m, StockDirection.Inward) }));
+        Deliver(k, item, k.MainGodownId, D3, 15m);   // a genuine issue of 15
+
+        var consumption = new InventoryLedger(k.Company).Consumption(item, FyStart, D4);
+        Assert.Equal(15m, consumption);   // only the delivery; the 40-unit transfer nets to zero
     }
 
     // ================================================================ Reports façade

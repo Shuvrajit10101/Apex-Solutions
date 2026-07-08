@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 21;
+    public const int CurrentVersion = 22;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -606,6 +606,26 @@ public static class Schema
             discount_percent_millis INTEGER NOT NULL DEFAULT 0 -- discount% × 1,000 (0 = none)
         );
 
+        -- v22 (Phase 6 slice 6; RQ-32..RQ-35): Reorder Level definitions — per Stock Item / Group / Category
+        -- (scope 0/1/2). At most one row per (scope, target_id) (see ux index). reorder_advanced / minqty_advanced
+        -- are the independent Alt+S / Alt+V Simple(0)/Advanced(1) flags; the *_qty_micro fixed figures are qty ×
+        -- 1,000,000 (NULL = unset). A single shared period (period_unit = ExpiryPeriodUnit ordinal 0..3 + count > 0)
+        -- and criteria (0=Higher 1=Lower) govern BOTH Advanced figures (DD-1); all three are NULL when neither
+        -- figure is Advanced. Quantity-only (no money) — all values are INTEGER micros (ER-3).
+        CREATE TABLE reorder_definitions (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            scope                INTEGER NOT NULL,               -- 0=Item 1=Group 2=Category
+            target_id            TEXT    NOT NULL,               -- StockItem / StockGroup / StockCategory id
+            reorder_advanced     INTEGER NOT NULL DEFAULT 0,     -- Alt+S: 0=Simple 1=Advanced
+            reorder_qty_micro    INTEGER     NULL,               -- fixed reorder level × 1,000,000 (NULL=unset)
+            minqty_advanced      INTEGER NOT NULL DEFAULT 0,     -- Alt+V: 0=Simple 1=Advanced
+            min_order_qty_micro  INTEGER     NULL,               -- fixed min order qty × 1,000,000 (NULL=unset)
+            period_unit          INTEGER     NULL,               -- ExpiryPeriodUnit ordinal 0=Days..3=Years
+            period_count         INTEGER     NULL,               -- rolling-window length (>0) when Advanced
+            criteria             INTEGER     NULL                -- 0=Higher 1=Lower (when Advanced)
+        );
+
         -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
         -- report configuration tuple (kind/period/depth/sort/filter/comparative/F12) — never a computed figure;
         -- the report is always recomputed when the view is applied, so a saved view can never go stale (ER-9).
@@ -678,6 +698,10 @@ public static class Schema
         CREATE INDEX ix_price_lists_company      ON price_lists(company_id);
         CREATE INDEX ix_price_lists_level_item   ON price_lists(price_level_id, stock_item_id);
         CREATE INDEX ix_price_list_lines_list    ON price_list_lines(price_list_id);
+        -- v22: reorder definitions — lookup by company + the per-(scope, target) unique key (at most one
+        -- definition per item/group/category, RQ-32).
+        CREATE INDEX ix_reorder_definitions_company      ON reorder_definitions(company_id);
+        CREATE UNIQUE INDEX ux_reorder_definitions_scope ON reorder_definitions(scope, target_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
@@ -1355,5 +1379,33 @@ public static class Schema
         CREATE INDEX ix_price_lists_company      ON price_lists(company_id);
         CREATE INDEX ix_price_lists_level_item   ON price_lists(price_level_id, stock_item_id);
         CREATE INDEX ix_price_list_lines_list    ON price_list_lines(price_list_id);
+        """;
+
+    /// <summary>
+    /// v21 → v22: <b>Reorder Levels</b> (Phase 6 slice 6; RQ-32..RQ-35; ER-1, ER-13). Purely additive — creates
+    /// the single new table <c>reorder_definitions</c> (a per-company master keyed uniquely by (scope, target_id):
+    /// a reorder level defined per Stock Item / Group / Category, with the two independent Simple/Advanced flags,
+    /// the fixed qty-micros figures, and a shared Advanced period/criteria) plus its two indexes. No
+    /// <c>ALTER</c>, no row rewrite: an existing v21 database gains one empty table and every other table/row is
+    /// byte-identical (ER-13). Run inside a transaction that also bumps <c>schema_version</c> to 22. A fresh DB is
+    /// stamped straight to v22 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV21ToV22 = """
+        CREATE TABLE reorder_definitions (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            scope                INTEGER NOT NULL,
+            target_id            TEXT    NOT NULL,
+            reorder_advanced     INTEGER NOT NULL DEFAULT 0,
+            reorder_qty_micro    INTEGER     NULL,
+            minqty_advanced      INTEGER NOT NULL DEFAULT 0,
+            min_order_qty_micro  INTEGER     NULL,
+            period_unit          INTEGER     NULL,
+            period_count         INTEGER     NULL,
+            criteria             INTEGER     NULL
+        );
+
+        CREATE INDEX ix_reorder_definitions_company      ON reorder_definitions(company_id);
+        CREATE UNIQUE INDEX ux_reorder_definitions_scope ON reorder_definitions(scope, target_id);
         """;
 }

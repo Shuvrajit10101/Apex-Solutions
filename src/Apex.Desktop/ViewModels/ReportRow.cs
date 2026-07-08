@@ -82,6 +82,12 @@ public sealed class ReportRow
     public Guid? DrillStockItemId { get; init; }
 
     /// <summary>
+    /// The raw "Order to be Placed" quantity (Reorder Status, RQ-37) carried alongside the formatted
+    /// <see cref="Col7"/> cell so Ctrl+F9 can pre-fill a Purchase Order for this row. 0 on every other report.
+    /// </summary>
+    public decimal ReorderOrderQuantity { get; init; }
+
+    /// <summary>
     /// The ledger this row drills to (RQ-7 universal drill-down): Enter on a Trial-Balance / Balance-Sheet /
     /// Profit-&amp;-Loss ledger row opens that ledger's vouchers (a <c>LedgerBook</c>) for the report period.
     /// <see cref="Guid.Empty"/> on synthetic/total/heading rows (folded Net Profit, derived Stock-in-Hand,

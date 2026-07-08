@@ -44,6 +44,58 @@ public sealed class InventoryLedger
     }
 
     /// <summary>
+    /// The total <b>outward (issue) quantity</b> of an item, in the item's base unit, over the half-open window
+    /// <c>(from, to]</c> across all godowns and batches (Phase 6 slice 6; requirements RQ-34; DP-5). This is the
+    /// "consumption" an Advanced reorder figure is derived from: every outward stock movement — Delivery Notes,
+    /// Rejection Out, Stock-Journal source (Material-Out) and Sales item-invoice lines — dated strictly after
+    /// <paramref name="from"/> and on or before <paramref name="to"/>, taken as the <b>net</b> issue per voucher
+    /// so a same-voucher inward leg of the same item (the destination godown of an inter-godown Stock-Journal
+    /// transfer) offsets its outward leg — a pure transfer is not consumption and contributes nothing. Inward
+    /// movements and Physical-Stock counts (which are book checkpoints, not issues) are excluded. Cancelled and
+    /// post-dated-after vouchers never count, mirroring <see cref="OnHand(System.Guid,System.DateOnly)"/>.
+    /// Deterministic, no clock (ER-10).
+    /// </summary>
+    public decimal Consumption(Guid stockItemId, DateOnly from, DateOnly to)
+    {
+        var total = 0m;
+
+        // Pure-stock vouchers: sum the outward allocation quantities (base unit) in the window. Physical-Stock
+        // vouchers carry their counts on PhysicalLines (not Allocations), so they contribute nothing here.
+        foreach (var v in _company.InventoryVouchers)
+        {
+            if (v.Cancelled) continue;
+            if (v.Date <= from || v.Date > to) continue;
+            var type = _company.FindVoucherType(v.TypeId);
+            if (type is null || !type.AffectsStock) continue;
+
+            // Consumption is the NET issue of the item within a voucher: a same-voucher inward leg (the
+            // destination godown of an inter-godown Stock-Journal transfer, or an item both produced and
+            // consumed) offsets its outward leg, so a pure transfer contributes nothing (it does not reduce
+            // company-wide stock). Only a positive net outward counts; a net-inward voucher (e.g. a Receipt
+            // Note) is not consumption.
+            var net = 0m;
+            foreach (var a in v.Allocations)
+                if (a.StockItemId == stockItemId)
+                    net += a.Direction == StockDirection.Outward ? QuantityInBase(a) : -QuantityInBase(a);
+            foreach (var a in v.DestinationAllocations)
+                if (a.StockItemId == stockItemId)
+                    net += a.Direction == StockDirection.Outward ? QuantityInBase(a) : -QuantityInBase(a);
+            if (net > 0m) total += net;
+        }
+
+        // Item-invoice movements (Sales in item-invoice mode): outward synthetic allocations in the window.
+        foreach (var m in ItemInvoiceStock.Movements(_company, to))
+        {
+            if (m.Allocation.StockItemId != stockItemId) continue;
+            if (m.Date <= from || m.Date > to) continue;
+            if (m.Allocation.Direction == StockDirection.Outward)
+                total += QuantityInBase(m.Allocation);
+        }
+
+        return total;
+    }
+
+    /// <summary>
     /// The list of implied Physical-Stock adjustments recorded on or before <paramref name="asOf"/> (DP-3):
     /// for each counted line, the (item, godown, batch) and the adjustment = counted − book-before-count.
     /// The Physical-Stock register surfaces this difference.

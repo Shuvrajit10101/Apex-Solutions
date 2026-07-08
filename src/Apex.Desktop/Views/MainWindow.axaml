@@ -480,23 +480,38 @@
                             </ScrollViewer>
                           </Grid>
 
-                          <!-- == Reorder Status: Item | Closing | Reorder Level | Shortfall | Suggested == -->
+                          <!-- == Reorder Status: Item | Closing | Reorder Level | Pending POs | SOs Due | Shortfall | Order to be Placed == -->
                           <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsReorderStatus}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,120,130,120,140">
+                              <Grid ColumnDefinitions="*,92,110,100,92,92,140">
                                 <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Closing" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="Reorder Level" Classes="colHdr" TextAlignment="Right"/>
-                                <TextBlock Grid.Column="3" Text="Shortfall" Classes="colHdr" TextAlignment="Right"/>
-                                <TextBlock Grid.Column="4" Text="Suggested" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Pending POs" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="SOs Due" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Shortfall" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="Order to be Placed" Classes="colHdr"
+                                           TextAlignment="Right" Margin="0,0,10,0"/>
                               </Grid>
                             </Border>
-                            <ScrollViewer Grid.Row="1" Background="White">
-                              <ItemsControl ItemsSource="{Binding Rows}">
-                                <ItemsControl.ItemTemplate>
+                            <!-- ListBox (not a plain ItemsControl) so a row can be highlighted: Ctrl+F9 raises a
+                                 pre-filled Purchase Order from the selected row (RQ-53) and Enter/double-click
+                                 drills into that item's Stock Item Movement, mirroring the Stock-Summary grid. -->
+                            <ListBox Grid.Row="1" Background="White" Tag="drill"
+                                     ItemsSource="{Binding Rows}"
+                                     SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                                     DoubleTapped="OnStockSummaryDrill" KeyDown="OnStockSummaryKeyDown"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                              <ListBox.Styles>
+                                <Style Selector="ListBoxItem">
+                                  <Setter Property="Padding" Value="0"/>
+                                  <Setter Property="MinHeight" Value="0"/>
+                                </Style>
+                              </ListBox.Styles>
+                              <ListBox.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,120,130,120,140" Height="24">
+                                      <Grid ColumnDefinitions="*,92,110,100,92,92,140" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -506,16 +521,20 @@
                                         <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
                                         <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
-                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
-                                                   Foreground="{StaticResource AlertRed}"/>
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
                                         <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource AlertRed}"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="SemiBold"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                              </ItemsControl>
-                            </ScrollViewer>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
                           </Grid>
 
                           <!-- == Physical Stock Register: Date | Item | Godown | Book | Counted | Variance == -->
@@ -4715,6 +4734,166 @@
                                         Click="OnSavePriceListClick"/>
                               </Grid>
                             </StackPanel>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Reorder Levels master (per Item / Group / Category; Simple⇄Advanced) — Phase 6 slice 6 (RQ-32..35/53) -->
+                    <ContentControl IsVisible="{Binding ReorderLevels, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ReorderLevels}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ReorderLevelsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Reorder Levels"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                            <!-- Create / upsert form -->
+                            <ScrollViewer Grid.Row="1" MaxHeight="330" Margin="0,0,0,10">
+                              <Border Background="White"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="16">
+                                <StackPanel Spacing="10">
+                                  <!-- Scope + target -->
+                                  <Grid ColumnDefinitions="110,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Scope" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Scopes}"
+                                              SelectedItem="{Binding SelectedScope, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ReorderScopeOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Target" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding Targets}"
+                                              SelectedItem="{Binding SelectedTarget, Mode=TwoWay}"
+                                              PlaceholderText="item / group / category…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ReorderTargetOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+
+                                  <!-- Reorder level: Simple (fixed) or Advanced (Alt+S) -->
+                                  <Grid ColumnDefinitions="110,*,200">
+                                    <TextBlock Grid.Column="0" Text="Reorder level" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding ReorderQuantityText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="qty (optional)"/>
+                                    <CheckBox Grid.Column="2" Margin="10,0,0,0"
+                                              IsChecked="{Binding ReorderAdvanced, Mode=TwoWay}"
+                                              Content="Advanced (Alt+S)"/>
+                                  </Grid>
+
+                                  <!-- Min order qty: Simple (fixed) or Advanced (Alt+V) -->
+                                  <Grid ColumnDefinitions="110,*,200">
+                                    <TextBlock Grid.Column="0" Text="Min order qty" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding MinOrderQtyText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="qty (optional)"/>
+                                    <CheckBox Grid.Column="2" Margin="10,0,0,0"
+                                              IsChecked="{Binding MinQtyAdvanced, Mode=TwoWay}"
+                                              Content="Advanced (Alt+V)"/>
+                                  </Grid>
+
+                                  <!-- Advanced consumption period + Higher/Lower criterion (shown only when Advanced) -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding IsAdvanced}">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="Advanced — reconcile the fixed figure against consumption over a rolling period"
+                                                 FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="110,90,140,90,*">
+                                        <TextBlock Grid.Column="0" Text="Period" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding PeriodCountText, Mode=TwoWay}"
+                                                 TextAlignment="Right" PlaceholderText="count"/>
+                                        <ComboBox Grid.Column="2" HorizontalAlignment="Stretch" Margin="6,0,0,0"
+                                                  ItemsSource="{Binding PeriodUnits}"
+                                                  SelectedItem="{Binding SelectedPeriodUnit, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ExpiryPeriodUnitOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Grid.Column="3" Text="Criteria" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" Margin="6,0,0,0"
+                                                  ItemsSource="{Binding Criteria}"
+                                                  SelectedItem="{Binding SelectedCriteria, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:ReorderCriteriaOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                               Foreground="{StaticResource AlertRed}" FontSize="12"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    <Button Grid.Column="1" Content="Save (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnCreateReorderLevelClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+                            </ScrollViewer>
+
+                            <!-- Existing definitions header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="90,*,120,120,120,100">
+                                <TextBlock Grid.Column="0" Text="Scope" Classes="colHdr" Margin="8,0,0,0"/>
+                                <TextBlock Grid.Column="1" Text="Target" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Reorder Level" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Min Order Qty" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Period" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Criteria" Classes="colHdr"
+                                           TextAlignment="Right" Margin="0,0,10,0"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReorderLevelListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="90,*,120,120,120,100" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Scope}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Target}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Reorder}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding MinQty}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Period}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Criteria}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

@@ -280,6 +280,10 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS price_list_lines;");
         Exec(conn, "DROP TABLE IF EXISTS price_lists;");
         Exec(conn, "DROP TABLE IF EXISTS price_levels;");
+        // Drop the v22 reorder-definitions table + its indexes so the reopen's v21→v22 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ux_reorder_definitions_scope;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_reorder_definitions_company;");
+        Exec(conn, "DROP TABLE IF EXISTS reorder_definitions;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");
         Exec(conn, "DROP INDEX IF EXISTS ux_bom_item_name;");

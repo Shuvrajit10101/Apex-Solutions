@@ -105,6 +105,15 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Reorder Levels master (RQ-53): Alt+S toggles the reorder level Simple⇄Advanced; Alt+V toggles the
+        // minimum-order-qty Simple⇄Advanced. Scoped to that screen so they never collide elsewhere.
+        if (vm.CurrentScreen == Screen.ReorderLevelsMaster && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            if (e.Key == Key.S) { vm.ReorderLevels?.ToggleReorderAdvanced(); e.Handled = true; return; }
+            if (e.Key == Key.V) { vm.ReorderLevels?.ToggleMinQtyAdvanced(); e.Handled = true; return; }
+        }
+
         // Alt+X cancels the in-progress voucher/ledger without saving (cancel shortcut).
         if (e.Key == Key.X && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
@@ -277,6 +286,9 @@ public partial class MainWindow : Window
         {
             switch (e.Key)
             {
+                // Ctrl+F9 on the Reorder Status report raises a Purchase Order pre-filled from the selected row
+                // (item + main location + Order-to-be-Placed qty; RQ-53). Checked before the blank-PO shortcut.
+                case Key.F9 when vm.IsReorderStatusReport: vm.RaisePurchaseOrderFromReorder(); e.Handled = true; return;
                 case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.PurchaseOrder); e.Handled = true; return;
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.SalesOrder); e.Handled = true; return;
                 case Key.F6: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionIn); e.Handled = true; return;
@@ -332,6 +344,9 @@ public partial class MainWindow : Window
             {
                 case Key.F2: vm.ReportSetAsOf(); e.Handled = true; return;
                 case Key.F12: vm.OpenReportConfig(); e.Handled = true; return;
+                // F8 on the Reorder Status report toggles the "reorder only" filter (RQ-53). Checked before the
+                // bare-F8 global button-bar action so it never falls through on that report.
+                case Key.F8 when vm.IsReorderStatusReport: vm.ReportToggleReorderOnly(); e.Handled = true; return;
             }
         }
 
@@ -521,6 +536,9 @@ public partial class MainWindow : Window
 
     private void OnCreatePriceLevelClick(object? sender, RoutedEventArgs e)
         => Vm?.PriceLevels?.Create();
+
+    private void OnCreateReorderLevelClick(object? sender, RoutedEventArgs e)
+        => Vm?.ReorderLevels?.Create();
 
     private void OnSavePriceListClick(object? sender, RoutedEventArgs e)
         => Vm?.PriceLists?.Save();

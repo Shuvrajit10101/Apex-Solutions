@@ -90,7 +90,7 @@ public static class ReportTabularProjector
         ReportKind.StockSummary        => new[] { "Stock Item", "Inward", "Outward", "Closing Qty", "Rate", "Value" },
         ReportKind.GodownSummary       => new[] { "Godown", "Stock Item", "Quantity", "Value" },
         ReportKind.StockItemMovement   => new[] { "Date", "Voucher Type", "Inward", "Outward", "Balance", "Value" },
-        ReportKind.ReorderStatus       => new[] { "Stock Item", "Closing", "Reorder Level", "Shortfall", "Suggested" },
+        ReportKind.ReorderStatus       => new[] { "Stock Item", "Closing", "Reorder Level", "Pending POs", "SOs Due", "Shortfall", "Order to be Placed" },
         ReportKind.PhysicalStockRegister => new[] { "Date", "Stock Item", "Godown", "Book", "Counted", "Variance" },
         ReportKind.OrderRegister       => new[] { "Date", "Voucher", "Party", "Stock Item", "Godown", "Ordered", "Pending", "Rate" },
         ReportKind.ReceiptNoteRegister or ReportKind.DeliveryNoteRegister or ReportKind.RejectionRegister

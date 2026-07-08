@@ -781,6 +781,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         switch (Kind)
         {
             case ReportKind.StockSummary:
+            case ReportKind.ReorderStatus:
+                // Both carry the row's stock item so Enter / double-click opens that item's Stock Item Movement.
                 if (row.DrillStockItemId is { } itemId)
                     DrillToMovementRequested?.Invoke(itemId);
                 break;
@@ -1314,26 +1316,58 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow { Col4 = "No orders in this period.", IsHeader = true });
     }
 
-    // --------------------------------------------------------------- Reorder Status (Item | Closing | Reorder Level | Shortfall | Suggested)
+    // ------------------ Reorder Status (Item | Closing | Reorder Level | Pending POs | SOs Due | Shortfall | Order to be Placed)
+
+    /// <summary>
+    /// F8 "Reorder only" filter (RQ-53): when on, the Reorder-Status report shows only rows that genuinely need
+    /// ordering (<c>OrderToBePlaced &gt; 0</c>); when off, every item resolved to a reorder level shows. False for
+    /// every other report.
+    /// </summary>
+    [ObservableProperty] private bool _reorderOnlyFilter;
+
+    /// <summary>F8 on the Reorder-Status report: toggles the "reorder only" filter and re-projects the report.</summary>
+    public void ToggleReorderOnly()
+    {
+        if (Kind != ReportKind.ReorderStatus) return;
+        ReorderOnlyFilter = !ReorderOnlyFilter;
+        Rows.Clear();
+        BuildReorderStatus();
+    }
 
     private void BuildReorderStatus()
     {
         var rs = Report.BuildReorderStatus(_company, _asOf);
         Title = "Reorder Status";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(_asOf)}"
+                   + (ReorderOnlyFilter ? "  —  reorder only (F8)" : string.Empty);
 
+        var shown = 0;
         foreach (var r in rs.Rows)
+        {
+            if (ReorderOnlyFilter && r.OrderToBePlaced <= 0m) continue;   // F8: hide rows with nothing to order
+            shown++;
             Rows.Add(new ReportRow
             {
                 Col1 = r.ItemName,
                 Col2 = IndianFormat.Quantity(r.ClosingQuantity),
                 Col3 = IndianFormat.Quantity(r.ReorderLevel),
-                Col4 = IndianFormat.Quantity(r.Shortfall),
-                Col5 = IndianFormat.Quantity(r.SuggestedOrderQuantity),
+                Col4 = IndianFormat.Quantity(r.PendingPurchaseOrders),
+                Col5 = IndianFormat.Quantity(r.SalesOrdersDue),
+                Col6 = IndianFormat.Quantity(r.Shortfall),
+                Col7 = IndianFormat.Quantity(r.OrderToBePlaced),
+                DrillStockItemId = r.StockItemId,        // Enter/double-click → Stock Item Movement; Ctrl+F9 → PO
+                ReorderOrderQuantity = r.OrderToBePlaced, // raw qty for the Ctrl+F9 Purchase-Order prefill
             });
+        }
 
-        if (rs.Rows.Count == 0)
-            Rows.Add(new ReportRow { Col1 = "All items are above their reorder levels.", IsHeader = true });
+        if (shown == 0)
+            Rows.Add(new ReportRow
+            {
+                Col1 = ReorderOnlyFilter
+                    ? "No items need ordering."
+                    : "All items are above their reorder levels.",
+                IsHeader = true,
+            });
     }
 
     // =============================================================== batch reports (Phase 6 Cluster 1; RQ-8)

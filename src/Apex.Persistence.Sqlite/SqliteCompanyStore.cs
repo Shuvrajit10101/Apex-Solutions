@@ -519,6 +519,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 21;
         }
 
+        // v21 → v22: apply the Reorder Levels schema (one new table + two indexes), then bump the marker. Existing
+        // v21 data survives untouched (a single additive CREATE TABLE/INDEX; no ALTER, no row rewrites — Phase 6
+        // slice 6).
+        if (version == 21)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV21ToV22;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 22);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 22;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -648,6 +671,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             company.AddPriceLevel(level);
         foreach (var list in ReadPriceLists(companyId))
             company.AddPriceList(list);
+        // Reorder definitions after stock items/groups/categories (they target one of the three, all loaded above)
+        // — Phase 6 slice 6.
+        foreach (var def in ReadReorderDefinitions(companyId))
+            company.AddReorderDefinition(def);
         foreach (var ob in ReadStockOpeningBalances(companyId))
             company.AddStockOpeningBalance(ob);
 
@@ -730,6 +757,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertBillsOfMaterials(tx, company);
         // Price lists after stock items (a price_lists header FKs stock_items) + price levels (inserted above).
         InsertPriceLists(tx, company);
+        // Reorder definitions after stock items/groups/categories (they target one of the three) — Phase 6 slice 6.
+        InsertReorderDefinitions(tx, company);
         InsertStockOpeningBalances(tx, company);
         InsertVouchers(tx, company);
         // Inventory & order vouchers (catalog §10): reference voucher_types, stock_items, godowns, units, and
@@ -1318,6 +1347,39 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 lines: linesByBom.TryGetValue(id, out var lines) ? lines : new List<BomLine>()));
         }
         return boms;
+    }
+
+    /// <summary>
+    /// Reads the Reorder Level definitions (Phase 6 slice 6; RQ-32..RQ-35) from <c>reorder_definitions</c>. Micros
+    /// (× 1,000,000) → exact decimal quantities; the Simple/Advanced flags, period unit/count and Higher/Lower
+    /// criterion re-hydrate their enums; all NULLable Advanced columns stay null when neither figure is Advanced.
+    /// </summary>
+    private IEnumerable<ReorderDefinition> ReadReorderDefinitions(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, scope, target_id, reorder_advanced, reorder_qty_micro, minqty_advanced,
+                   min_order_qty_micro, period_unit, period_count, criteria
+            FROM reorder_definitions WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<ReorderDefinition>();
+        while (r.Read())
+        {
+            list.Add(new ReorderDefinition(
+                Guid.Parse(r.GetString(0)),
+                scope: (ReorderScope)(int)r.GetInt64(1),
+                targetId: Guid.Parse(r.GetString(2)),
+                reorderAdvanced: r.GetInt64(3) != 0,
+                reorderQuantity: r.IsDBNull(4) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(4)),
+                minQtyAdvanced: r.GetInt64(5) != 0,
+                minOrderQuantity: r.IsDBNull(6) ? (decimal?)null : QtyMicroToDecimal(r.GetInt64(6)),
+                periodUnit: r.IsDBNull(7) ? (ExpiryPeriodUnit?)null : (ExpiryPeriodUnit)(int)r.GetInt64(7),
+                periodCount: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8),
+                criteria: r.IsDBNull(9) ? (ReorderCriteria?)null : (ReorderCriteria)(int)r.GetInt64(9)));
+        }
+        return list;
     }
 
     /// <summary>Reads the named Price Levels (Phase 6 slice 5; RQ-26) — bare per-company masters.</summary>
@@ -1929,6 +1991,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
         ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));
+        // Reorder definitions reference only companies(id) (target_id is a bare id, no FK) → drop before the
+        // company row and before the stock masters they logically point at (Phase 6 slice 6).
+        ExecTx(tx, "DELETE FROM reorder_definitions WHERE company_id = $cid;", ("$cid", cid));
         // Exchange rates FK currencies; ledgers + entry-line forex FK currencies → after those are gone.
         ExecTx(tx, "DELETE FROM exchange_rates WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM currencies WHERE company_id = $cid;", ("$cid", cid));
@@ -2467,6 +2532,39 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     line.PercentOfFinishedGoodCost is { } p ? PercentMillisFromDecimal(p) : (object)DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
+        }
+    }
+
+    /// <summary>
+    /// Persists the Reorder Level definitions (Phase 6 slice 6; RQ-32..RQ-35) into <c>reorder_definitions</c>.
+    /// Fixed quantities are stored as INTEGER micros (× 1,000,000; NULL = unset), the Simple/Advanced flags as 0/1,
+    /// and the shared Advanced period unit/count + Higher/Lower criterion as their enum ordinals (NULL when neither
+    /// figure is Advanced) — all exact, no float (ER-3).
+    /// </summary>
+    private void InsertReorderDefinitions(SqliteTransaction tx, Company c)
+    {
+        foreach (var d in c.ReorderDefinitions)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO reorder_definitions
+                    (id, company_id, scope, target_id, reorder_advanced, reorder_qty_micro, minqty_advanced,
+                     min_order_qty_micro, period_unit, period_count, criteria)
+                VALUES ($id, $cid, $scope, $target, $radv, $rqty, $madv, $mqty, $punit, $pcount, $crit);
+                """;
+            cmd.Parameters.AddWithValue("$id", d.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$scope", (int)d.Scope);
+            cmd.Parameters.AddWithValue("$target", d.TargetId.ToString("D"));
+            cmd.Parameters.AddWithValue("$radv", d.ReorderAdvanced ? 1 : 0);
+            cmd.Parameters.AddWithValue("$rqty", d.ReorderQuantity is { } rq ? QtyMicroFromDecimal(rq) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$madv", d.MinQtyAdvanced ? 1 : 0);
+            cmd.Parameters.AddWithValue("$mqty", d.MinOrderQuantity is { } mq ? QtyMicroFromDecimal(mq) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$punit", d.PeriodUnit is { } pu ? (int)pu : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$pcount", d.PeriodCount is { } pc ? pc : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$crit", d.Criteria is { } cr ? (int)cr : (object)DBNull.Value);
+            cmd.ExecuteNonQuery();
         }
     }
 

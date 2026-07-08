@@ -28,6 +28,7 @@ public sealed class Company
     private readonly List<BillOfMaterials> _billsOfMaterials = new();
     private readonly List<PriceLevel> _priceLevels = new();
     private readonly List<PriceList> _priceLists = new();
+    private readonly List<ReorderDefinition> _reorderDefinitions = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -240,6 +241,10 @@ public sealed class Company
     /// append-only history.</summary>
     public IReadOnlyList<PriceList> PriceLists => _priceLists;
 
+    /// <summary>Reorder-Level definitions (catalog §11; Phase 6 slice 6; RQ-32): per item / group / category,
+    /// at most one per (scope, target). The Reorder-Status report resolves the most-specific one per item.</summary>
+    public IReadOnlyList<ReorderDefinition> ReorderDefinitions => _reorderDefinitions;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -312,6 +317,12 @@ public sealed class Company
 
     /// <summary>Removes a price-list version (used by the transactional import roll-back).</summary>
     public bool RemovePriceList(PriceList list) => _priceLists.Remove(list);
+
+    /// <summary>Adds a reorder-level definition (uniqueness/target guards live in <c>ReorderLevelsService</c>).</summary>
+    public void AddReorderDefinition(ReorderDefinition definition) => _reorderDefinitions.Add(definition ?? throw new ArgumentNullException(nameof(definition)));
+
+    /// <summary>Removes a reorder-level definition (delete-guards live in <c>ReorderLevelsService</c>; also used by import roll-back).</summary>
+    public bool RemoveReorderDefinition(ReorderDefinition definition) => _reorderDefinitions.Remove(definition);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
@@ -425,6 +436,14 @@ public sealed class Company
     /// picks the latest-applicable version from (RQ-27/RQ-29).</summary>
     public IEnumerable<PriceList> PriceListsFor(Guid priceLevelId, Guid stockItemId) =>
         _priceLists.Where(pl => pl.PriceLevelId == priceLevelId && pl.StockItemId == stockItemId);
+
+    /// <summary>Finds a reorder-level definition by its id, or <c>null</c> (Phase 6 slice 6; RQ-32).</summary>
+    public ReorderDefinition? FindReorderDefinition(Guid id) => _reorderDefinitions.FirstOrDefault(d => d.Id == id);
+
+    /// <summary>Finds the single reorder-level definition for a (scope, target), or <c>null</c> — at most one
+    /// definition exists per (scope, target), enforced by <c>ReorderLevelsService</c> + the unique index (RQ-32).</summary>
+    public ReorderDefinition? FindReorderDefinition(ReorderScope scope, Guid targetId) =>
+        _reorderDefinitions.FirstOrDefault(d => d.Scope == scope && d.TargetId == targetId);
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote

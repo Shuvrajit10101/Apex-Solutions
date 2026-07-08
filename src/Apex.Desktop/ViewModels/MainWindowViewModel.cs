@@ -57,6 +57,7 @@ public enum Screen
     GstConfig,
     PriceLevelsMaster,
     PriceListsMaster,
+    ReorderLevelsMaster,
     LedgerVouchers,
     VoucherDetail,
 }
@@ -226,6 +227,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Price List creation master (slice 5; RQ-27), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceListsViewModel? _priceLists;
 
+    /// <summary>The Reorder Levels master (slice 6; RQ-32), non-null only while that page is open.</summary>
+    [ObservableProperty] private ReorderLevelsViewModel? _reorderLevels;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -285,7 +289,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
         && BomMaster is null && ManufacturingJournalEntry is null
-        && PriceLevels is null && PriceLists is null
+        && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -322,6 +326,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -670,6 +675,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Godown", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Stock Item", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Reorder Levels master (Phase 6 slice 6; RQ-32/RQ-54) — a core inventory master (per item / group /
+        // category), always available; a company with no definitions falls back to the legacy per-item fields so
+        // the Reorder-Status report is unchanged (ER-13).
+        col.Add(new MenuItemViewModel("Reorder Levels", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Batch / Lot master (Phase 6 Cluster 1; RQ-1/RQ-54) — surfaced only when the company flag
         // "Maintain Batch-wise details" is on (RQ-52), so a non-batch company is unaffected.
         if (Company is { MaintainBatchwiseDetails: true })
@@ -1338,6 +1347,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Alt+F1 on a report — toggles detailed↔summary in place (RQ-2). A no-op on reports that do not roll up.</summary>
     public void ReportToggleDetailed() => Reports?.ToggleDetailed();
+
+    /// <summary>True while the open report is the Reorder Status report (drives its F8 / Ctrl+F9 shortcuts).</summary>
+    public bool IsReorderStatusReport => IsReportContext && Reports is { IsReorderStatus: true };
+
+    /// <summary>F8 on the Reorder Status report — toggles the "reorder only" filter (RQ-53). A no-op otherwise.</summary>
+    public void ReportToggleReorderOnly()
+    {
+        if (Reports is { IsReorderStatus: true } r) r.ToggleReorderOnly();
+    }
+
+    /// <summary>
+    /// Ctrl+F9 on the Reorder Status report — raises a <b>Purchase Order</b> pre-filled from the selected row (the
+    /// item, the company's main location, and the "Order to be Placed" quantity; RQ-53/Book p.161). Falls back to a
+    /// blank Purchase Order when no drillable row is selected or the row's order quantity is zero.
+    /// </summary>
+    public void RaisePurchaseOrderFromReorder()
+    {
+        if (Company is null) return;
+        if (Reports is not { IsReorderStatus: true } r) return;
+
+        var row = r.SelectedRow;
+        if (row?.DrillStockItemId is not { } itemId || row.ReorderOrderQuantity <= 0m)
+        {
+            OpenInventoryVoucher(VoucherBaseType.PurchaseOrder);   // no actionable row → a blank order
+            return;
+        }
+
+        OpenInventoryVoucher(VoucherBaseType.PurchaseOrder);
+        if (InventoryVoucherEntry is not { } entry) return;
+
+        var item = Company.FindStockItem(itemId);
+        if (item is null) return;
+        var line = entry.Lines.FirstOrDefault() ?? entry.AddLine();
+        line.SelectedItem = item;
+        line.SelectedGodown = Company.MainLocation ?? Company.Godowns.FirstOrDefault();
+        line.QuantityText = row.ReorderOrderQuantity.ToString("0.######",
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
 
     // =============================================================== screen: comparative columns (Alt+C / Alt+N)
 
@@ -2062,6 +2109,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Price List Creation", () => PriceLists = master);
     }
 
+    /// <summary>
+    /// Opens the Reorder Levels master (Masters → Create → Inventory Masters → Reorder Levels; Phase 6 slice 6;
+    /// RQ-32..RQ-35) as a page column: define a reorder level + minimum order quantity per Stock Item / Group /
+    /// Category, each figure Simple or Advanced (Alt+S / Alt+V). Always available (no F11 gate — a company with no
+    /// definitions falls back to the legacy per-item fields, ER-13).
+    /// </summary>
+    public void ShowReorderLevelsMaster()
+    {
+        if (Company is null) return;
+
+        var master = new ReorderLevelsViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Reorder Levels", master), Screen.ReorderLevelsMaster,
+            "Reorder Levels", () => ReorderLevels = master);
+    }
+
     // =============================================================== screen: manufacturing journal
 
     /// <summary>
@@ -2387,6 +2449,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstConfig = null;
         PriceLevels = null;
         PriceLists = null;
+        ReorderLevels = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -2437,7 +2500,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
-                 or Screen.BomMaster
+                 or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig)
             BackFromPage();
     }
@@ -2701,6 +2764,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.PriceListsMaster:
                 PriceLists?.Save();
                 return;
+            case Screen.ReorderLevelsMaster:
+                ReorderLevels?.Create();
+                return;
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
@@ -2855,6 +2921,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Unit": ShowUnitMaster(); break;
             case "Godown": ShowGodownMaster(); break;
             case "Stock Item": ShowStockItemMaster(); break;
+            case "Reorder Levels": ShowReorderLevelsMaster(); break;
             case "Batch": ShowBatchMaster(); break;
             case "Bill of Materials": ShowBomMaster(); break;
             case "Price Level": ShowPriceLevelsMaster(); break;

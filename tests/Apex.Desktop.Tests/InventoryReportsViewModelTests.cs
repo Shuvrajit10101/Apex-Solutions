@@ -184,9 +184,11 @@ public sealed class InventoryReportsViewModelTests : IDisposable
         var rows = k.Vm.Reports!.Rows;
 
         // Widget (105) is below its reorder level 150 → flagged with shortfall 45. Gadget (200 vs 50) is not.
+        // Columns (slice 6): Item | Closing | Reorder Level | Pending POs | SOs Due | Shortfall | Order to be Placed.
         var widget = rows.Single(r => r.Col1 == "Widget");
         Assert.Equal("150", widget.Col3);   // reorder level
-        Assert.Equal("45", widget.Col4);    // shortfall = 150 − 105
+        Assert.Equal("0", widget.Col4);     // pending POs (none)
+        Assert.Equal("45", widget.Col6);    // shortfall = 150 − 105
         Assert.DoesNotContain(rows, r => r.Col1 == "Gadget");
     }
 
