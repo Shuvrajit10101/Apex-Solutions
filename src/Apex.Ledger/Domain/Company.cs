@@ -17,6 +17,18 @@ public sealed class Company
     private readonly List<Scenario> _scenarios = new();
     private readonly List<Currency> _currencies = new();
     private readonly List<ExchangeRate> _exchangeRates = new();
+    private readonly List<StockGroup> _stockGroups = new();
+    private readonly List<StockCategory> _stockCategories = new();
+    private readonly List<Unit> _units = new();
+    private readonly List<Godown> _godowns = new();
+    private readonly List<StockItem> _stockItems = new();
+    private readonly List<StockOpeningBalance> _stockOpeningBalances = new();
+    private readonly List<InventoryVoucher> _inventoryVouchers = new();
+    private readonly List<BatchMaster> _batchMasters = new();
+    private readonly List<BillOfMaterials> _billsOfMaterials = new();
+    private readonly List<PriceLevel> _priceLevels = new();
+    private readonly List<PriceList> _priceLists = new();
+    private readonly List<ReorderDefinition> _reorderDefinitions = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -42,6 +54,132 @@ public sealed class Company
     public string BaseCurrencyName { get; set; } = "INR";
     public int DecimalPlaces { get; set; } = 2;
     public string DecimalUnitName { get; set; } = "Paisa";
+
+    /// <summary>
+    /// The company GST configuration (catalog §12; phase4 RQ-1/RQ-2). <c>null</c> (or a config with
+    /// <see cref="GstConfig.Enabled"/> false) means GST is off — the default for every existing company, so
+    /// the Phase-1/2/3 paths are byte-for-byte unchanged (ER-10). Set (and its tax ledgers auto-created) by
+    /// <c>GstService.EnableGst</c>.
+    /// </summary>
+    public GstConfig? Gst { get; set; }
+
+    /// <summary>True iff GST is enabled for this company.</summary>
+    public bool GstEnabled => Gst is { Enabled: true };
+
+    /// <summary>
+    /// Backing field for <see cref="MaintainBatchwiseDetails"/>: <c>null</c> ⇒ "not explicitly set", so the
+    /// getter falls back to inferring the flag from persisted batch state (see below).
+    /// </summary>
+    private bool? _maintainBatchwiseDetails;
+
+    /// <summary>
+    /// Company feature flag <b>"Maintain Batch-wise details"</b> (F11 Company Features; Phase 6 Cluster 1;
+    /// requirements RQ-2/RQ-52). This is the master gate for the whole batch/expiry feature: the per-item batch
+    /// switches, the Batch master, the batch-allocation sub-screen and the batch reports are all hidden/inert
+    /// when it is off.
+    /// <para>
+    /// It is an <b>in-memory</b> flag (no schema column — Phase 6 slice 1 added no company column, ER-1). When
+    /// never explicitly set it is <b>inferred</b> as true whenever the company already carries any batch state —
+    /// a batch master exists, or an item has <see cref="StockItem.MaintainInBatches"/> on — so a company that was
+    /// configured for batches keeps the flag on across a reload without a new column. The F11 toggle sets it
+    /// explicitly; setting it back to its inferred value clears the override. Turning it off does not delete any
+    /// batch data (harmless — the batch UI simply hides).
+    /// </para>
+    /// </summary>
+    public bool MaintainBatchwiseDetails
+    {
+        get => _maintainBatchwiseDetails ?? HasAnyBatchState;
+        set => _maintainBatchwiseDetails = value;
+    }
+
+    /// <summary>True iff the company already carries persisted batch state (a batch master or a batch-tracked
+    /// item) — the basis for inferring <see cref="MaintainBatchwiseDetails"/> when it was never set explicitly.</summary>
+    private bool HasAnyBatchState =>
+        _batchMasters.Count > 0 || _stockItems.Any(i => i.MaintainInBatches);
+
+    /// <summary>
+    /// Backing field for <see cref="SetComponentsBom"/>: <c>null</c> ⇒ "not explicitly set", so the getter
+    /// falls back to inferring the flag from persisted BOM state (see below).
+    /// </summary>
+    private bool? _setComponentsBom;
+
+    /// <summary>
+    /// F12-configuration flag <b>"Set Components (BOM)"</b> (Phase 6 Cluster 2; requirements RQ-9/RQ-10/RQ-52).
+    /// This is the master gate for the whole Bill-of-Materials / Manufacturing feature: the per-item
+    /// <see cref="StockItem.SetComponents"/> switch, the BOM master, and the Manufacturing-Journal voucher are
+    /// all hidden/inert when it is off.
+    /// <para>
+    /// It is an <b>in-memory</b> flag (no schema column — the BOM backend added none on the company row, ER-1).
+    /// When never explicitly set it is <b>inferred</b> as true whenever the company already carries any BOM state
+    /// — a Bill of Materials exists, or an item has <see cref="StockItem.SetComponents"/> on — so a company that
+    /// was configured for BOMs keeps the flag on across a reload without a new column. The F12 toggle sets it
+    /// explicitly; turning it off does not delete any BOM data (harmless — the BOM UI simply hides).
+    /// </para>
+    /// </summary>
+    public bool SetComponentsBom
+    {
+        get => _setComponentsBom ?? HasAnyBomState;
+        set => _setComponentsBom = value;
+    }
+
+    /// <summary>True iff the company already carries persisted BOM state (a Bill of Materials or an item with
+    /// <see cref="StockItem.SetComponents"/> on) — the basis for inferring <see cref="SetComponentsBom"/> when it
+    /// was never set explicitly.</summary>
+    private bool HasAnyBomState =>
+        _billsOfMaterials.Count > 0 || _stockItems.Any(i => i.SetComponents);
+
+    /// <summary>
+    /// F12-configuration flag <b>"Define type of component for BOM"</b> (Phase 6 Cluster 2; requirement RQ-10).
+    /// When on, a BOM line may be typed as a By-Product / Co-Product / Scrap carve-out (the type picker is
+    /// surfaced); when off, every line is a plain Component. Defaults to <c>false</c>. In-memory (no schema
+    /// column); only meaningful while <see cref="SetComponentsBom"/> is on.
+    /// </summary>
+    public bool DefineBomComponentType { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Use separate Actual and Billed Quantity columns in Invoices"</b> (F11 Company
+    /// Features; Book p.145; Phase 6 slice 4; requirements RQ-22/RQ-52; DP-7). When on, each Sales/Purchase
+    /// item-invoice line exposes a Quantity (Actual — updates stock) and a Quantity (Billed — updates accounts &amp;
+    /// GST); when off, one quantity shows and Billed ≡ Actual, byte-identical to today (ER-13).
+    /// <para>
+    /// Unlike <see cref="MaintainBatchwiseDetails"/> / <see cref="SetComponentsBom"/> (inferred from data), this is
+    /// a <b>pure user toggle</b> that <b>cannot be inferred</b> — a company may enable it before entering any
+    /// Actual/Billed line — so it is a plain persisted <c>get; set;</c> backed by a real <c>companies</c> column
+    /// (v20; DP-7). Defaults to <c>false</c>.
+    /// </para>
+    /// </summary>
+    public bool UseSeparateActualBilledQuantity { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Enable multiple Price Levels"</b> (F11 Company Features → Inventory; Book pp.33–35;
+    /// Phase 6 slice 5; requirements RQ-26/RQ-52). Master gate for the whole Price-Levels/Price-Lists feature: the
+    /// levels master, the price-list master, the party-default-level field, the Sales header field, the discount
+    /// column and the Price List report are all hidden/inert when it is off.
+    /// <para>
+    /// Like <see cref="UseSeparateActualBilledQuantity"/> (and unlike <see cref="MaintainBatchwiseDetails"/> /
+    /// <see cref="SetComponentsBom"/>, which are inferred from data), this is a <b>pure user toggle</b> that
+    /// <b>cannot be inferred</b> — a company may enable it before defining any level — so it is a plain persisted
+    /// <c>get; set;</c> backed by a real <c>companies</c> column (v21). Defaults to <c>false</c>, so every existing
+    /// company is byte-identical (ER-13).
+    /// </para>
+    /// </summary>
+    public bool EnableMultiplePriceLevels { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Enable Job Order Processing"</b> (F11 Company Features; Phase 6 slice 8; RQ-45).
+    /// Master gate for the whole Job-Work feature: turning it on activates the four seeded-but-inactive predefined
+    /// voucher types (Job Work In/Out Order, Material In/Out), sets <see cref="VoucherType.UseForJobWork"/> on the
+    /// Material In/Out types and <see cref="VoucherType.AllowConsumption"/> on Material In, and surfaces the
+    /// Job-Work entry screens + registers.
+    /// <para>
+    /// Like <see cref="UseSeparateActualBilledQuantity"/> / <see cref="EnableMultiplePriceLevels"/> (and unlike the
+    /// inferred <see cref="MaintainBatchwiseDetails"/> / <see cref="SetComponentsBom"/>), this is a <b>pure user
+    /// toggle</b> that <b>cannot be inferred</b> — a company may enable it before entering any order — so it is a
+    /// plain persisted <c>get; set;</c> backed by a real <c>companies</c> column (v24). Defaults to <c>false</c>, so
+    /// every existing company is byte-identical (ER-13) and the four job-work types stay inactive and hidden.
+    /// </para>
+    /// </summary>
+    public bool EnableJobOrderProcessing { get; set; }
 
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
@@ -85,6 +223,47 @@ public sealed class Company
     /// <summary>Rates of Exchange (catalog §2): dated base-per-foreign quotes for the foreign currencies.</summary>
     public IReadOnlyList<ExchangeRate> ExchangeRates => _exchangeRates;
 
+    /// <summary>Stock groups (catalog §9): the inventory classification tree.</summary>
+    public IReadOnlyList<StockGroup> StockGroups => _stockGroups;
+
+    /// <summary>Stock categories (catalog §9): the independent stock-item classification axis.</summary>
+    public IReadOnlyList<StockCategory> StockCategories => _stockCategories;
+
+    /// <summary>Units of measure (catalog §9): simple + compound.</summary>
+    public IReadOnlyList<Unit> Units => _units;
+
+    /// <summary>Godowns / locations (catalog §9): includes the seeded "Main Location".</summary>
+    public IReadOnlyList<Godown> Godowns => _godowns;
+
+    /// <summary>Stock items (catalog §9): the things bought, sold and held.</summary>
+    public IReadOnlyList<StockItem> StockItems => _stockItems;
+
+    /// <summary>Opening-stock allocations (catalog §9): per item, per godown, per batch label.</summary>
+    public IReadOnlyList<StockOpeningBalance> StockOpeningBalances => _stockOpeningBalances;
+
+    /// <summary>Stock &amp; order vouchers (catalog §10): GRN/Delivery/Rejection/Stock-Journal/Physical/PO/SO.</summary>
+    public IReadOnlyList<InventoryVoucher> InventoryVouchers => _inventoryVouchers;
+
+    /// <summary>Batch / lot masters (catalog §11 Cluster 1; Phase 6 RQ-1): per stock item, per-item-unique.</summary>
+    public IReadOnlyList<BatchMaster> BatchMasters => _batchMasters;
+
+    /// <summary>Bills of Materials (catalog §11 Cluster 2; Phase 6 RQ-9): manufacturing recipes, per finished good.</summary>
+    public IReadOnlyList<BillOfMaterials> BillsOfMaterials => _billsOfMaterials;
+
+    /// <summary>Price Levels (catalog §11; Phase 6 slice 5; RQ-26): named rate tiers (Wholesale/Retail…).</summary>
+    public IReadOnlyList<PriceLevel> PriceLevels => _priceLevels;
+
+    /// <summary>Price Lists (catalog §11; Phase 6 slice 5; RQ-27): dated slab-rate versions per (level, item),
+    /// append-only history.</summary>
+    public IReadOnlyList<PriceList> PriceLists => _priceLists;
+
+    /// <summary>Reorder-Level definitions (catalog §11; Phase 6 slice 6; RQ-32): per item / group / category,
+    /// at most one per (scope, target). The Reorder-Status report resolves the most-specific one per item.</summary>
+    public IReadOnlyList<ReorderDefinition> ReorderDefinitions => _reorderDefinitions;
+
+    /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
+    public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
+
     /// <summary>The single base currency (₹/INR), or <c>null</c> if none has been seeded yet.</summary>
     public Currency? BaseCurrency => _currencies.FirstOrDefault(c => c.IsBaseCurrency);
 
@@ -124,8 +303,95 @@ public sealed class Company
     /// <summary>Adds a dated exchange-rate quote for a foreign currency.</summary>
     public void AddExchangeRate(ExchangeRate rate) => _exchangeRates.Add(rate ?? throw new ArgumentNullException(nameof(rate)));
 
+    public void AddStockGroup(StockGroup group) => _stockGroups.Add(group ?? throw new ArgumentNullException(nameof(group)));
+    public void AddStockCategory(StockCategory category) => _stockCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
+    public void AddUnit(Unit unit) => _units.Add(unit ?? throw new ArgumentNullException(nameof(unit)));
+    public void AddGodown(Godown godown) => _godowns.Add(godown ?? throw new ArgumentNullException(nameof(godown)));
+    public void AddStockItem(StockItem item) => _stockItems.Add(item ?? throw new ArgumentNullException(nameof(item)));
+    public void AddStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Add(balance ?? throw new ArgumentNullException(nameof(balance)));
+
+    /// <summary>Adds a batch master (per-item-uniqueness guard lives in <c>BatchService</c>).</summary>
+    public void AddBatchMaster(BatchMaster batch) => _batchMasters.Add(batch ?? throw new ArgumentNullException(nameof(batch)));
+
+    /// <summary>Removes a batch master (delete-guards live in <c>BatchService</c>; also used by import roll-back).</summary>
+    public bool RemoveBatchMaster(BatchMaster batch) => _batchMasters.Remove(batch);
+
+    /// <summary>Adds a Bill of Materials (per-item-name-uniqueness guard lives in <c>BomService</c>).</summary>
+    public void AddBillOfMaterials(BillOfMaterials bom) => _billsOfMaterials.Add(bom ?? throw new ArgumentNullException(nameof(bom)));
+
+    /// <summary>Removes a Bill of Materials (delete-guards live in <c>BomService</c>; also used by import roll-back).</summary>
+    public bool RemoveBillOfMaterials(BillOfMaterials bom) => _billsOfMaterials.Remove(bom);
+
+    /// <summary>Adds a price level (uniqueness guard lives in <c>PriceListService</c>).</summary>
+    public void AddPriceLevel(PriceLevel level) => _priceLevels.Add(level ?? throw new ArgumentNullException(nameof(level)));
+
+    /// <summary>Removes a price level (delete-guards live in <c>PriceListService</c>; also used by import roll-back).</summary>
+    public bool RemovePriceLevel(PriceLevel level) => _priceLevels.Remove(level);
+
+    /// <summary>Adds a dated price-list version (append-only history; guards live in <c>PriceListService</c>).</summary>
+    public void AddPriceList(PriceList list) => _priceLists.Add(list ?? throw new ArgumentNullException(nameof(list)));
+
+    /// <summary>Removes a price-list version (used by the transactional import roll-back).</summary>
+    public bool RemovePriceList(PriceList list) => _priceLists.Remove(list);
+
+    /// <summary>Adds a reorder-level definition (uniqueness/target guards live in <c>ReorderLevelsService</c>).</summary>
+    public void AddReorderDefinition(ReorderDefinition definition) => _reorderDefinitions.Add(definition ?? throw new ArgumentNullException(nameof(definition)));
+
+    /// <summary>Removes a reorder-level definition (delete-guards live in <c>ReorderLevelsService</c>; also used by import roll-back).</summary>
+    public bool RemoveReorderDefinition(ReorderDefinition definition) => _reorderDefinitions.Remove(definition);
+
+    /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
+    public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);
+
+    /// <summary>Adds a stock/order voucher (posting guards live in <c>InventoryPostingService</c>).</summary>
+    internal void AddInventoryVoucherInternal(InventoryVoucher voucher) => _inventoryVouchers.Add(voucher ?? throw new ArgumentNullException(nameof(voucher)));
+
+    /// <summary>Removes a stock/order voucher (delete guards live in <c>InventoryPostingService</c>).</summary>
+    internal bool RemoveInventoryVoucherInternal(InventoryVoucher voucher) => _inventoryVouchers.Remove(voucher);
+
+    /// <summary>Adds a rehydrated stock/order voucher on load (bypasses posting guards — the store is trusted).</summary>
+    public void AddInventoryVoucher(InventoryVoucher voucher) => _inventoryVouchers.Add(voucher ?? throw new ArgumentNullException(nameof(voucher)));
+
+    /// <summary>Removes a stock group (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveStockGroup(StockGroup group) => _stockGroups.Remove(group);
+    /// <summary>Removes a stock category (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveStockCategory(StockCategory category) => _stockCategories.Remove(category);
+    /// <summary>Removes a unit (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveUnit(Unit unit) => _units.Remove(unit);
+    /// <summary>Removes a godown (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveGodown(Godown godown) => _godowns.Remove(godown);
+    /// <summary>Removes a stock item (delete-guards live in <c>InventoryService</c>).</summary>
+    public bool RemoveStockItem(StockItem item) => _stockItems.Remove(item);
+
     internal void AddVoucherInternal(Voucher voucher) => _vouchers.Add(voucher);
     internal bool RemoveVoucherInternal(Voucher voucher) => _vouchers.Remove(voucher);
+
+    // ---- Master removal (used by the import roll-back so a rejected batch leaves no partial masters, RQ-23).
+    //      Delete-guards for interactive Alter/Delete live in the services; these are the raw list removals the
+    //      transactional importer needs to undo what it added within a single failed apply. ----
+
+    /// <summary>Removes a group (used by the transactional import roll-back).</summary>
+    public bool RemoveGroup(Group group) => _groups.Remove(group);
+    /// <summary>Removes a ledger (used by the transactional import roll-back).</summary>
+    public bool RemoveLedger(Ledger ledger) => _ledgers.Remove(ledger);
+    /// <summary>Removes a voucher type (used by the transactional import roll-back).</summary>
+    public bool RemoveVoucherType(VoucherType type) => _voucherTypes.Remove(type);
+    /// <summary>Removes a posted voucher (used by the transactional import roll-back).</summary>
+    public bool RemoveVoucher(Voucher voucher) => _vouchers.Remove(voucher);
+    /// <summary>Removes a currency (used by the transactional import roll-back).</summary>
+    public bool RemoveCurrency(Currency currency) => _currencies.Remove(currency);
+    /// <summary>Removes a dated exchange-rate quote (used by the transactional import roll-back).</summary>
+    public bool RemoveExchangeRate(ExchangeRate rate) => _exchangeRates.Remove(rate);
+    /// <summary>Removes a cost category (used by the transactional import roll-back).</summary>
+    public bool RemoveCostCategory(CostCategory category) => _costCategories.Remove(category);
+    /// <summary>Removes a cost centre (used by the transactional import roll-back).</summary>
+    public bool RemoveCostCentre(CostCentre centre) => _costCentres.Remove(centre);
+    /// <summary>Removes a budget (used by the transactional import roll-back).</summary>
+    public bool RemoveBudget(Budget budget) => _budgets.Remove(budget);
+    /// <summary>Removes a scenario (used by the transactional import roll-back).</summary>
+    public bool RemoveScenario(Scenario scenario) => _scenarios.Remove(scenario);
+    /// <summary>Removes a stock/order voucher (used by the transactional import roll-back).</summary>
+    public bool RemoveInventoryVoucher(InventoryVoucher voucher) => _inventoryVouchers.Remove(voucher);
 
     // ---- Lookups ----
 
@@ -140,6 +406,60 @@ public sealed class Company
     public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);
     public Scenario? FindScenario(Guid id) => _scenarios.FirstOrDefault(s => s.Id == id);
     public Currency? FindCurrency(Guid id) => _currencies.FirstOrDefault(c => c.Id == id);
+    public StockGroup? FindStockGroup(Guid id) => _stockGroups.FirstOrDefault(g => g.Id == id);
+    public StockCategory? FindStockCategory(Guid id) => _stockCategories.FirstOrDefault(c => c.Id == id);
+    public Unit? FindUnit(Guid id) => _units.FirstOrDefault(u => u.Id == id);
+    public Godown? FindGodown(Guid id) => _godowns.FirstOrDefault(g => g.Id == id);
+    public StockItem? FindStockItem(Guid id) => _stockItems.FirstOrDefault(i => i.Id == id);
+    public StockOpeningBalance? FindStockOpeningBalance(Guid id) => _stockOpeningBalances.FirstOrDefault(b => b.Id == id);
+    public InventoryVoucher? FindInventoryVoucher(Guid id) => _inventoryVouchers.FirstOrDefault(v => v.Id == id);
+    public BatchMaster? FindBatchMaster(Guid id) => _batchMasters.FirstOrDefault(b => b.Id == id);
+
+    /// <summary>All batch masters that belong to a given stock item (RQ-1).</summary>
+    public IEnumerable<BatchMaster> BatchesFor(Guid stockItemId) => _batchMasters.Where(b => b.StockItemId == stockItemId);
+
+    /// <summary>
+    /// Finds an item's batch by its number (case-insensitive), or <c>null</c>. Batch numbers are unique
+    /// <i>within</i> an item (RQ-1), so this resolves at most one batch per item.
+    /// </summary>
+    public BatchMaster? FindBatchByNumber(Guid stockItemId, string batchNumber) =>
+        _batchMasters.FirstOrDefault(b => b.StockItemId == stockItemId &&
+            string.Equals(b.BatchNumber, batchNumber?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a Bill of Materials by its id, or <c>null</c>.</summary>
+    public BillOfMaterials? FindBillOfMaterials(Guid id) => _billsOfMaterials.FirstOrDefault(b => b.Id == id);
+
+    /// <summary>All Bills of Materials that belong to a given finished-good stock item (RQ-9).</summary>
+    public IEnumerable<BillOfMaterials> BomsFor(Guid stockItemId) =>
+        _billsOfMaterials.Where(b => b.StockItemId == stockItemId);
+
+    /// <summary>
+    /// Finds a finished good's BOM by its name (case-insensitive), or <c>null</c>. BOM names are unique
+    /// <i>within</i> a finished good (RQ-9), so this resolves at most one BOM per item.
+    /// </summary>
+    public BillOfMaterials? FindBomByName(Guid stockItemId, string name) =>
+        _billsOfMaterials.FirstOrDefault(b => b.StockItemId == stockItemId &&
+            string.Equals(b.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a price level by its id, or <c>null</c> (Phase 6 slice 5; RQ-26).</summary>
+    public PriceLevel? FindPriceLevel(Guid id) => _priceLevels.FirstOrDefault(l => l.Id == id);
+
+    /// <summary>Finds a price level by its name (case-insensitive), or <c>null</c> (RQ-26).</summary>
+    public PriceLevel? FindPriceLevelByName(string name) =>
+        _priceLevels.FirstOrDefault(l => string.Equals(l.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>All dated price-list versions for a given (level, item) — the append-only history the resolver
+    /// picks the latest-applicable version from (RQ-27/RQ-29).</summary>
+    public IEnumerable<PriceList> PriceListsFor(Guid priceLevelId, Guid stockItemId) =>
+        _priceLists.Where(pl => pl.PriceLevelId == priceLevelId && pl.StockItemId == stockItemId);
+
+    /// <summary>Finds a reorder-level definition by its id, or <c>null</c> (Phase 6 slice 6; RQ-32).</summary>
+    public ReorderDefinition? FindReorderDefinition(Guid id) => _reorderDefinitions.FirstOrDefault(d => d.Id == id);
+
+    /// <summary>Finds the single reorder-level definition for a (scope, target), or <c>null</c> — at most one
+    /// definition exists per (scope, target), enforced by <c>ReorderLevelsService</c> + the unique index (RQ-32).</summary>
+    public ReorderDefinition? FindReorderDefinition(ReorderScope scope, Guid targetId) =>
+        _reorderDefinitions.FirstOrDefault(d => d.Scope == scope && d.TargetId == targetId);
 
     /// <summary>
     /// The exchange rate in force for a foreign currency on <paramref name="asOf"/>: the latest-dated quote
@@ -160,6 +480,19 @@ public sealed class Company
         _groups.FirstOrDefault(g =>
             string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase) ||
             (g.Alias is not null && string.Equals(g.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Like <see cref="FindGroupByName"/> but also matches the reserved <see cref="ProfitAndLossHead"/> (which is
+    /// stored outside the 28 <see cref="Groups"/>). Import uses this so the seeded P&amp;L head is reused by name
+    /// rather than re-created as a 29th group; the report/classification callers keep the head-excluding
+    /// <see cref="FindGroupByName"/>.
+    /// </summary>
+    public Group? FindGroupOrHeadByName(string name) =>
+        FindGroupByName(name)
+        ?? (ProfitAndLossHead is { } pl &&
+            (string.Equals(pl.Name, name, StringComparison.OrdinalIgnoreCase) ||
+             (pl.Alias is not null && string.Equals(pl.Alias, name, StringComparison.OrdinalIgnoreCase)))
+            ? pl : null);
 
     public Ledger? FindLedgerByName(string name) =>
         _ledgers.FirstOrDefault(l =>
@@ -190,4 +523,34 @@ public sealed class Company
         _currencies.FirstOrDefault(c =>
             string.Equals(c.FormalName, name, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(c.Symbol, name, StringComparison.OrdinalIgnoreCase));
+
+    public StockGroup? FindStockGroupByName(string name) =>
+        _stockGroups.FirstOrDefault(g =>
+            string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (g.Alias is not null && string.Equals(g.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    public StockCategory? FindStockCategoryByName(string name) =>
+        _stockCategories.FirstOrDefault(c =>
+            string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (c.Alias is not null && string.Equals(c.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Finds a unit by its symbol or formal name (case-insensitive).</summary>
+    public Unit? FindUnitByName(string name) =>
+        _units.FirstOrDefault(u =>
+            string.Equals(u.Symbol, name, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(u.FormalName, name, StringComparison.OrdinalIgnoreCase));
+
+    public Godown? FindGodownByName(string name) =>
+        _godowns.FirstOrDefault(g =>
+            string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (g.Alias is not null && string.Equals(g.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    public StockItem? FindStockItemByName(string name) =>
+        _stockItems.FirstOrDefault(i =>
+            string.Equals(i.Name, name, StringComparison.OrdinalIgnoreCase) ||
+            (i.Alias is not null && string.Equals(i.Alias, name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>All opening-stock allocations that belong to a given stock item.</summary>
+    public IEnumerable<StockOpeningBalance> OpeningBalancesFor(Guid stockItemId) =>
+        _stockOpeningBalances.Where(b => b.StockItemId == stockItemId);
 }

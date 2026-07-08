@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Apex.Ledger\Apex.Ledger.csproj" />
+    <ProjectReference Include="..\..\src\Apex.Ledger.Io\Apex.Ledger.Io.csproj" />
     <ProjectReference Include="..\..\src\Apex.Persistence.Sqlite\Apex.Persistence.Sqlite.csproj" />
   </ItemGroup>
 

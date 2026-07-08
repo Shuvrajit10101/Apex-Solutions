@@ -76,6 +76,54 @@ public static class ClassificationRules
         return false;
     }
 
+    /// <summary>
+    /// True iff the group identified by <paramref name="groupId"/> is, or sits under (transitively), a group
+    /// named <paramref name="ancestorName"/>. Resolution starts from the <b>actual group id</b> (never a
+    /// name lookup), so two distinct groups that share a display name are told apart correctly. A <c>null</c>
+    /// id (a synthetic Balance-Sheet head with no owning ledger) is never under any group.
+    /// </summary>
+    public static bool GroupIsUnder(Guid? groupId, string ancestorName, Company company)
+    {
+        var group = groupId is Guid gid ? company.FindGroup(gid) : null;
+        var guard = 0;
+        while (group is not null)
+        {
+            if (string.Equals(group.Name, ancestorName, StringComparison.OrdinalIgnoreCase)) return true;
+            group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException($"Cycle detected walking parents of group {groupId}.");
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True iff <paramref name="ledger"/> sits under (or below) the <b>Cash-in-Hand</b> group (catalog §8).
+    /// A cash ledger together with a bank ledger (<see cref="IsBankLedger"/>) forms the "cash &amp; bank"
+    /// pool the Cash-Flow statement reconciles.
+    /// </summary>
+    public static bool IsCashLedger(Domain.Ledger ledger, Company company)
+    {
+        var group = company.FindGroup(ledger.GroupId);
+        var guard = 0;
+        while (group is not null)
+        {
+            if (string.Equals(group.Name, "Cash-in-Hand", StringComparison.OrdinalIgnoreCase))
+                return true;
+            group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException($"Cycle detected walking parents of ledger '{ledger.Name}'.");
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True iff <paramref name="ledger"/> is part of the cash &amp; bank pool: a Cash-in-Hand ledger
+    /// (<see cref="IsCashLedger"/>) or a Bank Accounts / Bank OD ledger (<see cref="IsBankLedger"/>).
+    /// This is the set whose opening→closing movement the Cash-Flow statement reconciles.
+    /// </summary>
+    public static bool IsCashOrBankLedger(Domain.Ledger ledger, Company company)
+        => IsCashLedger(ledger, company) || IsBankLedger(ledger, company);
+
     /// <summary>True iff the ledger sits under (or below) the Stock-in-Hand group.</summary>
     public static bool IsStockInHandLedger(Domain.Ledger ledger, Company company)
     {
@@ -85,6 +133,28 @@ public static class ClassificationRules
             if (string.Equals(group.Name, "Stock-in-Hand", StringComparison.OrdinalIgnoreCase))
                 return true;
             group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True iff <paramref name="ledger"/> sits under (or below) the <b>Duties &amp; Taxes</b> group
+    /// (catalog §12; phase4 ER-8). A GST tax ledger lives here, so it is <b>excluded</b> from the item-invoice
+    /// stock-leg pairing sum (whose primary ancestor must be Sales/Purchase Accounts or Stock-in-Hand) — this
+    /// is exactly why additive GST tax preserves the pairing invariant unchanged. Walks the group's parent
+    /// chain, matching by group name.
+    /// </summary>
+    public static bool IsDutiesAndTaxesLedger(Domain.Ledger ledger, Company company)
+    {
+        var group = company.FindGroup(ledger.GroupId);
+        var guard = 0;
+        while (group is not null)
+        {
+            if (string.Equals(group.Name, "Duties & Taxes", StringComparison.OrdinalIgnoreCase))
+                return true;
+            group = group.ParentId is Guid pid ? company.FindGroup(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException($"Cycle detected walking parents of ledger '{ledger.Name}'.");
         }
         return false;
     }

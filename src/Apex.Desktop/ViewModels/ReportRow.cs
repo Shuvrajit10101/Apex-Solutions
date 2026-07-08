@@ -1,3 +1,4 @@
+using System;
 using Apex.Ledger;
 using Apex.Desktop.Services;
 
@@ -34,6 +35,84 @@ public sealed class ReportRow
     /// which occupy the same grid column, are mutually exclusive.
     /// </summary>
     public bool IsTwoColumn { get; init; }
+
+    // ---------------------------------------------------------------- inventory-report columns (slice 3.4b)
+    // The accounting reports (TB/BS/P&L/Day Book) use Particulars/Secondary/Debit/Credit/Amount above. The
+    // inventory reports need wider, per-report column sets (e.g. Stock Summary = Item | Closing Qty | Rate |
+    // Value; a register = Date | No. | Party | Item | Godown | Qty | Rate | Value | Batch). Rather than a
+    // second row model, these generic string cells carry each inventory report's columns, projected by the
+    // ReportsViewModel Build* methods and rendered by the per-ReportKind inventory DataTemplates in the view.
+
+    /// <summary>Inventory column 1 (e.g. Godown / Date / Item, per report).</summary>
+    public string Col1 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 2.</summary>
+    public string Col2 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 3.</summary>
+    public string Col3 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 4.</summary>
+    public string Col4 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 5.</summary>
+    public string Col5 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 6.</summary>
+    public string Col6 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 7.</summary>
+    public string Col7 { get; init; } = string.Empty;
+
+    /// <summary>Inventory column 8.</summary>
+    public string Col8 { get; init; } = string.Empty;
+
+    /// <summary>
+    /// True for a past-expiry batch row (Batch Age Analysis, RQ-8): the row is flagged <b>distinctly</b> (a red
+    /// foreground) so an already-expired batch reads apart from a merely near-expiry one. False on every other
+    /// row, so all existing reports render unchanged.
+    /// </summary>
+    public bool IsExpired { get; init; }
+
+    /// <summary>
+    /// The stock item this row drills to (Stock Summary → Stock Item Movement). Non-null only on a
+    /// selectable Stock-Summary item row; null for headers, totals and other reports. Drives whether
+    /// Enter/double-click drills in.
+    /// </summary>
+    public Guid? DrillStockItemId { get; init; }
+
+    /// <summary>
+    /// The raw "Order to be Placed" quantity (Reorder Status, RQ-37) carried alongside the formatted
+    /// <see cref="Col7"/> cell so Ctrl+F9 can pre-fill a Purchase Order for this row. 0 on every other report.
+    /// </summary>
+    public decimal ReorderOrderQuantity { get; init; }
+
+    /// <summary>
+    /// The ledger this row drills to (RQ-7 universal drill-down): Enter on a Trial-Balance / Balance-Sheet /
+    /// Profit-&amp;-Loss ledger row opens that ledger's vouchers (a <c>LedgerBook</c>) for the report period.
+    /// <see cref="Guid.Empty"/> on synthetic/total/heading rows (folded Net Profit, derived Stock-in-Hand,
+    /// section headers) so Enter is a safe no-op there. Mirrors the engine row's <c>LedgerId</c>.
+    /// </summary>
+    public Guid DrillLedgerId { get; init; }
+
+    /// <summary>
+    /// The voucher this row drills to (RQ-7): Enter on a Day Book row — or on a ledger-vouchers row inside a
+    /// drilled <c>LedgerBook</c> column — opens that voucher's read-only detail. <see cref="Guid.Empty"/> on
+    /// header/total/no-voucher rows. Mirrors the engine row's <c>VoucherId</c>.
+    /// </summary>
+    public Guid DrillVoucherId { get; init; }
+
+    /// <summary>
+    /// True when this row can be drilled into by any of the three drill keys (a stock item, a ledger, or a
+    /// voucher). Section headers, totals and computed/synthetic rows carry no drill key, so Enter is a safe
+    /// no-op on them (it never calls the engine with <see cref="Guid.Empty"/>).
+    /// </summary>
+    public bool CanDrill => DrillStockItemId is not null
+        || DrillLedgerId != Guid.Empty
+        || DrillVoucherId != Guid.Empty;
+
+    /// <summary>Alias of <see cref="CanDrill"/> for the RQ-7 accounting-report grid (Enter guard).</summary>
+    public bool IsDrillable => CanDrill;
 
     public static ReportRow Line(string particulars, Money amount, string secondary = "")
         => new() { Particulars = particulars, Secondary = secondary, Amount = IndianFormat.Amount(amount) };

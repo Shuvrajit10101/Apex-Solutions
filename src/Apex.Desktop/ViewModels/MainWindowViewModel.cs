@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -15,7 +17,21 @@ public enum Screen
     CreateCompany,
     Gateway,
     Report,
+    ReportConfig,
+    ReportSortFilter,
+    AddComparisonColumn,
+    AutoColumns,
+    SaveView,
+    SavedViews,
+    PrintPreview,
+    PrintConfig,
+    Export,
+    ExportData,
+    ImportData,
+    EmailCompose,
+    SmtpSettings,
     VoucherEntry,
+    InventoryVoucherEntry,
     LedgerMaster,
     ChartOfAccounts,
     Outstandings,
@@ -30,6 +46,24 @@ public enum Screen
     InterestReport,
     CurrencyMaster,
     ForexReport,
+    StockGroupMaster,
+    StockCategoryMaster,
+    UnitMaster,
+    GodownMaster,
+    StockItemMaster,
+    BatchMaster,
+    BatchAllocation,
+    BomMaster,
+    ManufacturingJournalEntry,
+    JobWorkOrderEntry,
+    MaterialMovementEntry,
+    PosBilling,
+    GstConfig,
+    PriceLevelsMaster,
+    PriceListsMaster,
+    ReorderLevelsMaster,
+    LedgerVouchers,
+    VoucherDetail,
 }
 
 /// <summary>
@@ -48,6 +82,23 @@ public enum GatewayMenu
     Budgets,
     Banking,
     OtherVouchers,
+    OrderVouchers,
+    InventoryVouchers,
+    InventoryReports,
+
+    // Reports → Inventory Reports → Batch (Phase 6 Cluster 1; RQ-8/RQ-54): Batch-wise + Age Analysis.
+    InventoryBatchReports,
+
+    GstReports,
+    Statements,
+    ExceptionReports,
+
+    // Account Books family (catalog §16 / RQ-30): Cash Book / Bank Book / Ledger, each drilling to a
+    // ledger picker that opens that ledger's LedgerBook (a pure reuse of the existing RQ-7 drill).
+    AccountBooks,
+    CashBook,
+    BankBook,
+    LedgerBooks,
 }
 
 /// <summary>
@@ -99,6 +150,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The voucher-entry view model, non-null only while a voucher page column is open.</summary>
     [ObservableProperty] private VoucherEntryViewModel? _voucherEntry;
 
+    /// <summary>The inventory/order voucher-entry view model, non-null only while such a page column is open.</summary>
+    [ObservableProperty] private InventoryVoucherEntryViewModel? _inventoryVoucherEntry;
+
     /// <summary>The ledger-master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
 
@@ -141,19 +195,124 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Forex Gain/Loss (unrealized revaluation) report view model, non-null only while that page is open.</summary>
     [ObservableProperty] private ForexReportViewModel? _forexReport;
 
+    /// <summary>The Stock-Group master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private StockGroupMasterViewModel? _stockGroupMaster;
+
+    /// <summary>The Stock-Category master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private StockCategoryMasterViewModel? _stockCategoryMaster;
+
+    /// <summary>The Unit-of-Measure master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private UnitMasterViewModel? _unitMaster;
+
+    /// <summary>The Godown master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private GodownMasterViewModel? _godownMaster;
+
+    /// <summary>The Stock-Item master view model, non-null only while that page column is open.</summary>
+    [ObservableProperty] private StockItemMasterViewModel? _stockItemMaster;
+
+    /// <summary>The Batch/Lot master view model (Phase 6 Cluster 1), non-null only while that page column is open.</summary>
+    [ObservableProperty] private BatchMasterViewModel? _batchMaster;
+
+    /// <summary>The batch-allocation sub-screen view model (Phase 6 Cluster 1; RQ-3), non-null only while it is open.</summary>
+    [ObservableProperty] private BatchAllocationViewModel? _batchAllocation;
+
+    /// <summary>The Bill-of-Materials master view model (Phase 6 Cluster 2; RQ-9), non-null only while that page is open.</summary>
+    [ObservableProperty] private BomMasterViewModel? _bomMaster;
+
+    /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
+    [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
+
+    /// <summary>The Job Work In/Out Order voucher-entry view model (Phase 6 slice 8; RQ-47), non-null only while it is open.</summary>
+    [ObservableProperty] private JobWorkOrderEntryViewModel? _jobWorkOrderEntry;
+
+    /// <summary>The Material In/Out movement voucher-entry view model (Phase 6 slice 8; RQ-48), non-null only while it is open.</summary>
+    [ObservableProperty] private MaterialMovementEntryViewModel? _materialMovementEntry;
+
+    [ObservableProperty] private PosBillingViewModel? _posBilling;
+
+    /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private GstConfigViewModel? _gstConfig;
+
+    /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
+    [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
+
+    /// <summary>The Price List creation master (slice 5; RQ-27), non-null only while that page is open.</summary>
+    [ObservableProperty] private PriceListsViewModel? _priceLists;
+
+    /// <summary>The Reorder Levels master (slice 6; RQ-32), non-null only while that page is open.</summary>
+    [ObservableProperty] private ReorderLevelsViewModel? _reorderLevels;
+
+    /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
+    [ObservableProperty] private ReportConfigViewModel? _reportConfig;
+
+    /// <summary>The Alt+F12 report Sort/Filter panel view model, non-null only while that view column is open (RQ-3).</summary>
+    [ObservableProperty] private ReportSortFilterViewModel? _reportSortFilter;
+
+    /// <summary>The Alt+C "Add Comparison Column" panel view model, non-null only while that panel column is open (RQ-4).</summary>
+    [ObservableProperty] private AddComparisonColumnViewModel? _addComparisonColumn;
+
+    /// <summary>The Alt+N "Auto Columns" chooser view model, non-null only while that panel column is open (RQ-4).</summary>
+    [ObservableProperty] private AutoColumnsViewModel? _autoColumns;
+
+    /// <summary>The Ctrl+S "Save View" panel view model, non-null only while that panel column is open (RQ-8).</summary>
+    [ObservableProperty] private SaveViewViewModel? _saveView;
+
+    /// <summary>The Alt+K "Saved Views" list panel view model, non-null only while that panel column is open (RQ-8).</summary>
+    [ObservableProperty] private SavedViewsViewModel? _savedViews;
+
+    /// <summary>The P / Ctrl+P "Print Preview" panel view model, non-null only while that preview column is open (RQ-9).</summary>
+    [ObservableProperty] private PrintPreviewViewModel? _printPreview;
+
+    /// <summary>The F12 print-config panel (RQ-12) over a voucher/invoice preview, non-null only while that column is open.</summary>
+    [ObservableProperty] private PrintConfigViewModel? _printConfigPanel;
+
+    /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
+    [ObservableProperty] private ExportViewModel? _exportPanel;
+
+    /// <summary>The Y "Export Data" (canonical company backup, RQ-19/DP-4) panel, non-null only while that column is open.</summary>
+    [ObservableProperty] private ExportDataViewModel? _exportDataPanel;
+
+    /// <summary>The O / Alt+O "Import" (canonical/CSV company import, RQ-20..24) panel, non-null only while that column is open.</summary>
+    [ObservableProperty] private ImportDataViewModel? _importDataPanel;
+
+    /// <summary>The M / Ctrl+M "E-Mail" compose panel (RQ-25/26), non-null only while that column is open.</summary>
+    [ObservableProperty] private EmailComposeViewModel? _emailCompose;
+
+    /// <summary>The "SMTP Settings" capture panel (RQ-27), non-null only while that column is open.</summary>
+    [ObservableProperty] private SmtpSettingsViewModel? _smtpSettings;
+
+    /// <summary>The RQ-7 ledger-vouchers drill column (a drilled TB/BS/P&amp;L ledger's LedgerBook), non-null only while open.</summary>
+    [ObservableProperty] private LedgerVouchersViewModel? _ledgerVouchers;
+
+    /// <summary>The RQ-7 read-only voucher-detail drill column, non-null only while that column is open (rightmost).</summary>
+    [ObservableProperty] private VoucherDetailViewModel? _voucherDetail;
+
     /// <summary>
     /// True on the pre-company centred-menu screens (Company Select / Create Company). On the Gateway
     /// the cascade view (<see cref="IsGatewayCascade"/>) is shown instead of this centred menu.
     /// </summary>
     public bool IsMenuScreen => !IsGatewayCascade
-        && Reports is null && VoucherEntry is null && LedgerMaster is null && ChartOfAccounts is null
+        && Reports is null && VoucherEntry is null && InventoryVoucherEntry is null && LedgerMaster is null
+        && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
         && BankReconciliation is null && BankStatementImport is null && ScenarioMaster is null
-        && InterestReport is null && CurrencyMaster is null && ForexReport is null;
+        && InterestReport is null && CurrencyMaster is null && ForexReport is null
+        && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
+        && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
+        && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
+        && JobWorkOrderEntry is null && MaterialMovementEntry is null
+        && PriceLevels is null && PriceLists is null && ReorderLevels is null
+        && GstConfig is null && ReportConfig is null
+        && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
+        && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
+        && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
+        && EmailCompose is null && SmtpSettings is null
+        && LedgerVouchers is null && VoucherDetail is null;
 
     partial void OnReportsChanged(ReportsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnInventoryVoucherEntryChanged(InventoryVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -168,6 +327,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnInterestReportChanged(InterestReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCurrencyMasterChanged(CurrencyMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForexReportChanged(ForexReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnStockGroupMasterChanged(StockGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnStockCategoryMasterChanged(StockCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnUnitMasterChanged(UnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGodownMasterChanged(GodownMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnStockItemMasterChanged(StockItemMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnJobWorkOrderEntryChanged(JobWorkOrderEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAutoColumnsChanged(AutoColumnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSaveViewChanged(SaveViewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSavedViewsChanged(SavedViewsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPrintPreviewChanged(PrintPreviewViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnVoucherDetailChanged(VoucherDetailViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnIsGatewayCascadeChanged(bool value) => OnPropertyChanged(nameof(IsMenuScreen));
 
     /// <summary>
@@ -322,6 +512,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
+        // ---- STATUTORY (GST) ----
+        col.Add(MenuItemViewModel.Header("Statutory"));
+        col.Add(new MenuItemViewModel("GST", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
+
         // ---- TRANSACTIONS ----
         col.Add(MenuItemViewModel.Header("Transactions"));
         col.Add(new MenuItemViewModel("Vouchers", () => { }, "F4–F9  ▸", isSubItem: true, kind: MenuItemKind.Group));
@@ -333,7 +527,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Balance Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Profit & Loss A/c", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Trial Balance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Account Books", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Statements", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Statements of Accounts", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -356,10 +555,94 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
 
+        // Inventory (stock/order) voucher kinds under their own groups (professional hierarchy):
+        // Order Vouchers [PO, SO]; Inventory Vouchers [GRN, Delivery, Rejection In/Out, Stock Journal, Physical Stock].
+        col.Add(MenuItemViewModel.Header("Inventory"));
+        col.Add(new MenuItemViewModel("Order Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Inventory Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
         // Provisional (off-books) voucher kinds under their own group (Reversing Journal / Memorandum).
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Other Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         return col;
+    }
+
+    /// <summary>
+    /// Builds the "Order Vouchers" submenu column (Transactions → Vouchers → Order Vouchers): the two order
+    /// kinds — <b>Purchase Order</b> (Ctrl+F9) and <b>Sales Order</b> (Ctrl+F8) — each a page item. Orders
+    /// carry ordered-item lines only and post no stock/accounting effect (an outstanding commitment).
+    /// </summary>
+    private GatewayColumn BuildOrderVouchersColumn()
+    {
+        var col = new GatewayColumn("Order Vouchers");
+        col.Add(MenuItemViewModel.Header("Order Vouchers"));
+        col.Add(new MenuItemViewModel("Purchase Order", () => { }, "Ctrl+F9", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Sales Order", () => { }, "Ctrl+F8", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Inventory Vouchers" submenu column (Transactions → Vouchers → Inventory Vouchers): the six
+    /// stock-moving kinds — <b>Receipt Note (GRN)</b> (Alt+F9), <b>Delivery Note</b> (Alt+F8),
+    /// <b>Rejection In</b> (Ctrl+F6), <b>Rejection Out</b> (Ctrl+F5), <b>Stock Journal</b> (Alt+F7) and
+    /// <b>Physical Stock</b> (F10 menu) — each a page item. They move stock only (no accounting entry, DP-5).
+    /// </summary>
+    private GatewayColumn BuildInventoryVouchersColumn()
+    {
+        var col = new GatewayColumn("Inventory Vouchers");
+        col.Add(MenuItemViewModel.Header("Inventory Vouchers"));
+        col.Add(new MenuItemViewModel("Receipt Note", () => { }, "Alt+F9", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Delivery Note", () => { }, "Alt+F8", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Rejection In", () => { }, "Ctrl+F6", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Rejection Out", () => { }, "Ctrl+F5", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Physical Stock", () => { }, "F10", isSubItem: true, kind: MenuItemKind.Page));
+        // Manufacturing Journal (Phase 6 Cluster 2; RQ-11/RQ-53) — a Stock-Journal-derived type reached under
+        // Inventory Vouchers via Alt+F7 (the manufacturing shortcut), surfaced only when the F12 config
+        // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
+        if (Company is { SetComponentsBom: true })
+            col.Add(new MenuItemViewModel("Manufacturing Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Order Vouchers" submenu column directly (Transactions → Vouchers → Order Vouchers) — the
+    /// public entry the Ctrl+F8/F9 hotkeys / tests use. Rebuilds the cascade to [root → Vouchers → Order
+    /// Vouchers] and focuses it.
+    /// </summary>
+    public void ShowOrderVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowVouchersMenu();
+        SelectVouchersChild("Order Vouchers");
+        OpenSubmenuColumn(BuildOrderVouchersColumn(), GatewayMenu.OrderVouchers,
+            "Gateway of Apex Solutions — Order Vouchers");
+    }
+
+    /// <summary>
+    /// Opens the "Inventory Vouchers" submenu column directly (Transactions → Vouchers → Inventory Vouchers) —
+    /// the public entry the Alt+F7/8/9 + Ctrl+F5/6 hotkeys / tests use. Rebuilds the cascade to
+    /// [root → Vouchers → Inventory Vouchers] and focuses it.
+    /// </summary>
+    public void ShowInventoryVouchersMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowVouchersMenu();
+        SelectVouchersChild("Inventory Vouchers");
+        OpenSubmenuColumn(BuildInventoryVouchersColumn(), GatewayMenu.InventoryVouchers,
+            "Gateway of Apex Solutions — Inventory Vouchers");
+    }
+
+    /// <summary>Highlights a named child of the (rightmost) Vouchers submenu column before drilling into it.</summary>
+    private void SelectVouchersChild(string label)
+    {
+        var vouchers = Columns[^1];
+        for (var i = 0; i < vouchers.Items.Count; i++)
+            if (vouchers.Items[i].IsSelectable && vouchers.Items[i].Label == label)
+            {
+                vouchers.SetSelected(i);
+                break;
+            }
     }
 
     /// <summary>
@@ -373,6 +656,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Reversing Journal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Memorandum", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // POS Billing (Phase 6 slice 7; RQ-38..RQ-44): a Sales item-invoice with a tender split, posted through a
+        // user-created POS-flagged Sales type (auto-created on first use, mirroring the Manufacturing Journal).
+        col.Add(new MenuItemViewModel("POS Billing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Job Work vouchers (Phase 6 slice 8; RQ-45/RQ-47/RQ-48/RQ-54) — the four seeded types reached under F10
+        // Other Vouchers, surfaced only when the F11 feature "Enable Job Order Processing" is on (RQ-52), so a
+        // company that never enables it is byte-identical (ER-13).
+        if (Company is { EnableJobOrderProcessing: true })
+        {
+            col.Add(MenuItemViewModel.Header("Job Work"));
+            col.Add(new MenuItemViewModel("Job Work In Order", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Job Work Out Order", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material In", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material Out", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -401,6 +698,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Cost Masters"));
         col.Add(new MenuItemViewModel("Cost Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Cost Centre", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Inventory Masters"));
+        col.Add(new MenuItemViewModel("Stock Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Godown", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Item", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Reorder Levels master (Phase 6 slice 6; RQ-32/RQ-54) — a core inventory master (per item / group /
+        // category), always available; a company with no definitions falls back to the legacy per-item fields so
+        // the Reorder-Status report is unchanged (ER-13).
+        col.Add(new MenuItemViewModel("Reorder Levels", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Batch / Lot master (Phase 6 Cluster 1; RQ-1/RQ-54) — surfaced only when the company flag
+        // "Maintain Batch-wise details" is on (RQ-52), so a non-batch company is unaffected.
+        if (Company is { MaintainBatchwiseDetails: true })
+            col.Add(new MenuItemViewModel("Batch", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Bill of Materials master (Phase 6 Cluster 2; RQ-9/RQ-54) — surfaced only when the F12 config
+        // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
+        if (Company is { SetComponentsBom: true })
+            col.Add(new MenuItemViewModel("Bill of Materials", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Price Level / Price List masters (Phase 6 slice 5; RQ-26/RQ-27/RQ-54) — surfaced only when the F11
+        // flag "Enable multiple Price Levels" is on (RQ-52), so a non-price-level company is unaffected.
+        if (Company is { EnableMultiplePriceLevels: true })
+        {
+            col.Add(new MenuItemViewModel("Price Level", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Price List", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
 
         col.Add(MenuItemViewModel.Header("Budgets & Controls"));
         col.Add(new MenuItemViewModel("Budget", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -464,6 +787,325 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Budgets"));
         col.Add(new MenuItemViewModel("Budget Variance", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
+    }
+
+    /// <summary>
+    /// Builds the "Inventory Reports" submenu column (Reports → Inventory Reports): the nine Phase-3 stock
+    /// reports nested under three sub-sections (professional hierarchy, never flat) — <b>Stock</b> (Stock
+    /// Summary, Godown Summary, Stock Movement), <b>Analysis</b> (Reorder Status) and <b>Registers</b> (Receipt
+    /// Note, Delivery Note, Rejection, Physical Stock, Order). Each is a page item reusing
+    /// <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>.
+    /// </summary>
+    private GatewayColumn BuildInventoryReportsColumn()
+    {
+        var col = new GatewayColumn("Inventory Reports");
+        col.Add(MenuItemViewModel.Header("Stock"));
+        col.Add(new MenuItemViewModel("Stock Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Godown Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Stock Movement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Analysis"));
+        col.Add(new MenuItemViewModel("Reorder Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Batch reports (Phase 6 Cluster 1; RQ-8/RQ-54) nest under a Batch sub-group — surfaced only when the
+        // company flag "Maintain Batch-wise details" is on (RQ-52).
+        if (Company is { MaintainBatchwiseDetails: true })
+            col.Add(new MenuItemViewModel("Batch", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // Price List report (Phase 6 slice 5; RQ-31/RQ-54) nests beside the analysis reports — surfaced only when
+        // the F11 flag "Enable multiple Price Levels" is on (RQ-52), so a non-price-level company is unaffected.
+        if (Company is { EnableMultiplePriceLevels: true })
+            col.Add(new MenuItemViewModel("Price List", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        col.Add(MenuItemViewModel.Header("Registers"));
+        col.Add(new MenuItemViewModel("Receipt Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Delivery Note Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Rejection Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Physical Stock Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Order Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // POS Register (Phase 6 slice 7; RQ-44): the day-close tender view of POS bills — surfaced only when a
+        // POS-flagged Sales type exists (mirrors the batch/price-list conditional surfacing).
+        if (Company is { } c && c.VoucherTypes.Any(t => t.IsPosSales))
+            col.Add(new MenuItemViewModel("POS Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Job Work reports (Phase 6 slice 8; RQ-51/RQ-54) nest under their own sub-section — surfaced only when the
+        // F11 feature "Enable Job Order Processing" is on (RQ-52), so a non-job-work company is byte-identical (ER-13).
+        if (Company is { EnableJobOrderProcessing: true })
+        {
+            col.Add(MenuItemViewModel.Header("Job Work Reports"));
+            col.Add(new MenuItemViewModel("Job Work In Order Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Job Work Out Order Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material In Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material Out Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Inventory Reports" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Inventory Reports] and focuses the submenu.
+    /// </summary>
+    public void ShowInventoryReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Inventory Reports");
+        OpenSubmenuColumn(BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
+            "Gateway of Apex Solutions — Inventory Reports");
+    }
+
+    /// <summary>
+    /// Builds the "Batch" submenu column (Reports → Inventory Reports → Batch; Phase 6 Cluster 1; RQ-8/RQ-54):
+    /// the two batch reports nested under a single <b>Batch</b> section — <b>Batch-wise</b> (per item/batch
+    /// inwards/outwards/closing with mfg &amp; expiry) and <b>Age Analysis</b> (batches expiring within N days,
+    /// past-expiry flagged distinctly). Each is a page item reusing <see cref="Screen.Report"/> +
+    /// <see cref="OpenReport(ReportKind, Guid?)"/>.
+    /// </summary>
+    private GatewayColumn BuildInventoryBatchReportsColumn()
+    {
+        var col = new GatewayColumn("Batch");
+        col.Add(MenuItemViewModel.Header("Batch"));
+        col.Add(new MenuItemViewModel("Batch-wise", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Age Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Inventory Reports → Batch" submenu column directly (the public entry a hotkey/test
+    /// uses). Rebuilds the cascade to [root → Inventory Reports → Batch] and focuses the submenu.
+    /// </summary>
+    public void ShowInventoryBatchReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowInventoryReportsMenu();
+        SelectSubmenuItem("Batch");
+        OpenSubmenuColumn(BuildInventoryBatchReportsColumn(), GatewayMenu.InventoryBatchReports,
+            "Gateway of Apex Solutions — Batch Reports");
+    }
+
+    /// <summary>
+    /// Builds the "GST Reports" submenu column (Reports → GST Reports; slice 4d): the three Phase-4 GST returns
+    /// nested under a single <b>GST</b> section — <b>Tax Analysis</b> (period tax by rate/head), <b>GSTR-1</b>
+    /// (outward supplies: B2B/B2C, rate-wise, HSN) and <b>GSTR-3B</b> (summary: outward, ITC, net payable). Each
+    /// is a page item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>. Shown whether
+    /// or not GST is enabled; a GST-off company opens the report to a friendly empty state (never crashes).
+    /// </summary>
+    private GatewayColumn BuildGstReportsColumn()
+    {
+        var col = new GatewayColumn("GST Reports");
+        col.Add(MenuItemViewModel.Header("GST"));
+        col.Add(new MenuItemViewModel("Tax Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-1", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-3B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Statements" submenu column (Reports → Statements; RQ-5 part 1): the three financial-analysis
+    /// statements nested under a single <b>Financial Statements</b> section — <b>Cash Flow</b> (cash &amp; bank
+    /// inflows/outflows reconciling opening to closing), <b>Funds Flow</b> (sources &amp; applications of funds)
+    /// and <b>Ratio Analysis</b> (the standard accounting ratios). Each is a page item reusing
+    /// <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>; all three honour the F2/Alt+F2 period.
+    /// </summary>
+    private GatewayColumn BuildStatementsColumn()
+    {
+        var col = new GatewayColumn("Statements");
+        col.Add(MenuItemViewModel.Header("Financial Statements"));
+        col.Add(new MenuItemViewModel("Cash Flow", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Funds Flow", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Ratio Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Statements" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Statements] and focuses the submenu.
+    /// </summary>
+    public void ShowStatementsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statements");
+        OpenSubmenuColumn(BuildStatementsColumn(), GatewayMenu.Statements,
+            "Gateway of Apex Solutions — Statements");
+    }
+
+    // =============================================================== Account Books (catalog §16 / RQ-30)
+
+    /// <summary>
+    /// Builds the "Account Books" hub submenu column (Reports → Account Books; catalog §16 / RQ-30): the three
+    /// core books — <b>Cash Book</b>, <b>Bank Book</b> and <b>Ledger</b> — each a Group drilling into a picker
+    /// of the relevant ledgers. Each picked ledger opens that ledger's
+    /// <see cref="Apex.Ledger.Reports.LedgerBook"/> via the existing RQ-7 drill (<see cref="OpenLedgerVouchers"/>) —
+    /// a pure reuse of an existing projection, no new engine report. Cash Book / Bank Book are the Ledger book
+    /// filtered to a Cash-in-Hand / Bank ledger (<see cref="Apex.Ledger.Reports.ClassificationRules"/>). The
+    /// per-voucher registers (Sales / Purchase / … registers) reuse the Day Book filtered by voucher type and
+    /// are surfaced elsewhere; they are noted for a later slice.
+    /// </summary>
+    private GatewayColumn BuildAccountBooksColumn()
+    {
+        var col = new GatewayColumn("Account Books");
+        col.Add(MenuItemViewModel.Header("Account Books"));
+        col.Add(new MenuItemViewModel("Cash Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Bank Book", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Ledger", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Account Books" hub submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Account Books] and focuses the hub.
+    /// </summary>
+    public void ShowAccountBooksMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Account Books");
+        OpenSubmenuColumn(BuildAccountBooksColumn(), GatewayMenu.AccountBooks,
+            "Gateway of Apex Solutions — Account Books");
+    }
+
+    /// <summary>
+    /// Builds a ledger-picker submenu column for an Account Book: one page item per ledger matching
+    /// <paramref name="include"/> (all ledgers for Ledger, cash-only for Cash Book, bank-only for Bank Book),
+    /// name-sorted. Activating a ledger opens its <see cref="Apex.Ledger.Reports.LedgerBook"/> over the books
+    /// period via <see cref="OpenLedgerVouchers"/>. An empty match shows a single non-selectable note.
+    /// </summary>
+    private GatewayColumn BuildLedgerBookPickerColumn(string title, Func<Apex.Ledger.Domain.Ledger, bool> include)
+    {
+        var col = new GatewayColumn(title);
+        col.Add(MenuItemViewModel.Header(title));
+
+        var ledgers = Company is null
+            ? System.Array.Empty<Apex.Ledger.Domain.Ledger>()
+            : Company.Ledgers.Where(include)
+                .OrderBy(l => l.Name, System.StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+        if (ledgers.Length == 0)
+            col.Add(MenuItemViewModel.Header("(no matching ledgers)"));
+        else
+            foreach (var ledger in ledgers)
+                col.Add(new MenuItemViewModel(ledger.Name, () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        return col;
+    }
+
+    /// <summary>Opens the "Account Books → Cash Book" ledger picker (Cash-in-Hand ledgers only).</summary>
+    public void ShowCashBookMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowAccountBooksMenu();
+        SelectSubmenuItem("Cash Book");
+        OpenSubmenuColumn(
+            BuildLedgerBookPickerColumn("Cash Book",
+                l => Apex.Ledger.Reports.ClassificationRules.IsCashLedger(l, Company)),
+            GatewayMenu.CashBook, "Gateway of Apex Solutions — Cash Book");
+    }
+
+    /// <summary>Opens the "Account Books → Bank Book" ledger picker (Bank-Accounts / Bank-OD ledgers only).</summary>
+    public void ShowBankBookMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowAccountBooksMenu();
+        SelectSubmenuItem("Bank Book");
+        OpenSubmenuColumn(
+            BuildLedgerBookPickerColumn("Bank Book",
+                l => Apex.Ledger.Reports.ClassificationRules.IsBankLedger(l, Company)),
+            GatewayMenu.BankBook, "Gateway of Apex Solutions — Bank Book");
+    }
+
+    /// <summary>Opens the "Account Books → Ledger" picker (every ledger — the classic Ledger book).</summary>
+    public void ShowLedgerBooksMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowAccountBooksMenu();
+        SelectSubmenuItem("Ledger");
+        OpenSubmenuColumn(
+            BuildLedgerBookPickerColumn("Ledger", _ => true),
+            GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger");
+    }
+
+    /// <summary>
+    /// Opens a ledger's Account-Book (its <see cref="Apex.Ledger.Reports.LedgerBook"/>) by ledger NAME — the
+    /// action an Account-Books picker row triggers. Resolves the name to its ledger and drills to the book over
+    /// the books period (books-begin → default as-of), reusing <see cref="OpenLedgerVouchers"/>. A safe no-op on
+    /// an unknown name.
+    /// </summary>
+    public void OpenAccountBook(string ledgerName)
+    {
+        if (Company is null || string.IsNullOrWhiteSpace(ledgerName)) return;
+        var ledger = Company.Ledgers.FirstOrDefault(
+            l => string.Equals(l.Name, ledgerName, System.StringComparison.OrdinalIgnoreCase));
+        if (ledger is null) return;
+
+        var from = Company.BooksBeginFrom;
+        var to = AccountBooksAsOf();
+        OpenLedgerVouchers(ledger.Id, from, to);
+    }
+
+    /// <summary>The as-of upper bound an Account Book covers: the last voucher date, or the financial-year end
+    /// when the company has no vouchers (matching the report default; no clock).</summary>
+    private DateOnly AccountBooksAsOf()
+    {
+        DateOnly? last = null;
+        foreach (var v in Company!.Vouchers)
+            if (last is null || v.Date > last.Value) last = v.Date;
+        return last ?? Company.FinancialYearStart.AddYears(1).AddDays(-1);
+    }
+
+    /// <summary>Highlights the named item in the rightmost (just-opened) submenu column, if present, so the
+    /// drilled child column reads as its child (mirrors the Other-Vouchers drill helper).</summary>
+    private void SelectSubmenuItem(string label)
+    {
+        if (Columns.Count == 0) return;
+        var col = Columns[^1];
+        for (var i = 0; i < col.Items.Count; i++)
+            if (col.Items[i].IsSelectable && col.Items[i].Label == label)
+            {
+                col.SetSelected(i);
+                return;
+            }
+    }
+
+    /// <summary>
+    /// Builds the "Exception Reports" submenu column (Reports → Exception Reports; RQ-5 part 2): the four
+    /// exception surfacers nested under a single <b>Exception Reports</b> section — <b>Negative Stock</b>
+    /// (items with a negative on-hand quantity), <b>Negative Cash / Bank</b> (cash/bank ledgers that have
+    /// gone credit / overdrawn), the <b>Memorandum Register</b> (non-accounting memo vouchers) and the
+    /// <b>Reversing Journal Register</b> (reversing journals with their applicable-upto date). Each is a page
+    /// item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind, Guid?)"/>; Negative Stock
+    /// and Negative Cash / Bank honour the F2 as-of, the two registers honour the F2/Alt+F2 period.
+    /// </summary>
+    private GatewayColumn BuildExceptionReportsColumn()
+    {
+        var col = new GatewayColumn("Exception Reports");
+        col.Add(MenuItemViewModel.Header("Exception Reports"));
+        col.Add(new MenuItemViewModel("Negative Stock", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Negative Cash / Bank", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Memorandum Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Reversing Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Opens the "Reports → Exception Reports" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → Exception Reports] and focuses the submenu.
+    /// </summary>
+    public void ShowExceptionReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Exception Reports");
+        OpenSubmenuColumn(BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
+            "Gateway of Apex Solutions — Exception Reports");
+    }
+
+    /// <summary>
+    /// Opens the "Reports → GST Reports" submenu column directly (the public entry a hotkey/test uses).
+    /// Rebuilds the cascade to [root → GST Reports] and focuses the submenu.
+    /// </summary>
+    public void ShowGstReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("GST Reports");
+        OpenSubmenuColumn(BuildGstReportsColumn(), GatewayMenu.GstReports,
+            "Gateway of Apex Solutions — GST Reports");
     }
 
     /// <summary>
@@ -546,16 +1188,682 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Opens a report as a page column on the right of the cascade (when a company/Gateway is open) —
-    /// or, when called cold (e.g. from a test/F-key before the cascade exists), as the sole page.
+    /// or, when called cold (e.g. from a test/F-key before the cascade exists), as the sole page. For a
+    /// <see cref="ReportKind.StockItemMovement"/> report, <paramref name="stockItemId"/> scopes it to one
+    /// item (the Stock-Summary drill target); it is ignored by the other kinds. A Stock-Summary report is
+    /// wired so drilling a row (Enter / double-click a stock item) opens that item's movement report.
     /// </summary>
-    public void OpenReport(ReportKind kind)
+    public void OpenReport(ReportKind kind, Guid? stockItemId = null)
     {
         if (Company is null) return;
 
-        var reports = new ReportsViewModel(Company, kind);
+        var reports = new ReportsViewModel(Company, kind, stockItemId);
+        if (kind == ReportKind.StockSummary)
+            reports.DrillToMovementRequested += id => OpenReport(ReportKind.StockItemMovement, id);
+        // RQ-7 universal drill-down: a TB/BS/P&L ledger row opens that ledger's vouchers as a NEW cascading
+        // column (the report pane persists); a Day Book row opens the voucher's read-only detail.
+        reports.DrillToLedgerRequested += (ledgerId, from, to, movement) => OpenLedgerVouchers(ledgerId, from, to, movement);
+        reports.DrillToVoucherRequested += OpenVoucherDetail;
         OpenPageColumn(new GatewayColumn(reports.Title, reports), Screen.Report, reports.Title,
             () => Reports = reports);
     }
+
+    /// <summary>
+    /// The keyboard-first report drill (Enter / double-click on the highlighted report row). Dispatched by the
+    /// report's own kind: Stock Summary → the item's movement report; TB/BS/P&amp;L → that ledger's vouchers;
+    /// Day Book → the voucher's detail. A safe no-op on any non-drillable row. Also serves a drilled
+    /// ledger-vouchers column (its posting rows drill one level deeper into the voucher).
+    /// </summary>
+    public void DrillReport(ReportRow? row)
+    {
+        if (LedgerVouchers is not null) LedgerVouchers.Drill(row);
+        else Reports?.Drill(row);
+    }
+
+    /// <summary>
+    /// RQ-7 keyboard-Enter drill (defect-1): drills the ACTIVE pane's highlighted row using the row the pane's
+    /// grid two-way-bound as its <c>SelectedRow</c> — so the drill does not depend on which control holds focus.
+    /// Returns true iff a drill was performed (a drillable row on a report / ledger-vouchers pane), letting the
+    /// shell's Enter handler mark the key handled ahead of the generic cascade Enter. A safe no-op (false) on a
+    /// non-drillable row, on a voucher-detail pane, or on any non-report screen.
+    /// </summary>
+    public bool DrillSelectedRow()
+    {
+        // A ledger-vouchers drill column takes priority: its posting rows drill one level deeper.
+        if (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is { SelectedRow: { CanDrill: true } lvRow })
+        {
+            LedgerVouchers.Drill(lvRow);
+            return true;
+        }
+
+        // An accounting report (TB/BS/P&L/Day Book) or Stock Summary: drill the highlighted row.
+        if (CurrentScreen == Screen.Report && Reports is { SelectedRow: { CanDrill: true } reportRow })
+        {
+            Reports.Drill(reportRow);
+            return true;
+        }
+
+        return false;
+    }
+
+    // =============================================================== screen: RQ-7 ledger-vouchers drill
+
+    /// <summary>
+    /// Opens the RQ-7 ledger-vouchers drill target — the drilled ledger's <see cref="Apex.Ledger.Reports.LedgerBook"/>
+    /// over [<paramref name="from"/>,<paramref name="to"/>] — as its OWN cascading column to the RIGHT of the
+    /// report it drilled from (mirroring <see cref="OpenReportConfig"/>): the report stays live beneath so Esc/Back
+    /// pops this column and restores it. The posting rows are themselves drillable into the voucher detail. A
+    /// safe no-op on a non-drillable id (the engine returns an empty book anyway).
+    /// </summary>
+    public void OpenLedgerVouchers(Guid ledgerId, DateOnly from, DateOnly to, bool movement = false)
+    {
+        if (Company is null || ledgerId == Guid.Empty) return;
+
+        var vm = new LedgerVouchersViewModel(Company, ledgerId, from, to, movement);
+        vm.DrillToVoucherRequested += OpenVoucherDetail;
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.LedgerVouchers, vm.Title, () => LedgerVouchers = vm);
+    }
+
+    /// <summary>
+    /// Opens the RQ-7 voucher-detail drill target — a read-only view of the voucher — as its OWN cascading column
+    /// to the RIGHT of the report/ledger-vouchers column it drilled from (the prior pane persists; Esc/Back pops).
+    /// A safe no-op when the id does not resolve to a voucher.
+    /// </summary>
+    public void OpenVoucherDetail(Guid voucherId)
+    {
+        if (Company is null) return;
+        var voucher = Company.FindVoucher(voucherId);
+        if (voucher is null) return;
+
+        var vm = new VoucherDetailViewModel(Company, voucher);
+        OpenDrillColumn(new GatewayColumn(vm.Title, vm), Screen.VoucherDetail, vm.Title, () => VoucherDetail = vm);
+    }
+
+    /// <summary>
+    /// Appends a drill column to the RIGHT of the cascade WITHOUT trimming the pane it drilled from — the RQ-7
+    /// Miller-column drill (prior panes persist), unlike <see cref="OpenPageColumn"/> which replaces the page.
+    /// Esc/Back pops it and <see cref="RehydratePageFromRightmostColumn"/> re-binds the surviving pane.
+    /// </summary>
+    private void OpenDrillColumn(GatewayColumn column, Screen screen, string title, Action setPage)
+    {
+        if (Columns.Count == 0) return; // nothing to drill from
+        setPage();
+        Columns.Add(column);
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    // =============================================================== screen: report configuration (F12)
+
+    /// <summary>
+    /// F12 — opens the report Configuration panel (RQ-1/2/6) as its own cascading column to the RIGHT of the
+    /// open report, never a stacked overlay. Unlike the other page-openers it does NOT trim the report page
+    /// column: the report stays live (its <see cref="Reports"/> binding intact) so applying the panel
+    /// re-projects the same report in place. A no-op unless a report is currently open. Re-pressing F12 while
+    /// the panel is open is a no-op (there is already a config column).
+    /// </summary>
+    public void OpenReportConfig()
+    {
+        if (Reports is null) return;                 // only meaningful over an open report
+        if (ReportConfig is not null) return;        // panel already open — don't stack a second one
+
+        var config = new ReportConfigViewModel(Reports);
+        ReportConfig = config;
+        Columns.Add(new GatewayColumn(config.Title, config));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ReportConfig;
+        ScreenTitle = config.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the F12 config panel: apply the settings and re-run the report.</summary>
+    public void ApplyReportConfig() => ReportConfig?.Apply();
+
+    /// <summary>
+    /// Alt+F12 — opens the report Sort/Filter panel (RQ-3) as its own cascading column to the RIGHT of the open
+    /// report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live beneath
+    /// the panel so applying re-projects it in place. A no-op unless a report is open; re-pressing Alt+F12 while
+    /// the panel is open is a no-op (there is already a sort/filter column).
+    /// </summary>
+    public void OpenReportSortFilter()
+    {
+        if (Reports is null) return;                 // only meaningful over an open report
+        if (ReportSortFilter is not null) return;    // panel already open — don't stack a second one
+
+        var panel = new ReportSortFilterViewModel(Reports);
+        ReportSortFilter = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ReportSortFilter;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the Alt+F12 sort/filter panel: apply the view and re-run the report.</summary>
+    public void ApplyReportSortFilter() => ReportSortFilter?.Apply();
+
+    /// <summary>The Clear button on the Alt+F12 sort/filter panel: reset the view to the identity and re-run.</summary>
+    public void ClearReportSortFilter() => ReportSortFilter?.Clear();
+
+    /// <summary>
+    /// True while a report is the ACTIVE page (or its F12 config panel is open) — the report-parameter
+    /// shortcuts (F2, F12, Alt+F1, Alt+F2, Alt+F12, Alt+C, Alt+N) act on it. False when a drill column
+    /// (LedgerVouchers / VoucherDetail) is the active/rightmost pane even though the report still exists
+    /// beneath it: those shortcuts must be inert there so they never re-parameterise or re-open config on the
+    /// underlying report the user has drilled away from (RQ-7). Enter (drill) and Esc/Back still work in the
+    /// drill columns via their own handling.
+    /// </summary>
+    public bool IsReportContext => Reports is not null
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+
+    /// <summary>True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, or a drilled
+    /// voucher-detail (which prints the voucher / tax invoice). Used to gate the Print shortcut.</summary>
+    public bool IsPrintablePage =>
+        IsReportContext || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null);
+
+    /// <summary>
+    /// F2 on a report — opens the Configuration panel focused on the single as-of date (RQ-1). The panel is
+    /// the keyboard-first date-entry surface (there is no modal date dialog); it opens seeded from the report's
+    /// current as-of with the period window off, so accepting sets the as-of.
+    /// </summary>
+    public void ReportSetAsOf()
+    {
+        if (Reports is null) return;
+        OpenReportConfig();
+        if (ReportConfig is { } cfg) cfg.UsePeriod = false;
+    }
+
+    /// <summary>
+    /// Alt+F2 on a report — opens the Configuration panel focused on the [from,to] period window (RQ-1), with
+    /// the window enabled so accepting sets an explicit period. Seeded from the report's current window (or the
+    /// as-of when none is set yet).
+    /// </summary>
+    public void ReportSetPeriod()
+    {
+        if (Reports is null) return;
+        OpenReportConfig();
+        if (ReportConfig is { } cfg) cfg.UsePeriod = true;
+    }
+
+    /// <summary>Alt+F1 on a report — toggles detailed↔summary in place (RQ-2). A no-op on reports that do not roll up.</summary>
+    public void ReportToggleDetailed() => Reports?.ToggleDetailed();
+
+    /// <summary>True while the open report is the Reorder Status report (drives its F8 / Ctrl+F9 shortcuts).</summary>
+    public bool IsReorderStatusReport => IsReportContext && Reports is { IsReorderStatus: true };
+
+    /// <summary>F8 on the Reorder Status report — toggles the "reorder only" filter (RQ-53). A no-op otherwise.</summary>
+    public void ReportToggleReorderOnly()
+    {
+        if (Reports is { IsReorderStatus: true } r) r.ToggleReorderOnly();
+    }
+
+    /// <summary>
+    /// Ctrl+F9 on the Reorder Status report — raises a <b>Purchase Order</b> pre-filled from the selected row (the
+    /// item, the company's main location, and the "Order to be Placed" quantity; RQ-53/Book p.161). Falls back to a
+    /// blank Purchase Order when no drillable row is selected or the row's order quantity is zero.
+    /// </summary>
+    public void RaisePurchaseOrderFromReorder()
+    {
+        if (Company is null) return;
+        if (Reports is not { IsReorderStatus: true } r) return;
+
+        var row = r.SelectedRow;
+        if (row?.DrillStockItemId is not { } itemId || row.ReorderOrderQuantity <= 0m)
+        {
+            OpenInventoryVoucher(VoucherBaseType.PurchaseOrder);   // no actionable row → a blank order
+            return;
+        }
+
+        OpenInventoryVoucher(VoucherBaseType.PurchaseOrder);
+        if (InventoryVoucherEntry is not { } entry) return;
+
+        var item = Company.FindStockItem(itemId);
+        if (item is null) return;
+        var line = entry.Lines.FirstOrDefault() ?? entry.AddLine();
+        line.SelectedItem = item;
+        line.SelectedGodown = Company.MainLocation ?? Company.Godowns.FirstOrDefault();
+        line.QuantityText = row.ReorderOrderQuantity.ToString("0.######",
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    // =============================================================== screen: comparative columns (Alt+C / Alt+N)
+
+    /// <summary>
+    /// Alt+C — opens the "Add Comparison Column" panel (RQ-4) as its own cascading column to the RIGHT of the open
+    /// report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live beneath the
+    /// panel so applying appends a comparison column and re-renders the report in place. A no-op unless a
+    /// comparative-capable report is open; re-pressing Alt+C while the panel is open is a no-op.
+    /// </summary>
+    public void OpenAddComparisonColumn()
+    {
+        if (Reports is null || !Reports.SupportsComparative) return; // only over a comparative-capable report
+        if (AddComparisonColumn is not null) return;                 // panel already open — don't stack a second
+        CloseComparativePanelsExcept(null);                          // the two panels are mutually exclusive
+
+        var panel = new AddComparisonColumnViewModel(Reports);
+        AddComparisonColumn = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AddComparisonColumn;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Add button on the Alt+C panel: append the comparison column and re-render.</summary>
+    public void ApplyAddComparisonColumn() => AddComparisonColumn?.Apply();
+
+    /// <summary>
+    /// Alt+N — opens the "Auto Columns" chooser (RQ-4) as its own cascading column to the RIGHT of the open
+    /// report, never a stacked overlay, mirroring <see cref="OpenAddComparisonColumn"/>. Applying generates the
+    /// chosen axis (by month / by scenario) on the live report. A no-op unless a comparative-capable report is
+    /// open; re-pressing Alt+N while the panel is open is a no-op.
+    /// </summary>
+    public void OpenAutoColumns()
+    {
+        if (Reports is null || !Reports.SupportsComparative) return;
+        if (AutoColumns is not null) return;
+        CloseComparativePanelsExcept(null);
+
+        var panel = new AutoColumnsViewModel(Reports);
+        AutoColumns = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AutoColumns;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Generate button on the Alt+N panel: generate the chosen axis and re-render.</summary>
+    public void ApplyAutoColumns() => AutoColumns?.Apply();
+
+    /// <summary>Resets the active report back to a single column (the Clear action on either comparative panel).</summary>
+    public void ClearComparative() => Reports?.ClearComparative();
+
+    /// <summary>
+    /// Pops any open Alt+C / Alt+N comparative panel column so only one panel is ever stacked beside the report.
+    /// The <paramref name="keep"/> argument is reserved for future use; currently both panels are closed.
+    /// </summary>
+    private void CloseComparativePanelsExcept(object? keep)
+    {
+        // Only one comparative panel is ever open at a time (opening the other pops this one). Pop the rightmost
+        // column if it hosts a comparative panel, so switching Alt+C ↔ Alt+N replaces rather than stacks.
+        if (Columns.Count > 0 && Columns[^1].Page is AddComparisonColumnViewModel or AutoColumnsViewModel)
+        {
+            Columns.RemoveAt(Columns.Count - 1);
+            AddComparisonColumn = null;
+            AutoColumns = null;
+        }
+    }
+
+    // =============================================================== screen: Save View / Saved Views (RQ-8)
+
+    /// <summary>
+    /// Ctrl+S — opens the "Save View" panel (RQ-8) as its own cascading column to the RIGHT of the open report,
+    /// never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report stays live beneath the panel;
+    /// applying captures the report's current CONFIGURATION TUPLE and upserts it (by name) into the company's
+    /// store — no figures are stored (ER-9). A no-op unless a report is open; re-pressing Ctrl+S while the panel
+    /// is open is a no-op (there is already a Save-View column).
+    /// </summary>
+    public void OpenSaveView()
+    {
+        if (Reports is null || Company is null) return; // only over an open report of an open company
+        if (SaveView is not null) return;               // panel already open — don't stack a second
+
+        var panel = new SaveViewViewModel(Reports, Company, _storage);
+        SaveView = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SaveView;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the Save-View panel: save the view, then pop the panel on success so
+    /// the report is the active pane again (a rejected blank name leaves the panel open with its error).</summary>
+    public void ApplySaveView()
+    {
+        if (SaveView is null) return;
+        if (SaveView.Apply()) BackFromPage();
+    }
+
+    /// <summary>
+    /// Alt+K — opens the "Saved Views" list (RQ-8), nested under Reports as its own cascading column to the RIGHT
+    /// of the open report (keyboard-first, never a flat dump). Lists this company's saved views; the user opens
+    /// (applies) or deletes one. A no-op unless a company is open; re-pressing Alt+K while the panel is open is a
+    /// no-op. Unlike the other report panels it does not require a report to be open — it is reachable over any
+    /// report page and lists the company's views regardless.
+    /// </summary>
+    public void OpenSavedViews()
+    {
+        if (Company is null) return;      // needs a company to scope the views to
+        if (SavedViews is not null) return; // panel already open — don't stack a second
+
+        var panel = new SavedViewsViewModel(Company, _storage);
+        panel.OpenRequested += ApplySavedView;
+        SavedViews = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SavedViews;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>The Open action on the Saved-Views panel: apply the highlighted saved view (delegates to the
+    /// panel, which raises the open request the shell services via <see cref="ApplySavedView"/>).</summary>
+    public void OpenSelectedSavedView() => SavedViews?.Open();
+
+    /// <summary>The Delete action on the Saved-Views panel: delete the highlighted saved view and refresh the list.</summary>
+    public void DeleteSelectedSavedView() => SavedViews?.Delete();
+
+    /// <summary>
+    /// Applies a saved view (RQ-8): resolves its stable kind token to a Desktop <see cref="ReportKind"/>, opens a
+    /// FRESH report of that kind as a page column, then re-applies the config so the projection recomputes — the
+    /// on-screen figures are identical to configuring the same options by hand (ER-9; figures are never loaded).
+    /// An unknown token (a view saved by a newer build) is ignored. Opening the report replaces the Saved-Views
+    /// panel column (it is a page-open), so the report becomes the active pane with the applied view.
+    /// </summary>
+    public void ApplySavedView(SavedReportView view)
+    {
+        if (view is null || Company is null) return;
+        if (ReportsViewModel.KindFor(view.ReportKind) is not { } kind) return; // token this build cannot map
+
+        OpenReport(kind);
+        Reports?.ApplySavedView(view);
+    }
+
+    // =============================================================== screen: Print Preview (RQ-9 / DP-8)
+
+    /// <summary>
+    /// P / Ctrl+P — opens the "Print Preview" of the CURRENT report (RQ-9) as its own cascading column to the
+    /// RIGHT of the open report, never a stacked overlay, mirroring <see cref="OpenReportConfig"/>. The report
+    /// stays live beneath the preview; the report's on-screen rows/config are projected into a de-branded PDF
+    /// (via <c>Apex.Ledger.Io</c>) and shown paginated. A no-op unless a report is open; re-pressing while the
+    /// preview is open is a no-op (there is already a preview column). All IO stays in the Io project (ER-12).
+    /// </summary>
+    public void OpenPrintPreview()
+    {
+        if (PrintPreview is not null) return;     // preview already open — don't stack a second one
+
+        // On a drilled voucher (RQ-7 detail) Print renders THAT voucher — a GST tax invoice for a Sales
+        // item-invoice (RQ-11), else the plain Dr/Cr voucher (RQ-10). Otherwise it prints the open report (RQ-9).
+        PrintPreviewViewModel preview;
+        if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+            preview = vd.BuildPrintPreview();
+        else if (Reports is not null)
+            preview = new PrintPreviewViewModel(Reports);
+        else
+            return;                               // nothing to print
+
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Save button on the Print-Preview panel: writes the rendered PDF bytes to <paramref name="path"/>
+    /// (chosen by the Avalonia layer, or a temp path). The renderer never touches disk — this is the only place
+    /// the bytes are written. A no-op when no preview is open. Returns whether the file was written.
+    /// </summary>
+    public bool SavePrintPreview(string path) => PrintPreview?.SavePdf(path) ?? false;
+
+    /// <summary>
+    /// F12 on an open voucher/invoice print-preview (RQ-12) — opens the print Configuration panel (title override,
+    /// narration on/off, copy marking) as its own cascading column to the RIGHT of the preview, never a stacked
+    /// overlay, mirroring <see cref="OpenReportConfig"/>. The preview stays live beneath; applying re-renders it in
+    /// place. A no-op unless a config-capable preview (voucher/invoice) is open; re-pressing while the panel is
+    /// open is a no-op (there is already a config column).
+    /// </summary>
+    public void OpenPrintConfig()
+    {
+        if (PrintPreview is not { SupportsPrintConfig: true } preview) return; // only over a voucher/invoice preview
+        if (PrintConfigPanel is not null) return;                              // panel already open — don't stack
+
+        var panel = new PrintConfigViewModel(preview);
+        PrintConfigPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintConfig;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Apply button on the print-config panel: push the knobs and re-render the preview.</summary>
+    public void ApplyPrintConfig() => PrintConfigPanel?.Apply();
+
+    // =============================================================== screen: export
+
+    /// <summary>
+    /// True on a screen the E / Alt+E Export action can act on: a live report OR a master-list screen
+    /// (Chart of Accounts, the ledger-creation list, the stock-item-creation list; RQ-14/16, slice 13). Master
+    /// lists project through <see cref="MasterListTabularProjector"/>; reports through
+    /// <see cref="ReportTabularProjector"/>.
+    /// </summary>
+    public bool IsExportablePage =>
+        IsReportContext
+        || TopMasterExportSource() is not null;
+
+    /// <summary>
+    /// The master-list export source on top of the cascade, if any: the currently-displayed master-list page
+    /// column whose VM implements <see cref="IMasterListExportSource"/> (Chart of Accounts, Ledgers, Stock
+    /// Items, Groups, Cost Centres / Categories, Godowns, Units, Currencies, Scenarios, Budgets, Stock Groups /
+    /// Categories, …). Generalises slice-13 export from the original three bespoke screens to EVERY master list
+    /// (audit Fix 1). Returns <c>null</c> when the top column is not a master list.
+    /// </summary>
+    private IMasterListExportSource? TopMasterExportSource()
+        => Columns.Count > 0 ? Columns[^1].Page as IMasterListExportSource : null;
+
+    /// <summary>
+    /// E / Alt+E (RQ-14/16) — opens the "Export" panel for the CURRENT report OR master list as its own
+    /// cascading column to the RIGHT of the open page, never a stacked overlay, mirroring
+    /// <see cref="OpenReportConfig"/>. The page stays live beneath; applying projects it into a
+    /// <see cref="Apex.Ledger.Io.TabularExport"/> (money as exact Number cells) and writes the chosen
+    /// CSV/XLSX/PDF via <c>Apex.Ledger.Io</c>. A no-op unless an exportable page is open; re-pressing while the
+    /// panel is open is a no-op (there is already an export column). All IO stays in the Io project (ER-12).
+    /// </summary>
+    public void OpenExport()
+    {
+        if (ExportPanel is not null) return;   // panel already open — don't stack a second one
+
+        var panel = BuildExportPanel();
+        if (panel is null) return;             // nothing exportable on screen
+
+        ExportPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.Export;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Builds the export panel for whatever exportable page is on top: a report (rich CSV/XLSX/PDF via the
+    /// report projectors) or a master list (Chart of Accounts / ledgers / stock items via
+    /// <see cref="MasterListTabularProjector"/>, with a generic tabular PDF). Returns <c>null</c> when nothing
+    /// on screen is exportable. The master-list branch is checked before the report branch so a master column
+    /// on top of a stale <see cref="Reports"/> still exports the master list.
+    /// </summary>
+    private ExportViewModel? BuildExportPanel()
+    {
+        // Chart of Accounts keeps its bespoke tree projector (indented names + a group's nature).
+        if (CurrentScreen == Screen.ChartOfAccounts && ChartOfAccounts is { } coa)
+            return new ExportViewModel(coa.Title,
+                () => MasterListTabularProjector.ProjectChartOfAccounts(coa),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        // Ledgers keeps its bespoke projector (it also splits the Dr/Cr side into its own column).
+        if (CurrentScreen == Screen.LedgerMaster && LedgerMaster is { } lm)
+            return new ExportViewModel("Ledgers",
+                () => MasterListTabularProjector.ProjectLedgers(lm),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        // Stock Items keeps its bespoke projector (exact Opening-Value column).
+        if (CurrentScreen == Screen.StockItemMaster && StockItemMaster is { } sim)
+            return new ExportViewModel("Stock Items",
+                () => MasterListTabularProjector.ProjectStockItems(sim),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        // EVERY other master-list screen (Groups, Cost Centres/Categories, Godowns, Units, Currencies,
+        // Scenarios, Budgets, Stock Groups/Categories, …) exports uniformly through the GENERIC source path
+        // (audit Fix 1): its VM implements IMasterListExportSource, so a snapshot of the on-screen grid becomes
+        // a TabularExport with numeric columns as summable Number cells.
+        if (TopMasterExportSource() is { } source)
+        {
+            var snapshotTitle = source.ToMasterListSnapshot().Title;
+            return new ExportViewModel(snapshotTitle,
+                () => MasterListTabularProjector.ProjectSource(source),
+                projectPrint: null, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+        }
+
+        if (IsReportContext && Reports is { } report)
+            return new ExportViewModel(report);
+
+        return null;
+    }
+
+    /// <summary>The default export folder (the user's Documents), matching the report export ctor.</summary>
+    private static string ExportDefaultFolder()
+    {
+        try { return System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments); }
+        catch { return string.Empty; }
+    }
+
+    /// <summary>Ctrl+A / the Export button on the export panel: project + write the chosen file. Returns success.</summary>
+    public bool ApplyExport() => ExportPanel?.Apply() ?? false;
+
+    // =============================================================== screen: e-mail compose (RQ-25/26)
+
+    /// <summary>
+    /// M / Ctrl+M — opens the "E-Mail" compose panel for the CURRENT report (RQ-25) or a drilled voucher / tax
+    /// invoice (RQ-11 attachment), as its own cascading column to the RIGHT of the page, never a stacked overlay,
+    /// mirroring <see cref="OpenExport"/>. The report/invoice stays live beneath; the attachment defaults to its
+    /// exported PDF (rendered via <c>Apex.Ledger.Io</c>). The hand-off is OFFLINE (RQ-26) — Save writes a
+    /// byte-stable <c>.eml</c> (carrying the attachment), or a <c>mailto:</c> opens the OS mail client for a quick
+    /// body — <b>nothing is sent</b>; no socket/SMTP path exists. A no-op unless a report or voucher-detail is on
+    /// screen; re-pressing while the panel is open is a no-op (there is already a compose column).
+    /// </summary>
+    public void OpenEmailCompose()
+    {
+        if (EmailCompose is not null) return;   // panel already open — don't stack a second one
+
+        EmailComposeViewModel panel;
+        if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
+            panel = new EmailComposeViewModel(vd);       // e-mail the drilled voucher / tax invoice
+        else if (IsReportContext && Reports is { } r)
+            panel = new EmailComposeViewModel(r);        // e-mail the open report
+        else
+            return;                                      // nothing to e-mail
+
+        EmailCompose = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.EmailCompose;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the compose panel: write the byte-stable <c>.eml</c> (with the
+    /// attachment) to <paramref name="path"/>. The composer never touches disk — this is the only write. A no-op
+    /// when no compose panel is open. Returns whether the file was written. Nothing is sent.</summary>
+    public bool SaveEmail(string path) => EmailCompose?.SaveEml(path) ?? false;
+
+    // =============================================================== screen: SMTP settings (RQ-27)
+
+    /// <summary>
+    /// Opens the "SMTP Settings" panel (RQ-27) for the open company as its own cascading column, mirroring
+    /// <see cref="OpenExport"/>. It captures the outgoing-mail server profile (host / port / TLS / from-address /
+    /// from-name) and round-trips it through the per-company store. <b>No password is captured (R13)</b> and
+    /// nothing is sent — the profile is for a later phase to wire live transport. A no-op unless a company is
+    /// open; re-pressing while the panel is open is a no-op.
+    /// </summary>
+    public void OpenSmtpSettings()
+    {
+        if (SmtpSettings is not null) return;   // panel already open — don't stack a second one
+        if (Company is null) return;            // no company — nothing to configure
+
+        var panel = new SmtpSettingsViewModel(_storage, Company);
+        SmtpSettings = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.SmtpSettings;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Save button on the SMTP settings panel: upsert the captured profile. Returns success.</summary>
+    public bool SaveSmtpSettings() => SmtpSettings?.Save() ?? false;
+
+    // =============================================================== screen: export data (canonical backup)
+
+    /// <summary>
+    /// Y (Gateway → Export Data; RQ-19/DP-4) — opens the "Export Data" panel that serialises the WHOLE open company
+    /// (masters + vouchers, money as integer paisa, deterministic order) to a canonical JSON/XML backup, as its own
+    /// cascading column to the RIGHT of the Gateway. This complements the report/master-list export (E); it exports
+    /// the entire company so it can be re-imported into a fresh company and reconcile to the paisa (PR-4). A no-op
+    /// unless a company is open; re-pressing while the panel is open is a no-op (there is already one column).
+    /// </summary>
+    public void OpenExportData()
+    {
+        if (ExportDataPanel is not null) return;   // panel already open — don't stack a second one
+        if (Company is null) return;               // nothing to export
+
+        var panel = new ExportDataViewModel(Company);
+        ExportDataPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ExportData;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Export button on the Export-Data panel: serialise + write the canonical file.</summary>
+    public bool ApplyExportData() => ExportDataPanel?.Apply() ?? false;
+
+    // =============================================================== screen: import data
+
+    /// <summary>
+    /// O / Alt+O (Gateway → Import; RQ-20..24) — opens the "Import" panel that reads a canonical JSON/XML backup (or
+    /// a flat CSV) and applies it INTO the open company through the engine-routed <see cref="ImportDataViewModel"/>
+    /// (validate-before-apply, transactional, engine-routed). Opens as its own cascading column to the RIGHT of the
+    /// Gateway. A no-op unless a company is open; re-pressing while the panel is open is a no-op.
+    /// </summary>
+    public void OpenImport()
+    {
+        if (ImportDataPanel is not null) return;   // panel already open — don't stack a second one
+        if (Company is null) return;               // nothing to import into
+
+        // The open Company aggregate is mutated in place by the import (and persisted by the panel), so any report
+        // opened afterwards reads the fresh figures. We refresh the button bar but keep the panel open so its
+        // success summary stays visible; the user steps back (Esc) to the Gateway when done.
+        var panel = new ImportDataViewModel(Company, _storage, onImported: BuildButtonBar);
+        ImportDataPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.ImportData;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Import button on the Import panel: read + parse + engine-routed apply. Returns success.</summary>
+    public bool ApplyImport() => ImportDataPanel?.Apply() ?? false;
 
     // =============================================================== screen: voucher entry
 
@@ -582,6 +1890,45 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
+    }
+
+    // =============================================================== screen: inventory voucher entry
+
+    /// <summary>
+    /// Opens the reusable stock/order voucher-entry screen for the given inventory base type (Purchase Order,
+    /// Sales Order, Receipt Note/GRN, Delivery Note, Rejection In/Out, Stock Journal, Physical Stock) as a
+    /// page column on the right of the cascade, resolving the seeded voucher type on the current company. The
+    /// screen posts to the separate <see cref="InventoryVoucher"/> aggregate via
+    /// <see cref="InventoryPostingService"/> — no Dr/Cr balancing.
+    /// </summary>
+    public void OpenInventoryVoucher(VoucherBaseType baseType)
+    {
+        if (Company is null) return;
+
+        if (!VoucherEffects.IsInventoryBaseType(baseType))
+        {
+            Message = $"'{baseType}' is not a stock or order voucher.";
+            return;
+        }
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        var entry = new InventoryVoucherEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        // RQ-3: a batch-tracked line opens the batch-allocation sub-screen as a cascade column to the right.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
+        var title = $"Inventory Voucher Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.InventoryVoucherEntry, title,
+            () => InventoryVoucherEntry = entry);
     }
 
     // =============================================================== screen: ledger master
@@ -665,6 +2012,364 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var master = new CurrencyMasterViewModel(Company, _storage, onChanged: () => { });
         OpenPageColumn(new GatewayColumn("Currency Creation", master), Screen.CurrencyMaster,
             "Currency Creation", () => CurrencyMaster = master);
+    }
+
+    // =============================================================== screen: inventory masters
+
+    /// <summary>Opens the Stock-Group creation master (Masters → Create → Inventory Masters → Stock Group).</summary>
+    public void ShowStockGroupMaster()
+    {
+        if (Company is null) return;
+
+        var master = new StockGroupMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Stock Group Creation", master), Screen.StockGroupMaster,
+            "Stock Group Creation", () => StockGroupMaster = master);
+    }
+
+    /// <summary>Opens the Stock-Category creation master (Masters → Create → Inventory Masters → Stock Category).</summary>
+    public void ShowStockCategoryMaster()
+    {
+        if (Company is null) return;
+
+        var master = new StockCategoryMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Stock Category Creation", master), Screen.StockCategoryMaster,
+            "Stock Category Creation", () => StockCategoryMaster = master);
+    }
+
+    /// <summary>Opens the Unit-of-Measure creation master (Masters → Create → Inventory Masters → Unit).</summary>
+    public void ShowUnitMaster()
+    {
+        if (Company is null) return;
+
+        var master = new UnitMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Unit Creation", master), Screen.UnitMaster,
+            "Unit Creation", () => UnitMaster = master);
+    }
+
+    /// <summary>Opens the Godown creation master (Masters → Create → Inventory Masters → Godown).</summary>
+    public void ShowGodownMaster()
+    {
+        if (Company is null) return;
+
+        var master = new GodownMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Godown Creation", master), Screen.GodownMaster,
+            "Godown Creation", () => GodownMaster = master);
+    }
+
+    /// <summary>Opens the Stock-Item creation master (Masters → Create → Inventory Masters → Stock Item).</summary>
+    public void ShowStockItemMaster()
+    {
+        if (Company is null) return;
+
+        var master = new StockItemMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Stock Item Creation", master), Screen.StockItemMaster,
+            "Stock Item Creation", () => StockItemMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Batch / Lot creation master (Masters → Create → Inventory Masters → Batch; Phase 6 Cluster 1)
+    /// as a page column. A no-op unless the company flag "Maintain Batch-wise details" is on (RQ-52), so the
+    /// screen can never be reached on a non-batch company.
+    /// </summary>
+    public void ShowBatchMaster()
+    {
+        if (Company is null) return;
+        if (!Company.MaintainBatchwiseDetails) return;   // gated by the F11 company flag (RQ-52)
+
+        var master = new BatchMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Batch Creation", master), Screen.BatchMaster,
+            "Batch / Lot Creation", () => BatchMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the batch-allocation sub-screen (Phase 6 Cluster 1; RQ-3) for an inventory-voucher line as a page
+    /// column to the right of the voucher screen. Called after item + godown + qty are known on a line whose
+    /// item Maintains-in-Batches. The sub-screen defaults its selection via the engine's FEFO/FIFO
+    /// <see cref="Apex.Ledger.Services.BatchStockService.DefaultIssueSelection"/> for an outward line and warns
+    /// (never blocks) on an expired/near-expiry batch. A no-op unless the company flag is on.
+    /// </summary>
+    public void ShowBatchAllocation(
+        StockItem item, Godown godown, decimal quantity, bool isOutward,
+        Action<System.Collections.Generic.IReadOnlyList<BatchAllocation>>? onCommitted = null)
+    {
+        if (Company is null || item is null || godown is null) return;
+        if (!Company.MaintainBatchwiseDetails || !item.MaintainInBatches) return;
+
+        var asOf = AccountBooksAsOf();
+        var sub = new BatchAllocationViewModel(Company, item, godown, quantity, asOf, isOutward,
+            onCommitted: onCommitted);
+        // The sub-screen sits to the RIGHT of the live voucher column (do NOT trim the voucher page): push it as
+        // its own cascading column, mirroring the F12-panel-over-report pattern, so the voucher stays beneath.
+        ClearSubScreens();
+        BatchAllocation = sub;
+        Columns.Add(new GatewayColumn(sub.Title, sub));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BatchAllocation;
+        ScreenTitle = sub.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Opens the Bill-of-Materials creation master (Masters → Create → Inventory Masters → Bill of Materials;
+    /// Phase 6 Cluster 2; RQ-9) as a page column. A no-op unless the F12 config "Set Components (BOM)" is on
+    /// (RQ-10/RQ-52), so the screen can never be reached on a non-BOM company.
+    /// </summary>
+    public void ShowBomMaster()
+    {
+        if (Company is null) return;
+        if (!Company.SetComponentsBom) return;   // gated by the F12 config (RQ-10/RQ-52)
+
+        var master = new BomMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Bill of Materials Creation", master), Screen.BomMaster,
+            "Bill of Materials Creation", () => BomMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Price Level creation master (Masters → Create → Inventory Masters → Price Level; Phase 6 slice 5;
+    /// RQ-26) as a page column. A no-op unless the F11 flag "Enable multiple Price Levels" is on (RQ-52), so the
+    /// screen can never be reached on a non-price-level company.
+    /// </summary>
+    public void ShowPriceLevelsMaster()
+    {
+        if (Company is null) return;
+        if (!Company.EnableMultiplePriceLevels) return;   // gated by the F11 company flag (RQ-52)
+
+        var master = new PriceLevelsViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Price Level Creation", master), Screen.PriceLevelsMaster,
+            "Price Level Creation", () => PriceLevels = master);
+    }
+
+    /// <summary>
+    /// Opens the Price List creation master (Masters → Create → Inventory Masters → Price List; Phase 6 slice 5;
+    /// RQ-27) as a page column. A no-op unless the F11 flag "Enable multiple Price Levels" is on (RQ-52).
+    /// </summary>
+    public void ShowPriceListsMaster()
+    {
+        if (Company is null) return;
+        if (!Company.EnableMultiplePriceLevels) return;   // gated by the F11 company flag (RQ-52)
+
+        var master = new PriceListsViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Price List Creation", master), Screen.PriceListsMaster,
+            "Price List Creation", () => PriceLists = master);
+    }
+
+    /// <summary>
+    /// Opens the Reorder Levels master (Masters → Create → Inventory Masters → Reorder Levels; Phase 6 slice 6;
+    /// RQ-32..RQ-35) as a page column: define a reorder level + minimum order quantity per Stock Item / Group /
+    /// Category, each figure Simple or Advanced (Alt+S / Alt+V). Always available (no F11 gate — a company with no
+    /// definitions falls back to the legacy per-item fields, ER-13).
+    /// </summary>
+    public void ShowReorderLevelsMaster()
+    {
+        if (Company is null) return;
+
+        var master = new ReorderLevelsViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Reorder Levels", master), Screen.ReorderLevelsMaster,
+            "Reorder Levels", () => ReorderLevels = master);
+    }
+
+    // =============================================================== screen: manufacturing journal
+
+    /// <summary>
+    /// Opens the Manufacturing-Journal voucher-entry screen (Vouchers → Inventory Vouchers → Manufacturing
+    /// Journal; Alt+F7; Phase 6 Cluster 2; RQ-11/RQ-12/RQ-13/RQ-15) as a page column. Resolves the company's
+    /// Manufacturing-Journal voucher type — creating one via
+    /// <see cref="Apex.Ledger.Services.ManufacturingJournalService.CreateManufacturingJournalType"/> if none
+    /// exists yet (RQ-11) — then hosts the entry screen that posts through the engine. A no-op unless the F12
+    /// config "Set Components (BOM)" is on (RQ-10/RQ-52).
+    /// </summary>
+    public void OpenManufacturingJournal()
+    {
+        if (Company is null) return;
+        if (!Company.SetComponentsBom) return;   // gated by the F12 config (RQ-10/RQ-52)
+
+        var service = new Apex.Ledger.Services.ManufacturingJournalService(Company);
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsManufacturingJournal);
+        if (type is null)
+        {
+            // Create the Manufacturing-Journal voucher type on first use (RQ-11), avoiding a name clash.
+            var name = "Manufacturing Journal";
+            var n = 1;
+            while (Company.VoucherTypes.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+                name = $"Manufacturing Journal {++n}";
+            try
+            {
+                type = service.CreateManufacturingJournalType(name);
+                _storage.Save(Company);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = ex.Message;
+                return;
+            }
+        }
+
+        var entry = new ManufacturingJournalEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Manufacturing Journal — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.ManufacturingJournalEntry, title,
+            () => ManufacturingJournalEntry = entry);
+    }
+
+    // =============================================================== screen: job work (slice 8)
+
+    /// <summary>
+    /// Opens the Job Work In/Out Order voucher-entry screen (Vouchers → Other Vouchers → Job Work In/Out Order;
+    /// F10; Phase 6 slice 8; RQ-45/RQ-47/RQ-50) as a page column. Resolves the seeded Job Work In/Out Order
+    /// voucher type on the current company (activated by the F11 feature). A no-op unless the F11 feature
+    /// "Enable Job Order Processing" is on (RQ-45/RQ-52), so the screen can never be reached with the feature off.
+    /// </summary>
+    public void OpenJobWorkOrder(JobWorkDirection direction)
+    {
+        if (Company is null) return;
+        if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
+
+        var baseType = direction == JobWorkDirection.In
+            ? VoucherBaseType.JobWorkInOrder
+            : VoucherBaseType.JobWorkOutOrder;
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        var entry = new JobWorkOrderEntryViewModel(
+            Company, type, direction, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Job Work Order Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.JobWorkOrderEntry, title,
+            () => JobWorkOrderEntry = entry);
+    }
+
+    /// <summary>
+    /// Opens the Material In/Out movement voucher-entry screen (Vouchers → Other Vouchers → Material In/Out; F10;
+    /// Phase 6 slice 8; RQ-46/RQ-48/RQ-49/RQ-50) as a page column. Resolves the seeded Material In/Out voucher
+    /// type (activated by the F11 feature, carrying "Use for Job Work" and — for Material In — "Allow
+    /// Consumption"). A no-op unless the F11 feature "Enable Job Order Processing" is on (RQ-45/RQ-52).
+    /// </summary>
+    public void OpenMaterialMovement(VoucherBaseType baseType)
+    {
+        if (Company is null) return;
+        if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
+        if (baseType is not (VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut)) return;
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        var entry = new MaterialMovementEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Material Movement Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.MaterialMovementEntry, title,
+            () => MaterialMovementEntry = entry);
+    }
+
+    // =============================================================== screen: POS billing (slice 7)
+
+    /// <summary>
+    /// Opens the POS Billing voucher-entry screen (Vouchers → Other Vouchers → POS Billing; catalog §11; Phase 6
+    /// slice 7 RQ-38..RQ-44) as a page column. A POS bill is a Sales item-invoice with a tender split — it posts
+    /// through a <b>POS-flagged Sales</b> voucher type (RQ-38). Resolves that type, creating a user-defined
+    /// "Sales (POS)" type on first use (POS types are user-created, not seeded — mirroring the Manufacturing
+    /// Journal), then hosts the entry that posts through the engine. When the POS config's print-after-save is on
+    /// the retail receipt opens in a Print-Preview column after Accept (RQ-44).
+    /// </summary>
+    public void OpenPosBilling()
+    {
+        if (Company is null) return;
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales);
+        if (type is null)
+        {
+            var name = "Sales (POS)";
+            var n = 1;
+            while (Company.VoucherTypes.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+                name = $"Sales (POS) {++n}";
+            type = new VoucherType(Guid.NewGuid(), name, VoucherBaseType.Sales, useForPos: true,
+                posConfig: new PosConfig
+                {
+                    DefaultTitle = "Retail Invoice",
+                    Message1 = "Thank you for shopping with us!",
+                    Declaration = "Goods once sold are subject to the store's return policy.",
+                });
+            Company.AddVoucherType(type);
+            _storage.Save(Company);
+        }
+
+        PosReceiptData? pending = null;
+        var entry = new PosBillingViewModel(
+            Company, type, _storage,
+            onSaved: () =>
+            {
+                if (pending is { } r) { var rr = r; pending = null; OpenPosReceiptPreview(rr); }
+                else ShowGateway();
+            },
+            onCancelled: BackFromPage);
+        entry.PrintReceiptRequested += r => pending = r;
+
+        var title = $"POS Billing — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " — POS", entry), Screen.PosBilling, title,
+            () => PosBilling = entry);
+    }
+
+    /// <summary>Replaces the POS entry column with a Print-Preview column showing the just-posted retail receipt (RQ-44).</summary>
+    private void OpenPosReceiptPreview(PosReceiptData receipt)
+    {
+        ClearSubScreens();
+        if (Columns.Count > 0 && !Columns[^1].IsMenu) Columns.RemoveAt(Columns.Count - 1);
+        var preview = new PrintPreviewViewModel(receipt);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>True while the POS Billing entry page is active (drives the Alt+I / Alt+A button-bar actions).</summary>
+    public bool IsPosBillingEntry => CurrentScreen == Screen.PosBilling;
+
+    /// <summary>Alt+I — toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42).</summary>
+    public void TogglePosPaymentMode()
+    {
+        if (CurrentScreen == Screen.PosBilling) PosBilling?.TogglePaymentMode();
+    }
+
+    /// <summary>Alt+A — surfaces the per-rate tax analysis for the in-progress POS bill (RQ-53).</summary>
+    public void ShowPosTaxAnalysis()
+    {
+        if (CurrentScreen == Screen.PosBilling) PosBilling?.ShowTaxAnalysis();
+    }
+
+    // =============================================================== screen: statutory (GST config)
+
+    /// <summary>
+    /// Opens the company GST-configuration page (F11 Features → GST; Masters → Statutory → GST) as a page
+    /// column: an Enable-GST toggle, the GSTIN (validated, auto-filling the Home State), Home State/UT,
+    /// registration type and return periodicity. Enabling calls the engine (seeds slabs + creates the six
+    /// tax ledgers) and persists (catalog §12; phase4 slice 4c).
+    /// </summary>
+    public void ShowGstConfig()
+    {
+        if (Company is null) return;
+
+        var page = new GstConfigViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("GST — Statutory", page), Screen.GstConfig,
+            "GST — Statutory Configuration", () => GstConfig = page);
     }
 
     // =============================================================== screen: cost reports
@@ -903,6 +2608,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         Reports = null;
         VoucherEntry = null;
+        InventoryVoucherEntry = null;
         LedgerMaster = null;
         ChartOfAccounts = null;
         Outstandings = null;
@@ -917,6 +2623,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         InterestReport = null;
         CurrencyMaster = null;
         ForexReport = null;
+        StockGroupMaster = null;
+        StockCategoryMaster = null;
+        UnitMaster = null;
+        GodownMaster = null;
+        StockItemMaster = null;
+        BatchMaster = null;
+        BatchAllocation = null;
+        BomMaster = null;
+        ManufacturingJournalEntry = null;
+        JobWorkOrderEntry = null;
+        MaterialMovementEntry = null;
+        PosBilling = null;
+        GstConfig = null;
+        PriceLevels = null;
+        PriceLists = null;
+        ReorderLevels = null;
+        ReportConfig = null;
+        ReportSortFilter = null;
+        AddComparisonColumn = null;
+        AutoColumns = null;
+        SaveView = null;
+        SavedViews = null;
+        PrintPreview = null;
+        PrintConfigPanel = null;
+        ExportPanel = null;
+        ExportDataPanel = null;
+        ImportDataPanel = null;
+        EmailCompose = null;
+        SmtpSettings = null;
+        LedgerVouchers = null;
+        VoucherDetail = null;
     }
 
     /// <summary>Enters cascade mode (Gateway) — the centred pre-company menu is hidden.</summary>
@@ -943,9 +2680,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
+        else if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.Cancel();
+        else if (CurrentScreen == Screen.ManufacturingJournalEntry)
+            ManufacturingJournalEntry?.Cancel();
+        else if (CurrentScreen == Screen.JobWorkOrderEntry)
+            JobWorkOrderEntry?.Cancel();
+        else if (CurrentScreen == Screen.MaterialMovementEntry)
+            MaterialMovementEntry?.Cancel();
+        else if (CurrentScreen == Screen.PosBilling)
+            PosBilling?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
-                 or Screen.CurrencyMaster)
+                 or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
+                 or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+                 or Screen.BatchMaster or Screen.BatchAllocation
+                 or Screen.BomMaster or Screen.ReorderLevelsMaster
+                 or Screen.GstConfig)
             BackFromPage();
     }
 
@@ -966,6 +2717,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.TogglePostDated();
+        else if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.TogglePostDated();
     }
 
     /// <summary>Ctrl+L: toggle the in-progress voucher as Optional (a provisional, scenario-only entry).</summary>
@@ -974,6 +2727,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.ToggleOptional();
     }
+
+    /// <summary>Ctrl+I: toggle the in-progress Purchase/Sales voucher between plain accounting and item-invoice mode.</summary>
+    public void ToggleItemInvoice()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ToggleItemInvoice();
+    }
+
+    /// <summary>True while a Purchase/Sales voucher-entry page is active (drives the Ctrl+I item-invoice action).</summary>
+    public bool IsInvoiceableEntry =>
+        CurrentScreen == Screen.VoucherEntry && VoucherEntry?.CanBeItemInvoice == true;
 
     /// <summary>True while a Memorandum voucher-entry page is the active screen (drives the Convert action).</summary>
     public bool IsMemorandumEntry =>
@@ -1014,10 +2778,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Alt+C: open the Ledger-creation master whenever a company is open.</summary>
+    /// <summary>
+    /// Alt+C: create the master appropriate to the active screen. On the stock-only Manufacturing Journal and
+    /// BOM screens it inline-creates a COMPONENT stock item (RQ-53) — opening the accounting Ledger master there
+    /// is nonsensical. Everywhere else (with a company open) it opens the Ledger-creation master.
+    /// </summary>
     public void CreateLedgerShortcut()
     {
-        if (Company is not null && CurrentScreen != Screen.LedgerMaster)
+        if (Company is null) return;
+        if (CurrentScreen is Screen.ManufacturingJournalEntry or Screen.BomMaster)
+        {
+            ShowStockItemMaster();
+            return;
+        }
+        if (CurrentScreen != Screen.LedgerMaster)
             ShowLedgerMaster();
     }
 
@@ -1026,6 +2800,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.AddLine();
+    }
+
+    /// <summary>Adds a fresh blank item line to the current item-invoice's inventory grid ("+ Add item").</summary>
+    public void AddItemInvoiceLine()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.AddInventoryLine();
+    }
+
+    /// <summary>Adds a fresh blank line to the current inventory voucher's primary grid ("+ Add line").</summary>
+    public void AddInventoryLine()
+    {
+        if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.AddLine();
+    }
+
+    /// <summary>Adds a fresh blank line to the current Stock Journal's destination grid ("+ Add destination line").</summary>
+    public void AddInventoryDestinationLine()
+    {
+        if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.AddDestinationLine();
     }
 
     /// <summary>Adds a bill-wise allocation row to a voucher line (the sub-panel "+ Add bill" button).</summary>
@@ -1121,6 +2916,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.VoucherEntry:
                 VoucherEntry?.Accept();
                 return;
+            case Screen.InventoryVoucherEntry:
+                InventoryVoucherEntry?.Accept();
+                return;
             case Screen.LedgerMaster:
                 LedgerMaster?.Create();
                 return;
@@ -1130,6 +2928,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.CostCentreMaster:
                 CostCentreMaster?.Create();
                 return;
+            case Screen.StockGroupMaster:
+                StockGroupMaster?.Create();
+                return;
+            case Screen.StockCategoryMaster:
+                StockCategoryMaster?.Create();
+                return;
+            case Screen.UnitMaster:
+                UnitMaster?.Create();
+                return;
+            case Screen.GodownMaster:
+                GodownMaster?.Create();
+                return;
+            case Screen.StockItemMaster:
+                StockItemMaster?.Create();
+                return;
+            case Screen.BatchMaster:
+                BatchMaster?.Create();
+                return;
+            case Screen.BatchAllocation:
+                // Ctrl+A commits the batch allocation; on success pop the sub-screen back to the voucher.
+                if (BatchAllocation?.Apply() == true) BackFromPage();
+                return;
+            case Screen.BomMaster:
+                BomMaster?.Create();
+                return;
+            case Screen.PriceLevelsMaster:
+                PriceLevels?.Create();
+                return;
+            case Screen.PriceListsMaster:
+                PriceLists?.Save();
+                return;
+            case Screen.ReorderLevelsMaster:
+                ReorderLevels?.Create();
+                return;
+            case Screen.ManufacturingJournalEntry:
+                ManufacturingJournalEntry?.Accept();
+                return;
+            case Screen.JobWorkOrderEntry:
+                JobWorkOrderEntry?.Accept();
+                return;
+            case Screen.MaterialMovementEntry:
+                MaterialMovementEntry?.Accept();
+                return;
+            case Screen.PosBilling:
+                PosBilling?.Accept();
+                return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
@@ -1138,6 +2982,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.CurrencyMaster:
                 CurrencyMaster?.CreateCurrency();
+                return;
+            case Screen.GstConfig:
+                GstConfig?.Apply();
                 return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
@@ -1197,12 +3044,42 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Vouchers"),
             "Other Vouchers" => (BuildOtherVouchersColumn(), GatewayMenu.OtherVouchers,
                 "Gateway of Apex Solutions — Other Vouchers"),
+            "Order Vouchers" => (BuildOrderVouchersColumn(), GatewayMenu.OrderVouchers,
+                "Gateway of Apex Solutions — Order Vouchers"),
+            "Inventory Vouchers" => (BuildInventoryVouchersColumn(), GatewayMenu.InventoryVouchers,
+                "Gateway of Apex Solutions — Inventory Vouchers"),
             "Banking" => (BuildBankingColumn(), GatewayMenu.Banking,
                 "Gateway of Apex Solutions — Banking"),
             "Create" => (BuildCreateColumn(), GatewayMenu.Create,
                 "Gateway of Apex Solutions — Create"),
             "Statements of Accounts" => (BuildStatementsOfAccountsColumn(), GatewayMenu.StatementsOfAccounts,
                 "Gateway of Apex Solutions — Statements of Accounts"),
+            "Inventory Reports" => (BuildInventoryReportsColumn(), GatewayMenu.InventoryReports,
+                "Gateway of Apex Solutions — Inventory Reports"),
+            // "Batch" is a Group ONLY under Inventory Reports (under Create it is a Page → the batch master); the
+            // Inventory-Reports hub is the active parent here, so drilling it opens the batch-reports submenu.
+            "Batch" when CurrentGatewayMenu == GatewayMenu.InventoryReports => (
+                BuildInventoryBatchReportsColumn(), GatewayMenu.InventoryBatchReports,
+                "Gateway of Apex Solutions — Batch Reports"),
+            "GST Reports" => (BuildGstReportsColumn(), GatewayMenu.GstReports,
+                "Gateway of Apex Solutions — GST Reports"),
+            "Statements" => (BuildStatementsColumn(), GatewayMenu.Statements,
+                "Gateway of Apex Solutions — Statements"),
+            "Account Books" => (BuildAccountBooksColumn(), GatewayMenu.AccountBooks,
+                "Gateway of Apex Solutions — Account Books"),
+            "Cash Book" => (BuildLedgerBookPickerColumn("Cash Book",
+                    l => Apex.Ledger.Reports.ClassificationRules.IsCashLedger(l, Company!)),
+                GatewayMenu.CashBook, "Gateway of Apex Solutions — Cash Book"),
+            "Bank Book" => (BuildLedgerBookPickerColumn("Bank Book",
+                    l => Apex.Ledger.Reports.ClassificationRules.IsBankLedger(l, Company!)),
+                GatewayMenu.BankBook, "Gateway of Apex Solutions — Bank Book"),
+            // "Ledger" is a Group ONLY under Account Books (elsewhere it is a Page → the ledger master); the
+            // Account-Books hub is the active parent here, so drilling it opens the all-ledgers book picker.
+            "Ledger" when CurrentGatewayMenu == GatewayMenu.AccountBooks => (
+                BuildLedgerBookPickerColumn("Ledger", _ => true),
+                GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
+            "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
+                "Gateway of Apex Solutions — Exception Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -1224,6 +3101,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Opens the page column for a highlighted Page item (report / voucher / ledger / chart).</summary>
     private void OpenPageOf(MenuItemViewModel item)
     {
+        // Inside an Account-Books ledger picker (Cash Book / Bank Book / Ledger), every Page row is a LEDGER
+        // NAME — open that ledger's Account Book (its LedgerBook) rather than falling through the fixed switch.
+        if (CurrentGatewayMenu is GatewayMenu.CashBook or GatewayMenu.BankBook or GatewayMenu.LedgerBooks)
+        {
+            OpenAccountBook(item.Label);
+            return;
+        }
+
         switch (item.Label)
         {
             case "Chart of Accounts": ShowChartOfAccounts(); break;
@@ -1235,9 +3120,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Group": ShowLedgerMaster(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
+            case "Stock Group": ShowStockGroupMaster(); break;
+            case "Stock Category": ShowStockCategoryMaster(); break;
+            case "Unit": ShowUnitMaster(); break;
+            case "Godown": ShowGodownMaster(); break;
+            case "Stock Item": ShowStockItemMaster(); break;
+            case "Reorder Levels": ShowReorderLevelsMaster(); break;
+            case "Batch": ShowBatchMaster(); break;
+            case "Bill of Materials": ShowBomMaster(); break;
+            case "Price Level": ShowPriceLevelsMaster(); break;
+            // "Price List" is the master under Create, but the report under Inventory Reports (mirrors "Batch").
+            case "Price List" when CurrentGatewayMenu == GatewayMenu.InventoryReports:
+                OpenReport(ReportKind.PriceList); break;
+            case "Price List": ShowPriceListsMaster(); break;
+            case "Batch-wise": OpenReport(ReportKind.Batchwise); break;
+            case "Age Analysis": OpenReport(ReportKind.BatchAgeAnalysis); break;
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
+            case "GST": ShowGstConfig(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
@@ -1245,6 +3146,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Budget Variance": OpenBudgetVariance(); break;
             case "Interest Calculation": OpenInterestReport(); break;
             case "Forex Gain/Loss": OpenForexReport(); break;
+            case "Stock Summary": OpenReport(ReportKind.StockSummary); break;
+            case "Godown Summary": OpenReport(ReportKind.GodownSummary); break;
+            case "Stock Movement": OpenReport(ReportKind.StockItemMovement); break;
+            case "Reorder Status": OpenReport(ReportKind.ReorderStatus); break;
+            case "Receipt Note Register": OpenReport(ReportKind.ReceiptNoteRegister); break;
+            case "Delivery Note Register": OpenReport(ReportKind.DeliveryNoteRegister); break;
+            case "Rejection Register": OpenReport(ReportKind.RejectionRegister); break;
+            case "Physical Stock Register": OpenReport(ReportKind.PhysicalStockRegister); break;
+            case "Order Register": OpenReport(ReportKind.OrderRegister); break;
+            case "POS Register": OpenReport(ReportKind.PosRegister); break;
+            case "Tax Analysis": OpenReport(ReportKind.TaxAnalysis); break;
+            case "GSTR-1": OpenReport(ReportKind.Gstr1); break;
+            case "GSTR-3B": OpenReport(ReportKind.Gstr3b); break;
+            case "Cash Flow": OpenReport(ReportKind.CashFlow); break;
+            case "Funds Flow": OpenReport(ReportKind.FundsFlow); break;
+            case "Ratio Analysis": OpenReport(ReportKind.RatioAnalysis); break;
+            case "Negative Stock": OpenReport(ReportKind.NegativeStock); break;
+            case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
+            case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
+            case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -1255,6 +3176,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Purchase": OpenVoucher(VoucherBaseType.Purchase); break;
             case "Reversing Journal": OpenVoucher(VoucherBaseType.ReversingJournal); break;
             case "Memorandum": OpenVoucher(VoucherBaseType.Memorandum); break;
+            case "Purchase Order": OpenInventoryVoucher(VoucherBaseType.PurchaseOrder); break;
+            case "Sales Order": OpenInventoryVoucher(VoucherBaseType.SalesOrder); break;
+            case "Receipt Note": OpenInventoryVoucher(VoucherBaseType.ReceiptNote); break;
+            case "Delivery Note": OpenInventoryVoucher(VoucherBaseType.DeliveryNote); break;
+            case "Rejection In": OpenInventoryVoucher(VoucherBaseType.RejectionIn); break;
+            case "Rejection Out": OpenInventoryVoucher(VoucherBaseType.RejectionOut); break;
+            case "Stock Journal": OpenInventoryVoucher(VoucherBaseType.StockJournal); break;
+            case "Physical Stock": OpenInventoryVoucher(VoucherBaseType.PhysicalStock); break;
+            case "Manufacturing Journal": OpenManufacturingJournal(); break;
+            case "POS Billing": OpenPosBilling(); break;
+            // Job Work vouchers (Phase 6 slice 8; RQ-47/RQ-48) — under F10 Other Vouchers, gated by the F11 feature.
+            case "Job Work In Order": OpenJobWorkOrder(JobWorkDirection.In); break;
+            case "Job Work Out Order": OpenJobWorkOrder(JobWorkDirection.Out); break;
+            case "Material In": OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
+            case "Material Out": OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            // Job Work registers (Phase 6 slice 8; RQ-51) — under Reports → Inventory Reports → Job Work Reports.
+            case "Job Work In Order Book": OpenReport(ReportKind.JobWorkInOrderBook); break;
+            case "Job Work Out Order Book": OpenReport(ReportKind.JobWorkOutOrderBook); break;
+            case "Material In Register": OpenReport(ReportKind.MaterialInRegister); break;
+            case "Material Out Register": OpenReport(ReportKind.MaterialOutRegister); break;
         }
     }
 
@@ -1304,11 +3245,51 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Columns.RemoveAt(Columns.Count - 1);
         ClearSubScreens();
         ActiveColumnIndex = Columns.Count - 1;
-        CurrentScreen = Screen.Gateway;
+        // If a page column survives (e.g. the report under a just-closed F12 config column), re-bind its
+        // page view model and screen so the surviving page stays live — otherwise fall to the Gateway.
+        RehydratePageFromRightmostColumn();
         CurrentGatewayMenu = RightmostMenuKind();
         ScreenTitle = Columns[ActiveColumnIndex].Title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// After a column pop, re-binds the surviving rightmost column's page view model to its shell property
+    /// and restores <see cref="CurrentScreen"/> so a page that sat to the LEFT of a just-closed column (e.g.
+    /// a report under its F12 config panel) is not left orphaned. When the rightmost column is a menu, the
+    /// shell returns to the Gateway. Only the page kinds that can sit beneath another page column need be
+    /// handled here; the rest fall through to the Gateway (unchanged behaviour).
+    /// </summary>
+    private void RehydratePageFromRightmostColumn()
+    {
+        var col = Columns[ActiveColumnIndex];
+        switch (col.Page)
+        {
+            case ReportsViewModel r:
+                Reports = r;
+                CurrentScreen = Screen.Report;
+                break;
+            // RQ-7 drill columns can sit beneath one another (report → ledger-vouchers → voucher-detail); when a
+            // deeper drill column is popped the surviving one must be re-bound so it stays live. A report may also
+            // survive beneath a just-popped ledger-vouchers/voucher-detail column.
+            case LedgerVouchersViewModel lv:
+                LedgerVouchers = lv;
+                CurrentScreen = Screen.LedgerVouchers;
+                break;
+            case VoucherDetailViewModel vd:
+                VoucherDetail = vd;
+                CurrentScreen = Screen.VoucherDetail;
+                break;
+            // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
+            case PrintPreviewViewModel pv:
+                PrintPreview = pv;
+                CurrentScreen = Screen.PrintPreview;
+                break;
+            default:
+                CurrentScreen = Screen.Gateway;
+                break;
+        }
     }
 
     /// <summary>The submenu kind of the rightmost menu column (Root when it is the root Gateway).</summary>
@@ -1320,9 +3301,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 {
                     "Vouchers" => GatewayMenu.Vouchers,
                     "Other Vouchers" => GatewayMenu.OtherVouchers,
+                    "Order Vouchers" => GatewayMenu.OrderVouchers,
+                    "Inventory Vouchers" => GatewayMenu.InventoryVouchers,
                     "Banking" => GatewayMenu.Banking,
                     "Create" => GatewayMenu.Create,
                     "Statements of Accounts" => GatewayMenu.StatementsOfAccounts,
+                    "Inventory Reports" => GatewayMenu.InventoryReports,
+                    "Batch" => GatewayMenu.InventoryBatchReports,
+                    "GST Reports" => GatewayMenu.GstReports,
+                    "Statements" => GatewayMenu.Statements,
+                    "Exception Reports" => GatewayMenu.ExceptionReports,
+                    "Account Books" => GatewayMenu.AccountBooks,
+                    "Cash Book" => GatewayMenu.CashBook,
+                    "Bank Book" => GatewayMenu.BankBook,
+                    "Ledger" => GatewayMenu.LedgerBooks,
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
@@ -1368,6 +3360,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== right button bar
 
+    /// <summary>
+    /// F12 Configure — context-sensitive ledger-screen configuration (Book pp.133–141): on the Ledger master it
+    /// toggles the "Method of Appropriation" additional-cost field's visibility; elsewhere a Phase-1 hint.
+    /// </summary>
+    private void F12Configure()
+    {
+        if (CurrentScreen == Screen.LedgerMaster && LedgerMaster is { } lm)
+        {
+            lm.ToggleConfiguration();
+            return;
+        }
+        Message = "F12 Configure — display options (Phase 1 defaults).";
+    }
+
     private void BuildButtonBar()
     {
         ButtonBar.Clear();
@@ -1389,23 +3395,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
         var onVoucher = CurrentScreen == Screen.VoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
+        // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
+        // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
+        var onPos = CurrentScreen == Screen.PosBilling;
+        ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
+        ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
         // Create master + report quick-jumps (enabled once a company is open).
         ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
         // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
-        ButtonBar.Add(new ButtonBarItem("O", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
+        // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
+        // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
+        // badge and is reached by click, never by a colliding "O" keystroke.
+        ButtonBar.Add(new ButtonBarItem("Outs", "Outstandings", () => OpenOutstandings(OutstandingsKind.Receivables), hasCompany));
         ButtonBar.Add(new ButtonBarItem("BRS", "Bank Recon", OpenBankReconciliation, hasCompany));
         ButtonBar.Add(new ButtonBarItem("Imp", "Import Stmt", OpenBankStatementImport, hasCompany));
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenCostReport(CostReportKind.CostCentreBreakup), hasCompany));
         ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport, hasCompany));
+        ButtonBar.Add(new ButtonBarItem("SS", "Stock Summary", () => OpenReport(ReportKind.StockSummary), hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));
         ButtonBar.Add(new ButtonBarItem("T", "Trial Balance", () => OpenReport(ReportKind.TrialBalance), hasCompany));
         ButtonBar.Add(new ButtonBarItem("D", "Day Book", () => OpenReport(ReportKind.DayBook), hasCompany));
 
-        ButtonBar.Add(new ButtonBarItem("F11", "Features", () => Message = "F11 Features — configured per company (Phase 1 defaults)."));
-        ButtonBar.Add(new ButtonBarItem("F12", "Configure", () => Message = "F12 Configure — display options (Phase 1 defaults)."));
+        // M — E-Mail (RQ-25/26): compose an offline .eml / mailto for the current report or drilled invoice.
+        // Enabled on a printable page (a report, or a drilled voucher-detail); nothing is sent.
+        ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
+        // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
+        ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
+
+        // F11 Features → the company GST (Statutory) configuration page (slice 4c).
+        ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));
+        ButtonBar.Add(new ButtonBarItem("F12", "Configure", F12Configure));
     }
 }

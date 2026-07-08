@@ -48,6 +48,9 @@ public static class CompanyFactory
         // Base currency ₹/INR as a first-class Currency (catalog §2/§20 Multi-currency).
         company.AddCurrency(SeedCurrencies.BuildBaseCurrency(company));
 
+        // Default godown "Main Location" (catalog §9 Inventory). No sample stock items are seeded.
+        company.AddGodown(SeedGodowns.BuildMainLocation(company.MainLocationName));
+
         return company;
     }
 

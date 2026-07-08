@@ -73,6 +73,18 @@ public sealed class EntryLine
     /// <summary>True iff this line was posted in a foreign currency.</summary>
     public bool HasForex => Forex is not null;
 
+    /// <summary>
+    /// The GST tax detail for this line (catalog §12; phase4 RQ-12/RQ-20), or <c>null</c> for a non-tax line.
+    /// Present on a line posting to a GST tax ledger (Output/Input CGST/SGST/IGST); the line's
+    /// <see cref="Amount"/> is the computed tax and this detail records the head, applied rate and the taxable
+    /// value the tax was computed on, so the Tax Analysis and GSTR-1/3B can project it. A non-tax line carries
+    /// no <see cref="GstLineTax"/> (mirrors <see cref="Forex"/> on a base line).
+    /// </summary>
+    public GstLineTax? Gst { get; }
+
+    /// <summary>True iff this line carries GST tax detail.</summary>
+    public bool HasGst => Gst is not null;
+
     public EntryLine(
         Guid ledgerId,
         Money amount,
@@ -80,7 +92,8 @@ public sealed class EntryLine
         IEnumerable<BillAllocation>? billAllocations = null,
         IEnumerable<CostAllocation>? costAllocations = null,
         BankAllocation? bankAllocation = null,
-        ForexInfo? forex = null)
+        ForexInfo? forex = null,
+        GstLineTax? gst = null)
     {
         LedgerId = ledgerId;
         Amount = amount;
@@ -89,6 +102,7 @@ public sealed class EntryLine
         _costAllocations = costAllocations?.ToList() ?? new List<CostAllocation>();
         BankAllocation = bankAllocation;
         Forex = forex;
+        Gst = gst;
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>

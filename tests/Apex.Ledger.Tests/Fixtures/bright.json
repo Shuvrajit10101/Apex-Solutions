@@ -180,6 +180,35 @@
       }
     ]
   },
+  "inventory": {
+    "note": "Phase-3 accounts<->inventory data (BR-1..BR-5). Purely ADDITIVE: the AsPostedLedger accounting side is byte-for-byte unchanged. Opening stock 250 @ Rs.100 = Rs.25000 reconciles the 'Opening Stock' Stock-in-Hand ledger. Under Average Cost (DP-1 default) every inward is Rs.100, so the running average stays Rs.100 and closing 150 units => Rs.15000 DERIVED (no manual closing-stock journal). Purchase (voucher #1) and credit sale (voucher #3) move stock as item-invoices with the SAME accounting legs; the cash sale (Receipt voucher #5) keeps its accounting and moves 100 units via a stock-only Delivery Note.",
+    "stockGroups": [
+      { "name": "Trading Goods", "addQuantities": true }
+    ],
+    "units": [
+      { "symbol": "Nos", "formalName": "Numbers", "decimalPlaces": 0 }
+    ],
+    "stockItems": [
+      {
+        "name": "General Merchandise",
+        "under": "Trading Goods",
+        "unit": "Nos",
+        "valuationMethod": "AverageCost"
+      }
+    ],
+    "openingBalances": [
+      { "item": "General Merchandise", "godown": "Main Location", "quantity": 250, "rate": 100.0 }
+    ],
+    "deliveryNotes": [
+      {
+        "date": "2021-04-15",
+        "narration": "Stock delivered for the cash sale (voucher #5) - stock-only, no accounting",
+        "lines": [
+          { "item": "General Merchandise", "godown": "Main Location", "quantity": 100 }
+        ]
+      }
+    ]
+  },
   "vouchers": [
     {
       "no": 1,
@@ -196,6 +225,14 @@
           "ledger": "Shyam Traders (Creditor)",
           "drCr": "Credit",
           "amount": 40000
+        }
+      ],
+      "inventoryLines": [
+        {
+          "item": "General Merchandise",
+          "godown": "Main Location",
+          "quantity": 400,
+          "rate": 100.0
         }
       ]
     },
@@ -232,6 +269,14 @@
           "ledger": "Sales",
           "drCr": "Credit",
           "amount": 55000
+        }
+      ],
+      "inventoryLines": [
+        {
+          "item": "General Merchandise",
+          "godown": "Main Location",
+          "quantity": 400,
+          "rate": 137.50
         }
       ]
     },
@@ -366,6 +411,7 @@
       "date": "2022-03-31",
       "type": "Journal",
       "narration": "Closing stock 15000 recognised (Dr asset / Cr trading a/c adjustment)",
+      "manualClosingStock": true,
       "lines": [
         {
           "ledger": "Closing Stock",
@@ -393,6 +439,19 @@
     "closingStock": {
       "value": 15000.0,
       "asset": "Closing Stock"
+    },
+    "inventoryDerived": {
+      "note": "Phase-3 DERIVED closing stock (BR-1..BR-5). Under Average Cost the running average is Rs.100 throughout (opening 250 @ 100 + purchase 400 @ 100). Closing qty = 250 + 400 - 400 - 100 = 150; value = 150 x 100 = Rs.15000, equal to the manual AsPostedLedger figure but derived from inventory, not a journal.",
+      "openingStockValue": 25000.0,
+      "openingQuantity": 250,
+      "purchaseQuantity": 400,
+      "salesQuantity": 500,
+      "closingQuantity": 150,
+      "closingStockValue": 15000.0,
+      "cogs": 50000.0,
+      "grossProfit": 15000.0,
+      "netProfit": -1000.0,
+      "balanceSheetTotal": 184000.0
     },
     "ledgerClosing": {
       "Bright's Capital": {

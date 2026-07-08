@@ -51,16 +51,65 @@ public sealed class CurrencyChoice
 }
 
 /// <summary>
+/// A "Method of Appropriation in Purchase invoice" picker option (Book pp.133–141; catalog §11; Phase 6 slice 3):
+/// None (a plain Direct-Expenses ledger — pure P&amp;L, RQ-19), Appropriate by Quantity, or Appropriate by Value.
+/// A non-null <see cref="Value"/> MARKS the ledger as an additional-cost ledger.
+/// </summary>
+public sealed class MethodOfAppropriationChoice
+{
+    /// <summary>The stored method — null means "None" (not an additional-cost ledger).</summary>
+    public MethodOfAppropriation? Value { get; }
+    public string Display { get; }
+    public MethodOfAppropriationChoice(MethodOfAppropriation? value, string display) { Value = value; Display = display; }
+    public override string ToString() => Display;
+}
+
+/// <summary>
+/// A "Default Price Level" picker option (Book pp.34–35; Phase 6 slice 5; RQ-30): "(none)"
+/// (<see cref="PriceLevelId"/> null — no default level, the norm) or a defined <see cref="PriceLevel"/>. When a
+/// Sales voucher selects a party carrying a non-null level, its Price-Level header defaults to it (still
+/// overridable per voucher). Only offered while <see cref="Company.EnableMultiplePriceLevels"/> is on.
+/// </summary>
+public sealed class PriceLevelChoice
+{
+    /// <summary>The stored party default price-level id — null means "(none)".</summary>
+    public Guid? PriceLevelId { get; }
+    public string Display { get; }
+    public PriceLevelChoice(Guid? priceLevelId, string display) { PriceLevelId = priceLevelId; Display = display; }
+    public override string ToString() => Display;
+}
+
+/// <summary>
 /// The Ledger-creation master ("Create → Ledger", Alt+C): pick a name and an under-group
 /// from the 28 predefined groups, create the ledger on the current company, and see it appear in
 /// the list. Persists the company to its <c>.db</c> via <see cref="CompanyStorage.Save"/> on create.
 /// Engine/DB logic stays here (no UI types) so it is headlessly testable.
 /// </summary>
-public sealed partial class LedgerMasterViewModel : ViewModelBase
+public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    /// <remarks>The generic snapshot (used only if this master is exported through the source-agnostic path).
+    /// Ledger export normally uses the bespoke <see cref="Services.MasterListTabularProjector.ProjectLedgers"/>,
+    /// which also splits the Dr/Cr side into its own column; here the numeric Opening carries the amount (its
+    /// side stripped by the projector).</remarks>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Ledgers",
+        new[]
+        {
+            MasterListColumn.Text("Name"),
+            MasterListColumn.Text("Under"),
+            MasterListColumn.Number("Opening"),
+            MasterListColumn.Text("Currency"),
+            MasterListColumn.Text("Interest"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[]
+        {
+            r.Name, r.Under, r.Opening, r.Currency, r.Interest,
+        }).ToList());
 
     /// <summary>The 28 groups (excluding the reserved P&amp;L head) the Under-picker offers, name-sorted.</summary>
     public IReadOnlyList<Group> Groups { get; }
@@ -139,6 +188,92 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     /// <summary>The chosen "Currency of ledger" — base by default; a foreign currency holds forex balances.</summary>
     [ObservableProperty] private CurrencyChoice? _selectedCurrency;
 
+    // --------------------------------------------------------------- additional-cost method (Book pp.133–141; catalog §11)
+
+    /// <summary>
+    /// F12 ledger-screen configuration toggle (Book pp.133–141; Phase 6 slice 3). The
+    /// "Method of Appropriation in Purchase invoice" field renders on the ledger master ONLY when this is on
+    /// (and the chosen group is under Direct Expenses). Off by default, so an untracked ledger screen is
+    /// byte-unchanged (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showConfiguration;
+
+    /// <summary>
+    /// The "Method of Appropriation in Purchase invoice" choices — None (a plain P&amp;L Direct-Expenses ledger),
+    /// Appropriate by Quantity, Appropriate by Value. A non-None pick makes the ledger an additional-cost ledger.
+    /// </summary>
+    public IReadOnlyList<MethodOfAppropriationChoice> MethodChoices { get; } = new[]
+    {
+        new MethodOfAppropriationChoice(null, "None (plain expense)"),
+        new MethodOfAppropriationChoice(MethodOfAppropriation.ByQuantity, "Appropriate by Quantity"),
+        new MethodOfAppropriationChoice(MethodOfAppropriation.ByValue, "Appropriate by Value"),
+    };
+
+    /// <summary>The chosen appropriation method — None by default (every existing ledger stays a plain expense).</summary>
+    [ObservableProperty] private MethodOfAppropriationChoice? _selectedMethod;
+
+    /// <summary>
+    /// True iff the chosen group is under <b>Direct Expenses</b> — an additional-cost ledger (Freight/Packing/…)
+    /// lives there. The Method-of-Appropriation field only ever applies to such a ledger.
+    /// </summary>
+    public bool IsDirectExpensesGroup => SelectedGroup is not null && IsUnderDirectExpenses(SelectedGroup);
+
+    /// <summary>
+    /// True iff the "Method of Appropriation" field should render: the ledger-screen F12 configuration is on
+    /// AND the chosen group is under Direct Expenses. Gated so an untracked screen is byte-unchanged (ER-13).
+    /// </summary>
+    public bool ShowAppropriation => ShowConfiguration && IsDirectExpensesGroup;
+
+    // --------------------------------------------------------------- party GST (catalog §12; phase4 RQ-7)
+
+    /// <summary>True iff GST is enabled for the company — the party-GST sub-form is only offered then.</summary>
+    public bool GstEnabled => _company.GstEnabled;
+
+    /// <summary>
+    /// True iff the party-GST sub-form should be shown: GST is enabled AND the chosen group is a party
+    /// group (Sundry Debtors/Creditors). Off ⇒ no party-GST fields captured (a B2C/unregistered party).
+    /// </summary>
+    public bool ShowPartyGst => GstEnabled && IsPartyGroup;
+
+    /// <summary>The party GSTIN/UIN (validated on Create when set); blank ⇒ a B2C party.</summary>
+    [ObservableProperty] private string _partyGstin = string.Empty;
+
+    /// <summary>The party's registration type (Regular / Composition / Unregistered / Consumer).</summary>
+    [ObservableProperty] private GstRegistrationTypeOption? _partyRegistrationType;
+
+    /// <summary>The party's State/UT (its place of supply for goods); null ⇒ unset.</summary>
+    [ObservableProperty] private IndianStateOption? _partyState;
+
+    /// <summary>The registration-type options for a party (default Unregistered — a plain B2C party).</summary>
+    public IReadOnlyList<GstRegistrationTypeOption> PartyRegistrationTypes { get; } = new[]
+    {
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Regular, Display = "Regular" },
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Composition, Display = "Composition" },
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Unregistered, Display = "Unregistered" },
+        new GstRegistrationTypeOption { Value = GstRegistrationType.Consumer, Display = "Consumer" },
+    };
+
+    /// <summary>The State/UT options for the party place-of-supply picker (the GST state-code list).</summary>
+    public IReadOnlyList<IndianStateOption> PartyStates { get; }
+
+    // --------------------------------------------------------------- default price level (Book pp.34–35; slice 5 RQ-30)
+
+    /// <summary>
+    /// The "Default Price Level" choices for a party ledger (RQ-30): "(none)" plus every defined
+    /// <see cref="PriceLevel"/>. Empty of levels when none are defined (only the "(none)" sentinel).
+    /// </summary>
+    public IReadOnlyList<PriceLevelChoice> PriceLevelChoices { get; }
+
+    /// <summary>The chosen party default price level — "(none)" by default (every existing party keeps no default).</summary>
+    [ObservableProperty] private PriceLevelChoice? _selectedPriceLevel;
+
+    /// <summary>
+    /// True iff the "Default Price Level" picker should render: the company's "Enable multiple Price Levels" F11
+    /// flag is on AND the chosen group is a party group (Sundry Debtors). Gated so a non-price-level screen is
+    /// byte-unchanged (ER-13).
+    /// </summary>
+    public bool ShowDefaultPriceLevel => _company.EnableMultiplePriceLevels && IsPartyGroup;
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -155,6 +290,13 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
 
         CurrencyChoices = BuildCurrencyChoices(company);
         _selectedCurrency = CurrencyChoices[0]; // base currency
+        _selectedMethod = MethodChoices[0]; // None (a plain expense)
+
+        PartyStates = IndianState.All.Select(s => new IndianStateOption { State = s }).ToList();
+        _partyRegistrationType = PartyRegistrationTypes[2]; // Unregistered (a plain B2C party) by default
+
+        PriceLevelChoices = BuildPriceLevelChoices(company);
+        _selectedPriceLevel = PriceLevelChoices[0]; // (none)
 
         RefreshList();
     }
@@ -181,6 +323,18 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Builds the default-price-level picker list: "(none)" first (stored as null), then every defined price
+    /// level. A company with no levels shows just the "(none)" option.
+    /// </summary>
+    private static IReadOnlyList<PriceLevelChoice> BuildPriceLevelChoices(Company company)
+    {
+        var list = new List<PriceLevelChoice> { new(null, "◦ (none)") };
+        foreach (var level in company.PriceLevels.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            list.Add(new PriceLevelChoice(level.Id, level.Name));
+        return list;
+    }
+
+    /// <summary>
     /// A party group (Sundry Debtors / Sundry Creditors, or a sub-group under one) — the bill-wise
     /// prompts are shown only for these, where "Maintain bill-by-bill" surfaces for party
     /// ledgers. When the chosen group is a party group the flag defaults on.
@@ -191,7 +345,17 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
     {
         MaintainBillByBill = value is not null && IsUnderParty(value);
         OnPropertyChanged(nameof(IsPartyGroup));
+        OnPropertyChanged(nameof(ShowPartyGst));
+        OnPropertyChanged(nameof(IsDirectExpensesGroup));
+        OnPropertyChanged(nameof(ShowAppropriation));
+        OnPropertyChanged(nameof(ShowDefaultPriceLevel));
     }
+
+    partial void OnShowConfigurationChanged(bool value) => OnPropertyChanged(nameof(ShowAppropriation));
+
+    /// <summary>F12 on the ledger master — toggles the ledger-screen configuration (reveals the
+    /// Method-of-Appropriation field for a Direct-Expenses ledger).</summary>
+    public void ToggleConfiguration() => ShowConfiguration = !ShowConfiguration;
 
     private bool IsUnderParty(Group group)
     {
@@ -201,6 +365,19 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         {
             if (g.Name.Equals("Sundry Debtors", StringComparison.OrdinalIgnoreCase) ||
                 g.Name.Equals("Sundry Creditors", StringComparison.OrdinalIgnoreCase))
+                return true;
+            g = g.ParentId is { } pid ? _company.FindGroup(pid) : null;
+        }
+        return false;
+    }
+
+    private bool IsUnderDirectExpenses(Group group)
+    {
+        var g = group;
+        var guard = 0;
+        while (g is not null && guard++ < 64)
+        {
+            if (g.Name.Equals("Direct Expenses", StringComparison.OrdinalIgnoreCase))
                 return true;
             g = g.ParentId is { } pid ? _company.FindGroup(pid) : null;
         }
@@ -266,6 +443,48 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
                 style: (SelectedStyle ?? StyleChoices[0]).Value);
         }
 
+        // Party GST details (only for a party ledger while GST is enabled). Pre-validate the GSTIN so the
+        // engine's domain error never fires; a Regular party requires a GSTIN.
+        PartyGstDetails? partyGst = null;
+        if (ShowPartyGst)
+        {
+            var pGstin = (PartyGstin ?? string.Empty).Trim().ToUpperInvariant();
+            var pGstinOrNull = string.IsNullOrEmpty(pGstin) ? null : pGstin;
+            var regType = (PartyRegistrationType ?? PartyRegistrationTypes[2]).Value;
+
+            if (pGstinOrNull is not null && !Gstin.IsValid(pGstinOrNull))
+            {
+                Message = $"'{pGstinOrNull}' is not a valid party GSTIN (15 chars, checksum failed).";
+                return false;
+            }
+            if (regType == GstRegistrationType.Regular && pGstinOrNull is null)
+            {
+                Message = "A Regular GST party requires a GSTIN (or pick Unregistered/Consumer).";
+                return false;
+            }
+
+            // Attach a details block only when something meaningful was captured (a GSTIN, a non-default
+            // registration type, or a state) — otherwise leave it null (a plain B2C party).
+            if (pGstinOrNull is not null || regType != GstRegistrationType.Unregistered || PartyState is not null)
+            {
+                partyGst = new PartyGstDetails
+                {
+                    Gstin = pGstinOrNull,
+                    RegistrationType = regType,
+                    StateCode = PartyState?.Code,
+                };
+            }
+        }
+
+        // "Method of Appropriation in Purchase invoice" — captured only when the F12 configuration is on AND
+        // the ledger is under Direct Expenses; a non-null value marks it an additional-cost ledger (RQ-16..RQ-20).
+        MethodOfAppropriation? methodOfAppropriation =
+            ShowAppropriation ? SelectedMethod?.Value : null;
+
+        // Party default Price Level (RQ-30) — captured only when the F11 flag is on AND the ledger is a party;
+        // null (no default) for every non-price-level or non-party ledger (ER-13).
+        Guid? defaultPriceLevelId = ShowDefaultPriceLevel ? SelectedPriceLevel?.PriceLevelId : null;
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
@@ -276,7 +495,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
             interest: interest,
             // "Currency of ledger" — null (base ₹/INR) for every existing ledger; a foreign currency
             // makes this a forex ledger whose lines carry forex amounts + rates.
-            currencyId: SelectedCurrency?.CurrencyId);
+            currencyId: SelectedCurrency?.CurrencyId,
+            partyGst: partyGst,
+            methodOfAppropriation: methodOfAppropriation,
+            defaultPriceLevelId: defaultPriceLevelId);
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -290,6 +512,11 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase
         EnableInterest = false;
         InterestRateText = string.Empty;
         SelectedCurrency = CurrencyChoices[0]; // reset to base for the next entry
+        SelectedMethod = MethodChoices[0];     // reset to None for the next entry
+        PartyGstin = string.Empty;
+        PartyRegistrationType = PartyRegistrationTypes[2]; // back to Unregistered
+        PartyState = null;
+        SelectedPriceLevel = PriceLevelChoices[0];         // reset to (none)
         _onChanged();
         return true;
     }

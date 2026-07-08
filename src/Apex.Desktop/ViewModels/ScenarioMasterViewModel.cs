@@ -47,11 +47,17 @@ public sealed class ScenarioListRow
 /// <see cref="CompanyStorage.Save"/>. Existing scenarios are listed below. No Avalonia types ⇒ headlessly
 /// testable; mirrors <see cref="BudgetMasterViewModel"/>.
 /// </summary>
-public sealed partial class ScenarioMasterViewModel : ViewModelBase
+public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Scenarios",
+        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Actuals"), MasterListColumn.Text("Includes") },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Actuals, r.Includes }).ToList());
 
     /// <summary>Every voucher type in the company, each with an Include checkbox (provisional kinds first).</summary>
     public ObservableCollection<ScenarioTypeRow> Types { get; } = new();

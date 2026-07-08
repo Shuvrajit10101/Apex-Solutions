@@ -27,8 +27,18 @@ public static class VoucherValidator
         ArgumentNullException.ThrowIfNull(c);
 
         // §6.5 referential integrity: the voucher type must be known.
-        if (c.FindVoucherType(v.TypeId) is null)
+        var voucherType = c.FindVoucherType(v.TypeId);
+        if (voucherType is null)
             throw new InvalidVoucherException($"Unknown voucher type {v.TypeId}.");
+
+        // §11 zero-valued transactions (Phase 6 slice 4 RQ-21): "Allow zero-valued transactions" is a Sales/Purchase
+        // feature only. A Journal / Stock-Journal (or any other base) type must never carry it — reject at post time
+        // so the illegal configuration can never smuggle a ₹0 accounting entry onto a non-invoice voucher.
+        if (voucherType.AllowZeroValuedTransactions &&
+            voucherType.BaseType is not (VoucherBaseType.Purchase or VoucherBaseType.Sales))
+            throw new InvalidVoucherException(
+                $"'Allow zero-valued transactions' is only valid on a Purchase or Sales voucher type; " +
+                $"'{voucherType.Name}' is a {voucherType.BaseType}.");
 
         // §6.2 at least two lines.
         if (v.Lines.Count < 2)
@@ -63,6 +73,165 @@ public static class VoucherValidator
         // §6.1 the golden invariant: Σ Dr == Σ Cr.
         if (!IsBalanced(v))
             throw new UnbalancedVoucherException(v.TotalDebit, v.TotalCredit);
+
+        // §10 item-invoice mode (slice 3.3b): the accounts↔inventory pairing invariant.
+        if (v.HasInventoryLines)
+            EnsureItemInvoiceValid(v, c);
+
+        // §11 POS mode (slice 7 RQ-39..RQ-42): the tender-split invariants — entered only when the voucher carries
+        // POS tenders, so an ordinary sale is byte-identical (ER-13). The Cr Sales + Cr Output-GST credit side and
+        // the item-invoice pairing above are untouched; POS only changes the DEBIT side to a tender split.
+        if (v.HasPosTenders)
+            EnsurePosTendersValid(v, c);
+    }
+
+    /// <summary>
+    /// The POS tender-split invariants (catalog §11; Phase 6 slice 7 RQ-39..RQ-42; TOP RISK #6). Entered only when
+    /// <see cref="Voucher.HasPosTenders"/>. Enforces, in order:
+    /// <list type="bullet">
+    ///   <item><b>Base + flag</b>: POS tenders are valid only on a <b>Sales</b> voucher type flagged
+    ///     <see cref="VoucherType.UseForPos"/>.</item>
+    ///   <item><b>Reconciliation</b>: Σ tender.Amount == the voucher's total debit (the bill total) — the tenders
+    ///     ARE the debit side, so every debit line is a tender share and they foot to the bill (RQ-40).</item>
+    ///   <item><b>Grouping</b>: each tender ledger sits under its required group (Gift → Sundry Debtors,
+    ///     Card/Cheque → Bank, Cash → Cash-in-Hand) — load-bearing (RQ-41).</item>
+    ///   <item><b>Cash change</b>: every Cash tender carries Tendered ≥ Amount and Change == Tendered − Amount
+    ///     (≥ 0, informational — never posted); a non-cash tender carries no cash-only fields (RQ-39).</item>
+    /// </list>
+    /// Throws <see cref="InvalidVoucherException"/> on the first violation, so an unbalanced or misgrouped tender
+    /// split can never persist. <see cref="EnsureItemInvoiceValid"/> and the balance invariant continue to pass.
+    /// </summary>
+    public static void EnsurePosTendersValid(Voucher v, Company c)
+    {
+        var type = c.FindVoucherType(v.TypeId)!; // referential integrity already checked
+        if (type.BaseType != VoucherBaseType.Sales || !type.UseForPos)
+            throw new InvalidVoucherException(
+                $"POS tenders are only valid on a POS-flagged Sales voucher type; '{type.Name}' is a " +
+                $"{type.BaseType}{(type.BaseType == VoucherBaseType.Sales ? " without 'Use for POS invoicing'" : "")}.");
+
+        // Reconciliation: Σ tender == total debit (the bill total). Because the tenders replace the single customer
+        // debit, this simultaneously proves the debit side is entirely tender shares that foot to the bill (RQ-40).
+        Services.PosTenderService.EnsureBalanced(v.TotalDebit, v.PosTenders);
+
+        // Grouping (load-bearing, RQ-41).
+        Services.PosTenderService.EnsureGrouping(c, v.PosTenders);
+
+        // Cash change consistency (RQ-39): a Cash tender's tendered ≥ amount and change == tendered − amount; a
+        // non-cash tender must not carry cash-only fields.
+        foreach (var t in v.PosTenders)
+        {
+            if (t.Type == PosTenderType.Cash)
+            {
+                if (t.Tendered is not { } tendered)
+                    throw new InvalidVoucherException("A POS Cash tender must record the Cash Tendered amount.");
+                if (tendered < t.Amount)
+                    throw new InvalidVoucherException(
+                        $"POS Cash tendered {tendered} is less than the cash payable {t.Amount}.");
+                var expectedChange = tendered - t.Amount;
+                if (t.Change is not { } change || change != expectedChange)
+                    throw new InvalidVoucherException(
+                        $"POS Cash change must equal tendered − payable ({expectedChange}); got " +
+                        $"{(t.Change is { } ch ? ch.ToString() : "null")}.");
+            }
+            else if (t.Tendered is not null || t.Change is not null)
+            {
+                throw new InvalidVoucherException(
+                    $"A POS {t.Type} tender must not carry Cash Tendered / Change (those are Cash-only).");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The item-invoice pairing invariant (catalog §10; phase3-inventory-requirements RQ-16/RQ-17; slice 3.3b).
+    /// Item lines are permitted only on a Purchase or Sales voucher whose type moves stock, every line must
+    /// reference a known stock item and godown, and — critically — the item lines' <b>total value</b>
+    /// (Σ qty × rate) must reconcile with the voucher's <b>stock accounting amount</b> so the inward/outward is
+    /// always backed by an accounting posting (no unbacked stock, no phantom profit). The exact rule:
+    /// <list type="bullet">
+    ///   <item><b>Purchase</b>: Σ item-line value == Σ of the <b>debit</b>-line amounts posted to ledgers under
+    ///     <b>Purchase Accounts</b> or <b>Stock-in-Hand</b> (the stock-in leg).</item>
+    ///   <item><b>Sales</b>: Σ item-line value == Σ of the <b>credit</b>-line amounts posted to ledgers under
+    ///     <b>Sales Accounts</b> (the sales leg).</item>
+    /// </list>
+    /// A mismatch, item lines on a non-Purchase/Sales (or non-stock-affecting) type, or an unknown item/godown
+    /// reference all throw a clean <see cref="InvalidVoucherException"/>.
+    /// </summary>
+    public static void EnsureItemInvoiceValid(Voucher v, Company c)
+    {
+        var type = c.FindVoucherType(v.TypeId)!; // referential integrity already checked above
+        var isPurchase = type.BaseType == VoucherBaseType.Purchase;
+        var isSales = type.BaseType == VoucherBaseType.Sales;
+        if (!isPurchase && !isSales)
+            throw new InvalidVoucherException(
+                $"Item-invoice stock lines are only valid on a Purchase or Sales voucher; '{type.Name}' is neither.");
+
+        // The implied direction: Purchase ⇒ inward, Sales ⇒ outward. Every item line must already carry it
+        // (the posting service stamps it), so the on-hand engine reads the direction directly.
+        var expectedDir = isPurchase ? StockDirection.Inward : StockDirection.Outward;
+        foreach (var line in v.InventoryLines)
+        {
+            if (c.FindStockItem(line.StockItemId) is null)
+                throw new InvalidVoucherException($"Item-invoice line references unknown stock item {line.StockItemId}.");
+            if (c.FindGodown(line.GodownId) is null)
+                throw new InvalidVoucherException($"Item-invoice line references unknown godown {line.GodownId}.");
+            if (line.Direction != expectedDir)
+                throw new InvalidVoucherException(
+                    $"Item-invoice line direction {line.Direction} does not match the '{type.Name}' nature " +
+                    $"(expected {expectedDir}).");
+            // Zero-value guard (Phase 6 slice 4 RQ-21, ER-7 surgical relaxation). A zero-rate / zero-value line
+            // normally injects unbacked stock (phantom on-hand / phantom profit) that slips through the pairing
+            // check, so it stays rejected — UNLESS this Sales/Purchase type has "Allow zero-valued transactions"
+            // on, in which case a ₹0 free-goods line is a legitimate entry (it moves stock but posts ₹0, and the
+            // pairing invariant still balances ₹0 against ₹0). The relaxation is scoped to zero-valued-enabled
+            // types only; a normal invoice still rejects a fat-finger ₹0 line, and a positive-value line is never
+            // affected.
+            if (!type.AllowZeroValuedTransactions && (line.Rate.Amount <= 0m || line.Value.Amount <= 0m))
+                throw new InvalidVoucherException(
+                    "Item-invoice line rate must be greater than zero (a zero-rate line would move stock with no " +
+                    "accounting backing).");
+        }
+
+        // Σ of the accounting stock leg: Purchase = debit lines to Purchase Accounts / Stock-in-Hand ledgers;
+        // Sales = credit lines to Sales Accounts ledgers.
+        var wantSide = isPurchase ? DrCr.Debit : DrCr.Credit;
+        var accountingStockAmount = 0m;
+        foreach (var line in v.Lines)
+        {
+            if (line.Side != wantSide) continue;
+            var ledger = c.FindLedger(line.LedgerId);
+            if (ledger is null) continue; // already validated above
+            if (IsStockLegLedger(ledger, c, isPurchase))
+                accountingStockAmount += line.Amount.Amount;
+        }
+
+        var itemLinesValue = v.InventoryLinesValue.Amount;
+        if (accountingStockAmount != itemLinesValue)
+        {
+            var leg = isPurchase ? "Purchases / Stock-in-Hand (debit)" : "Sales (credit)";
+            throw new InvalidVoucherException(
+                $"Item-invoice pairing: the item lines total ₹{itemLinesValue:0.00} (Σ qty × rate) does not equal " +
+                $"the voucher's {leg} accounting amount ₹{accountingStockAmount:0.00}. The stock leg must be backed " +
+                "by an equal accounting posting so no unbacked stock is created.");
+        }
+    }
+
+    /// <summary>
+    /// Whether a ledger is the accounting "stock leg" for an item-invoice: for a Purchase, a ledger under
+    /// <b>Purchase Accounts</b> (primary ancestor) or under <b>Stock-in-Hand</b>; for a Sales, a ledger under
+    /// <b>Sales Accounts</b> (primary ancestor).
+    /// </summary>
+    private static bool IsStockLegLedger(Domain.Ledger ledger, Company c, bool isPurchase)
+    {
+        var group = c.FindGroup(ledger.GroupId);
+        if (group is null) return false;
+        if (isPurchase)
+        {
+            if (ClassificationRules.IsStockInHandLedger(ledger, c)) return true;
+            return string.Equals(ClassificationRules.PrimaryAncestorOf(group, c).Name, "Purchase Accounts",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        return string.Equals(ClassificationRules.PrimaryAncestorOf(group, c).Name, "Sales Accounts",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

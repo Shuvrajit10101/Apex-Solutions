@@ -121,7 +121,7 @@ public sealed class BankingRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -175,7 +175,7 @@ public sealed class BankingRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -218,7 +218,7 @@ public sealed class BankingRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 

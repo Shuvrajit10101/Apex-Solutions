@@ -81,6 +81,45 @@ public sealed class Ledger
     /// </summary>
     public Guid? CurrencyId { get; set; }
 
+    /// <summary>
+    /// Optional GST details on a <b>party</b> ledger (Sundry Debtor/Creditor) — Registration Type, GSTIN/UIN
+    /// and State (catalog §12; phase4 RQ-7). Drives place of supply and B2B/B2C. <c>null</c> ⇒ no GST party
+    /// details (treated as B2C for GST). The default for every existing ledger.
+    /// </summary>
+    public PartyGstDetails? PartyGst { get; set; }
+
+    /// <summary>
+    /// Optional GST details on a <b>sales/purchase</b> ledger — HSN/SAC, taxability, rate (catalog §12; phase4
+    /// RQ-9). Lets a service or accounting-only supply resolve a GST rate (DP-10). <c>null</c> ⇒ none.
+    /// </summary>
+    public StockItemGstDetails? SalesPurchaseGst { get; set; }
+
+    /// <summary>
+    /// Marks this ledger as a GST <b>tax ledger</b> (Output/Input CGST/SGST/IGST) under Duties &amp; Taxes
+    /// (catalog §12; phase4 RQ-4). Auto-set by <c>GstService.EnableGst</c>. <c>null</c> ⇒ ordinary ledger.
+    /// </summary>
+    public LedgerGstClassification? GstClassification { get; set; }
+
+    /// <summary>
+    /// "<b>Method of Appropriation in Purchase invoice</b>" (Book pp.133–141; catalog §11; Phase 6 slice 3
+    /// RQ-16..RQ-20). A <b>non-null</b> value MARKS this ledger as an <b>additional-cost ledger</b> — an ordinary
+    /// Direct-Expenses ledger (Freight/Packing/…) whose amount, when used on a Purchase whose voucher type has
+    /// <see cref="VoucherType.TrackAdditionalCosts"/>, is apportioned across the item lines to raise their landed
+    /// stock rate. <c>null</c> (the default for every existing ledger) ⇒ a plain P&amp;L ledger that never touches
+    /// any stock rate (RQ-19). The expense still hits P&amp;L either way; a non-null method ADDS the inventory
+    /// valuation-adjustment side.
+    /// </summary>
+    public MethodOfAppropriation? MethodOfAppropriation { get; set; }
+
+    /// <summary>
+    /// Optional <b>default Price Level</b> on a <b>party</b> ledger (Sundry Debtor) — Book pp.34–35; Phase 6
+    /// slice 5; requirement RQ-30. When a Sales voucher selects this party, its Price Level header field is
+    /// initialised from this level (still overridable per voucher). <c>null</c> (the default for every existing
+    /// ledger) ⇒ no default level; only meaningful while <see cref="Company.EnableMultiplePriceLevels"/> is on.
+    /// Nullable FK to a <see cref="PriceLevel"/>.
+    /// </summary>
+    public Guid? DefaultPriceLevelId { get; set; }
+
     public Ledger(
         Guid id,
         string name,
@@ -95,7 +134,12 @@ public sealed class Ledger
         bool enableChequePrinting = false,
         string? chequePrintingBankName = null,
         InterestParameters? interest = null,
-        Guid? currencyId = null)
+        Guid? currencyId = null,
+        PartyGstDetails? partyGst = null,
+        StockItemGstDetails? salesPurchaseGst = null,
+        LedgerGstClassification? gstClassification = null,
+        MethodOfAppropriation? methodOfAppropriation = null,
+        Guid? defaultPriceLevelId = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Ledger name is required.", nameof(name));
@@ -119,10 +163,19 @@ public sealed class Ledger
         ChequePrintingBankName = string.IsNullOrWhiteSpace(chequePrintingBankName) ? null : chequePrintingBankName.Trim();
         Interest = interest;
         CurrencyId = currencyId;
+        PartyGst = partyGst;
+        SalesPurchaseGst = salesPurchaseGst;
+        GstClassification = gstClassification;
+        MethodOfAppropriation = methodOfAppropriation;
+        DefaultPriceLevelId = defaultPriceLevelId;
     }
 
     /// <summary>True iff this ledger holds balances in a foreign (non-base) currency.</summary>
     public bool IsForeignCurrency => CurrencyId is not null;
+
+    /// <summary>True iff this ledger is an <b>additional-cost ledger</b> — it carries a non-null
+    /// <see cref="MethodOfAppropriation"/> so its amount is apportioned onto item landed rates (RQ-16..RQ-20).</summary>
+    public bool IsAdditionalCostLedger => MethodOfAppropriation is not null;
 
     /// <summary>True iff this ledger has an interest block that is activated.</summary>
     public bool InterestEnabled => Interest is { Enabled: true };

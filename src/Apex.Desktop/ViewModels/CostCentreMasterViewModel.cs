@@ -37,11 +37,17 @@ public sealed class ParentCentreOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="LedgerMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class CostCentreMasterViewModel : ViewModelBase
+public sealed partial class CostCentreMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Cost Centres",
+        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Category"), MasterListColumn.Text("Under") },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Category, r.Under }).ToList());
 
     /// <summary>The cost categories the Category picker offers (company order; Primary first).</summary>
     public ObservableCollection<CostCategory> Categories { get; } = new();

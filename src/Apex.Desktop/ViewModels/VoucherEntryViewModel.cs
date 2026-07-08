@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -28,6 +29,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly LedgerService _service;
+    private readonly GstService _gst;
     private readonly CompanyStorage _storage;
     private readonly Action _onSaved;
     private readonly Action _onCancelled;
@@ -43,6 +45,230 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     /// <summary>The editable Dr/Cr particulars lines.</summary>
     public ObservableCollection<VoucherLineViewModel> Lines { get; } = new();
+
+    // =============================================================== item-invoice mode (catalog §10; slice 3.4c)
+
+    /// <summary>
+    /// True only for a Purchase or Sales voucher — the two natures that can be entered "as invoice"
+    /// (item-invoice mode). For every other voucher type item-invoice mode is unavailable (Ctrl+I is a
+    /// no-op and the inventory panel never shows), so those screens behave exactly as before.
+    /// </summary>
+    public bool CanBeItemInvoice =>
+        _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+
+    /// <summary>
+    /// Ctrl+I — whether this Purchase/Sales voucher is being entered <b>as an item invoice</b> (catalog §10):
+    /// the user enters a party + inventory lines (Stock Item / Godown / Qty / Rate / Batch) and the VM
+    /// auto-derives the two balancing accounting legs, so the pairing invariant always holds without any
+    /// hand-balancing. When off, the plain Dr/Cr grid is used and the voucher behaves exactly as before.
+    /// Only ever true when <see cref="CanBeItemInvoice"/>.
+    /// </summary>
+    [ObservableProperty] private bool _isItemInvoice;
+
+    /// <summary>True for a Purchase item-invoice (stock inward; party = supplier; Dr Purchases / Cr Supplier).</summary>
+    public bool IsPurchaseInvoice => _type.BaseType == VoucherBaseType.Purchase;
+
+    /// <summary>The party-field caption for the current nature ("Supplier" for Purchase, "Customer" for Sales).</summary>
+    public string PartyCaption => IsPurchaseInvoice ? "Supplier" : "Customer";
+
+    /// <summary>The accounting-leg (Purchases/Sales) caption for the derived-summary line.</summary>
+    public string StockLedgerCaption => IsPurchaseInvoice ? "Purchases" : "Sales";
+
+    /// <summary>The stock items the item-invoice line pickers choose from.</summary>
+    public IReadOnlyList<StockItem> StockItems { get; }
+
+    /// <summary>The godowns the item-invoice line pickers choose from.</summary>
+    public IReadOnlyList<Godown> Godowns { get; }
+
+    /// <summary>The party (supplier/customer) choices — "(none)" first, then every ledger.</summary>
+    public ObservableCollection<PartyOption> Parties { get; } = new();
+
+    /// <summary>The chosen party (supplier for a Purchase, customer for a Sales); null ⇒ not yet picked.</summary>
+    [ObservableProperty] private PartyOption? _selectedParty;
+
+    /// <summary>The Purchases-/Sales-accounts ledger the value leg posts to (auto-defaulted, user-overridable).</summary>
+    public ObservableCollection<DomainLedger> StockLedgers { get; } = new();
+
+    /// <summary>The chosen Purchases (for Purchase) / Sales (for Sales) accounting ledger the value leg posts to.</summary>
+    [ObservableProperty] private DomainLedger? _selectedStockLedger;
+
+    /// <summary>The editable item-invoice inventory lines (Stock Item / Godown / Qty / Rate / Batch).</summary>
+    public ObservableCollection<InventoryVoucherLineViewModel> InventoryLines { get; } = new();
+
+    // =============================================================== Price Levels (Book pp.34–35; catalog §11; slice 5)
+
+    /// <summary>
+    /// The Price-Level header choices for a Sales item-invoice (slice 5; RQ-30): a "Not Applicable" sentinel
+    /// (no auto-fill) first, then every defined <see cref="PriceLevel"/>. Populated only when the feature is on.
+    /// </summary>
+    public ObservableCollection<PriceLevelSelectorOption> PriceLevelOptions { get; } = new();
+
+    /// <summary>
+    /// The chosen Price-Level header (slice 5; RQ-30): initialised from the selected party's
+    /// <see cref="Ledger.DefaultPriceLevelId"/>, freely overridable, or "Not Applicable" for no auto-fill. On
+    /// change the item lines re-resolve their auto-filled Rate/Discount (a user-dirtied line is left alone).
+    /// </summary>
+    [ObservableProperty] private PriceLevelSelectorOption? _selectedPriceLevel;
+
+    /// <summary>
+    /// Guards the Price-Level auto-fill against re-entrancy: stamping a line's Rate/Discount raises change
+    /// notifications that re-enter <see cref="RecalculateItemInvoice"/>; this bool makes the nested
+    /// <see cref="RefreshPriceLevelDefaults"/> a no-op so the pass terminates.
+    /// </summary>
+    private bool _refreshingPrices;
+
+    /// <summary>
+    /// True when the Price-Level header selector + per-line Discount column are shown (slice 5; RQ-30/RQ-52): a
+    /// <b>Sales</b> item-invoice on a company whose "Enable multiple Price Levels" flag is on. Off ⇒ no header
+    /// field, no auto-fill, no discount column — a non-price-level Sales screen is byte-identical (ER-13).
+    /// </summary>
+    public bool ShowPriceLevelSelector =>
+        IsItemInvoice && CanBeItemInvoice && !IsPurchaseInvoice && _company.EnableMultiplePriceLevels;
+
+    /// <summary>Running Σ of the item-line values (each qty × rate) — the amount the two derived legs carry.</summary>
+    [ObservableProperty] private string _itemsTotalText = "0.00";
+
+    /// <summary>The derived-Dr/Cr summary line shown under the items total (e.g. "Dr Purchases 5,000.00 · Cr Acme 5,000.00").</summary>
+    [ObservableProperty] private string _derivedSummary = string.Empty;
+
+    // =============================================================== GST on the item-invoice (catalog §12; slice 4e)
+
+    /// <summary>
+    /// True when this Purchase/Sales <b>item invoice</b> is GST-aware — i.e. item-invoice mode is on AND the
+    /// company has GST enabled (<see cref="Company.GstEnabled"/>). Only then does the screen resolve each line's
+    /// GST rate, split intra CGST/SGST vs inter IGST, DISPLAY the tax + party total, and POST the additive tax
+    /// lines. On a GST-off company this stays <c>false</c> and the invoice behaves exactly as the Phase-3
+    /// item-invoice (two accounting legs, no tax).
+    /// </summary>
+    public bool IsGstInvoice => IsItemInvoice && _company.GstEnabled;
+
+    /// <summary>The invoice CGST total (paisa-exact display); "0.00" when off/inter-state/exempt.</summary>
+    [ObservableProperty] private string _gstCgstText = "0.00";
+
+    /// <summary>The invoice SGST total (paisa-exact display); "0.00" when off/inter-state/exempt.</summary>
+    [ObservableProperty] private string _gstSgstText = "0.00";
+
+    /// <summary>The invoice IGST total (paisa-exact display); "0.00" when off/intra-state/exempt.</summary>
+    [ObservableProperty] private string _gstIgstText = "0.00";
+
+    /// <summary>The invoice party total = Σ taxable + Σ additional cost + Σ tax (what the supplier is owed).</summary>
+    [ObservableProperty] private string _partyTotalText = "0.00";
+
+    // =============================================================== additional cost of purchase (Book pp.133–141; catalog §11; slice 6.3)
+
+    /// <summary>
+    /// "Track Additional Costs for Purchases" (Book pp.133–141; Phase 6 slice 3 RQ-16..RQ-20) — the voucher-type
+    /// flag proxied for the voucher-type-editor checkbox on the Purchase entry screen. Reading returns the live
+    /// <see cref="VoucherType.TrackAdditionalCosts"/>; setting it mutates the (persisted) type and saves the
+    /// company, then refreshes the additional-cost gating. Only meaningful on a Purchase type.
+    /// </summary>
+    public bool TrackAdditionalCosts
+    {
+        get => _type.TrackAdditionalCosts;
+        set
+        {
+            if (_type.TrackAdditionalCosts == value) return;
+            _type.TrackAdditionalCosts = value;
+            _storage.Save(_company);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowAdditionalCosts));
+            RecalculateItemInvoice();
+        }
+    }
+
+    /// <summary>True iff the voucher-type-editor "Track Additional Costs" checkbox is shown — only on a Purchase
+    /// that can be entered as an item invoice (never on a Sales or a non-invoiceable type).</summary>
+    public bool CanTrackAdditionalCosts => IsPurchaseInvoice && CanBeItemInvoice;
+
+    // =============================================================== Actual vs Billed qty (Book pp.145–147; slice 6.4)
+
+    /// <summary>
+    /// "Use separate Actual and Billed Quantity columns in invoices" (Book pp.145–147; Phase 6 slice 4 RQ-22) —
+    /// the company/F11 flag proxied for the checkbox on the Sales/Purchase item-invoice screen. Reading returns
+    /// the live <see cref="Company.UseSeparateActualBilledQuantity"/>; setting it mutates the (persisted) company
+    /// and saves it, then re-gates each item line's Billed column + recomputes the totals. Off ⇒ one Qty column
+    /// and Billed ≡ Actual (byte-identical to today, ER-13).
+    /// </summary>
+    public bool UseSeparateActualBilledQuantity
+    {
+        get => _company.UseSeparateActualBilledQuantity;
+        set
+        {
+            if (_company.UseSeparateActualBilledQuantity == value) return;
+            _company.UseSeparateActualBilledQuantity = value;
+            _storage.Save(_company);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ShowActualBilledColumns));
+            OnPropertyChanged(nameof(QuantityHeader));
+            SyncActualBilledOnLines();
+            RecalculateItemInvoice();
+        }
+    }
+
+    /// <summary>True iff the "Use separate Actual &amp; Billed Qty" checkbox is shown — a Sales/Purchase that can be
+    /// entered as an item invoice (Note 2: Actual/Billed is Sales/Purchase-only). Never on a non-invoiceable type.</summary>
+    public bool CanUseSeparateActualBilled => CanBeItemInvoice;
+
+    /// <summary>True when the Billed-quantity column band + the "Qty (Actual)" relabel are shown — the company flag
+    /// is on AND this is a Sales/Purchase item invoice. Drives the header column's visibility (per-line visibility
+    /// is <see cref="InventoryVoucherLineViewModel.ShowActualBilled"/>).</summary>
+    public bool ShowActualBilledColumns =>
+        IsItemInvoice && CanBeItemInvoice && _company.UseSeparateActualBilledQuantity;
+
+    /// <summary>The Quantity column header: "Qty (Actual)" when the A/B split is shown, plain "Quantity" otherwise
+    /// (brand-neutral — never any "Tally" text).</summary>
+    public string QuantityHeader => ShowActualBilledColumns ? "Qty (Actual)" : "Quantity";
+
+    // =============================================================== zero-valued transactions (Book pp.142–143; slice 6.4)
+
+    /// <summary>
+    /// "Allow zero-valued transactions" (Book pp.142–143; Phase 6 slice 4 RQ-21) — the voucher-type flag proxied
+    /// for the checkbox on the Sales/Purchase item-invoice screen (mirrors <see cref="TrackAdditionalCosts"/>).
+    /// Reading returns the live <see cref="VoucherType.AllowZeroValuedTransactions"/>; setting it mutates the
+    /// (persisted) type and saves the company, then re-gates. When on, an item line entered <i>free</i> (Rate/Value
+    /// = ₹0) is accepted — it moves stock but posts ₹0 to accounts and ₹0 to GST. Off ⇒ a fat-finger ₹0 line is
+    /// still rejected (ER-13). Only surfaced on a Sales/Purchase base type.
+    /// </summary>
+    public bool AllowZeroValued
+    {
+        get => _type.AllowZeroValuedTransactions;
+        set
+        {
+            if (_type.AllowZeroValuedTransactions == value) return;
+            _type.AllowZeroValuedTransactions = value;
+            _storage.Save(_company);
+            OnPropertyChanged();
+            RecalculateItemInvoice();
+        }
+    }
+
+    /// <summary>True iff the "Allow zero-valued transactions" checkbox is shown — only a Sales/Purchase that can be
+    /// entered as an item invoice (RQ-21: Sales/Purchase-only). Never on a non-invoiceable type.</summary>
+    public bool CanAllowZeroValued => CanBeItemInvoice;
+
+    /// <summary>Pushes the company's Actual/Billed flag to every item line so its Billed column shows/hides in sync.</summary>
+    private void SyncActualBilledOnLines()
+    {
+        var on = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity;
+        foreach (var l in InventoryLines) l.ShowActualBilled = on;
+    }
+
+    /// <summary>
+    /// True when the additional-cost entry area is shown (Book pp.133–141; RQ-16): a Purchase entered as an item
+    /// invoice whose voucher type has <see cref="VoucherType.TrackAdditionalCosts"/> on. Off ⇒ the area is hidden
+    /// and no additional cost loads any stock rate (a plain freight line stays purely P&amp;L, RQ-19 / ER-13).
+    /// </summary>
+    public bool ShowAdditionalCosts => IsItemInvoice && IsPurchaseInvoice && _type.TrackAdditionalCosts;
+
+    /// <summary>The additional-cost ledgers the row pickers choose from — ledgers whose
+    /// <see cref="Ledger.MethodOfAppropriation"/> is non-null (a plain Direct-Expenses ledger stays out, RQ-19).</summary>
+    public IReadOnlyList<DomainLedger> AdditionalCostLedgers { get; }
+
+    /// <summary>The repeatable additional-cost entry rows (ledger + amount); always one blank trailing row.</summary>
+    public ObservableCollection<AdditionalCostRowViewModel> AdditionalCosts { get; } = new();
+
+    /// <summary>The running Σ of the complete additional-cost rows (paisa-exact display).</summary>
+    [ObservableProperty] private string _additionalCostTotalText = "0.00";
 
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private DateOnly _date;
@@ -131,7 +357,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         _onCancelled = onCancelled ?? throw new ArgumentNullException(nameof(onCancelled));
 
         _service = new LedgerService(company);
+        _gst = new GstService(company);
         Ledgers = company.Ledgers;
+
+        // Item-invoice masters (only meaningful on a Purchase/Sales, but always populated so the toggle is cheap).
+        StockItems = company.StockItems;
+        Godowns = company.Godowns;
+
+        // Additional-cost ledgers (Book pp.133–141): the Direct-Expenses ledgers marked as additional-cost
+        // ledgers (a non-null Method of Appropriation). A plain Direct-Expenses ledger stays out (RQ-19).
+        AdditionalCostLedgers = company.Ledgers
+            .Where(l => l.IsAdditionalCostLedger)
+            .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        BuildItemInvoicePickers();
+        AddAdditionalCostRow(); // one blank trailing row ready to type into
 
         // Default date: last voucher date, else books-begin (never before books, which Post rejects).
         var last = company.Vouchers.Count == 0
@@ -193,6 +434,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>Recomputes Σ Dr, Σ Cr, the difference indicator, and whether Accept is allowed.</summary>
     public void Recalculate()
     {
+        // In item-invoice mode the plain Dr/Cr grid is not the Accept gate — the item-invoice indicators are
+        // (a change to the always-present blank starter lines must not clobber that gate).
+        if (IsItemInvoice) { RecalculateItemInvoice(); return; }
+
         decimal dr = 0m, cr = 0m;
         foreach (var l in Lines)
         {
@@ -231,6 +476,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     public bool Accept()
     {
         Message = null;
+
+        // Item-invoice mode routes to its own accept path (auto-derived legs + inventory lines).
+        if (IsItemInvoice) return AcceptItemInvoice();
 
         // Reject half-filled rows up front with a clear message (before touching the engine).
         if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
@@ -357,4 +605,592 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
     public void Cancel() => _onCancelled();
+
+    // =============================================================== item-invoice mode (catalog §10; slice 3.4c)
+
+    /// <summary>
+    /// Populates the item-invoice pickers for a Purchase/Sales: the party list ("(none)" + every ledger),
+    /// the Purchases-/Sales-accounts ledger list (only ledgers under the right accounting head), and a
+    /// sensible default for each. Called once from the constructor; no-op-safe on a non-invoice type (the
+    /// lists simply go unused). Never touches the plain Dr/Cr <see cref="Lines"/>.
+    /// </summary>
+    private void BuildItemInvoicePickers()
+    {
+        Parties.Clear();
+        Parties.Add(new PartyOption { Ledger = null, Display = "◦ (none)" });
+        foreach (var l in _company.Ledgers.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            Parties.Add(new PartyOption { Ledger = l, Display = l.Name });
+        SelectedParty = Parties.FirstOrDefault();
+
+        // The value leg posts to a Purchases (Purchase Accounts, or Stock-in-Hand) ledger for a Purchase, or a
+        // Sales (Sales Accounts) ledger for a Sales — the exact groups the pairing invariant recognises as the
+        // stock leg. Offer only those ledgers and default to the first one.
+        StockLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(IsStockLegLedger)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            StockLedgers.Add(l);
+        SelectedStockLedger = StockLedgers.FirstOrDefault();
+
+        // Price-Level header choices (slice 5; RQ-30): "Not Applicable" first, then every defined level. Populated
+        // regardless of the flag (cheap); the header field itself is gated by ShowPriceLevelSelector.
+        PriceLevelOptions.Clear();
+        PriceLevelOptions.Add(new PriceLevelSelectorOption { Level = null, Display = "◦ Not Applicable" });
+        foreach (var lvl in _company.PriceLevels.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            PriceLevelOptions.Add(new PriceLevelSelectorOption { Level = lvl, Display = lvl.Name });
+        SelectedPriceLevel = PriceLevelOptions.FirstOrDefault();
+
+        // Seed one blank item line so the grid is ready to type into the moment the mode is turned on.
+        if (InventoryLines.Count == 0) AddInventoryLine();
+        RecalculateItemInvoice();
+    }
+
+    /// <summary>Pushes the Price-Level Discount-column gate to every item line so it shows/hides in sync (ER-13).</summary>
+    private void SyncPriceLevelOnLines()
+    {
+        var on = ShowPriceLevelSelector;
+        foreach (var l in InventoryLines) l.ShowDiscount = on;
+    }
+
+    partial void OnSelectedPriceLevelChanged(PriceLevelSelectorOption? value)
+    {
+        // A new header level re-resolves every un-dirtied line's auto-fill (a user override sticks; RQ-30).
+        RecalculateItemInvoice();
+    }
+
+    /// <summary>
+    /// The Price-Level auto-fill (slice 5; RQ-30). For each item line with an item + a positive quantity, resolves
+    /// the slab for (SelectedPriceLevel, item, qty, VoucherDate) and stamps the Rate (+ Discount %) into the line —
+    /// but ONLY when the line has not been operator-dirtied (the "auto-fill clobbers the manual edit" trap). A
+    /// no-op when the feature is off / no level is chosen ("Not Applicable") / no slab resolves — the line then
+    /// keeps whatever the operator typed. Re-entrancy-guarded (stamping raises change notifications that re-enter
+    /// this via RecalculateItemInvoice).
+    /// </summary>
+    private void RefreshPriceLevelDefaults()
+    {
+        if (_refreshingPrices) return;
+        if (!ShowPriceLevelSelector || SelectedPriceLevel is not { Level: { } level }) return;
+
+        _refreshingPrices = true;
+        try
+        {
+            foreach (var l in InventoryLines)
+            {
+                if (l.SelectedItem is not { } item) continue;
+                var qty = l.ParsedActualQuantity;
+                if (qty <= 0m) continue;
+
+                var resolved = PriceResolver.Resolve(_company, level.Id, item.Id, qty, Date);
+                if (resolved is { } price)
+                {
+                    var rateText = IndianFormat.AmountAlways(price.Rate.Amount);
+                    var discountText = price.DiscountPercent > 0m
+                        ? price.DiscountPercent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                        : string.Empty;
+                    l.ApplyPriceAutoFill(rateText, discountText);
+                }
+                else
+                {
+                    // No slab resolves for this (level, item, qty, date) — clear any auto-fill previously stamped on
+                    // this un-dirtied line, so a stale Rate/Discount belonging to a different item or level never
+                    // lingers (e.g. switching the line to an item with no price list). The operator's own edit still
+                    // sticks: ApplyPriceAutoFill writes only when the field is not user-dirty.
+                    l.ApplyPriceAutoFill(string.Empty, string.Empty);
+                }
+            }
+        }
+        finally
+        {
+            _refreshingPrices = false;
+        }
+    }
+
+    /// <summary>
+    /// Whether a ledger is a valid value-leg target for this voucher's nature — Purchase: under Purchase
+    /// Accounts (primary ancestor) or under Stock-in-Hand; Sales: under Sales Accounts (primary ancestor).
+    /// Mirrors <c>VoucherValidator.IsStockLegLedger</c> so the auto-derived leg always satisfies the engine.
+    /// </summary>
+    private bool IsStockLegLedger(DomainLedger ledger)
+    {
+        var group = _company.FindGroup(ledger.GroupId);
+        if (group is null) return false;
+        if (IsPurchaseInvoice)
+        {
+            if (ClassificationRules.IsStockInHandLedger(ledger, _company)) return true;
+            return string.Equals(ClassificationRules.PrimaryAncestorOf(group, _company).Name,
+                "Purchase Accounts", StringComparison.OrdinalIgnoreCase);
+        }
+        return string.Equals(ClassificationRules.PrimaryAncestorOf(group, _company).Name,
+            "Sales Accounts", StringComparison.OrdinalIgnoreCase);
+    }
+
+    partial void OnSelectedPartyChanged(PartyOption? value)
+    {
+        // Default the Price-Level header from the party's default level (slice 5; RQ-30), still overridable. Only
+        // when the feature is on; otherwise the header is inert. Assigning re-runs the auto-fill via its handler.
+        if (ShowPriceLevelSelector)
+        {
+            // Always reset the header to the NEW party's default level — a party with no default resets it to
+            // "Not Applicable" rather than silently inheriting the previously selected party's level (RQ-30).
+            var match = value?.Ledger?.DefaultPriceLevelId is { } levelId
+                ? PriceLevelOptions.FirstOrDefault(o => o.Level?.Id == levelId)
+                : null;
+            SelectedPriceLevel = match ?? PriceLevelOptions.FirstOrDefault(o => o.IsNotApplicable);
+        }
+        RecalculateItemInvoice();
+    }
+    partial void OnSelectedStockLedgerChanged(DomainLedger? value) => RecalculateItemInvoice();
+
+    /// <summary>
+    /// Ctrl+I — toggles item-invoice mode on a Purchase/Sales (a no-op on any other type). Recomputes the
+    /// items total / derived summary so the Accept gate reflects the new mode immediately.
+    /// </summary>
+    public void ToggleItemInvoice()
+    {
+        if (!CanBeItemInvoice) return;
+        IsItemInvoice = !IsItemInvoice;
+    }
+
+    partial void OnIsItemInvoiceChanged(bool value)
+    {
+        // Turning the mode on/off changes which grid gates Accept AND whether GST / additional-cost tracking / the
+        // Actual-Billed columns are wired in; recompute all.
+        OnPropertyChanged(nameof(IsGstInvoice));
+        OnPropertyChanged(nameof(ShowAdditionalCosts));
+        OnPropertyChanged(nameof(ShowActualBilledColumns));
+        OnPropertyChanged(nameof(QuantityHeader));
+        OnPropertyChanged(nameof(ShowPriceLevelSelector));
+        SyncActualBilledOnLines();
+        RecalculateItemInvoice();
+        Recalculate();
+    }
+
+    /// <summary>Adds a blank additional-cost row (ledger + amount); keeps one trailing blank row.</summary>
+    public AdditionalCostRowViewModel AddAdditionalCostRow()
+    {
+        var row = new AdditionalCostRowViewModel(AdditionalCostLedgers, OnAdditionalCostChanged);
+        AdditionalCosts.Add(row);
+        return row;
+    }
+
+    private void OnAdditionalCostChanged()
+    {
+        if (AdditionalCosts.Count == 0 || !AdditionalCosts[^1].IsBlank)
+            AddAdditionalCostRow();
+        RecalculateItemInvoice();
+    }
+
+    /// <summary>Adds a blank item-invoice inventory line (Movement kind: Item / Godown / Qty / Rate / Batch).</summary>
+    public InventoryVoucherLineViewModel AddInventoryLine()
+    {
+        var line = new InventoryVoucherLineViewModel(
+            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice)
+        {
+            ShowActualBilled = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity,
+            ShowDiscount = ShowPriceLevelSelector,
+        };
+        InventoryLines.Add(line);
+        RecalculateItemInvoice();
+        return line;
+    }
+
+    /// <summary>Removes an item-invoice inventory line (keeping at least one); recomputes the total.</summary>
+    public void RemoveInventoryLine(InventoryVoucherLineViewModel line)
+    {
+        if (InventoryLines.Count <= 1) return;
+        InventoryLines.Remove(line);
+        RecalculateItemInvoice();
+    }
+
+    /// <summary>The Σ of the complete item lines' values (each <b>Billed</b> qty × rate, paisa-exact). Value derives
+    /// from Billed, NOT Actual (RQ-23): a short-billed / zero-valued line contributes its billed value only.</summary>
+    public decimal ItemsTotal
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in InventoryLines)
+                // Value derives from the NET (after Price-Level discount) rate — equals the raw rate when no
+                // discount/column, so a non-price-level line is byte-identical (DP-A; ER-13).
+                if (l.IsComplete && l.EffectiveRate is { } rate)
+                    sum += Money.ForexBase(rate, l.ParsedBilledQuantity).Amount;
+            return sum;
+        }
+    }
+
+    /// <summary>
+    /// The GST direction for this invoice's nature: a Purchase claims Input tax (ITC), a Sales charges Output tax.
+    /// (In item-invoice mode <see cref="CanBeItemInvoice"/> restricts the nature to Purchase/Sales.)
+    /// </summary>
+    private GstTaxDirection GstDirection =>
+        IsPurchaseInvoice ? GstTaxDirection.Input : GstTaxDirection.Output;
+
+    /// <summary>The outcome of computing GST over the current complete item lines (for both display and posting).</summary>
+    private readonly record struct ItemInvoiceGst(
+        GstService.InvoiceTax Tax, bool InterState, StockItem? UnresolvedItem)
+    {
+        public bool HasUnresolved => UnresolvedItem is not null;
+    }
+
+    /// <summary>
+    /// Resolves each complete item line's GST rate + taxability (item → value-ledger → company, most-granular-wins),
+    /// routes intra vs inter from the party's recorded State vs the company home State, and computes the additive
+    /// per-(head,rate) tax via <see cref="GstService.ComputeInvoiceTax"/>. Exempt/Nil/Non-GST lines contribute no
+    /// taxable value (zero tax). A taxable line with no resolvable rate is flagged in
+    /// <see cref="ItemInvoiceGst.UnresolvedItem"/> so the caller fails fast with a friendly message (never a
+    /// silent zero, never a crash). Returns <c>null</c> when GST is not wired in (<see cref="IsGstInvoice"/> false).
+    /// </summary>
+    private ItemInvoiceGst? ComputeItemInvoiceGst()
+    {
+        if (!IsGstInvoice) return null;
+
+        var valueLedger = SelectedStockLedger;
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+
+        var taxable = new List<GstService.TaxableLine>();
+        foreach (var l in InventoryLines.Where(l => l.IsComplete))
+        {
+            if (l.ParsedRate is not { } rate || rate <= 0m) continue;
+            // GST taxable value derives from Billed, NOT Actual (RQ-23) — a short-billed line taxes only the
+            // billed quantity, and a zero-valued (rate 0) free line is skipped above so it bears no GST. The
+            // value uses the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
+            var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
+
+            var res = _gst.ResolveRate(l.SelectedItem, valueLedger);
+            if (GstService.IsUnresolved(res))
+                return new ItemInvoiceGst(EmptyInvoiceTax(), interState, l.SelectedItem);
+            if (!res.IsTaxable) continue; // Exempt/Nil/Non-GST ⇒ no tax
+            taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints));
+        }
+
+        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
+        return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
+    }
+
+    /// <summary>An empty (no-tax) <see cref="GstService.InvoiceTax"/> used when a line is unresolved.</summary>
+    private static GstService.InvoiceTax EmptyInvoiceTax() => new()
+    {
+        TaxLines = Array.Empty<EntryLine>(),
+        LineBreakdown = Array.Empty<GstService.LineTax>(),
+    };
+
+    /// <summary>
+    /// Recomputes the item-invoice indicators: the running items total, the derived Dr/Cr summary line, and —
+    /// while in item-invoice mode — whether Accept is allowed (a party + a value ledger picked, ≥ 1 complete
+    /// item line each with a positive rate, and no half-filled row). When GST is enabled it also recomputes the
+    /// live tax totals (CGST/SGST/IGST) and the party total (taxable + tax) so the screen reflects the tax.
+    /// </summary>
+    public void RecalculateItemInvoice()
+    {
+        // Price Levels (slice 5; RQ-30): keep the per-line Discount column gate in sync, then auto-fill each
+        // un-dirtied line's Rate/Discount from the resolver BEFORE the totals are computed (so they reflect the
+        // stamped values). Both are no-ops when the feature is off, so a non-price-level screen is unchanged.
+        SyncPriceLevelOnLines();
+        RefreshPriceLevelDefaults();
+
+        var total = ItemsTotal;
+        ItemsTotalText = IndianFormat.AmountAlways(total);
+
+        var party = SelectedParty?.Ledger?.Name ?? "party";
+
+        // Additional cost of purchase (Book pp.133–141) — Σ of the complete additional-cost rows (0 when untracked),
+        // added to the party total and apportioned onto the item landed rates below (RQ-16..RQ-20).
+        var additionalTotal = AdditionalCostsTotal();
+        AdditionalCostTotalText = IndianFormat.AmountAlways(additionalTotal);
+
+        // GST summary (only when wired in) — computed once, shown as CGST/SGST/IGST + party total, and folded
+        // into the derived-Dr/Cr summary so it reflects the additive tax legs.
+        var gst = ComputeItemInvoiceGst();
+        var cgst = gst?.Tax.TotalCgst.Amount ?? 0m;
+        var sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
+        var igst = gst?.Tax.TotalIgst.Amount ?? 0m;
+        var taxTotal = cgst + sgst + igst;
+        var partyTotal = total + additionalTotal + taxTotal;
+
+        GstCgstText = IndianFormat.AmountAlways(cgst);
+        GstSgstText = IndianFormat.AmountAlways(sgst);
+        GstIgstText = IndianFormat.AmountAlways(igst);
+        PartyTotalText = IndianFormat.AmountAlways(partyTotal);
+
+        // Stamp the read-only landed (effective) stock rate onto each complete item line via the SAME engine the
+        // post/valuation uses (ER-4). No-op when tracking is off (columns collapse — untracked screen unchanged).
+        RefreshLandedRates(InventoryLines.Where(l => l.IsComplete).ToList());
+
+        DerivedSummary = BuildDerivedSummary(party, total, additionalTotal, cgst, sgst, igst, partyTotal);
+
+        if (!IsItemInvoice) return; // plain-mode Accept is governed by Recalculate()
+
+        var completeLines = InventoryLines.Count(l => l.IsComplete);
+        var hasHalfFilled = InventoryLines.Any(l => !l.IsBlank && !l.IsComplete);
+        // Every complete line needs a positive rate — UNLESS the voucher type allows zero-valued transactions
+        // (RQ-21), in which case a ₹0 free-goods line (rate ≥ 0) is legitimate. Without the flag a 0 rate blocks
+        // Accept exactly as before (ER-13).
+        var allowZero = _type.AllowZeroValuedTransactions;
+        var everyLineRateOk = InventoryLines
+            .Where(l => l.IsComplete)
+            .All(l => l.ParsedRate is { } r && (r > 0m || (allowZero && r >= 0m)));
+
+        CanAccept =
+            SelectedParty?.Ledger is not null
+            && SelectedStockLedger is not null
+            && completeLines >= 1
+            && !hasHalfFilled
+            && everyLineRateOk
+            // A zero-valued invoice may total ₹0 (all lines free); otherwise the value must be positive.
+            && (total > 0m || allowZero);
+    }
+
+    /// <summary>
+    /// Builds the derived-Dr/Cr summary line. Without GST it is the plain two-leg summary (Dr Purchases/Cr party,
+    /// or Dr party/Cr Sales). With GST the additive tax leg(s) are inserted — Input CGST/SGST on a purchase,
+    /// Output CGST/SGST (or IGST) on a sale — and the party leg carries taxable + tax, e.g.
+    /// "Dr Purchases 1,000.00 · Dr Input CGST 90.00 · Dr Input SGST 90.00 · Cr Supplier 1,180.00".
+    /// </summary>
+    private string BuildDerivedSummary(string party, decimal taxable, decimal additional, decimal cgst, decimal sgst, decimal igst, decimal partyTotal)
+    {
+        string A(decimal v) => IndianFormat.AmountAlways(v);
+        var stock = StockLedgerCaption;
+        var side = IsPurchaseInvoice ? "Dr" : "Cr"; // tax follows the value leg's side (Input Dr / Output Cr)
+
+        var extraLegs = new List<string>();
+        // Additional-cost legs (Purchase only) — each posts a Dr to its Direct-Expenses ledger (hits P&L, RQ-19).
+        if (IsPurchaseInvoice && additional != 0m)
+            extraLegs.Add($"Dr Additional Costs {A(additional)}");
+        if (igst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} IGST {A(igst)}");
+        else
+        {
+            if (cgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} CGST {A(cgst)}");
+            if (sgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} SGST {A(sgst)}");
+        }
+        var taxPart = extraLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", extraLegs) : string.Empty;
+
+        return IsPurchaseInvoice
+            ? $"Dr {stock} {A(taxable)}{taxPart}  ·  Cr {party} {A(partyTotal)}"
+            : $"Dr {party} {A(partyTotal)}{taxPart}  ·  Cr {stock} {A(taxable)}";
+    }
+
+    /// <summary>The Σ of the complete additional-cost rows (paisa-exact); 0 when the area is off/untracked.</summary>
+    private decimal AdditionalCostsTotal()
+    {
+        if (!ShowAdditionalCosts) return 0m;
+        var sum = 0m;
+        foreach (var r in AdditionalCosts)
+            if (r.IsComplete && r.ParsedAmount is { } a) sum += a;
+        return sum;
+    }
+
+    /// <summary>
+    /// Stamps each complete item line's read-only <b>landed</b> (effective) stock rate + value using the SAME
+    /// engine the post/valuation uses (<see cref="AdditionalCostApportionment.ForPurchase"/>, ER-4): builds a
+    /// throwaway Voucher of this type carrying the item lines + the additional-cost Dr lines and lets the engine
+    /// derive the apportionment from each ledger's method. No-op (columns cleared/collapsed) when tracking is off
+    /// or an item line is incomplete, so an untracked screen is byte-unchanged (ER-13).
+    /// </summary>
+    private void RefreshLandedRates(IReadOnlyList<InventoryVoucherLineViewModel> completeItems)
+    {
+        foreach (var l in InventoryLines)
+        {
+            l.ShowLanded = false;
+            l.LandedRateText = string.Empty;
+            l.LandedValueText = string.Empty;
+        }
+        if (!ShowAdditionalCosts || completeItems.Count == 0) return;
+
+        var invLines = new List<VoucherInventoryLine>(completeItems.Count);
+        var allowZero = _type.AllowZeroValuedTransactions;
+        foreach (var l in completeItems)
+        {
+            // Wait for every item line to be valid; a ₹0 rate is only valid on a zero-valued-enabled type (RQ-21).
+            if (l.ParsedRate is not { } rate || rate < 0m || (rate == 0m && !allowZero)) return;
+            // Actual drives stock; Billed drives value — the landed apportionment uses each line's billed value.
+            // The rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
+            invLines.Add(new VoucherInventoryLine(
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
+                StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity));
+        }
+
+        var costLines = new List<EntryLine>();
+        foreach (var r in AdditionalCosts)
+            if (r.IsComplete && r.SelectedLedger is { } led && r.ParsedAmount is { } amt)
+                costLines.Add(new EntryLine(led.Id, new Money(amt), DrCr.Debit));
+        if (costLines.Count == 0) return; // no additional cost ⇒ no landed columns (identical old valuation path)
+
+        var temp = new Voucher(Guid.NewGuid(), _type.Id, Date, costLines, inventoryLines: invLines);
+        var landed = AdditionalCostApportionment.ForPurchase(_company, temp);
+
+        for (var i = 0; i < completeItems.Count && i < landed.Count; i++)
+        {
+            var ll = landed[i];
+            completeItems[i].ShowLanded = true;
+            completeItems[i].LandedRateText = IndianFormat.AmountAlways(ll.LandedUnitRate);
+            completeItems[i].LandedValueText = IndianFormat.AmountAlways(ll.LandedValue.Amount);
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+A accept for item-invoice mode: pre-validates (friendly message, before the engine), auto-derives
+    /// the two balancing accounting legs so the pairing invariant is inherently satisfied, builds the
+    /// <see cref="Voucher"/> with those legs + the <see cref="VoucherInventoryLine"/>s, and posts it through
+    /// <see cref="LedgerService.Post"/> (which enforces pairing + atomicity + no-negative-stock — nothing
+    /// persists on failure), then saves the company. Any domain error is surfaced to <see cref="Message"/>
+    /// without crashing.
+    /// </summary>
+    private bool AcceptItemInvoice()
+    {
+        Message = null;
+
+        if (SelectedParty?.Ledger is not { } party)
+        {
+            Message = $"Select the {PartyCaption.ToLowerInvariant()} for this item invoice.";
+            return false;
+        }
+        if (SelectedStockLedger is not { } valueLedger)
+        {
+            Message = $"No {StockLedgerCaption} ledger is configured to post the value leg to.";
+            return false;
+        }
+
+        // Reject half-filled (touched-but-incomplete) rows up front with a clear message.
+        if (InventoryLines.Any(l => !l.IsBlank && !l.IsComplete))
+        {
+            Message = "Every item line needs a stock item, a godown, a positive quantity (≤ 6 dp) and a " +
+                      "positive rate (≤ 2 dp / to the paisa).";
+            return false;
+        }
+
+        var complete = InventoryLines.Where(l => l.IsComplete).ToList();
+        if (complete.Count == 0)
+        {
+            Message = "Enter at least one item line before accepting.";
+            return false;
+        }
+
+        // Build the item-invoice stock lines. Each line normally needs a positive rate; a ₹0 rate is accepted only
+        // when the voucher type allows zero-valued transactions (RQ-21) — a legitimate free-goods line that moves
+        // stock (Actual qty) but posts ₹0. Without the flag a ₹0 line is still rejected with a friendly message.
+        var allowZero = _type.AllowZeroValuedTransactions;
+        var inventoryLines = new List<VoucherInventoryLine>(complete.Count);
+        foreach (var l in complete)
+        {
+            if (l.ParsedRate is not { } rate || rate < 0m || (rate == 0m && !allowZero))
+            {
+                Message = $"Item '{l.SelectedItem!.Name}' needs a rate greater than zero " +
+                          "(enable 'Allow zero-valued transactions' to enter a free-goods line at ₹0).";
+                return false;
+            }
+            // Actual (ParsedActualQuantity) moves stock; Billed (ParsedBilledQuantity) drives value + GST (RQ-23).
+            // When the A/B column is off, Billed ≡ Actual so the line is byte-identical to today (ER-13). The
+            // posted rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
+            inventoryLines.Add(new VoucherInventoryLine(
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
+                // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
+                direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
+                batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity));
+        }
+
+        // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant
+        // (value leg == Σ item value) holds by construction; GST + additional cost are additive on top of it.
+        var taxable = Money.Zero;
+        foreach (var il in inventoryLines) taxable += il.Value;
+
+        // Additional cost of purchase (Book pp.133–141; RQ-16): each additional-cost ledger posts its own Dr to
+        // its Direct-Expenses ledger (so the expense hits P&L — it is NOT swallowed), AND its amount raises the
+        // party total (it is part of the invoice payable to the supplier). The SAME amounts are apportioned onto
+        // the item landed rates by the valuation engine — a valuation adjustment, not a second GL posting.
+        var additionalCostLines = new List<EntryLine>();
+        var additionalTotal = Money.Zero;
+        if (ShowAdditionalCosts)
+        {
+            foreach (var r in AdditionalCosts.Where(r => !r.IsBlank))
+            {
+                if (!r.IsComplete || r.SelectedLedger is not { } led || r.ParsedAmount is not { } amt)
+                {
+                    Message = "Every additional-cost line needs a ledger and a paisa-exact amount greater than zero.";
+                    return false;
+                }
+                additionalCostLines.Add(new EntryLine(led.Id, new Money(amt), DrCr.Debit));
+                additionalTotal += new Money(amt);
+            }
+        }
+
+        // GST (only when enabled): resolve each line's rate + taxability, split intra CGST/SGST vs inter IGST, and
+        // build the additive tax entry lines (posted to the correct Output/Input ledgers, carrying GstLineTax so
+        // the invoice flows into GSTR-1/3B/Tax Analysis). A taxable line with no resolvable rate fails fast.
+        var taxLines = new List<EntryLine>();
+        var partyAmount = new Money(taxable.Amount + additionalTotal.Amount);
+        if (IsGstInvoice)
+        {
+            ItemInvoiceGst gst;
+            try
+            {
+                gst = ComputeItemInvoiceGst()!.Value;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot accept: {ex.Message}";
+                return false;
+            }
+            if (gst.HasUnresolved)
+            {
+                Message = $"Item '{gst.UnresolvedItem!.Name}' is taxable but no GST rate is set on the item, " +
+                          $"the {StockLedgerCaption} ledger, or the company. Set a rate before accepting.";
+                return false;
+            }
+            taxLines.AddRange(gst.Tax.TaxLines);
+            // party = taxable + additional cost + tax
+            partyAmount = new Money(taxable.Amount + additionalTotal.Amount + gst.Tax.TotalTax.Amount);
+        }
+
+        // Auto-derive the accounting legs (no hand-balancing): the party carries taxable + additional + tax; the
+        // stock/value leg carries taxable only; the additional-cost + tax lines are additive. Purchase → Dr
+        // Purchases (taxable) / Dr Additional Costs / Dr Input tax / Cr Supplier (taxable+additional+tax).
+        var partyLine = IsPurchaseInvoice
+            ? new EntryLine(party.Id, partyAmount, DrCr.Credit)
+            : new EntryLine(party.Id, partyAmount, DrCr.Debit);
+        var stockLine = IsPurchaseInvoice
+            ? new EntryLine(valueLedger.Id, taxable, DrCr.Debit)
+            : new EntryLine(valueLedger.Id, taxable, DrCr.Credit);
+
+        var entryLines = new List<EntryLine>(2 + additionalCostLines.Count + taxLines.Count) { stockLine, partyLine };
+        entryLines.AddRange(additionalCostLines);
+        entryLines.AddRange(taxLines);
+
+        var voucher = new Voucher(
+            Guid.NewGuid(),
+            _type.Id,
+            Date,
+            entryLines,
+            number: 0,
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: party.Id,
+            optional: IsOptional,
+            postDated: IsPostDated,
+            inventoryLines: inventoryLines);
+
+        try
+        {
+            var posted = _service.Post(voucher); // enforces pairing + atomic stock + no-negative — never persisted on failure
+            _storage.Save(_company);
+            SavedNumber = posted.Number;
+            Message = $"{_type.Name} No. {posted.Number} accepted.";
+            _onSaved();
+            return true;
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = "The item invoice is out of balance. Not saved.";
+            return false;
+        }
+        catch (InvalidVoucherException ex)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+    }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
@@ -24,11 +25,17 @@ public sealed class CostCategoryListRow
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="LedgerMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class CostCategoryMasterViewModel : ViewModelBase
+public sealed partial class CostCategoryMasterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    /// <inheritdoc/>
+    public MasterListSnapshot ToMasterListSnapshot() => new(
+        "Cost Categories",
+        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Allocates"), MasterListColumn.Text("Kind") },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Allocates, r.Kind }).ToList());
 
     /// <summary>The existing cost categories, refreshed after each create (seeded Primary included).</summary>
     public ObservableCollection<CostCategoryListRow> Existing { get; } = new();

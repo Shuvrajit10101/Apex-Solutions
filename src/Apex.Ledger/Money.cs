@@ -30,6 +30,13 @@ public readonly struct Money : IEquatable<Money>, IComparable<Money>
     /// </summary>
     public Money RoundToPaisa() => new(Math.Round(Amount, 2, MidpointRounding.AwayFromZero));
 
+    /// <summary>
+    /// True when this amount is exact to the paisa (≤ 2 decimal places), i.e. it can round-trip through the
+    /// INTEGER-paisa store without loss (NFR-3). A domain boundary uses this to reject a sub-paisa amount up
+    /// front with a clean domain error, instead of letting the paisa store raise a raw persistence exception.
+    /// </summary>
+    public bool IsPaisaExact => Amount * 100m == decimal.Truncate(Amount * 100m);
+
     /// <summary>The paisa-exact base value of <paramref name="forexAmount"/> × <paramref name="rate"/>.</summary>
     public static Money ForexBase(Money forexAmount, decimal rate) =>
         new Money(forexAmount.Amount * rate).RoundToPaisa();

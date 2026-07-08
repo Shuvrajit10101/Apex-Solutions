@@ -48,6 +48,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted voucher-entry view model (non-null only for a voucher-entry column).</summary>
     public VoucherEntryViewModel? Voucher => Page as VoucherEntryViewModel;
 
+    /// <summary>The hosted inventory/order voucher-entry view model (non-null only for that column).</summary>
+    public InventoryVoucherEntryViewModel? InventoryVoucher => Page as InventoryVoucherEntryViewModel;
+
     /// <summary>The hosted ledger-master view model (non-null only for the Ledger-creation column).</summary>
     public LedgerMasterViewModel? Ledger => Page as LedgerMasterViewModel;
 
@@ -89,6 +92,93 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted Forex Gain/Loss report (non-null only for the Forex-revaluation column).</summary>
     public ForexReportViewModel? ForexReport => Page as ForexReportViewModel;
+
+    /// <summary>The hosted Stock-Group master (non-null only for the Stock-Group creation column).</summary>
+    public StockGroupMasterViewModel? StockGroupMaster => Page as StockGroupMasterViewModel;
+
+    /// <summary>The hosted Stock-Category master (non-null only for the Stock-Category creation column).</summary>
+    public StockCategoryMasterViewModel? StockCategoryMaster => Page as StockCategoryMasterViewModel;
+
+    /// <summary>The hosted Unit-of-Measure master (non-null only for the Unit creation column).</summary>
+    public UnitMasterViewModel? UnitMaster => Page as UnitMasterViewModel;
+
+    /// <summary>The hosted Godown master (non-null only for the Godown creation column).</summary>
+    public GodownMasterViewModel? GodownMaster => Page as GodownMasterViewModel;
+
+    /// <summary>The hosted Stock-Item master (non-null only for the Stock-Item creation column).</summary>
+    public StockItemMasterViewModel? StockItemMaster => Page as StockItemMasterViewModel;
+
+    /// <summary>The hosted Batch/Lot master (non-null only for the Batch-creation column; Phase 6 Cluster 1).</summary>
+    public BatchMasterViewModel? BatchMaster => Page as BatchMasterViewModel;
+
+    /// <summary>The hosted batch-allocation sub-screen (non-null only for that column; Phase 6 Cluster 1; RQ-3).</summary>
+    public BatchAllocationViewModel? BatchAllocation => Page as BatchAllocationViewModel;
+
+    /// <summary>The hosted Bill-of-Materials master (non-null only for the BOM-creation column; Phase 6 Cluster 2; RQ-9).</summary>
+    public BomMasterViewModel? BomMaster => Page as BomMasterViewModel;
+
+    /// <summary>The hosted Manufacturing-Journal voucher-entry screen (non-null only for that column; Phase 6 Cluster 2; RQ-11).</summary>
+    public ManufacturingJournalEntryViewModel? ManufacturingJournalEntry => Page as ManufacturingJournalEntryViewModel;
+
+    /// <summary>The hosted Job Work In/Out Order voucher-entry screen (non-null only for that column; Phase 6 slice 8; RQ-47).</summary>
+    public JobWorkOrderEntryViewModel? JobWorkOrderEntry => Page as JobWorkOrderEntryViewModel;
+
+    /// <summary>The hosted Material In/Out movement voucher-entry screen (non-null only for that column; Phase 6 slice 8; RQ-48).</summary>
+    public MaterialMovementEntryViewModel? MaterialMovementEntry => Page as MaterialMovementEntryViewModel;
+
+    /// <summary>The hosted POS Billing voucher-entry screen (non-null only for that column; Phase 6 slice 7; RQ-38..RQ-44).</summary>
+    public PosBillingViewModel? PosBilling => Page as PosBillingViewModel;
+
+    /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
+    public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
+
+    /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
+    public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
+
+    /// <summary>The hosted Price List master (non-null only for the Price-List creation column; Phase 6 slice 5; RQ-27).</summary>
+    public PriceListsViewModel? PriceLists => Page as PriceListsViewModel;
+
+    /// <summary>The hosted Reorder Levels master (non-null only for the Reorder-Levels column; Phase 6 slice 6; RQ-32).</summary>
+    public ReorderLevelsViewModel? ReorderLevels => Page as ReorderLevelsViewModel;
+
+    /// <summary>The hosted F12 report-Configuration panel (non-null only for the report-config column).</summary>
+    public ReportConfigViewModel? ReportConfig => Page as ReportConfigViewModel;
+
+    /// <summary>The hosted Alt+F12 report Sort/Filter panel (non-null only for the sort/filter column).</summary>
+    public ReportSortFilterViewModel? ReportSortFilter => Page as ReportSortFilterViewModel;
+
+    /// <summary>The hosted Alt+C "Add Comparison Column" panel (non-null only for that RQ-4 column).</summary>
+    public AddComparisonColumnViewModel? AddComparisonColumn => Page as AddComparisonColumnViewModel;
+
+    /// <summary>The hosted Alt+N "Auto Columns" chooser (non-null only for that RQ-4 column).</summary>
+    public AutoColumnsViewModel? AutoColumns => Page as AutoColumnsViewModel;
+
+    /// <summary>The hosted Ctrl+S "Save View" panel (non-null only for that RQ-8 column).</summary>
+    public SaveViewViewModel? SaveView => Page as SaveViewViewModel;
+
+    /// <summary>The hosted Alt+K "Saved Views" list panel (non-null only for that RQ-8 column).</summary>
+    public SavedViewsViewModel? SavedViews => Page as SavedViewsViewModel;
+
+    /// <summary>The hosted P / Ctrl+P "Print Preview" panel (non-null only for that RQ-9 column).</summary>
+    public PrintPreviewViewModel? PrintPreview => Page as PrintPreviewViewModel;
+
+    /// <summary>The hosted F12 print-config panel over a voucher/invoice preview (non-null only for that RQ-12 column).</summary>
+    public PrintConfigViewModel? PrintConfigPanel => Page as PrintConfigViewModel;
+
+    /// <summary>The hosted E / Alt+E "Export" panel (non-null only for that RQ-14 column).</summary>
+    public ExportViewModel? ExportPanel => Page as ExportViewModel;
+
+    /// <summary>The hosted Y "Export Data" canonical-backup panel (non-null only for that RQ-19/DP-4 column).</summary>
+    public ExportDataViewModel? ExportDataPanel => Page as ExportDataViewModel;
+
+    /// <summary>The hosted O / Alt+O "Import" panel (non-null only for that RQ-20..24 column).</summary>
+    public ImportDataViewModel? ImportDataPanel => Page as ImportDataViewModel;
+
+    /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
+    public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
+
+    /// <summary>The hosted RQ-7 read-only voucher-detail drill column (non-null only for a drilled voucher).</summary>
+    public VoucherDetailViewModel? VoucherDetail => Page as VoucherDetailViewModel;
 
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;

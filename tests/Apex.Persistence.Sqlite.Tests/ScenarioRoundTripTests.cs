@@ -127,7 +127,7 @@ public sealed class ScenarioRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -183,7 +183,7 @@ public sealed class ScenarioRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 
@@ -227,7 +227,7 @@ public sealed class ScenarioRoundTripTests
         }
         finally
         {
-            if (File.Exists(dbPath)) File.Delete(dbPath);
+            TempDbFile.Delete(dbPath);
         }
     }
 

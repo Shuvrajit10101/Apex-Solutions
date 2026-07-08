@@ -18,7 +18,18 @@ public static class FixtureLoader
 
     public sealed record LoadedFixture(Company Company, LedgerService Service, DateOnly AsOf, JsonElement Expected);
 
-    public static LoadedFixture Load(string fileName)
+    /// <summary>Resolves a stock-item name → id in a loaded fixture (empty when the item does not exist).</summary>
+    public static Guid StockItemId(Company company, string name)
+        => company.FindStockItemByName(name)?.Id ?? Guid.Empty;
+
+    /// <summary>
+    /// Loads a study fixture. <paramref name="skipManualClosingStock"/> excludes any voucher flagged
+    /// <c>manualClosingStock</c> (the hand-posted closing-stock Journal) — used by the Phase-3
+    /// <b>inventory-derived</b> re-verification, where closing stock is DERIVED from inventory (§6, BR-3) and a
+    /// manual closing-stock entry would double-count it. The default (<c>false</c>) keeps every voucher, so the
+    /// existing <see cref="ClosingStockMode.AsPostedLedger"/> Robert/Bright tests are byte-for-byte unchanged.
+    /// </summary>
+    public static LoadedFixture Load(string fileName, bool skipManualClosingStock = false)
     {
         var path = Path.Combine(FixturesDir, fileName);
         if (!File.Exists(path))
@@ -76,10 +87,21 @@ public static class FixtureLoader
             }
         }
 
+        // Optional inventory block (Phase-3 accounts↔inventory fixtures like Bright). Purely ADDITIVE — a
+        // fixture with no "inventory" key (Robert) is unaffected. Masters/opening balances must be created
+        // BEFORE the vouchers so item-invoice lines can resolve their stock item/godown by name.
+        if (root.TryGetProperty("inventory", out var inventory))
+            LoadInventoryMasters(company, inventory);
+
         // Vouchers: resolve type + ledger names, build entry lines, post through the service.
         var service = new LedgerService(company);
         foreach (var v in root.GetProperty("vouchers").EnumerateArray())
         {
+            // The hand-posted closing-stock Journal is excluded under inventory-derived loading (§6, BR-3):
+            // closing stock is DERIVED there, so keeping the manual entry would double-count it.
+            if (skipManualClosingStock && v.TryGetProperty("manualClosingStock", out var mcs) && mcs.GetBoolean())
+                continue;
+
             var typeName = v.GetProperty("type").GetString()!;
             var type = company.FindVoucherTypeByName(typeName)
                 ?? throw new InvalidOperationException($"Voucher references unknown type '{typeName}'.");
@@ -99,14 +121,145 @@ public static class FixtureLoader
                 lines.Add(new EntryLine(ledger.Id, amount, drcr));
             }
 
-            var voucher = new Voucher(Guid.NewGuid(), type.Id, date, lines, number: number, narration: narration);
+            // Optional item-invoice lines (Phase-3): a Purchase/Sales voucher carrying stock lines that move
+            // stock in the SAME voucher as the accounting legs. Absent on every accounts-only voucher.
+            var inventoryLines = ParseInventoryLines(company, v);
+
+            var voucher = new Voucher(Guid.NewGuid(), type.Id, date, lines, number: number, narration: narration,
+                inventoryLines: inventoryLines);
             service.Post(voucher);
         }
+
+        // Stock-only inventory vouchers (Delivery/Receipt Notes) declared in the inventory block: posted AFTER
+        // the accounting vouchers so on-hand is available. They post NO accounting entry (keeping the
+        // AsPostedLedger statements byte-for-byte unchanged) but move stock so closing stock derives correctly.
+        if (root.TryGetProperty("inventory", out var inv2))
+            LoadInventoryVouchers(company, inv2);
 
         var expected = root.GetProperty("expected");
         var asOf = ParseDate(expected.GetProperty("asOf").GetString()!);
         return new LoadedFixture(company, service, asOf, expected.Clone());
     }
+
+    // ------------------------------------------------------------------ inventory (Phase 3, additive)
+
+    /// <summary>
+    /// Creates the fixture's inventory masters (stock groups, units, stock items) and their opening balances
+    /// via <see cref="InventoryService"/>, resolving parents/units/godowns by name. Called only when the
+    /// fixture declares an <c>inventory</c> block, so accounts-only fixtures are untouched.
+    /// </summary>
+    private static void LoadInventoryMasters(Company company, JsonElement inventory)
+    {
+        var masters = new InventoryService(company);
+
+        if (inventory.TryGetProperty("stockGroups", out var groups))
+            foreach (var g in groups.EnumerateArray())
+                masters.CreateStockGroup(
+                    g.GetProperty("name").GetString()!,
+                    addQuantities: !g.TryGetProperty("addQuantities", out var aq) || aq.GetBoolean());
+
+        if (inventory.TryGetProperty("units", out var units))
+            foreach (var u in units.EnumerateArray())
+                masters.CreateSimpleUnit(
+                    u.GetProperty("symbol").GetString()!,
+                    u.GetProperty("formalName").GetString()!,
+                    u.TryGetProperty("decimalPlaces", out var dp) ? dp.GetInt32() : 0);
+
+        if (inventory.TryGetProperty("stockItems", out var items))
+            foreach (var it in items.EnumerateArray())
+            {
+                var groupName = it.GetProperty("under").GetString()!;
+                var group = company.FindStockGroupByName(groupName)
+                    ?? throw new InvalidOperationException($"Stock item references unknown stock group '{groupName}'.");
+                var unitName = it.GetProperty("unit").GetString()!;
+                var unit = company.FindUnitByName(unitName)
+                    ?? throw new InvalidOperationException($"Stock item references unknown unit '{unitName}'.");
+                var method = it.TryGetProperty("valuationMethod", out var vm)
+                    ? MapValuationMethod(vm.GetString()!)
+                    : StockValuationMethod.AverageCost;
+                masters.CreateStockItem(it.GetProperty("name").GetString()!, group.Id, unit.Id, valuationMethod: method);
+            }
+
+        if (inventory.TryGetProperty("openingBalances", out var openings))
+            foreach (var b in openings.EnumerateArray())
+            {
+                var (itemId, godownId) = ResolveItemAndGodown(company, b);
+                masters.AddOpeningBalance(itemId, godownId,
+                    b.GetProperty("quantity").GetDecimal(),
+                    Money.FromRupees(b.GetProperty("rate").GetDecimal()),
+                    batchLabel: b.TryGetProperty("batch", out var bl) ? bl.GetString() : null);
+            }
+    }
+
+    /// <summary>
+    /// Posts the fixture's stock-only inventory vouchers (Delivery/Receipt Notes) — they move stock with NO
+    /// accounting effect, so the accounting statements are unchanged while closing stock derives correctly.
+    /// </summary>
+    private static void LoadInventoryVouchers(Company company, JsonElement inventory)
+    {
+        var posting = new InventoryPostingService(company);
+
+        PostNotes(inventory, "deliveryNotes", VoucherBaseType.DeliveryNote, StockDirection.Outward);
+        PostNotes(inventory, "receiptNotes", VoucherBaseType.ReceiptNote, StockDirection.Inward);
+
+        void PostNotes(JsonElement inv, string key, VoucherBaseType baseType, StockDirection direction)
+        {
+            if (!inv.TryGetProperty(key, out var notes)) return;
+            var typeId = company.VoucherTypes.First(t => t.BaseType == baseType).Id;
+            foreach (var note in notes.EnumerateArray())
+            {
+                var date = ParseDate(note.GetProperty("date").GetString()!);
+                var allocations = new List<InventoryAllocation>();
+                foreach (var line in note.GetProperty("lines").EnumerateArray())
+                {
+                    var (itemId, godownId) = ResolveItemAndGodown(company, line);
+                    var rate = line.TryGetProperty("rate", out var r) ? (Money?)Money.FromRupees(r.GetDecimal()) : null;
+                    allocations.Add(new InventoryAllocation(itemId, godownId,
+                        line.GetProperty("quantity").GetDecimal(), direction, rate));
+                }
+                posting.Post(new InventoryVoucher(Guid.NewGuid(), typeId, date, allocations));
+            }
+        }
+    }
+
+    /// <summary>Parses a voucher's optional <c>inventoryLines</c> into item-invoice lines (null when absent).</summary>
+    private static List<VoucherInventoryLine>? ParseInventoryLines(Company company, JsonElement voucher)
+    {
+        if (!voucher.TryGetProperty("inventoryLines", out var lines)) return null;
+
+        var result = new List<VoucherInventoryLine>();
+        foreach (var line in lines.EnumerateArray())
+        {
+            var (itemId, godownId) = ResolveItemAndGodown(company, line);
+            result.Add(new VoucherInventoryLine(itemId, godownId,
+                line.GetProperty("quantity").GetDecimal(),
+                Money.FromRupees(line.GetProperty("rate").GetDecimal()),
+                batchLabel: line.TryGetProperty("batch", out var bl) ? bl.GetString() : null));
+        }
+        return result;
+    }
+
+    private static (Guid ItemId, Guid GodownId) ResolveItemAndGodown(Company company, JsonElement el)
+    {
+        var itemName = el.GetProperty("item").GetString()!;
+        var item = company.FindStockItemByName(itemName)
+            ?? throw new InvalidOperationException($"Inventory line references unknown stock item '{itemName}'.");
+        var godownName = el.GetProperty("godown").GetString()!;
+        var godown = company.FindGodownByName(godownName)
+            ?? throw new InvalidOperationException($"Inventory line references unknown godown '{godownName}'.");
+        return (item.Id, godown.Id);
+    }
+
+    private static StockValuationMethod MapValuationMethod(string s) => s switch
+    {
+        "AverageCost" or "Average Cost" => StockValuationMethod.AverageCost,
+        "Fifo" or "FIFO" => StockValuationMethod.Fifo,
+        "Lifo" or "LIFO" => StockValuationMethod.Lifo,
+        "LastPurchaseCost" or "Last Purchase Cost" => StockValuationMethod.LastPurchaseCost,
+        "LastSaleCost" or "Last Sale Cost" => StockValuationMethod.LastSaleCost,
+        "StandardCost" or "Standard Cost" => StockValuationMethod.StandardCost,
+        _ => throw new InvalidOperationException($"Unknown valuation method '{s}'."),
+    };
 
     private static DateOnly ParseDate(string s) => DateOnly.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
 

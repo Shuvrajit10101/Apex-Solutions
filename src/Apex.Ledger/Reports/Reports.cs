@@ -31,4 +31,74 @@ public static class Report
 
     public static InterestReport BuildInterest(Company c, DateOnly from, DateOnly to)
         => InterestCalculation.Build(c, from, to);
+
+    // ------------------------------------------------------------------ inventory reports (slice 3.4a)
+
+    /// <summary>The Stock Summary over a period (catalog §16; RQ-28). <paramref name="from"/> defaults to
+    /// <see cref="Company.BooksBeginFrom"/>.</summary>
+    public static StockSummary BuildStockSummary(Company c, DateOnly to, DateOnly? from = null)
+        => StockSummary.Build(c, to, from);
+
+    /// <summary>The Godown Summary as of a date (catalog §16; RQ-29).</summary>
+    public static GodownSummary BuildGodownSummary(Company c, DateOnly asOf)
+        => GodownSummary.Build(c, asOf);
+
+    /// <summary>The Stock Item Movement journal (Stock-Summary drill target) over a period (catalog §16; RQ-28).</summary>
+    public static StockItemMovement BuildStockItemMovement(Company c, Guid stockItemId, DateOnly to, DateOnly? from = null)
+        => StockItemMovement.Build(c, stockItemId, to, from);
+
+    /// <summary>The Receipt Note (GRN) register over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<InventoryRegisterRow> BuildReceiptNoteRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildReceiptNotes(c, from, to);
+
+    /// <summary>The Delivery Note register over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<InventoryRegisterRow> BuildDeliveryNoteRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildDeliveryNotes(c, from, to);
+
+    /// <summary>The Rejection register (In + Out) over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<InventoryRegisterRow> BuildRejectionRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildRejections(c, from, to);
+
+    /// <summary>The Physical-Stock register (counted vs book + variance) over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<PhysicalStockRegisterRow> BuildPhysicalStockRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildPhysicalStock(c, from, to);
+
+    /// <summary>The Order register (Purchase &amp; Sales orders) over a period (catalog §16; RQ-31).</summary>
+    public static IReadOnlyList<OrderRegisterRow> BuildOrderRegister(Company c, DateOnly from, DateOnly to)
+        => InventoryRegisters.BuildOrders(c, from, to);
+
+    /// <summary>The Reorder Status report as of a date (catalog §16; RQ-33).</summary>
+    public static ReorderStatus BuildReorderStatus(Company c, DateOnly asOf)
+        => ReorderStatus.Build(c, asOf);
+
+    // ------------------------------------------------------------------ batch reports (Phase 6 Cluster 1)
+
+    /// <summary>The Batch-wise report over a period (Phase 6 Cluster 1; RQ-8) — per item/batch:
+    /// inwards/outwards/closing with mfg &amp; expiry. <paramref name="from"/> defaults to
+    /// <see cref="Company.BooksBeginFrom"/>; set <paramref name="onlyItemId"/> for a single item and
+    /// <paramref name="includeNonBatch"/> to also show the item's non-batch stock.</summary>
+    public static BatchwiseReport BuildBatchwiseReport(
+        Company c, DateOnly to, DateOnly? from = null, Guid? onlyItemId = null, bool includeNonBatch = false)
+        => BatchwiseReport.Build(c, to, from, onlyItemId, includeNonBatch);
+
+    /// <summary>The batch Age Analysis as of a date (Phase 6 Cluster 1; RQ-8) — batches expiring within
+    /// <paramref name="withinDays"/> days plus every already-expired batch still holding stock (past-expiry
+    /// flagged distinctly).</summary>
+    public static BatchAgeAnalysis BuildBatchAgeAnalysis(
+        Company c, DateOnly asOf, int withinDays = 30, Guid? onlyItemId = null)
+        => BatchAgeAnalysis.Build(c, asOf, withinDays, onlyItemId);
+
+    // ------------------------------------------------------------------ GST reports (slice 4b)
+
+    /// <summary>The GST Tax Analysis period summary (catalog §12; RQ-20) — outward + inward tax by rate/head.</summary>
+    public static TaxAnalysis BuildTaxAnalysis(Company c, DateOnly from, DateOnly to)
+        => TaxAnalysis.Build(c, from, to);
+
+    /// <summary>GSTR-1 (outward supplies) over a period (catalog §12; RQ-21): B2B/B2C, rate-wise, HSN summary.</summary>
+    public static Gstr1 BuildGstr1(Company c, DateOnly from, DateOnly to)
+        => Gstr1.Build(c, from, to);
+
+    /// <summary>GSTR-3B (summary return) over a period (catalog §12; RQ-22; DP-9): outward tax, ITC, net payable.</summary>
+    public static Gstr3b BuildGstr3b(Company c, DateOnly from, DateOnly to)
+        => Gstr3b.Build(c, from, to);
 }

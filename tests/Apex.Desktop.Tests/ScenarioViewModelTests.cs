@@ -308,13 +308,15 @@ public sealed class ScenarioViewModelTests : IDisposable
     {
         var vm = NewSeededCompany("Scenario Nav Co");
 
-        // Transactions → Vouchers → Other Vouchers is a Group with Reversing Journal + Memorandum.
+        // Transactions → Vouchers → Other Vouchers is a Group with Reversing Journal + Memorandum + POS Billing
+        // (Phase 6 slice 7 RQ-38: the POS Billing entry is always present — clicking it auto-creates the POS-flagged
+        // Sales type on first use, so there is no chicken-and-egg gate).
         vm.ShowOtherVouchersMenu();
         Assert.Equal(GatewayMenu.OtherVouchers, vm.CurrentGatewayMenu);
         var submenu = vm.Columns[^1];
         Assert.True(submenu.IsMenu);
         var labels = submenu.Items.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Reversing Journal", "Memorandum" }, labels);
+        Assert.Equal(new[] { "Reversing Journal", "Memorandum", "POS Billing" }, labels);
 
         // The Vouchers submenu (one column to the left) lists an "Other Vouchers" group item.
         var vouchers = vm.Columns[^2];
