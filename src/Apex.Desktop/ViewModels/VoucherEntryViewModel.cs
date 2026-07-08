@@ -681,13 +681,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 if (qty <= 0m) continue;
 
                 var resolved = PriceResolver.Resolve(_company, level.Id, item.Id, qty, Date);
-                if (resolved is not { } price) continue;
-
-                var rateText = IndianFormat.AmountAlways(price.Rate.Amount);
-                var discountText = price.DiscountPercent > 0m
-                    ? price.DiscountPercent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
-                    : string.Empty;
-                l.ApplyPriceAutoFill(rateText, discountText);
+                if (resolved is { } price)
+                {
+                    var rateText = IndianFormat.AmountAlways(price.Rate.Amount);
+                    var discountText = price.DiscountPercent > 0m
+                        ? price.DiscountPercent.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                        : string.Empty;
+                    l.ApplyPriceAutoFill(rateText, discountText);
+                }
+                else
+                {
+                    // No slab resolves for this (level, item, qty, date) — clear any auto-fill previously stamped on
+                    // this un-dirtied line, so a stale Rate/Discount belonging to a different item or level never
+                    // lingers (e.g. switching the line to an item with no price list). The operator's own edit still
+                    // sticks: ApplyPriceAutoFill writes only when the field is not user-dirty.
+                    l.ApplyPriceAutoFill(string.Empty, string.Empty);
+                }
             }
         }
         finally
@@ -719,10 +728,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     {
         // Default the Price-Level header from the party's default level (slice 5; RQ-30), still overridable. Only
         // when the feature is on; otherwise the header is inert. Assigning re-runs the auto-fill via its handler.
-        if (ShowPriceLevelSelector && value?.Ledger?.DefaultPriceLevelId is { } levelId)
+        if (ShowPriceLevelSelector)
         {
-            var match = PriceLevelOptions.FirstOrDefault(o => o.Level?.Id == levelId);
-            if (match is not null) SelectedPriceLevel = match;
+            // Always reset the header to the NEW party's default level — a party with no default resets it to
+            // "Not Applicable" rather than silently inheriting the previously selected party's level (RQ-30).
+            var match = value?.Ledger?.DefaultPriceLevelId is { } levelId
+                ? PriceLevelOptions.FirstOrDefault(o => o.Level?.Id == levelId)
+                : null;
+            SelectedPriceLevel = match ?? PriceLevelOptions.FirstOrDefault(o => o.IsNotApplicable);
         }
         RecalculateItemInvoice();
     }

@@ -369,6 +369,90 @@ public sealed class PriceListViewModelTests : IDisposable
         Assert.Equal(44550m, posted.InventoryLinesValue.Amount);   // 3 × 14,850
     }
 
+    // ================================================================ (6) miss / context-change resets
+
+    [Fact]
+    public void Switching_line_to_item_without_price_list_clears_the_stale_rate()
+    {
+        var k = NewKit("PL Stale Rate Co");
+        var c = k.Vm.Company!;
+
+        // A second item with NO price list under any level.
+        var masters = new InventoryService(c);
+        var gadget = masters.CreateStockItem("Gadget",
+            c.FindStockGroupByName("Goods")!.Id, c.FindUnitByName("Nos")!.Id);
+        masters.AddOpeningBalance(gadget.Id, c.MainLocation!.Id, 100m, Money.FromRupees(5000m));
+        _storage.Save(c);
+
+        k.Vm.OpenVoucher(VoucherBaseType.Sales);
+        var entry = k.Vm.VoucherEntry!;
+        k.Vm.ToggleItemInvoice();
+        SelectParty(entry, k.CustomerId);
+
+        var line = FillLine(entry, k, 3m);
+        Assert.Equal("14,850.00", line.RateText);       // Widget auto-fills from Retail
+        Assert.False(line.IsRateUserDirty);
+
+        // Switch the un-dirtied line to an item with no price list — the prior item's rate must NOT linger.
+        line.SelectedItem = entry.StockItems.Single(i => i.Id == gadget.Id);
+        Assert.Equal(string.Empty, line.RateText);
+    }
+
+    [Fact]
+    public void Selecting_party_without_default_level_resets_header_to_not_applicable()
+    {
+        var k = NewKit("PL Party Reset Co");
+        var c = k.Vm.Company!;
+
+        // A second customer with NO default price level.
+        var custGroup = c.FindGroupByName("Sundry Debtors")!;
+        var plain = new DomainLedger(Guid.NewGuid(), "Gamma Traders", custGroup.Id, Money.Zero,
+            openingIsDebit: false, defaultPriceLevelId: null);
+        c.AddLedger(plain);
+        _storage.Save(c);
+
+        k.Vm.OpenVoucher(VoucherBaseType.Sales);
+        var entry = k.Vm.VoucherEntry!;
+        k.Vm.ToggleItemInvoice();
+
+        SelectParty(entry, k.CustomerId);               // Retail-defaulting party → header = Retail
+        Assert.Equal(k.RetailLevelId, entry.SelectedPriceLevel?.Level?.Id);
+
+        SelectParty(entry, plain.Id);                   // party with no default → header must reset
+        Assert.True(entry.SelectedPriceLevel?.IsNotApplicable);
+    }
+
+    // ================================================================ (7) keyboard (Ctrl+A) route
+
+    [Fact]
+    public void Ctrl_a_creates_price_level_and_saves_price_list_via_activate_selected()
+    {
+        var k = NewKit("PL Ctrl A Co");
+        var c = k.Vm.Company!;
+
+        // Price Level master: Ctrl+A (ActivateSelected) must create the typed level.
+        k.Vm.ShowPriceLevelsMaster();
+        Assert.NotNull(k.Vm.PriceLevels);
+        k.Vm.PriceLevels!.Name = "Wholesale";
+        k.Vm.ActivateSelected();
+        Assert.Contains(c.PriceLevels, l => l.Name == "Wholesale");
+
+        // Price List master: Ctrl+A (ActivateSelected) must save a dated revision.
+        k.Vm.ShowPriceListsMaster();
+        Assert.NotNull(k.Vm.PriceLists);
+        var master = k.Vm.PriceLists!;
+        master.SelectedLevel = master.Levels.Single(l => l.Id == k.RetailLevelId);
+        master.SelectedItem = master.Items.Single(i => i.Id == k.ItemId);
+        var before = c.PriceListsFor(k.RetailLevelId, k.ItemId).Count();
+        master.ApplicableFromText = c.BooksBeginFrom.AddMonths(3).ToString("dd-MMM-yyyy",
+            System.Globalization.CultureInfo.InvariantCulture);
+        master.Slabs[0].FromText = "0";
+        master.Slabs[0].ToText = "";
+        master.Slabs[0].RateText = "15000";
+        k.Vm.ActivateSelected();
+        Assert.Equal(before + 1, c.PriceListsFor(k.RetailLevelId, k.ItemId).Count());
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true); }

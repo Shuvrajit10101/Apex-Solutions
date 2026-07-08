@@ -2695,6 +2695,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BomMaster:
                 BomMaster?.Create();
                 return;
+            case Screen.PriceLevelsMaster:
+                PriceLevels?.Create();
+                return;
+            case Screen.PriceListsMaster:
+                PriceLists?.Save();
+                return;
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
