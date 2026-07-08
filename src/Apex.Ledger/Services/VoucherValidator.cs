@@ -77,6 +77,68 @@ public static class VoucherValidator
         // §10 item-invoice mode (slice 3.3b): the accounts↔inventory pairing invariant.
         if (v.HasInventoryLines)
             EnsureItemInvoiceValid(v, c);
+
+        // §11 POS mode (slice 7 RQ-39..RQ-42): the tender-split invariants — entered only when the voucher carries
+        // POS tenders, so an ordinary sale is byte-identical (ER-13). The Cr Sales + Cr Output-GST credit side and
+        // the item-invoice pairing above are untouched; POS only changes the DEBIT side to a tender split.
+        if (v.HasPosTenders)
+            EnsurePosTendersValid(v, c);
+    }
+
+    /// <summary>
+    /// The POS tender-split invariants (catalog §11; Phase 6 slice 7 RQ-39..RQ-42; TOP RISK #6). Entered only when
+    /// <see cref="Voucher.HasPosTenders"/>. Enforces, in order:
+    /// <list type="bullet">
+    ///   <item><b>Base + flag</b>: POS tenders are valid only on a <b>Sales</b> voucher type flagged
+    ///     <see cref="VoucherType.UseForPos"/>.</item>
+    ///   <item><b>Reconciliation</b>: Σ tender.Amount == the voucher's total debit (the bill total) — the tenders
+    ///     ARE the debit side, so every debit line is a tender share and they foot to the bill (RQ-40).</item>
+    ///   <item><b>Grouping</b>: each tender ledger sits under its required group (Gift → Sundry Debtors,
+    ///     Card/Cheque → Bank, Cash → Cash-in-Hand) — load-bearing (RQ-41).</item>
+    ///   <item><b>Cash change</b>: every Cash tender carries Tendered ≥ Amount and Change == Tendered − Amount
+    ///     (≥ 0, informational — never posted); a non-cash tender carries no cash-only fields (RQ-39).</item>
+    /// </list>
+    /// Throws <see cref="InvalidVoucherException"/> on the first violation, so an unbalanced or misgrouped tender
+    /// split can never persist. <see cref="EnsureItemInvoiceValid"/> and the balance invariant continue to pass.
+    /// </summary>
+    public static void EnsurePosTendersValid(Voucher v, Company c)
+    {
+        var type = c.FindVoucherType(v.TypeId)!; // referential integrity already checked
+        if (type.BaseType != VoucherBaseType.Sales || !type.UseForPos)
+            throw new InvalidVoucherException(
+                $"POS tenders are only valid on a POS-flagged Sales voucher type; '{type.Name}' is a " +
+                $"{type.BaseType}{(type.BaseType == VoucherBaseType.Sales ? " without 'Use for POS invoicing'" : "")}.");
+
+        // Reconciliation: Σ tender == total debit (the bill total). Because the tenders replace the single customer
+        // debit, this simultaneously proves the debit side is entirely tender shares that foot to the bill (RQ-40).
+        Services.PosTenderService.EnsureBalanced(v.TotalDebit, v.PosTenders);
+
+        // Grouping (load-bearing, RQ-41).
+        Services.PosTenderService.EnsureGrouping(c, v.PosTenders);
+
+        // Cash change consistency (RQ-39): a Cash tender's tendered ≥ amount and change == tendered − amount; a
+        // non-cash tender must not carry cash-only fields.
+        foreach (var t in v.PosTenders)
+        {
+            if (t.Type == PosTenderType.Cash)
+            {
+                if (t.Tendered is not { } tendered)
+                    throw new InvalidVoucherException("A POS Cash tender must record the Cash Tendered amount.");
+                if (tendered < t.Amount)
+                    throw new InvalidVoucherException(
+                        $"POS Cash tendered {tendered} is less than the cash payable {t.Amount}.");
+                var expectedChange = tendered - t.Amount;
+                if (t.Change is not { } change || change != expectedChange)
+                    throw new InvalidVoucherException(
+                        $"POS Cash change must equal tendered − payable ({expectedChange}); got " +
+                        $"{(t.Change is { } ch ? ch.ToString() : "null")}.");
+            }
+            else if (t.Tendered is not null || t.Change is not null)
+            {
+                throw new InvalidVoucherException(
+                    $"A POS {t.Type} tender must not carry Cash Tendered / Change (those are Cash-only).");
+            }
+        }
     }
 
     /// <summary>

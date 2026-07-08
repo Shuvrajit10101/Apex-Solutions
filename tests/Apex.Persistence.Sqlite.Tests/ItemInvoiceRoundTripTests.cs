@@ -245,6 +245,12 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP INDEX IF EXISTS ux_reorder_definitions_scope;");
         Exec(conn, "DROP INDEX IF EXISTS ix_reorder_definitions_company;");
         Exec(conn, "DROP TABLE IF EXISTS reorder_definitions;");
+        // Drop the v23 POS tables + their index so the reopen's v22→v23 CREATE TABLE does not collide with a table
+        // a fresh save at the current version already created (the voucher_types rebuild below strips use_for_pos).
+        Exec(conn, "DROP INDEX IF EXISTS ix_pos_tender_allocations_voucher;");
+        Exec(conn, "DROP TABLE IF EXISTS pos_tender_allocations;");
+        Exec(conn, "DROP TABLE IF EXISTS pos_tender_ledger_defaults;");
+        Exec(conn, "DROP TABLE IF EXISTS pos_voucher_type_config;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not
         // collide with a table a fresh save at the current version already created.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");

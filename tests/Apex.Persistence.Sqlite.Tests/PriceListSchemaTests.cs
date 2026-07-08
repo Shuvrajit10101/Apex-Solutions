@@ -238,5 +238,9 @@ public sealed class PriceListSchemaTests
             name TEXT NOT NULL, group_id TEXT NOT NULL REFERENCES groups(id), method_of_appropriation INTEGER NULL);
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL);
+        -- voucher_types is required because the chain now runs through the v22→v23 POS migration, whose
+        -- ALTER TABLE voucher_types ADD COLUMN use_for_pos needs the table to exist.
+        CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
+            name TEXT NOT NULL);
         """;
 }

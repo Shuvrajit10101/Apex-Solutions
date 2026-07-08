@@ -8,6 +8,7 @@ public sealed class Voucher
 {
     private readonly List<EntryLine> _lines;
     private readonly List<VoucherInventoryLine> _inventoryLines;
+    private readonly List<PosTender> _posTenders;
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -56,6 +57,33 @@ public sealed class Voucher
         }
     }
 
+    /// <summary>
+    /// The <b>POS payment tenders</b> (catalog §11; Phase 6 slice 7 RQ-39/RQ-40; DP-6) — present ONLY on a POS
+    /// Sales voucher (a Sales type flagged <see cref="VoucherType.UseForPos"/>). <b>Empty for every other
+    /// voucher</b>, so an ordinary sale behaves exactly as before (ER-13). When present, the single customer debit
+    /// is replaced by a split of tender debits (one <see cref="Lines"/> Dr per tender, paired 1:1 with these
+    /// records); the credit side (Cr Sales + Cr Output GST) is byte-identical to a normal sale. This list is pure
+    /// metadata (tender kind, cash tendered/change, card/bank/cheque); the accounting effect lives in
+    /// <see cref="Lines"/>. Added exactly like <see cref="InventoryLines"/> — an optional ctor param — so round-trip
+    /// and reporting stay trivial (DP-6: no persisted POS session object).
+    /// </summary>
+    public IReadOnlyList<PosTender> PosTenders => _posTenders;
+
+    /// <summary>True iff this voucher carries POS payment tenders (POS mode).</summary>
+    public bool HasPosTenders => _posTenders.Count > 0;
+
+    /// <summary>Σ of the POS tender <see cref="PosTender.Amount"/> shares (the posted payable split, paisa-exact) —
+    /// the value the tender-reconciliation invariant checks against the bill total / total debit.</summary>
+    public Money PosTendersValue
+    {
+        get
+        {
+            var sum = Money.Zero;
+            foreach (var t in _posTenders) sum += t.Amount;
+            return sum;
+        }
+    }
+
     /// <summary>Alt+X — number retained in sequence, zero effect on balances.</summary>
     public bool Cancelled { get; set; }
 
@@ -84,7 +112,8 @@ public sealed class Voucher
         bool optional = false,
         bool postDated = false,
         DateOnly? applicableUpto = null,
-        IEnumerable<VoucherInventoryLine>? inventoryLines = null)
+        IEnumerable<VoucherInventoryLine>? inventoryLines = null,
+        IEnumerable<PosTender>? posTenders = null)
     {
         Id = id;
         TypeId = typeId;
@@ -98,6 +127,7 @@ public sealed class Voucher
         PostDated = postDated;
         ApplicableUpto = applicableUpto;
         _inventoryLines = inventoryLines?.ToList() ?? new List<VoucherInventoryLine>();
+        _posTenders = posTenders?.ToList() ?? new List<PosTender>();
     }
 
     /// <summary>

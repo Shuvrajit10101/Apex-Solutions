@@ -24,12 +24,13 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
     /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10) or a tax invoice (RQ-11).
     /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
-    public enum PrintKind { Report, Voucher, Invoice }
+    public enum PrintKind { Report, Voucher, Invoice, Receipt }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
     private readonly PrintReport? _report;
     private readonly VoucherPrintData? _voucher;
     private readonly InvoicePrintData? _invoice;
+    private readonly PosReceiptData? _receipt;
 
     /// <summary>The page config the preview + PDF are rendered with. Rebuilt (and the document re-rendered) when
     /// the size/orientation is changed via the toggles below.</summary>
@@ -120,6 +121,19 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
+    /// <summary>Preview a POS retail receipt (Phase 6 slice 7 RQ-44) via <c>PosReceiptPdf</c>. A receipt is a fixed
+    /// retail bill layout — the F12 title/narration/copy knobs do not apply.</summary>
+    public PrintPreviewViewModel(PosReceiptData receipt)
+    {
+        _receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
+        Kind = PrintKind.Receipt;
+        ReportTitle = string.IsNullOrEmpty(receipt.BillNumber)
+            ? "Retail Receipt"
+            : $"Retail Receipt No. {receipt.BillNumber}";
+        _config = BuildConfig();
+        Render();
+    }
+
     /// <summary>The F12 knobs assembled into the Io <see cref="PrintConfig"/> the renderers honour.</summary>
     private PrintConfig BuildPrintConfig() => new()
     {
@@ -144,6 +158,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         {
             PrintKind.Voucher => VoucherPdf.Render(_voucher!, BuildPrintConfig(), _config),
             PrintKind.Invoice => InvoicePdf.Render(_invoice!, BuildPrintConfig(), _config),
+            PrintKind.Receipt => PosReceiptPdf.Render(_receipt!, _config),
             _ => ReportPdf.Render(_report!, _config),
         };
         OnPropertyChanged(nameof(PdfBytes));
@@ -152,6 +167,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         {
             PrintKind.Voucher => BuildVoucherPreviewReport(),
             PrintKind.Invoice => BuildInvoicePreviewReport(),
+            PrintKind.Receipt => BuildReceiptPreviewReport(),
             _ => _report!,
         };
 
@@ -330,6 +346,59 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         {
             Title = title,
             Subtitle = inv.Seller.Name,
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 4, CellAlign.Left),
+                new PrintColumn(string.Empty, 1, CellAlign.Right),
+                new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    private PrintReport BuildReceiptPreviewReport()
+    {
+        var r = _receipt!;
+        var rows = new List<PrintRow>();
+        rows.Add(PrintRow.Header($"Bill No. {r.BillNumber}", "Date", r.DateText));
+        rows.Add(PrintRow.Header("Customer: " + (string.IsNullOrWhiteSpace(r.Party) ? "(cash)" : r.Party),
+            string.Empty, string.Empty));
+
+        foreach (var it in r.Items)
+            rows.Add(new PrintRow(new[]
+            {
+                $"{it.Description}  {it.QuantityText} @ {it.RateText}",
+                string.Empty,
+                IndianFormat.Amount(it.Value),
+            }));
+
+        rows.Add(PrintRow.Total("Taxable", string.Empty, IndianFormat.AmountAlways(r.TotalTaxable)));
+        if (r.IsInterState)
+            rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(r.TotalIgst) }));
+        else
+        {
+            rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(r.TotalCgst) }));
+            rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(r.TotalSgst) }));
+        }
+        rows.Add(PrintRow.Total("Grand Total", string.Empty, IndianFormat.AmountAlways(r.GrandTotal)));
+
+        rows.Add(PrintRow.Header("Payment", string.Empty, string.Empty));
+        foreach (var t in r.Tenders)
+            rows.Add(new PrintRow(new[] { "  " + t.Label, string.Empty, IndianFormat.AmountAlways(t.Amount) }));
+        if (r.CashTendered.Amount > 0m)
+        {
+            rows.Add(new PrintRow(new[] { "  Cash Tendered", string.Empty, IndianFormat.AmountAlways(r.CashTendered) }));
+            rows.Add(new PrintRow(new[] { "  Change", string.Empty, IndianFormat.AmountAlways(r.Change) }));
+        }
+        if (!string.IsNullOrWhiteSpace(r.Message1)) rows.Add(PrintRow.Header(r.Message1, string.Empty, string.Empty));
+        if (!string.IsNullOrWhiteSpace(r.Message2)) rows.Add(PrintRow.Header(r.Message2, string.Empty, string.Empty));
+        if (!string.IsNullOrWhiteSpace(r.Declaration)) rows.Add(PrintRow.Header(r.Declaration, string.Empty, string.Empty));
+
+        var title = string.IsNullOrWhiteSpace(r.Title) ? "RETAIL INVOICE" : r.Title;
+        return new PrintReport
+        {
+            Title = title,
+            Subtitle = r.StoreName,
             Columns = new[]
             {
                 new PrintColumn("Particulars", 4, CellAlign.Left),

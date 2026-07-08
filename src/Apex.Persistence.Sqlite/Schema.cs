@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 22;
+    public const int CurrentVersion = 23;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -226,7 +226,11 @@ public static class Schema
             track_additional_costs INTEGER NOT NULL DEFAULT 0,        -- 0/1
             -- v20 (Phase 6 slice 4; RQ-21): "Allow zero-valued transactions" — a Sales/Purchase voucher-type flag
             -- permitting ₹0 free-goods item lines. 0/1, default 0 so an existing type is byte-identical (ER-13).
-            allow_zero_valued INTEGER NOT NULL DEFAULT 0              -- 0/1
+            allow_zero_valued INTEGER NOT NULL DEFAULT 0,             -- 0/1
+            -- v23 (Phase 6 slice 7; RQ-38): "Use for POS invoicing" — a Sales voucher-type flag marking a POS
+            -- (retail-till) invoice. 0/1, default 0 so an existing type is byte-identical (ER-13). The retail-till
+            -- config lives in pos_voucher_type_config; the tender-ledger class map in pos_tender_ledger_defaults.
+            use_for_pos INTEGER NOT NULL DEFAULT 0                    -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -626,6 +630,48 @@ public static class Schema
             criteria             INTEGER     NULL                -- 0=Higher 1=Lower (when Advanced)
         );
 
+        -- v23 (Phase 6 slice 7; RQ-38): the retail-till config for a POS-flagged Sales voucher type — ONE row per
+        -- POS type (voucher_type_id is the PRIMARY KEY). Keeps the RQ-38 config strings off the lean voucher_types
+        -- row: the pre-selected default godown / default party (NULL party = walk-in "(cash)"), whether to open the
+        -- receipt preview after Accept, the receipt title, two thank-you messages, and the declaration line.
+        CREATE TABLE pos_voucher_type_config (
+            voucher_type_id   TEXT    NOT NULL PRIMARY KEY REFERENCES voucher_types(id),
+            default_godown_id TEXT        NULL REFERENCES godowns(id),
+            default_party_id  TEXT        NULL REFERENCES ledgers(id),   -- NULL = walk-in "(cash)"
+            print_after_save  INTEGER NOT NULL DEFAULT 0,                -- 0/1
+            default_title     TEXT        NULL,
+            message_1         TEXT        NULL,
+            message_2         TEXT        NULL,
+            declaration       TEXT        NULL
+        );
+
+        -- v23 (Phase 6 slice 7; RQ-38/DP-4): the POS Voucher Class tender-ledger pre-map — up to 4 rows per POS
+        -- type (one per tender kind), pre-filled at entry and overridable. Keyed by (voucher_type_id, tender_type).
+        CREATE TABLE pos_tender_ledger_defaults (
+            voucher_type_id  TEXT    NOT NULL REFERENCES voucher_types(id),
+            tender_type      INTEGER NOT NULL,               -- PosTenderType ordinal (0 Gift,1 Card,2 Cheque,3 Cash)
+            ledger_id        TEXT    NOT NULL REFERENCES ledgers(id),
+            PRIMARY KEY (voucher_type_id, tender_type)
+        );
+
+        -- v23 (Phase 6 slice 7; RQ-39/RQ-40; DP-6): the per-POS-voucher tender rows — the metadata entry_lines
+        -- cannot carry (tender kind, cash tendered/change, card/bank/cheque). Keyed by voucher_id. amount_paisa is
+        -- the POSTED payable share (Cash = residual, NOT tendered); tendered/change are Cash-only (change is
+        -- informational, never a ledger line). Money = INTEGER paisa (no float). No persisted POS session object.
+        CREATE TABLE pos_tender_allocations (
+            id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            voucher_id     TEXT    NOT NULL REFERENCES vouchers(id),
+            tender_order   INTEGER NOT NULL,                 -- stable order (Gift,Card,Cheque,Cash)
+            tender_type    INTEGER NOT NULL,                 -- PosTenderType ordinal
+            ledger_id      TEXT    NOT NULL REFERENCES ledgers(id),
+            amount_paisa   INTEGER NOT NULL,                 -- posted payable share (Cash = residual, not tendered)
+            tendered_paisa INTEGER     NULL,                 -- Cash only: Cash Tendered
+            change_paisa   INTEGER     NULL,                 -- Cash only: informational change = tendered − payable
+            card_no        TEXT        NULL,                 -- Card only
+            bank_name      TEXT        NULL,                 -- Cheque/DD only
+            cheque_no      TEXT        NULL                  -- Cheque/DD only
+        );
+
         -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
         -- report configuration tuple (kind/period/depth/sort/filter/comparative/F12) — never a computed figure;
         -- the report is always recomputed when the view is applied, so a saved view can never go stale (ER-9).
@@ -702,6 +748,9 @@ public static class Schema
         -- definition per item/group/category, RQ-32).
         CREATE INDEX ix_reorder_definitions_company      ON reorder_definitions(company_id);
         CREATE UNIQUE INDEX ux_reorder_definitions_scope ON reorder_definitions(scope, target_id);
+        -- v23: POS tender allocations — lookup by owning voucher; the config + class-map tables are keyed by their
+        -- PRIMARY KEY so they need no extra index.
+        CREATE INDEX ix_pos_tender_allocations_voucher ON pos_tender_allocations(voucher_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
@@ -1407,5 +1456,56 @@ public static class Schema
 
         CREATE INDEX ix_reorder_definitions_company      ON reorder_definitions(company_id);
         CREATE UNIQUE INDEX ux_reorder_definitions_scope ON reorder_definitions(scope, target_id);
+        """;
+
+    /// <summary>
+    /// v22 → v23: <b>POS (single/multi-tender)</b> (Phase 6 slice 7; RQ-38..RQ-44; ER-1, ER-13; DP-6). Purely
+    /// additive — one <c>ALTER TABLE voucher_types ADD COLUMN use_for_pos … DEFAULT 0</c> flag plus three new
+    /// tables: <c>pos_voucher_type_config</c> (one retail-till config row per POS-flagged Sales type),
+    /// <c>pos_tender_ledger_defaults</c> (the DP-4 tender-ledger class map, up to 4 rows per type) and
+    /// <c>pos_tender_allocations</c> (the per-POS-voucher tender rows the balanced entry lines cannot carry), plus
+    /// the allocations lookup index. No <c>ALTER</c> that rewrites rows, no data backfill: an existing v22 database
+    /// keeps every row untouched, the flag defaults off, and the three tables start empty — so a non-POS company is
+    /// byte-identical (ER-13). POS <b>is</b> a Sales voucher (DP-6: no persisted session object); the tender split
+    /// is metadata paired with the balanced tender debit lines. Money = INTEGER paisa (no float). Run inside a
+    /// transaction that also bumps <c>schema_version</c> to 23. A fresh DB is stamped straight to v23 via
+    /// <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV22ToV23 = """
+        ALTER TABLE voucher_types ADD COLUMN use_for_pos INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE pos_voucher_type_config (
+            voucher_type_id   TEXT    NOT NULL PRIMARY KEY REFERENCES voucher_types(id),
+            default_godown_id TEXT        NULL REFERENCES godowns(id),
+            default_party_id  TEXT        NULL REFERENCES ledgers(id),
+            print_after_save  INTEGER NOT NULL DEFAULT 0,
+            default_title     TEXT        NULL,
+            message_1         TEXT        NULL,
+            message_2         TEXT        NULL,
+            declaration       TEXT        NULL
+        );
+
+        CREATE TABLE pos_tender_ledger_defaults (
+            voucher_type_id  TEXT    NOT NULL REFERENCES voucher_types(id),
+            tender_type      INTEGER NOT NULL,
+            ledger_id        TEXT    NOT NULL REFERENCES ledgers(id),
+            PRIMARY KEY (voucher_type_id, tender_type)
+        );
+
+        CREATE TABLE pos_tender_allocations (
+            id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            voucher_id     TEXT    NOT NULL REFERENCES vouchers(id),
+            tender_order   INTEGER NOT NULL,
+            tender_type    INTEGER NOT NULL,
+            ledger_id      TEXT    NOT NULL REFERENCES ledgers(id),
+            amount_paisa   INTEGER NOT NULL,
+            tendered_paisa INTEGER     NULL,
+            change_paisa   INTEGER     NULL,
+            card_no        TEXT        NULL,
+            bank_name      TEXT        NULL,
+            cheque_no      TEXT        NULL
+        );
+
+        CREATE INDEX ix_pos_tender_allocations_voucher ON pos_tender_allocations(voucher_id);
         """;
 }

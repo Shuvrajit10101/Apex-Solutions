@@ -4557,6 +4557,292 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: POS Billing voucher entry — Phase 6 slice 7 (RQ-38..RQ-44) -->
+                    <ContentControl IsVisible="{Binding PosBilling, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PosBilling}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PosBillingViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                            <!-- Header: party (walk-in) / Sales ledger / godown / date + payment mode -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="14" Margin="0,0,0,8">
+                              <StackPanel Spacing="9">
+                                <Grid ColumnDefinitions="110,*,90,150">
+                                  <TextBlock Grid.Column="0" Text="Customer" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Parties}"
+                                            SelectedItem="{Binding SelectedParty, Mode=TwoWay}"
+                                            PlaceholderText="(cash) walk-in…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PartyOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Date" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="110,*,90,150">
+                                  <TextBlock Grid.Column="0" Text="Sales ledger" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding SalesLedgers}"
+                                            SelectedItem="{Binding SelectedSalesLedger, Mode=TwoWay}"
+                                            PlaceholderText="Sales A/c…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Godown" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Godowns}"
+                                            SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
+                                            PlaceholderText="Godown…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Godown">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                             Text="{Binding PaymentModeText, StringFormat='Payment mode: {0}'}"/>
+                                  <Button Grid.Column="1" Content="Payment Mode (Alt+I)" Padding="10,5"
+                                          Click="OnTogglePosPaymentModeClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                              <StackPanel Spacing="10">
+                                <!-- Item lines: Item / Qty / Rate -->
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="6">
+                                    <Grid ColumnDefinitions="*,90,120">
+                                      <TextBlock Grid.Column="0" Text="Item" FontWeight="Bold"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Grid.Column="1" Text="Qty" FontWeight="Bold" TextAlignment="Right"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Grid.Column="2" Text="Rate" FontWeight="Bold" TextAlignment="Right"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Items}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
+                                          <Grid ColumnDefinitions="*,90,120" Margin="0,2">
+                                            <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
+                                                      ItemsSource="{Binding StockItems}"
+                                                      SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                                      PlaceholderText="stock item…">
+                                              <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="ledger:StockItem">
+                                                  <TextBlock Text="{Binding Name}"/>
+                                                </DataTemplate>
+                                              </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <TextBox Grid.Column="1" Text="{Binding QuantityText, Mode=TwoWay}"
+                                                     TextAlignment="Right" Margin="4,0,0,0"/>
+                                            <TextBox Grid.Column="2" Text="{Binding RateText, Mode=TwoWay}"
+                                                     TextAlignment="Right" Margin="4,0,0,0"/>
+                                          </Grid>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="+ Add item" Padding="10,4" HorizontalAlignment="Left"
+                                            Click="OnAddPosItemLineClick"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Live totals -->
+                                <Border Background="#EEF4FB" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="14,10">
+                                  <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" Text="Items total" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding ItemsTotalText}" TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" Text="CGST" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding GstCgstText}" TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" Text="SGST" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding GstSgstText}" TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" Text="IGST" FontSize="12.5"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding GstIgstText}" TextAlignment="Right" FontSize="12.5"/>
+                                    </Grid>
+                                    <Border BorderBrush="{StaticResource BrandNavy}" BorderThickness="0,1,0,0" Padding="0,4,0,0">
+                                      <Grid ColumnDefinitions="*,150">
+                                        <TextBlock Grid.Column="0" Text="Bill total" FontWeight="Bold" FontSize="13"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding BillTotalText}" TextAlignment="Right"
+                                                   FontWeight="Bold" FontSize="13" Foreground="{StaticResource BrandNavy}"/>
+                                      </Grid>
+                                    </Border>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- SINGLE tender: one Cash tender for the whole bill -->
+                                <Border IsVisible="{Binding !IsMultiTender}" Background="White"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="14,10">
+                                  <StackPanel Spacing="7" DataContext="{Binding CashRow}" x:DataType="vm:PosTenderRowViewModel">
+                                    <TextBlock Text="Payment — Single (Cash)" FontWeight="Bold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="120,*">
+                                      <TextBlock Grid.Column="0" Text="Cash ledger" VerticalAlignment="Center"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding LedgerChoices}"
+                                                SelectedItem="{Binding SelectedLedger, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="ledger:Ledger">
+                                            <TextBlock Text="{Binding Name}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,140,120,140">
+                                      <TextBlock Grid.Column="0" Text="Cash tendered" VerticalAlignment="Center"/>
+                                      <TextBox Grid.Column="1" Text="{Binding CashTenderedText, Mode=TwoWay}" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="2" Text="Change" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                      <TextBox Grid.Column="3" Text="{Binding ChangeText}" IsReadOnly="True" TextAlignment="Right"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- MULTI tender: Gift / Card / Cheque / Cash (Cash auto-fills the residual) -->
+                                <Border IsVisible="{Binding IsMultiTender}" Background="White"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="14,10">
+                                  <StackPanel Spacing="6">
+                                    <TextBlock Text="Payment — Multi Tender" FontWeight="Bold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ItemsControl ItemsSource="{Binding Tenders}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:PosTenderRowViewModel">
+                                          <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1" Padding="0,4">
+                                            <StackPanel Spacing="4">
+                                              <Grid ColumnDefinitions="120,*,130">
+                                                <TextBlock Grid.Column="0" Text="{Binding Label}" FontWeight="SemiBold"
+                                                           VerticalAlignment="Center"/>
+                                                <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                          ItemsSource="{Binding LedgerChoices}"
+                                                          SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                          PlaceholderText="ledger…">
+                                                  <ComboBox.ItemTemplate>
+                                                    <DataTemplate x:DataType="ledger:Ledger">
+                                                      <TextBlock Text="{Binding Name}"/>
+                                                    </DataTemplate>
+                                                  </ComboBox.ItemTemplate>
+                                                </ComboBox>
+                                                <TextBox Grid.Column="2" Text="{Binding AmountText, Mode=TwoWay}"
+                                                         IsEnabled="{Binding !AmountReadOnly}" TextAlignment="Right"
+                                                         Margin="4,0,0,0"/>
+                                              </Grid>
+                                              <TextBox IsVisible="{Binding ShowCardNo}" Text="{Binding CardNo, Mode=TwoWay}"
+                                                       PlaceholderText="Card No." Margin="120,0,0,0"/>
+                                              <Grid IsVisible="{Binding ShowChequeRefs}" ColumnDefinitions="*,*" Margin="120,0,0,0">
+                                                <TextBox Grid.Column="0" Text="{Binding BankName, Mode=TwoWay}" PlaceholderText="Bank name" Margin="0,0,4,0"/>
+                                                <TextBox Grid.Column="1" Text="{Binding ChequeNo, Mode=TwoWay}" PlaceholderText="Cheque No."/>
+                                              </Grid>
+                                              <Grid IsVisible="{Binding ShowCashFields}" ColumnDefinitions="120,140,120,140" Margin="120,0,0,0">
+                                                <TextBlock Grid.Column="0" Text="Cash tendered" VerticalAlignment="Center"/>
+                                                <TextBox Grid.Column="1" Text="{Binding CashTenderedText, Mode=TwoWay}" TextAlignment="Right"/>
+                                                <TextBlock Grid.Column="2" Text="Change" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                                <TextBox Grid.Column="3" Text="{Binding ChangeText}" IsReadOnly="True" TextAlignment="Right"/>
+                                              </Grid>
+                                            </StackPanel>
+                                          </Border>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Grid ColumnDefinitions="*,150">
+                                      <TextBlock Grid.Column="0" FontSize="12.5"
+                                                 Text="{Binding TenderBalanceText, StringFormat='Σ tenders — {0}'}"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding TendersTotalText}" TextAlignment="Right"
+                                                 FontWeight="Bold" FontSize="12.5"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Retail-receipt settings (RQ-44 / §4.3): print-after-save + title/messages/declaration on the POS type -->
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="14,10">
+                                  <StackPanel Spacing="6">
+                                    <TextBlock Text="Retail Receipt" FontWeight="Bold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <CheckBox Content="Print receipt after Accept"
+                                              IsChecked="{Binding PrintAfterSave, Mode=TwoWay}"/>
+                                    <Grid ColumnDefinitions="120,*">
+                                      <TextBlock Grid.Column="0" Text="Receipt title" VerticalAlignment="Center"/>
+                                      <TextBox Grid.Column="1" Text="{Binding ReceiptTitle, Mode=TwoWay}"
+                                               PlaceholderText="Retail Invoice"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                      <TextBlock Grid.Column="0" Text="Message line 1" VerticalAlignment="Center"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Message1, Mode=TwoWay}"
+                                               PlaceholderText="Thank-you message…"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                      <TextBlock Grid.Column="0" Text="Message line 2" VerticalAlignment="Center"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Message2, Mode=TwoWay}"
+                                               PlaceholderText="(optional)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*">
+                                      <TextBlock Grid.Column="0" Text="Declaration" VerticalAlignment="Center"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Declaration, Mode=TwoWay}"
+                                               PlaceholderText="(optional)" TextWrapping="Wrap" AcceptsReturn="True"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Tax analysis (Alt+A) -->
+                                <Border IsVisible="{Binding IsTaxAnalysisVisible}" Background="#FFF7E6"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12,8">
+                                  <StackPanel Spacing="3">
+                                    <TextBlock Text="Tax Analysis" FontWeight="Bold" FontSize="12"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Text="{Binding TaxAnalysisText}" FontSize="12" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+                              </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Message + Accept / Cancel / Tax Analysis -->
+                            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource AlertRed}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <Button Grid.Column="1" Content="Tax Analysis (Alt+A)" Padding="10,6" Margin="0,0,8,0"
+                                      Click="OnShowPosTaxAnalysisClick"/>
+                              <Button Grid.Column="2" Content="Cancel (Alt+X)" Padding="12,6" Margin="0,0,8,0"
+                                      Click="OnCancelPosClick"/>
+                              <Button Grid.Column="3" Content="Accept (Ctrl+A)" Padding="14,6"
+                                      IsEnabled="{Binding CanAccept}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnAcceptPosClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Price Level master (create + list) — Phase 6 slice 5 (RQ-26/RQ-54) -->
                     <ContentControl IsVisible="{Binding PriceLevels, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding PriceLevels}">

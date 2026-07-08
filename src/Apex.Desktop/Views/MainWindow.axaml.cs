@@ -195,6 +195,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+I toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42). Scoped to
+        // the POS Billing screen so it never collides elsewhere; the item-invoice toggle stays on Ctrl+I.
+        if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.PosBilling)
+        {
+            vm.TogglePosPaymentMode();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+A surfaces the POS bill's per-rate tax analysis (RQ-53). Scoped to the POS Billing screen; Ctrl+A
+        // (accept) is a separate binding (Control) so this does not shadow it.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.PosBilling)
+        {
+            vm.ShowPosTaxAnalysis();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+S (RQ-8) opens the "Save View" panel over an open report — name and store the report's current
         // configuration (kind + period/as-of + detail + F12 options + sort/filter + comparative columns). Report
         // context only, so it never fires while a drill column is the active pane. Ctrl+A on the panel saves it.
@@ -557,6 +577,22 @@ public partial class MainWindow : Window
 
     private void OnAddManufacturingCostClick(object? sender, RoutedEventArgs e)
         => Vm?.ManufacturingJournalEntry?.AddBlankAdditionalCost();
+
+    // POS Billing (Phase 6 slice 7; RQ-38..RQ-44) — accept / cancel / add line / toggle payment mode / tax analysis.
+    private void OnAcceptPosClick(object? sender, RoutedEventArgs e)
+        => Vm?.PosBilling?.Accept();
+
+    private void OnCancelPosClick(object? sender, RoutedEventArgs e)
+        => Vm?.CancelVoucher();
+
+    private void OnAddPosItemLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.PosBilling?.AddItemLine();
+
+    private void OnTogglePosPaymentModeClick(object? sender, RoutedEventArgs e)
+        => Vm?.PosBilling?.TogglePaymentMode();
+
+    private void OnShowPosTaxAnalysisClick(object? sender, RoutedEventArgs e)
+        => Vm?.PosBilling?.ShowTaxAnalysis();
 
     /// <summary>Opens the batch-allocation sub-screen (RQ-3) for the inventory-voucher line the button sits on.</summary>
     private void OnOpenBatchAllocationClick(object? sender, RoutedEventArgs e)

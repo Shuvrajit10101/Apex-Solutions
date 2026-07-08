@@ -85,6 +85,25 @@ public sealed class VoucherType
     /// </summary>
     public bool AllowZeroValuedTransactions { get; set; }
 
+    /// <summary>
+    /// "<b>Use for POS invoicing</b>" (catalog §11; Phase 6 slice 7 RQ-38). A user-created <b>Sales</b> voucher type
+    /// may set this <b>Yes</b> to behave as a Point-of-Sale (retail-till) invoice: the single customer debit is
+    /// replaced by a split of tender debits (<see cref="Voucher.PosTenders"/>), while the credit side (Cr Sales +
+    /// Cr Output GST) and the item-invoice stock movement are byte-identical to a normal sale — so GST reuses the
+    /// Phase-4 engine unchanged. Defaults to <c>false</c>, so every existing Sales type is byte-identical (ER-13).
+    /// Only meaningful on a Sales base type. The retail-till configuration (default godown/party, print-after-save,
+    /// title, messages, declaration, tender-ledger defaults) lives in the optional <see cref="PosConfig"/>.
+    /// </summary>
+    public bool UseForPos { get; set; }
+
+    /// <summary>The POS configuration (RQ-38; DP-4) — non-null only on a <see cref="UseForPos"/> Sales type. Holds
+    /// the retail-till defaults and the optional POS Voucher Class tender-ledger pre-map. <c>null</c> for every
+    /// non-POS type (byte-identical, ER-13).</summary>
+    public PosConfig? PosConfig { get; set; }
+
+    /// <summary>True iff this is a POS Sales type — a Sales base type with <see cref="UseForPos"/> on (RQ-38).</summary>
+    public bool IsPosSales => BaseType == VoucherBaseType.Sales && UseForPos;
+
     public VoucherType(
         Guid id,
         string name,
@@ -98,7 +117,9 @@ public sealed class VoucherType
         bool? affectsStock = null,
         bool useAsManufacturingJournal = false,
         bool trackAdditionalCosts = false,
-        bool allowZeroValuedTransactions = false)
+        bool allowZeroValuedTransactions = false,
+        bool useForPos = false,
+        PosConfig? posConfig = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -116,5 +137,7 @@ public sealed class VoucherType
         UseAsManufacturingJournal = useAsManufacturingJournal;
         TrackAdditionalCosts = trackAdditionalCosts;
         AllowZeroValuedTransactions = allowZeroValuedTransactions;
+        UseForPos = useForPos;
+        PosConfig = posConfig;
     }
 }

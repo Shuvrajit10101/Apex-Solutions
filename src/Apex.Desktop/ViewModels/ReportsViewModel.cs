@@ -52,6 +52,9 @@ public enum ReportKind
     NegativeCashBank,
     MemorandumRegister,
     ReversingJournalRegister,
+
+    // ---- POS (Phase 6 slice 7 — RQ-44): the day-close tender view of POS-flagged Sales vouchers (DP-6). ----
+    PosRegister,
 }
 
 /// <summary>
@@ -438,6 +441,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.NegativeCashBank: BuildNegativeCashBank(); break;
             case ReportKind.MemorandumRegister: BuildMemorandumRegister(); break;
             case ReportKind.ReversingJournalRegister: BuildReversingJournalRegister(); break;
+            case ReportKind.PosRegister: BuildPosRegister(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -647,6 +651,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.NegativeCashBank] = "NegativeCashBank",
         [ReportKind.MemorandumRegister] = "MemorandumRegister",
         [ReportKind.ReversingJournalRegister] = "ReversingJournalRegister",
+        [ReportKind.PosRegister] = "PosRegister",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -2025,6 +2030,50 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow { Particulars = "No reversing journals in this period.", IsHeader = true });
         else
             Rows.Add(ReportRow.Total("Total", report.Total));
+    }
+
+    // --------------------------------------------------------------- POS Register (RQ-44; DP-6)
+    //   Date | Vch No | Party | Gift · Card · Cheque · Cash | Bill Total
+
+    private void BuildPosRegister()
+    {
+        var period = StatementPeriod;
+        var report = PosRegister.Build(_company, period.From, period.To);
+        Title = "POS Register";
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+        IsTwoColumn = false;
+
+        static string Tenders(PosRegisterRow r)
+        {
+            var parts = new List<string>();
+            if (r.Gift.Amount != 0m) parts.Add($"Gift {IndianFormat.Amount(r.Gift)}");
+            if (r.Card.Amount != 0m) parts.Add($"Card {IndianFormat.Amount(r.Card)}");
+            if (r.Cheque.Amount != 0m) parts.Add($"Cheque {IndianFormat.Amount(r.Cheque)}");
+            if (r.Cash.Amount != 0m) parts.Add($"Cash {IndianFormat.Amount(r.Cash)}");
+            return parts.Count == 0 ? "—" : string.Join("  ·  ", parts);
+        }
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = $"{FormatDate(r.Date)}  Bill No. {r.Number}  ·  {r.Party}",
+                Secondary = Tenders(r),
+                Amount = IndianFormat.Amount(r.BillTotal),
+            });
+
+        if (report.Rows.Count == 0)
+            Rows.Add(new ReportRow { Particulars = "No POS bills in this period.", IsHeader = true });
+        else
+        {
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Tenders",
+                Secondary = $"Gift {IndianFormat.Amount(report.TotalGift)}  ·  Card {IndianFormat.Amount(report.TotalCard)}" +
+                            $"  ·  Cheque {IndianFormat.Amount(report.TotalCheque)}  ·  Cash {IndianFormat.Amount(report.TotalCash)}",
+                IsHeader = true,
+            });
+            Rows.Add(ReportRow.Total("Total", report.TotalBill));
+        }
     }
 
     // --------------------------------------------------------------- helpers

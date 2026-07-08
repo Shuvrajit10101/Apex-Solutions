@@ -542,6 +542,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 22;
         }
 
+        // v22 → v23: apply the POS schema (a use_for_pos flag on voucher_types + three new tables + one index),
+        // then bump the marker. Existing v22 data survives untouched (one additive ALTER ADD COLUMN DEFAULT 0 +
+        // three CREATE TABLE + one CREATE INDEX; no row rewrites — Phase 6 slice 7).
+        if (version == 22)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV22ToV23;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 23);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 23;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -749,6 +772,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertStockGroups(tx, company);
         InsertStockCategories(tx, company);
         InsertGodowns(tx, company);
+        // POS voucher-type config (v23): its FKs reference voucher_types (above), ledgers (above) and godowns
+        // (just inserted) — so insert it here, after godowns exist (Phase 6 slice 7).
+        InsertPosVoucherTypeConfig(tx, company);
         InsertStockItems(tx, company);
         // Batch masters after stock items (FK stock_items) + godowns; before opening balances (a batch_id on an
         // opening layer would FK batch_masters — even though we do not populate batch_id today, keep the order safe).
@@ -993,7 +1019,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
-                   allow_zero_valued
+                   allow_zero_valued, use_for_pos
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1001,7 +1027,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         var list = new List<VoucherType>();
         while (r.Read())
         {
-            list.Add(new VoucherType(
+            var useForPos = r.GetInt64(13) != 0;
+            var type = new VoucherType(
                 Guid.Parse(r.GetString(0)),
                 r.GetString(1),
                 (VoucherBaseType)(int)r.GetInt64(2),
@@ -1017,9 +1044,58 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v19 (RQ-16..RQ-20): "Track Additional Costs for Purchases" flag, read verbatim.
                 trackAdditionalCosts: r.GetInt64(11) != 0,
                 // v20 (RQ-21): "Allow zero-valued transactions" flag, read verbatim.
-                allowZeroValuedTransactions: r.GetInt64(12) != 0));
+                allowZeroValuedTransactions: r.GetInt64(12) != 0,
+                // v23 (RQ-38): "Use for POS invoicing" flag, read verbatim.
+                useForPos: useForPos);
+            list.Add(type);
         }
+        // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
+        // above is not held open while these child queries run).
+        foreach (var type in list)
+            if (type.UseForPos)
+                type.PosConfig = ReadPosVoucherTypeConfig(type.Id);
         return list;
+    }
+
+    /// <summary>Reads the POS retail-till config (v23; RQ-38/DP-4) for one voucher type — its
+    /// <c>pos_voucher_type_config</c> row plus the <c>pos_tender_ledger_defaults</c> class-map rows. Returns a fresh
+    /// <see cref="PosConfig"/> even when the config row is absent (a POS type may exist with no saved config
+    /// yet), so a POS-flagged type never round-trips with a null config.</summary>
+    private PosConfig ReadPosVoucherTypeConfig(Guid voucherTypeId)
+    {
+        var cfg = new PosConfig();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT default_godown_id, default_party_id, print_after_save, default_title, message_1, message_2,
+                       declaration
+                FROM pos_voucher_type_config WHERE voucher_type_id = $vt;
+                """;
+            cmd.Parameters.AddWithValue("$vt", voucherTypeId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            if (r.Read())
+            {
+                cfg.DefaultGodownId = r.IsDBNull(0) ? (Guid?)null : Guid.Parse(r.GetString(0));
+                cfg.DefaultPartyId = r.IsDBNull(1) ? (Guid?)null : Guid.Parse(r.GetString(1));
+                cfg.PrintAfterSave = r.GetInt64(2) != 0;
+                cfg.DefaultTitle = r.IsDBNull(3) ? null : r.GetString(3);
+                cfg.Message1 = r.IsDBNull(4) ? null : r.GetString(4);
+                cfg.Message2 = r.IsDBNull(5) ? null : r.GetString(5);
+                cfg.Declaration = r.IsDBNull(6) ? null : r.GetString(6);
+            }
+        }
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT tender_type, ledger_id FROM pos_tender_ledger_defaults
+                WHERE voucher_type_id = $vt ORDER BY tender_type;
+                """;
+            cmd.Parameters.AddWithValue("$vt", voucherTypeId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                cfg.SetTenderLedgerDefault((PosTenderType)(int)r.GetInt64(0), Guid.Parse(r.GetString(1)));
+        }
+        return cfg;
     }
 
     private IEnumerable<GstRateSlab> ReadGstRateSlabs(Guid companyId)
@@ -1749,6 +1825,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         {
             var lines = ReadEntryLines(h.Id);
             var inventoryLines = ReadVoucherInventoryLines(h.Id);
+            var posTenders = ReadPosTenders(h.Id);
             result.Add(new Voucher(
                 h.Id, h.TypeId, h.Date, lines,
                 number: h.Number,
@@ -1758,7 +1835,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 optional: h.Optional,
                 postDated: h.PostDated,
                 applicableUpto: h.ApplicableUpto,
-                inventoryLines: inventoryLines.Count > 0 ? inventoryLines : null));
+                inventoryLines: inventoryLines.Count > 0 ? inventoryLines : null,
+                posTenders: posTenders.Count > 0 ? posTenders : null));
         }
         return result;
     }
@@ -1946,6 +2024,22 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, """
             DELETE FROM voucher_inventory_lines WHERE voucher_id IN (
                 SELECT id FROM vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        // v23 POS tender allocations FK the accounting voucher + a ledger → delete before vouchers and before
+        // ledgers below (Phase 6 slice 7).
+        ExecTx(tx, """
+            DELETE FROM pos_tender_allocations WHERE voucher_id IN (
+                SELECT id FROM vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        // v23 POS voucher-type config + tender-ledger class map FK voucher_types + ledgers + godowns → delete
+        // before those masters below (they are keyed by voucher_type_id).
+        ExecTx(tx, """
+            DELETE FROM pos_tender_ledger_defaults WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM pos_voucher_type_config WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
@@ -2255,8 +2349,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
-                     affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv);
+                     affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
+                     use_for_pos)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2272,7 +2367,55 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$mfg", t.UseAsManufacturingJournal ? 1 : 0); // v18 (RQ-11)
             cmd.Parameters.AddWithValue("$tac", t.TrackAdditionalCosts ? 1 : 0);      // v19 (RQ-16..RQ-20)
             cmd.Parameters.AddWithValue("$azv", t.AllowZeroValuedTransactions ? 1 : 0); // v20 (RQ-21)
+            cmd.Parameters.AddWithValue("$pos", t.UseForPos ? 1 : 0);                  // v23 (RQ-38)
             cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Persists the POS retail-till config (v23; RQ-38/DP-4) for every POS-flagged Sales voucher type: one
+    /// <c>pos_voucher_type_config</c> row plus the tender-ledger class-map rows in <c>pos_tender_ledger_defaults</c>.
+    /// Called after ledgers + godowns are inserted (its FKs reference both) and after voucher_types. A non-POS type,
+    /// or a POS type with no <see cref="PosConfig"/>, writes nothing — byte-identical (ER-13).
+    /// </summary>
+    private void InsertPosVoucherTypeConfig(SqliteTransaction tx, Company c)
+    {
+        foreach (var t in c.VoucherTypes)
+        {
+            if (!t.UseForPos || t.PosConfig is not { } cfg) continue;
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO pos_voucher_type_config
+                        (voucher_type_id, default_godown_id, default_party_id, print_after_save,
+                         default_title, message_1, message_2, declaration)
+                    VALUES ($vt, $god, $party, $print, $title, $m1, $m2, $decl);
+                    """;
+                cmd.Parameters.AddWithValue("$vt", t.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$god", (object?)cfg.DefaultGodownId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$party", (object?)cfg.DefaultPartyId?.ToString("D") ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$print", cfg.PrintAfterSave ? 1 : 0);
+                cmd.Parameters.AddWithValue("$title", (object?)cfg.DefaultTitle ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$m1", (object?)cfg.Message1 ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$m2", (object?)cfg.Message2 ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$decl", (object?)cfg.Declaration ?? DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
+
+            foreach (var (tenderType, ledgerId) in cfg.TenderLedgerDefaults)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO pos_tender_ledger_defaults (voucher_type_id, tender_type, ledger_id)
+                    VALUES ($vt, $tt, $lid);
+                    """;
+                cmd.Parameters.AddWithValue("$vt", t.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$tt", (int)tenderType);
+                cmd.Parameters.AddWithValue("$lid", ledgerId.ToString("D"));
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 
@@ -2918,6 +3061,62 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         }
 
         InsertVoucherInventoryLines(tx, v);
+        InsertPosTenderAllocations(tx, v);
+    }
+
+    /// <summary>Persists a POS voucher's tender rows (v23; RQ-39/RQ-40; DP-6) to <c>pos_tender_allocations</c>. A
+    /// non-POS voucher carries no tenders, so nothing is written — byte-identical (ER-13). amount_paisa is the
+    /// POSTED payable share (Cash = residual, not tendered); tendered/change are Cash-only.</summary>
+    private void InsertPosTenderAllocations(SqliteTransaction tx, Voucher v)
+    {
+        var order = 0;
+        foreach (var t in v.PosTenders)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO pos_tender_allocations
+                    (voucher_id, tender_order, tender_type, ledger_id, amount_paisa, tendered_paisa, change_paisa,
+                     card_no, bank_name, cheque_no)
+                VALUES ($vid, $ord, $tt, $lid, $amt, $tend, $chg, $card, $bank, $chq);
+                """;
+            cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$ord", order++);
+            cmd.Parameters.AddWithValue("$tt", (int)t.Type);
+            cmd.Parameters.AddWithValue("$lid", t.LedgerId.ToString("D"));
+            cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(t.Amount));
+            cmd.Parameters.AddWithValue("$tend", t.Tendered is { } td ? Paisa.FromMoney(td) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$chg", t.Change is { } ch ? Paisa.FromMoney(ch) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$card", (object?)t.CardNo ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bank", (object?)t.BankName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$chq", (object?)t.ChequeNo ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private List<PosTender> ReadPosTenders(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT tender_type, ledger_id, amount_paisa, tendered_paisa, change_paisa, card_no, bank_name, cheque_no
+            FROM pos_tender_allocations WHERE voucher_id = $vid ORDER BY tender_order, id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<PosTender>();
+        while (r.Read())
+        {
+            list.Add(new PosTender(
+                (PosTenderType)(int)r.GetInt64(0),
+                Guid.Parse(r.GetString(1)),
+                Paisa.ToMoney(r.GetInt64(2)),
+                Tendered: r.IsDBNull(3) ? (Money?)null : Paisa.ToMoney(r.GetInt64(3)),
+                Change: r.IsDBNull(4) ? (Money?)null : Paisa.ToMoney(r.GetInt64(4)),
+                CardNo: r.IsDBNull(5) ? null : r.GetString(5),
+                BankName: r.IsDBNull(6) ? null : r.GetString(6),
+                ChequeNo: r.IsDBNull(7) ? null : r.GetString(7)));
+        }
+        return list;
     }
 
     private void InsertVoucherInventoryLines(SqliteTransaction tx, Voucher v)

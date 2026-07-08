@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -54,6 +55,7 @@ public enum Screen
     BatchAllocation,
     BomMaster,
     ManufacturingJournalEntry,
+    PosBilling,
     GstConfig,
     PriceLevelsMaster,
     PriceListsMaster,
@@ -217,6 +219,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
     [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
+    [ObservableProperty] private PosBillingViewModel? _posBilling;
 
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
@@ -288,7 +291,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && InterestReport is null && CurrencyMaster is null && ForexReport is null
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
-        && BomMaster is null && ManufacturingJournalEntry is null
+        && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
@@ -323,6 +326,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -640,6 +644,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Reversing Journal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Memorandum", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // POS Billing (Phase 6 slice 7; RQ-38..RQ-44): a Sales item-invoice with a tender split, posted through a
+        // user-created POS-flagged Sales type (auto-created on first use, mirroring the Manufacturing Journal).
+        col.Add(new MenuItemViewModel("POS Billing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -792,6 +799,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Rejection Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Physical Stock Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Order Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // POS Register (Phase 6 slice 7; RQ-44): the day-close tender view of POS bills — surfaced only when a
+        // POS-flagged Sales type exists (mirrors the batch/price-list conditional surfacing).
+        if (Company is { } c && c.VoucherTypes.Any(t => t.IsPosSales))
+            col.Add(new MenuItemViewModel("POS Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2169,6 +2180,85 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             () => ManufacturingJournalEntry = entry);
     }
 
+    // =============================================================== screen: POS billing (slice 7)
+
+    /// <summary>
+    /// Opens the POS Billing voucher-entry screen (Vouchers → Other Vouchers → POS Billing; catalog §11; Phase 6
+    /// slice 7 RQ-38..RQ-44) as a page column. A POS bill is a Sales item-invoice with a tender split — it posts
+    /// through a <b>POS-flagged Sales</b> voucher type (RQ-38). Resolves that type, creating a user-defined
+    /// "Sales (POS)" type on first use (POS types are user-created, not seeded — mirroring the Manufacturing
+    /// Journal), then hosts the entry that posts through the engine. When the POS config's print-after-save is on
+    /// the retail receipt opens in a Print-Preview column after Accept (RQ-44).
+    /// </summary>
+    public void OpenPosBilling()
+    {
+        if (Company is null) return;
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales);
+        if (type is null)
+        {
+            var name = "Sales (POS)";
+            var n = 1;
+            while (Company.VoucherTypes.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+                name = $"Sales (POS) {++n}";
+            type = new VoucherType(Guid.NewGuid(), name, VoucherBaseType.Sales, useForPos: true,
+                posConfig: new PosConfig
+                {
+                    DefaultTitle = "Retail Invoice",
+                    Message1 = "Thank you for shopping with us!",
+                    Declaration = "Goods once sold are subject to the store's return policy.",
+                });
+            Company.AddVoucherType(type);
+            _storage.Save(Company);
+        }
+
+        PosReceiptData? pending = null;
+        var entry = new PosBillingViewModel(
+            Company, type, _storage,
+            onSaved: () =>
+            {
+                if (pending is { } r) { var rr = r; pending = null; OpenPosReceiptPreview(rr); }
+                else ShowGateway();
+            },
+            onCancelled: BackFromPage);
+        entry.PrintReceiptRequested += r => pending = r;
+
+        var title = $"POS Billing — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " — POS", entry), Screen.PosBilling, title,
+            () => PosBilling = entry);
+    }
+
+    /// <summary>Replaces the POS entry column with a Print-Preview column showing the just-posted retail receipt (RQ-44).</summary>
+    private void OpenPosReceiptPreview(PosReceiptData receipt)
+    {
+        ClearSubScreens();
+        if (Columns.Count > 0 && !Columns[^1].IsMenu) Columns.RemoveAt(Columns.Count - 1);
+        var preview = new PrintPreviewViewModel(receipt);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>True while the POS Billing entry page is active (drives the Alt+I / Alt+A button-bar actions).</summary>
+    public bool IsPosBillingEntry => CurrentScreen == Screen.PosBilling;
+
+    /// <summary>Alt+I — toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42).</summary>
+    public void TogglePosPaymentMode()
+    {
+        if (CurrentScreen == Screen.PosBilling) PosBilling?.TogglePaymentMode();
+    }
+
+    /// <summary>Alt+A — surfaces the per-rate tax analysis for the in-progress POS bill (RQ-53).</summary>
+    public void ShowPosTaxAnalysis()
+    {
+        if (CurrentScreen == Screen.PosBilling) PosBilling?.ShowTaxAnalysis();
+    }
+
     // =============================================================== screen: statutory (GST config)
 
     /// <summary>
@@ -2446,6 +2536,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BatchAllocation = null;
         BomMaster = null;
         ManufacturingJournalEntry = null;
+        PosBilling = null;
         GstConfig = null;
         PriceLevels = null;
         PriceLists = null;
@@ -2495,6 +2586,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             InventoryVoucherEntry?.Cancel();
         else if (CurrentScreen == Screen.ManufacturingJournalEntry)
             ManufacturingJournalEntry?.Cancel();
+        else if (CurrentScreen == Screen.PosBilling)
+            PosBilling?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
@@ -2770,6 +2863,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
+            case Screen.PosBilling:
+                PosBilling?.Accept();
+                return;
             case Screen.BudgetMaster:
                 BudgetMaster?.Create();
                 return;
@@ -2951,6 +3047,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Rejection Register": OpenReport(ReportKind.RejectionRegister); break;
             case "Physical Stock Register": OpenReport(ReportKind.PhysicalStockRegister); break;
             case "Order Register": OpenReport(ReportKind.OrderRegister); break;
+            case "POS Register": OpenReport(ReportKind.PosRegister); break;
             case "Tax Analysis": OpenReport(ReportKind.TaxAnalysis); break;
             case "GSTR-1": OpenReport(ReportKind.Gstr1); break;
             case "GSTR-3B": OpenReport(ReportKind.Gstr3b); break;
@@ -2980,6 +3077,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Stock Journal": OpenInventoryVoucher(VoucherBaseType.StockJournal); break;
             case "Physical Stock": OpenInventoryVoucher(VoucherBaseType.PhysicalStock); break;
             case "Manufacturing Journal": OpenManufacturingJournal(); break;
+            case "POS Billing": OpenPosBilling(); break;
         }
     }
 
@@ -3181,6 +3279,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
         // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
         ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
+        // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
+        var onPos = CurrentScreen == Screen.PosBilling;
+        ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
+        ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
         // Create master + report quick-jumps (enabled once a company is open).
         ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
