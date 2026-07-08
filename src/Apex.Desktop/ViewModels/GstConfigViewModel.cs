@@ -100,6 +100,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _enableMultiplePriceLevels;
 
+    /// <summary>
+    /// The company feature flag <b>"Enable Job Order Processing"</b> (F11 Company Features; Phase 6 slice 8;
+    /// RQ-45/RQ-52). The master gate for the whole Job-Work feature. Turning it <b>on</b> also activates the four
+    /// seeded-but-inactive Job-Work voucher types (Job Work In/Out Order, Material In/Out) and stamps their
+    /// per-type flags ("Use for Job Work" on both Material types, "Allow Consumption" on Material In) — the one
+    /// side-effect that is more than a plain flag set, driven through <see cref="JobWorkService.SetEnabled"/>.
+    /// When off the four types re-hide and every non-job-work screen is byte-identical (ER-13). A pure user
+    /// toggle (it cannot be inferred from data — a company may enable it before entering any order), applied to
+    /// the live company by <see cref="OnEnableJobOrderProcessingChanged"/> and persisted.
+    /// </summary>
+    [ObservableProperty] private bool _enableJobOrderProcessing;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -155,6 +167,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SetComponentsBom = _company.SetComponentsBom;
         DefineBomComponentType = _company.DefineBomComponentType;
         EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
+        EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -248,6 +261,30 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             Message = ex.Message;
             if (EnableMultiplePriceLevels != _company.EnableMultiplePriceLevels)
                 EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Job Order Processing" F11 toggle to the live company the moment it changes (RQ-45/RQ-52).
+    /// Beyond persisting the flag, turning it on activates the four seeded Job-Work voucher types and stamps their
+    /// per-type flags (via <see cref="JobWorkService.SetEnabled"/>), so the Job Work In/Out Order + Material In/Out
+    /// screens and the four registers surface (or hide) immediately. Errors are surfaced without crashing and the
+    /// toggle reverts to the company's real state. Independent of GST.
+    /// </summary>
+    partial void OnEnableJobOrderProcessingChanged(bool value)
+    {
+        try
+        {
+            new JobWorkService(_company).SetEnabled(value);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (EnableJobOrderProcessing != _company.EnableJobOrderProcessing)
+                EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
             return;
         }
         _onChanged();

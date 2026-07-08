@@ -41,12 +41,13 @@ public sealed class InventoryPostingService
         EnsureContentMatchesType(voucher, type);
         EnsureReferencesResolve(voucher);
 
-        // Stock Journal: source and destination must balance in the base unit (a documented difference is
-        // wastage/absorption — Phase 6; Phase 3 requires an exact balance). A Manufacturing Journal (base Stock
-        // Journal + Use as Manufacturing Journal, RQ-11/RQ-13) is EXEMPT — a manufacture transforms inputs into a
-        // different output, so source and destination need not balance by quantity. A plain Stock Journal still
-        // must balance (ER-13).
-        if (type.BaseType == VoucherBaseType.StockJournal && !type.IsManufacturingJournal)
+        // Balance rule: a two-sided stock movement whose company net-on-hand must stay constant (a plain Stock
+        // Journal, or a Material transfer that carries BOTH a source and a destination — RQ-46) must balance in the
+        // base unit. EXEMPT are the two TRANSFORMS: a Manufacturing Journal (RQ-11/RQ-13) and a consuming Material In
+        // (base Material In + Allow Consumption, RQ-49) — inputs become a different output, so the sides need not
+        // balance by quantity. A one-sided Material movement (a worker's pure-outward FG dispatch, or a pure-inward
+        // receipt) has nothing to balance. A plain Stock Journal still must balance (ER-13).
+        if (RequiresSourceDestinationBalance(type, voucher))
             EnsureStockJournalBalances(voucher);
 
         if (type.Numbering == NumberingMethod.Automatic && voucher.Number <= 0)
@@ -168,7 +169,54 @@ public sealed class InventoryPostingService
                 if (!hasPhysical || hasAllocs || hasDest || hasOrders)
                     throw new InvalidOperationException($"A {type.Name} must carry counted-quantity lines only.");
                 break;
+
+            // Job Work In/Out Order (Phase 6 slice 8; RQ-47): the job-work payload only — no stock movements. The
+            // order's direction must match its base type (In ⇒ we are the worker, Out ⇒ we are the principal), so a
+            // worker order can never be filed under the principal type and vice-versa.
+            case VoucherBaseType.JobWorkInOrder:
+            case VoucherBaseType.JobWorkOutOrder:
+                if (v.JobWorkOrder is null || hasAllocs || hasDest || hasOrders || hasPhysical)
+                    throw new InvalidOperationException(
+                        $"A {type.Name} must carry a job-work order payload only (no stock movements).");
+                var expected = bt == VoucherBaseType.JobWorkInOrder ? JobWorkDirection.In : JobWorkDirection.Out;
+                if (v.JobWorkOrder.Direction != expected)
+                    throw new InvalidOperationException(
+                        $"A {type.Name} must carry a {expected} Job Work order (its payload direction is {v.JobWorkOrder.Direction}).");
+                break;
+
+            // Material In / Material Out (Phase 6 slice 8; RQ-46/RQ-48/RQ-49): source (outward) and/or destination
+            // (inward) stock-movement lines — a balanced third-party transfer, a consumption transform, or a pure
+            // one-sided movement. NEVER an order payload / order lines / physical lines. Both principal and worker
+            // ride the same shape (RQ-50). At least one movement line is required.
+            case VoucherBaseType.MaterialIn:
+            case VoucherBaseType.MaterialOut:
+                if (v.JobWorkOrder is not null || hasOrders || hasPhysical)
+                    throw new InvalidOperationException($"A {type.Name} must carry stock-movement lines only.");
+                if (!hasAllocs && !hasDest)
+                    throw new InvalidOperationException(
+                        $"A {type.Name} must carry at least one source (outward) or destination (inward) line.");
+                RequireDirection(type, v.Allocations, StockDirection.Outward, "source");
+                RequireDirection(type, v.DestinationAllocations, StockDirection.Inward, "destination");
+                break;
         }
+    }
+
+    /// <summary>
+    /// Whether a two-sided stock movement must balance in the base unit (source total = destination total). True
+    /// for a plain Stock Journal and for a Material In/Out that carries BOTH sides (a location move, RQ-46). False
+    /// for the two transforms — a Manufacturing Journal and a consuming Material In (RQ-49) — and for a one-sided
+    /// Material movement (nothing to balance).
+    /// </summary>
+    private static bool RequiresSourceDestinationBalance(VoucherType type, InventoryVoucher v)
+    {
+        if (type.IsManufacturingJournal || type.IsConsumingMaterialIn) return false;
+        return type.BaseType switch
+        {
+            VoucherBaseType.StockJournal => true,
+            VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut =>
+                v.Allocations.Count > 0 && v.DestinationAllocations.Count > 0,
+            _ => false,
+        };
     }
 
     private static void RequireAllocationsOnly(VoucherType type, InventoryVoucher v)
@@ -213,6 +261,33 @@ public sealed class InventoryPostingService
                 throw new InvalidOperationException($"Physical-stock line references unknown stock item {pl.StockItemId}.");
             if (_company.FindGodown(pl.GodownId) is null)
                 throw new InvalidOperationException($"Physical-stock line references unknown godown {pl.GodownId}.");
+        }
+
+        // Job Work order payload (RQ-47): the finished good, its godown, the fill-components BOM (Slice 2 link) and
+        // every tracked component item/godown must resolve.
+        if (v.JobWorkOrder is { } jwo)
+        {
+            if (_company.FindStockItem(jwo.FinishedGoodStockItemId) is null)
+                throw new InvalidOperationException($"Job Work order references unknown finished-good item {jwo.FinishedGoodStockItemId}.");
+            if (jwo.FinishedGoodGodownId is { } fgg && _company.FindGodown(fgg) is null)
+                throw new InvalidOperationException($"Job Work order references unknown godown {fgg}.");
+            if (jwo.FillComponentsBomId is { } bomId && _company.FindBillOfMaterials(bomId) is null)
+                throw new InvalidOperationException($"Job Work order references unknown Bill of Materials {bomId}.");
+            foreach (var line in jwo.Lines)
+            {
+                if (_company.FindStockItem(line.ComponentStockItemId) is null)
+                    throw new InvalidOperationException($"Job Work order component references unknown stock item {line.ComponentStockItemId}.");
+                if (line.GodownId is { } cg && _company.FindGodown(cg) is null)
+                    throw new InvalidOperationException($"Job Work order component references unknown godown {cg}.");
+            }
+        }
+
+        // Material In/Out order links (RQ-48): each fulfilled order must be a posted Job Work order voucher.
+        foreach (var linkId in v.OrderLinks)
+        {
+            var order = _company.FindInventoryVoucher(linkId);
+            if (order?.JobWorkOrder is null)
+                throw new InvalidOperationException($"Material voucher references unknown Job Work order {linkId}.");
         }
     }
 

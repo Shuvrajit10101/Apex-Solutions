@@ -55,6 +55,12 @@ public enum ReportKind
 
     // ---- POS (Phase 6 slice 7 — RQ-44): the day-close tender view of POS-flagged Sales vouchers (DP-6). ----
     PosRegister,
+
+    // ---- Job Work (Phase 6 slice 8 — RQ-51): the four Job Work registers (Reports → Job Work Reports). ----
+    JobWorkInOrderBook,
+    JobWorkOutOrderBook,
+    MaterialInRegister,
+    MaterialOutRegister,
 }
 
 /// <summary>
@@ -116,7 +122,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         or ReportKind.StockItemMovement or ReportKind.ReceiptNoteRegister or ReportKind.DeliveryNoteRegister
         or ReportKind.RejectionRegister or ReportKind.PhysicalStockRegister or ReportKind.OrderRegister
         or ReportKind.ReorderStatus or ReportKind.Batchwise or ReportKind.BatchAgeAnalysis
-        or ReportKind.PriceList;
+        or ReportKind.PriceList
+        or ReportKind.JobWorkInOrderBook or ReportKind.JobWorkOutOrderBook
+        or ReportKind.MaterialInRegister or ReportKind.MaterialOutRegister;
 
     /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
     public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
@@ -161,7 +169,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>True for the three allocation registers (Receipt Note / Delivery Note / Rejection), which
     /// share the same wide Date | No. | Party | Item | Godown | Qty | Rate | Value | Batch layout.</summary>
     public bool IsAllocationRegister => Kind is ReportKind.ReceiptNoteRegister
-        or ReportKind.DeliveryNoteRegister or ReportKind.RejectionRegister;
+        or ReportKind.DeliveryNoteRegister or ReportKind.RejectionRegister
+        or ReportKind.MaterialInRegister or ReportKind.MaterialOutRegister;
+
+    /// <summary>True for the two Job Work Order Books (Phase 6 slice 8; RQ-51) — drives the order-book
+    /// DataTemplate (order header rows + tracked component rows with their pending figures).</summary>
+    public bool IsJobWorkOrderBook => Kind is ReportKind.JobWorkInOrderBook or ReportKind.JobWorkOutOrderBook;
 
     /// <summary>
     /// Raised when a Stock-Summary row is drilled into (Enter / double-click a stock item): carries the
@@ -398,6 +411,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsPhysicalStockRegister));
         OnPropertyChanged(nameof(IsOrderRegister));
         OnPropertyChanged(nameof(IsAllocationRegister));
+        OnPropertyChanged(nameof(IsJobWorkOrderBook));
         OnPropertyChanged(nameof(IsBatchwise));
         OnPropertyChanged(nameof(IsBatchAgeAnalysis));
         OnPropertyChanged(nameof(IsTaxAnalysis));
@@ -442,6 +456,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.MemorandumRegister: BuildMemorandumRegister(); break;
             case ReportKind.ReversingJournalRegister: BuildReversingJournalRegister(); break;
             case ReportKind.PosRegister: BuildPosRegister(); break;
+
+            case ReportKind.JobWorkInOrderBook: BuildJobWorkOrderBook(JobWorkDirection.In); break;
+            case ReportKind.JobWorkOutOrderBook: BuildJobWorkOrderBook(JobWorkDirection.Out); break;
+            case ReportKind.MaterialInRegister:
+                BuildMaterialRegister("Material In Register", VoucherBaseType.MaterialIn, StockDirection.Inward); break;
+            case ReportKind.MaterialOutRegister:
+                BuildMaterialRegister("Material Out Register", VoucherBaseType.MaterialOut, StockDirection.Outward); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -652,6 +673,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.MemorandumRegister] = "MemorandumRegister",
         [ReportKind.ReversingJournalRegister] = "ReversingJournalRegister",
         [ReportKind.PosRegister] = "PosRegister",
+        [ReportKind.JobWorkInOrderBook] = "JobWorkInOrderBook",
+        [ReportKind.JobWorkOutOrderBook] = "JobWorkOutOrderBook",
+        [ReportKind.MaterialInRegister] = "MaterialInRegister",
+        [ReportKind.MaterialOutRegister] = "MaterialOutRegister",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -1319,6 +1344,85 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         if (rows.Count == 0)
             Rows.Add(new ReportRow { Col4 = "No orders in this period.", IsHeader = true });
+    }
+
+    // --------------------------------------------------------------- Job Work Order Book (Phase 6 slice 8; RQ-51)
+    //   Order header row (Date | Order No. | Party | FG × qty) + tracked component rows
+    //   (Item | Track | Ordered | Fulfilled | Pending), pending = ordered − Σ fulfilling material movements.
+
+    private void BuildJobWorkOrderBook(JobWorkDirection direction)
+    {
+        var rows = direction == JobWorkDirection.In
+            ? JobWorkReports.BuildInOrderBook(_company, BooksFrom, _asOf)
+            : JobWorkReports.BuildOutOrderBook(_company, BooksFrom, _asOf);
+        Title = direction == JobWorkDirection.In ? "Job Work In Order Book" : "Job Work Out Order Book";
+        Subtitle = $"{CompanyName}  —  {FormatDate(BooksFrom)} to {FormatDate(_asOf)}";
+
+        foreach (var o in rows)
+        {
+            // Order header row (bold): Date | Order No. | Party | Finished good × quantity.
+            Rows.Add(new ReportRow
+            {
+                Col1 = FormatDate(o.Date),
+                Col2 = o.OrderNo,
+                Col3 = o.PartyName ?? string.Empty,
+                Col4 = $"{o.VoucherTypeName} No. {o.Number} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
+                IsHeader = true,
+            });
+            foreach (var c in o.Components)
+                Rows.Add(new ReportRow
+                {
+                    Col4 = c.ComponentName,
+                    Col5 = TrackLabel(c.Track),
+                    Col6 = IndianFormat.Quantity(c.OrderedQuantity),
+                    Col7 = IndianFormat.Quantity(c.FulfilledQuantity),
+                    Col8 = IndianFormat.Quantity(c.PendingQuantity),
+                });
+        }
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow { Col4 = "No job work orders in this period.", IsHeader = true });
+    }
+
+    private static string TrackLabel(JobWorkComponentTrack track) =>
+        track == JobWorkComponentTrack.PendingToReceive ? "To Receive" : "To Issue";
+
+    // --------------------------------------------------------------- Material In/Out Register (Phase 6 slice 8; RQ-51)
+    //   Date | No. | Party | Item | Godown | Qty (signed) | Rate | Value — one row per source/destination line.
+
+    private void BuildMaterialRegister(string title, VoucherBaseType baseType, StockDirection primary)
+    {
+        var rows = baseType == VoucherBaseType.MaterialIn
+            ? JobWorkReports.BuildMaterialInRegister(_company, BooksFrom, _asOf)
+            : JobWorkReports.BuildMaterialOutRegister(_company, BooksFrom, _asOf);
+        Title = title;
+        Subtitle = $"{CompanyName}  —  {FormatDate(BooksFrom)} to {FormatDate(_asOf)}";
+
+        var total = Money.Zero;
+        foreach (var r in rows)
+        {
+            var qtySigned = r.Direction == StockDirection.Inward ? r.Quantity : -r.Quantity;
+            Rows.Add(new ReportRow
+            {
+                Col1 = FormatDate(r.Date),
+                Col2 = r.Number.ToString(),
+                Col3 = r.PartyName ?? string.Empty,
+                Col4 = r.ItemName,
+                Col5 = r.GodownName,
+                Col6 = IndianFormat.Quantity(qtySigned),
+                Col7 = r.Rate is { } rate ? IndianFormat.Amount(rate) : string.Empty,
+                Col8 = IndianFormat.Amount(r.Value),
+                Secondary = r.BatchLabel ?? string.Empty,
+            });
+            // Head-line value = the register's primary direction (received for In, dispatched for Out), so a
+            // balanced transfer is not double-counted across its source + destination legs.
+            if (r.Direction == primary) total += r.Value;
+        }
+
+        if (rows.Count == 0)
+            Rows.Add(new ReportRow { Col4 = "No entries in this period.", IsHeader = true });
+        else
+            Rows.Add(new ReportRow { Col4 = "Grand Total", Col8 = IndianFormat.AmountAlways(total), IsTotal = true });
     }
 
     // ------------------ Reorder Status (Item | Closing | Reorder Level | Pending POs | SOs Due | Shortfall | Order to be Placed)

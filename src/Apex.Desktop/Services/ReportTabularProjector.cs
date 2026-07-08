@@ -94,7 +94,10 @@ public static class ReportTabularProjector
         ReportKind.PhysicalStockRegister => new[] { "Date", "Stock Item", "Godown", "Book", "Counted", "Variance" },
         ReportKind.OrderRegister       => new[] { "Date", "Voucher", "Party", "Stock Item", "Godown", "Ordered", "Pending", "Rate" },
         ReportKind.ReceiptNoteRegister or ReportKind.DeliveryNoteRegister or ReportKind.RejectionRegister
+        or ReportKind.MaterialInRegister or ReportKind.MaterialOutRegister
                                        => new[] { "Date", "No.", "Party", "Stock Item", "Godown", "Qty", "Rate", "Value" },
+        ReportKind.JobWorkInOrderBook or ReportKind.JobWorkOutOrderBook
+                                       => new[] { "Date", "Order No.", "Party", "Item", "Track", "Ordered", "Fulfilled", "Pending" },
         ReportKind.TaxAnalysis         => new[] { "Rate / Head", "CGST", "SGST", "IGST", "Taxable", "Tax" },
         ReportKind.Gstr1               => new[] { "Party / HSN", "GSTIN / Description", "Invoice / UQC", "POS / Qty", "Taxable", "CGST", "SGST", "IGST" },
         ReportKind.Gstr3b              => new[] { "Particulars", "Taxable Value", "CGST", "SGST", "IGST" },

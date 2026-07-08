@@ -104,6 +104,28 @@ public sealed class VoucherType
     /// <summary>True iff this is a POS Sales type — a Sales base type with <see cref="UseForPos"/> on (RQ-38).</summary>
     public bool IsPosSales => BaseType == VoucherBaseType.Sales && UseForPos;
 
+    /// <summary>
+    /// "<b>Use for Job Work = Yes</b>" (Book1 pp.88, 95; catalog §10; Phase 6 slice 8; RQ-45/RQ-48). Carried on the
+    /// seeded <b>Material In</b> and <b>Material Out</b> voucher types and driven <b>on</b> by the F11 "Enable Job
+    /// Order Processing" toggle (RQ-45). Defaults to <c>false</c>, so an existing type is byte-identical (ER-13).
+    /// </summary>
+    public bool UseForJobWork { get; set; }
+
+    /// <summary>
+    /// "<b>Allow Consumption = Yes</b>" (Book1 p.88; catalog §10; Phase 6 slice 8; RQ-48/RQ-49). Carried on the
+    /// seeded <b>Material In</b> voucher type and driven <b>on</b> by the F11 "Enable Job Order Processing" toggle.
+    /// When on, a Material In is a <i>transform</i> (consume the third-party components, produce the finished good)
+    /// and is EXEMPT from the balanced-transfer rule — exactly like a Manufacturing Journal (RQ-49). The
+    /// no-negative-stock guard then blocks consuming raw material the third-party godown never received, so no
+    /// phantom stock survives. Defaults to <c>false</c> (byte-identical, ER-13); only meaningful on a Material In.
+    /// </summary>
+    public bool AllowConsumption { get; set; }
+
+    /// <summary>True iff this is a Material In carrying <see cref="AllowConsumption"/> — a consume-on-receipt
+    /// transform, balance-exempt like a Manufacturing Journal (RQ-49).</summary>
+    public bool IsConsumingMaterialIn =>
+        BaseType == VoucherBaseType.MaterialIn && AllowConsumption;
+
     public VoucherType(
         Guid id,
         string name,
@@ -119,7 +141,9 @@ public sealed class VoucherType
         bool trackAdditionalCosts = false,
         bool allowZeroValuedTransactions = false,
         bool useForPos = false,
-        PosConfig? posConfig = null)
+        PosConfig? posConfig = null,
+        bool useForJobWork = false,
+        bool allowConsumption = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -139,5 +163,7 @@ public sealed class VoucherType
         AllowZeroValuedTransactions = allowZeroValuedTransactions;
         UseForPos = useForPos;
         PosConfig = posConfig;
+        UseForJobWork = useForJobWork;
+        AllowConsumption = allowConsumption;
     }
 }

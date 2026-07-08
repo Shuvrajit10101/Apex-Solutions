@@ -120,6 +120,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Manufacturing-Journal voucher-entry screen (non-null only for that column; Phase 6 Cluster 2; RQ-11).</summary>
     public ManufacturingJournalEntryViewModel? ManufacturingJournalEntry => Page as ManufacturingJournalEntryViewModel;
 
+    /// <summary>The hosted Job Work In/Out Order voucher-entry screen (non-null only for that column; Phase 6 slice 8; RQ-47).</summary>
+    public JobWorkOrderEntryViewModel? JobWorkOrderEntry => Page as JobWorkOrderEntryViewModel;
+
+    /// <summary>The hosted Material In/Out movement voucher-entry screen (non-null only for that column; Phase 6 slice 8; RQ-48).</summary>
+    public MaterialMovementEntryViewModel? MaterialMovementEntry => Page as MaterialMovementEntryViewModel;
+
     /// <summary>The hosted POS Billing voucher-entry screen (non-null only for that column; Phase 6 slice 7; RQ-38..RQ-44).</summary>
     public PosBillingViewModel? PosBilling => Page as PosBillingViewModel;
 

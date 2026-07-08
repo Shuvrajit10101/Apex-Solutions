@@ -165,6 +165,22 @@ public sealed class Company
     /// </summary>
     public bool EnableMultiplePriceLevels { get; set; }
 
+    /// <summary>
+    /// Company feature flag <b>"Enable Job Order Processing"</b> (F11 Company Features; Phase 6 slice 8; RQ-45).
+    /// Master gate for the whole Job-Work feature: turning it on activates the four seeded-but-inactive predefined
+    /// voucher types (Job Work In/Out Order, Material In/Out), sets <see cref="VoucherType.UseForJobWork"/> on the
+    /// Material In/Out types and <see cref="VoucherType.AllowConsumption"/> on Material In, and surfaces the
+    /// Job-Work entry screens + registers.
+    /// <para>
+    /// Like <see cref="UseSeparateActualBilledQuantity"/> / <see cref="EnableMultiplePriceLevels"/> (and unlike the
+    /// inferred <see cref="MaintainBatchwiseDetails"/> / <see cref="SetComponentsBom"/>), this is a <b>pure user
+    /// toggle</b> that <b>cannot be inferred</b> — a company may enable it before entering any order — so it is a
+    /// plain persisted <c>get; set;</c> backed by a real <c>companies</c> column (v24). Defaults to <c>false</c>, so
+    /// every existing company is byte-identical (ER-13) and the four job-work types stay inactive and hidden.
+    /// </para>
+    /// </summary>
+    public bool EnableJobOrderProcessing { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

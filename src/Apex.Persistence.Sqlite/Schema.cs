@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 23;
+    public const int CurrentVersion = 24;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -112,7 +112,10 @@ public static class Schema
             use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0,  -- 0/1
             -- v21 (Phase 6 slice 5; RQ-26): F11 "Enable multiple Price Levels" — a pure persisted toggle (cannot be
             -- inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
-            enable_multiple_price_levels INTEGER NOT NULL DEFAULT 0     -- 0/1
+            enable_multiple_price_levels INTEGER NOT NULL DEFAULT 0,    -- 0/1
+            -- v24 (Phase 6 slice 8; RQ-45): F11 "Enable Job Order Processing" — a pure persisted toggle (cannot be
+            -- inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
+            enable_job_order_processing INTEGER NOT NULL DEFAULT 0      -- 0/1
         );
 
         CREATE TABLE gst_rate_slabs (
@@ -230,7 +233,12 @@ public static class Schema
             -- v23 (Phase 6 slice 7; RQ-38): "Use for POS invoicing" — a Sales voucher-type flag marking a POS
             -- (retail-till) invoice. 0/1, default 0 so an existing type is byte-identical (ER-13). The retail-till
             -- config lives in pos_voucher_type_config; the tender-ledger class map in pos_tender_ledger_defaults.
-            use_for_pos INTEGER NOT NULL DEFAULT 0                    -- 0/1
+            use_for_pos INTEGER NOT NULL DEFAULT 0,                   -- 0/1
+            -- v24 (Phase 6 slice 8; RQ-45/RQ-48): "Use for Job Work" (Material In/Out) + "Allow Consumption"
+            -- (Material In). Both 0/1, default 0 so an existing type is byte-identical (ER-13); driven on by the F11
+            -- "Enable Job Order Processing" toggle.
+            use_for_job_work  INTEGER NOT NULL DEFAULT 0,            -- 0/1
+            allow_consumption INTEGER NOT NULL DEFAULT 0             -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -672,6 +680,51 @@ public static class Schema
             cheque_no      TEXT        NULL                  -- Cheque/DD only
         );
 
+        -- v24 (Phase 6 slice 8; RQ-47): the Job Work Order HEADER — one first-class row per Job Work In/Out Order,
+        -- 1:1 with its inventory_vouchers row (the voucher header carries date/party/number/narration; this row
+        -- carries the job-work payload). `id` is the surrogate PK; it is populated with the SAME value as
+        -- `inventory_voucher_id` so a material_order_links.job_work_order_id (FK → job_work_orders.id) equals the
+        -- order voucher's id — matching the domain's order-link Guids. `direction` = JobWorkDirection ordinal
+        -- (0 = In / we are the worker, 1 = Out / we are the principal).
+        CREATE TABLE job_work_orders (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            inventory_voucher_id   TEXT    NOT NULL REFERENCES inventory_vouchers(id),
+            direction              INTEGER NOT NULL,               -- JobWorkDirection ordinal (0 In, 1 Out)
+            order_no               TEXT    NOT NULL,               -- the job order number (e.g. "DKP/789")
+            duration_of_process    TEXT        NULL,               -- free text ("30 days")
+            nature_of_processing   TEXT        NULL,               -- free text
+            fg_stock_item_id       TEXT    NOT NULL REFERENCES stock_items(id),   -- finished good
+            fg_qty_micro           INTEGER NOT NULL,               -- finished-good qty × 1,000,000 (> 0)
+            fg_due_date            TEXT        NULL,               -- ISO yyyy-MM-dd
+            fg_godown_id           TEXT        NULL REFERENCES godowns(id),
+            fg_rate_paisa          INTEGER     NULL,               -- finished-good per-unit rate in paisa
+            tracking_components    INTEGER NOT NULL DEFAULT 1,     -- 0/1
+            fill_components_bom_id  TEXT       NULL REFERENCES bill_of_materials(id)  -- Slice 2 link; NULL = manual
+        );
+
+        -- v24 (Phase 6 slice 8; RQ-47): the tracked component LINES of a Job Work Order (child of job_work_orders).
+        -- `track` = JobWorkComponentTrack ordinal (0 Pending to Receive, 1 Pending to Issue — the IN/OUT symmetry,
+        -- RQ-50). Quantities INTEGER micros; rate INTEGER paisa.
+        CREATE TABLE job_work_order_lines (
+            id                      INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            job_work_order_id       TEXT    NOT NULL REFERENCES job_work_orders(id),
+            line_order              INTEGER NOT NULL,
+            component_stock_item_id TEXT    NOT NULL REFERENCES stock_items(id),
+            track                   INTEGER NOT NULL,              -- JobWorkComponentTrack ordinal (0 Receive, 1 Issue)
+            due_date                TEXT        NULL,              -- ISO yyyy-MM-dd
+            godown_id               TEXT        NULL REFERENCES godowns(id),
+            qty_micro               INTEGER NOT NULL,              -- component qty × 1,000,000 (> 0)
+            rate_paisa              INTEGER     NULL               -- component per-unit rate in paisa
+        );
+
+        -- v24 (Phase 6 slice 8; RQ-48): links a Material In/Out voucher to the Job Work order(s) it fulfils (plural).
+        CREATE TABLE material_order_links (
+            id                   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            material_voucher_id  TEXT    NOT NULL REFERENCES inventory_vouchers(id),
+            job_work_order_id    TEXT    NOT NULL REFERENCES job_work_orders(id)
+        );
+
         -- v14 (RQ-8 Save View): a named, config-only report view per company. `config_json` holds ONLY the
         -- report configuration tuple (kind/period/depth/sort/filter/comparative/F12) — never a computed figure;
         -- the report is always recomputed when the view is applied, so a saved view can never go stale (ER-9).
@@ -751,6 +804,14 @@ public static class Schema
         -- v23: POS tender allocations — lookup by owning voucher; the config + class-map tables are keyed by their
         -- PRIMARY KEY so they need no extra index.
         CREATE INDEX ix_pos_tender_allocations_voucher ON pos_tender_allocations(voucher_id);
+        -- v24: Job Work orders — lookup by company + by the owning voucher (UNIQUE, 1:1) + by finished good; child
+        -- lines by order; material→order links by material voucher and by order.
+        CREATE INDEX ix_job_work_orders_company        ON job_work_orders(company_id);
+        CREATE UNIQUE INDEX ux_job_work_orders_voucher ON job_work_orders(inventory_voucher_id);
+        CREATE INDEX ix_job_work_orders_item           ON job_work_orders(fg_stock_item_id);
+        CREATE INDEX ix_job_work_order_lines_order      ON job_work_order_lines(job_work_order_id);
+        CREATE INDEX ix_material_order_links_voucher    ON material_order_links(material_voucher_id);
+        CREATE INDEX ix_material_order_links_order      ON material_order_links(job_work_order_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
         """;
@@ -1507,5 +1568,63 @@ public static class Schema
         );
 
         CREATE INDEX ix_pos_tender_allocations_voucher ON pos_tender_allocations(voucher_id);
+        """;
+
+    /// <summary>
+    /// v23 → v24: <b>Job Work</b> (Phase 6 slice 8; RQ-45..RQ-51; ER-1, ER-13). Purely additive — three new tables
+    /// (<c>job_work_orders</c>, <c>job_work_order_lines</c>, <c>material_order_links</c>) with their indexes, plus
+    /// three <c>ALTER TABLE … ADD COLUMN … DEFAULT 0</c> flags (<c>companies.enable_job_order_processing</c>,
+    /// <c>voucher_types.use_for_job_work</c>, <c>voucher_types.allow_consumption</c>). No <c>ALTER</c> that rewrites
+    /// rows, no data backfill: an existing v23 database keeps every row untouched, the flags default off, and the
+    /// three tables start empty — so a company that never enables Job Work is byte-identical (ER-13). Accounts are
+    /// unaffected (D-4: the job-charge invoice rides the existing accounting path). Run inside a transaction that
+    /// also bumps <c>schema_version</c> to 24. A fresh DB is stamped straight to v24 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV23ToV24 = """
+        ALTER TABLE companies     ADD COLUMN enable_job_order_processing INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN use_for_job_work            INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN allow_consumption           INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE job_work_orders (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            inventory_voucher_id   TEXT    NOT NULL REFERENCES inventory_vouchers(id),
+            direction              INTEGER NOT NULL,
+            order_no               TEXT    NOT NULL,
+            duration_of_process    TEXT        NULL,
+            nature_of_processing   TEXT        NULL,
+            fg_stock_item_id       TEXT    NOT NULL REFERENCES stock_items(id),
+            fg_qty_micro           INTEGER NOT NULL,
+            fg_due_date            TEXT        NULL,
+            fg_godown_id           TEXT        NULL REFERENCES godowns(id),
+            fg_rate_paisa          INTEGER     NULL,
+            tracking_components    INTEGER NOT NULL DEFAULT 1,
+            fill_components_bom_id  TEXT       NULL REFERENCES bill_of_materials(id)
+        );
+
+        CREATE TABLE job_work_order_lines (
+            id                      INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            job_work_order_id       TEXT    NOT NULL REFERENCES job_work_orders(id),
+            line_order              INTEGER NOT NULL,
+            component_stock_item_id TEXT    NOT NULL REFERENCES stock_items(id),
+            track                   INTEGER NOT NULL,
+            due_date                TEXT        NULL,
+            godown_id               TEXT        NULL REFERENCES godowns(id),
+            qty_micro               INTEGER NOT NULL,
+            rate_paisa              INTEGER     NULL
+        );
+
+        CREATE TABLE material_order_links (
+            id                   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            material_voucher_id  TEXT    NOT NULL REFERENCES inventory_vouchers(id),
+            job_work_order_id    TEXT    NOT NULL REFERENCES job_work_orders(id)
+        );
+
+        CREATE INDEX ix_job_work_orders_company        ON job_work_orders(company_id);
+        CREATE UNIQUE INDEX ux_job_work_orders_voucher ON job_work_orders(inventory_voucher_id);
+        CREATE INDEX ix_job_work_orders_item           ON job_work_orders(fg_stock_item_id);
+        CREATE INDEX ix_job_work_order_lines_order      ON job_work_order_lines(job_work_order_id);
+        CREATE INDEX ix_material_order_links_voucher    ON material_order_links(material_voucher_id);
+        CREATE INDEX ix_material_order_links_order      ON material_order_links(job_work_order_id);
         """;
 }

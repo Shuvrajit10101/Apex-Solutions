@@ -680,6 +680,58 @@
                             </ScrollViewer>
                           </Grid>
 
+                          <!-- == Job Work Order Book (Phase 6 slice 8; RQ-51): order header rows + tracked component rows.
+                               Date | Order No. | Party | Item | Track | Ordered | Fulfilled | Pending == -->
+                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsJobWorkOrderBook}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="95,120,150,*,110,95,95,95">
+                                <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Order No." Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Party" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Item" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Track" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="Ordered" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="Fulfilled" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="7" Text="Pending" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="95,120,150,*,110,95,95,95" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        <TextBlock Grid.Column="7" Text="{Binding Col8}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+
                           <!-- == Batch-wise (Phase 6 Cluster 1; RQ-8): Item | Batch | Mfg | Expiry | Godown | Inward | Outward | Closing | Value ==
                                Wide grid; horizontal scroll so no column clips. Header + rows share the SAME
                                explicit widths so they scroll together and line up. -->
@@ -2157,6 +2209,436 @@
                                       IsEnabled="{Binding CanAccept}"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnAcceptInventoryVoucherClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Job Work In/Out Order entry (Phase 6 slice 8; RQ-47) -->
+                    <ContentControl IsVisible="{Binding JobWorkOrderEntry, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding JobWorkOrderEntry}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:JobWorkOrderEntryViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="4">
+
+                            <!-- Header: type + auto number + date -->
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}" Padding="10,6">
+                              <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Text="{Binding TypeName}"
+                                           Foreground="White" FontWeight="Bold" FontSize="15"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
+                                           VerticalAlignment="Center" Margin="0,0,18,0">
+                                  <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                </TextBlock>
+                                <TextBox Grid.Column="2" Width="140"
+                                         Text="{Binding DateText, Mode=TwoWay}"
+                                         FontSize="12" VerticalAlignment="Center"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Direction hint + party / order details -->
+                            <Border Grid.Row="1" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                    Padding="10,6" Margin="0,4,0,0">
+                              <StackPanel Spacing="6">
+                                <TextBlock Text="{Binding DirectionHint}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="Auto,220,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Party" FontWeight="SemiBold" Margin="0,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Parties}"
+                                            SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PartyOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Order No." FontWeight="SemiBold" Margin="14,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding OrderNo, Mode=TwoWay}"
+                                           PlaceholderText="e.g. DKP/789"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Duration" FontWeight="SemiBold" Margin="0,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DurationOfProcess, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 30 days"/>
+                                  <TextBlock Grid.Column="2" Text="Nature" FontWeight="SemiBold" Margin="14,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding NatureOfProcessing, Mode=TwoWay}"
+                                           PlaceholderText="nature of processing"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Finished good + Tracking / Fill Components -->
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                    Padding="10,6" Margin="0,2,0,0">
+                              <StackPanel Spacing="6">
+                                <Grid ColumnDefinitions="Auto,*,Auto,90,Auto,120">
+                                  <TextBlock Grid.Column="0" Text="Finished Good" FontWeight="SemiBold" Margin="0,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding StockItems}"
+                                            SelectedItem="{Binding FinishedGood, Mode=TwoWay}"
+                                            PlaceholderText="Select item…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:StockItem">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Qty" FontWeight="SemiBold" Margin="12,0,6,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding FinishedGoodQtyText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="0"/>
+                                  <TextBlock Grid.Column="4" Text="Rate" FontWeight="SemiBold" Margin="12,0,6,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="5" Text="{Binding FinishedGoodRateText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="0.00"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,220,Auto,140,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Location" FontWeight="SemiBold" Margin="0,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Godowns}"
+                                            SelectedItem="{Binding FinishedGoodGodown, Mode=TwoWay}"
+                                            PlaceholderText="Godown…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Godown">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Due" FontWeight="SemiBold" Margin="12,0,6,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding FinishedGoodDueText, Mode=TwoWay}"
+                                           PlaceholderText="dd-MMM-yyyy"/>
+                                  <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                                    <CheckBox Content="Tracking Components"
+                                              IsChecked="{Binding TrackingComponents, Mode=TwoWay}"
+                                              FontSize="12" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Fill using" FontWeight="SemiBold" Margin="8,0,4,0"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Width="220" ItemsSource="{Binding FillOptions}"
+                                              SelectedItem="{Binding SelectedFill, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:JobWorkFillOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </StackPanel>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Component column header band -->
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0"
+                                    IsVisible="{Binding TrackingComponents}">
+                              <Grid ColumnDefinitions="*,150,150,90,90,110">
+                                <TextBlock Grid.Column="0" Text="Component" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Track" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Godown" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Due" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Component lines grid -->
+                            <ScrollViewer Grid.Row="4" Background="White" VerticalScrollBarVisibility="Auto"
+                                          IsVisible="{Binding TrackingComponents}">
+                              <StackPanel Spacing="0">
+                                <ItemsControl ItemsSource="{Binding Lines}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:JobWorkComponentLineViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              Padding="6,4">
+                                        <Grid ColumnDefinitions="*,150,150,90,90,110">
+                                          <ComboBox Grid.Column="0" Classes="gridCombo"
+                                                    MinWidth="0" HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding StockItems}"
+                                                    SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                                    PlaceholderText="Select item…">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="ledger:StockItem">
+                                                <TextBlock Text="{Binding Name}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <ComboBox Grid.Column="1" Classes="gridCombo" Width="144" Margin="6,0"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding TrackOptions}"
+                                                    SelectedItem="{Binding SelectedTrack, Mode=TwoWay}">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="vm:JobWorkTrackOption">
+                                                <TextBlock Text="{Binding Display}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <ComboBox Grid.Column="2" Classes="gridCombo" Width="144"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding Godowns}"
+                                                    SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
+                                                    PlaceholderText="Godown…">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="ledger:Godown">
+                                                <TextBlock Text="{Binding Name}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <TextBox Grid.Column="3" Width="84" Margin="6,0"
+                                                   Text="{Binding QuantityText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="0"/>
+                                          <TextBox Grid.Column="4" Width="84"
+                                                   Text="{Binding RateText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="0.00"/>
+                                          <TextBox Grid.Column="5" Width="104" Margin="6,0,0,0"
+                                                   Text="{Binding DueText, Mode=TwoWay}"
+                                                   PlaceholderText="dd-MMM-yyyy"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="+ Add component" HorizontalAlignment="Left"
+                                        Margin="0,6" Padding="10,4"
+                                        Background="{StaticResource Panel}"
+                                        Click="OnAddJobWorkLineClick"/>
+                              </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Narration -->
+                            <TextBox Grid.Row="5" Text="{Binding Narration, Mode=TwoWay}"
+                                     PlaceholderText="Narration…" AcceptsReturn="False" Margin="0,4,0,0"/>
+
+                            <!-- Accept row + message -->
+                            <Grid Grid.Row="6" ColumnDefinitions="*,Auto,Auto" Margin="0,6,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource AlertRed}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <Button Grid.Column="1" Content="Cancel (Esc)" Margin="0,0,8,0" Padding="12,6"
+                                      Click="OnCancelJobWorkOrderClick"/>
+                              <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
+                                      IsEnabled="{Binding CanAccept}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnAcceptJobWorkOrderClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Material In/Out movement entry (Phase 6 slice 8; RQ-48) -->
+                    <ContentControl IsVisible="{Binding MaterialMovementEntry, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MaterialMovementEntry}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MaterialMovementEntryViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="4">
+
+                            <!-- Header: type + auto number + date -->
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}" Padding="10,6">
+                              <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Text="{Binding TypeName}"
+                                           Foreground="White" FontWeight="Bold" FontSize="15"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
+                                           VerticalAlignment="Center" Margin="0,0,18,0">
+                                  <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                </TextBlock>
+                                <TextBox Grid.Column="2" Width="140"
+                                         Text="{Binding DateText, Mode=TwoWay}"
+                                         FontSize="12" VerticalAlignment="Center"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Direction hint + party / order / godowns -->
+                            <Border Grid.Row="1" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                    Padding="10,6" Margin="0,4,0,0">
+                              <StackPanel Spacing="6">
+                                <TextBlock Text="{Binding DirectionHint}" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="Auto,220,Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Party" FontWeight="SemiBold" Margin="0,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Parties}"
+                                            SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PartyOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Order No." FontWeight="SemiBold" Margin="14,0,8,0"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Orders}"
+                                            SelectedItem="{Binding SelectedOrder, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:JobWorkOrderOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,240,Auto,240">
+                                  <TextBlock Grid.Column="0" Text="{Binding SourceGodownLabel}" FontWeight="SemiBold"
+                                             Margin="0,0,8,0" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Godowns}"
+                                            SelectedItem="{Binding SourceGodown, Mode=TwoWay}"
+                                            PlaceholderText="Godown…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Godown">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="{Binding DestinationGodownLabel}" FontWeight="SemiBold"
+                                             Margin="14,0,8,0" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Godowns}"
+                                            SelectedItem="{Binding DestinationGodown, Mode=TwoWay}"
+                                            PlaceholderText="Godown…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Godown">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Source (outward) + Destination (inward) grids -->
+                            <ScrollViewer Grid.Row="2" Background="White" VerticalScrollBarVisibility="Auto">
+                              <StackPanel Spacing="0">
+                                <TextBlock Text="Source — outward (consumed / dispatched)"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="6,6,0,2"/>
+                                <ItemsControl ItemsSource="{Binding SourceLines}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              Padding="6,4">
+                                        <Grid ColumnDefinitions="*,152,84,88">
+                                          <ComboBox Grid.Column="0" Classes="gridCombo"
+                                                    MinWidth="0" HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding StockItems}"
+                                                    SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                                    PlaceholderText="Select item…">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="ledger:StockItem">
+                                                <TextBlock Text="{Binding Name}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding Godowns}"
+                                                    SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
+                                                    PlaceholderText="Godown…">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="ledger:Godown">
+                                                <TextBlock Text="{Binding Name}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <TextBox Grid.Column="2" Width="78"
+                                                   Text="{Binding QuantityText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="0"/>
+                                          <TextBox Grid.Column="3" Width="80" Margin="6,0"
+                                                   Text="{Binding RateText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="0.00"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="+ Add source line" HorizontalAlignment="Left"
+                                        Margin="0,6" Padding="10,4"
+                                        Background="{StaticResource Panel}"
+                                        Click="OnAddMaterialSourceLineClick"/>
+
+                                <TextBlock Text="Destination — inward (received / produced)"
+                                           FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="6,6,0,2"/>
+                                <ItemsControl ItemsSource="{Binding DestinationLines}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              Padding="6,4">
+                                        <Grid ColumnDefinitions="*,152,84,88">
+                                          <ComboBox Grid.Column="0" Classes="gridCombo"
+                                                    MinWidth="0" HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding StockItems}"
+                                                    SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
+                                                    PlaceholderText="Select item…">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="ledger:StockItem">
+                                                <TextBlock Text="{Binding Name}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
+                                                    HorizontalContentAlignment="Left" Padding="8,3,6,3"
+                                                    ItemsSource="{Binding Godowns}"
+                                                    SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
+                                                    PlaceholderText="Godown…">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="ledger:Godown">
+                                                <TextBlock Text="{Binding Name}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                          <TextBox Grid.Column="2" Width="78"
+                                                   Text="{Binding QuantityText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="0"/>
+                                          <TextBox Grid.Column="3" Width="80" Margin="6,0"
+                                                   Text="{Binding RateText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="0.00"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="+ Add destination line" HorizontalAlignment="Left"
+                                        Margin="0,6" Padding="10,4"
+                                        Background="{StaticResource Panel}"
+                                        Click="OnAddMaterialDestinationLineClick"/>
+                              </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- Narration -->
+                            <TextBox Grid.Row="3" Text="{Binding Narration, Mode=TwoWay}"
+                                     PlaceholderText="Narration…" AcceptsReturn="False" Margin="0,4,0,0"/>
+
+                            <!-- Accept row + message -->
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,6,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource AlertRed}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                              <Button Grid.Column="1" Content="Cancel (Esc)" Margin="0,0,8,0" Padding="12,6"
+                                      Click="OnCancelMaterialClick"/>
+                              <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
+                                      IsEnabled="{Binding CanAccept}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnAcceptMaterialClick"/>
                             </Grid>
                           </Grid>
                         </DataTemplate>
@@ -5224,6 +5706,14 @@
                                      Price-Level header + discount column and the Price List report. -->
                                 <CheckBox Content="Enable multiple Price Levels"
                                           IsChecked="{Binding EnableMultiplePriceLevels, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <!-- Job Work F11 feature (Phase 6 slice 8; RQ-45/RQ-52): the master gate for the whole
+                                     Job-Work feature. Turning it on activates the four seeded Job-Work voucher types
+                                     (Job Work In/Out Order, Material In/Out) under F10 Other Vouchers and surfaces the
+                                     four Job Work registers under Reports. When off every non-job-work screen is
+                                     byte-identical (ER-13). -->
+                                <CheckBox Content="Enable Job Order Processing"
+                                          IsChecked="{Binding EnableJobOrderProcessing, Mode=TwoWay}"
                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                 <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"/>
                                 <TextBlock Text="STATUTORY" FontSize="11" FontWeight="Bold"

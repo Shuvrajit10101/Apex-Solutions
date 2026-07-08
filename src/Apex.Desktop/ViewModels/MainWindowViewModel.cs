@@ -55,6 +55,8 @@ public enum Screen
     BatchAllocation,
     BomMaster,
     ManufacturingJournalEntry,
+    JobWorkOrderEntry,
+    MaterialMovementEntry,
     PosBilling,
     GstConfig,
     PriceLevelsMaster,
@@ -219,6 +221,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
     [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
+
+    /// <summary>The Job Work In/Out Order voucher-entry view model (Phase 6 slice 8; RQ-47), non-null only while it is open.</summary>
+    [ObservableProperty] private JobWorkOrderEntryViewModel? _jobWorkOrderEntry;
+
+    /// <summary>The Material In/Out movement voucher-entry view model (Phase 6 slice 8; RQ-48), non-null only while it is open.</summary>
+    [ObservableProperty] private MaterialMovementEntryViewModel? _materialMovementEntry;
+
     [ObservableProperty] private PosBillingViewModel? _posBilling;
 
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
@@ -292,6 +301,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
+        && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && GstConfig is null && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
@@ -326,6 +336,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnJobWorkOrderEntryChanged(JobWorkOrderEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -647,6 +659,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // POS Billing (Phase 6 slice 7; RQ-38..RQ-44): a Sales item-invoice with a tender split, posted through a
         // user-created POS-flagged Sales type (auto-created on first use, mirroring the Manufacturing Journal).
         col.Add(new MenuItemViewModel("POS Billing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Job Work vouchers (Phase 6 slice 8; RQ-45/RQ-47/RQ-48/RQ-54) — the four seeded types reached under F10
+        // Other Vouchers, surfaced only when the F11 feature "Enable Job Order Processing" is on (RQ-52), so a
+        // company that never enables it is byte-identical (ER-13).
+        if (Company is { EnableJobOrderProcessing: true })
+        {
+            col.Add(MenuItemViewModel.Header("Job Work"));
+            col.Add(new MenuItemViewModel("Job Work In Order", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Job Work Out Order", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material In", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material Out", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -803,6 +826,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // POS-flagged Sales type exists (mirrors the batch/price-list conditional surfacing).
         if (Company is { } c && c.VoucherTypes.Any(t => t.IsPosSales))
             col.Add(new MenuItemViewModel("POS Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Job Work reports (Phase 6 slice 8; RQ-51/RQ-54) nest under their own sub-section — surfaced only when the
+        // F11 feature "Enable Job Order Processing" is on (RQ-52), so a non-job-work company is byte-identical (ER-13).
+        if (Company is { EnableJobOrderProcessing: true })
+        {
+            col.Add(MenuItemViewModel.Header("Job Work Reports"));
+            col.Add(new MenuItemViewModel("Job Work In Order Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Job Work Out Order Book", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material In Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Material Out Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -2180,6 +2214,68 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             () => ManufacturingJournalEntry = entry);
     }
 
+    // =============================================================== screen: job work (slice 8)
+
+    /// <summary>
+    /// Opens the Job Work In/Out Order voucher-entry screen (Vouchers → Other Vouchers → Job Work In/Out Order;
+    /// F10; Phase 6 slice 8; RQ-45/RQ-47/RQ-50) as a page column. Resolves the seeded Job Work In/Out Order
+    /// voucher type on the current company (activated by the F11 feature). A no-op unless the F11 feature
+    /// "Enable Job Order Processing" is on (RQ-45/RQ-52), so the screen can never be reached with the feature off.
+    /// </summary>
+    public void OpenJobWorkOrder(JobWorkDirection direction)
+    {
+        if (Company is null) return;
+        if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
+
+        var baseType = direction == JobWorkDirection.In
+            ? VoucherBaseType.JobWorkInOrder
+            : VoucherBaseType.JobWorkOutOrder;
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        var entry = new JobWorkOrderEntryViewModel(
+            Company, type, direction, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Job Work Order Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.JobWorkOrderEntry, title,
+            () => JobWorkOrderEntry = entry);
+    }
+
+    /// <summary>
+    /// Opens the Material In/Out movement voucher-entry screen (Vouchers → Other Vouchers → Material In/Out; F10;
+    /// Phase 6 slice 8; RQ-46/RQ-48/RQ-49/RQ-50) as a page column. Resolves the seeded Material In/Out voucher
+    /// type (activated by the F11 feature, carrying "Use for Job Work" and — for Material In — "Allow
+    /// Consumption"). A no-op unless the F11 feature "Enable Job Order Processing" is on (RQ-45/RQ-52).
+    /// </summary>
+    public void OpenMaterialMovement(VoucherBaseType baseType)
+    {
+        if (Company is null) return;
+        if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
+        if (baseType is not (VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut)) return;
+
+        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        if (type is null)
+        {
+            Message = $"No '{baseType}' voucher type is configured for this company.";
+            return;
+        }
+
+        var entry = new MaterialMovementEntryViewModel(
+            Company, type, _storage,
+            onSaved: ShowGateway,
+            onCancelled: BackFromPage);
+        var title = $"Material Movement Creation — {type.Name}";
+        OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.MaterialMovementEntry, title,
+            () => MaterialMovementEntry = entry);
+    }
+
     // =============================================================== screen: POS billing (slice 7)
 
     /// <summary>
@@ -2536,6 +2632,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BatchAllocation = null;
         BomMaster = null;
         ManufacturingJournalEntry = null;
+        JobWorkOrderEntry = null;
+        MaterialMovementEntry = null;
         PosBilling = null;
         GstConfig = null;
         PriceLevels = null;
@@ -2586,6 +2684,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             InventoryVoucherEntry?.Cancel();
         else if (CurrentScreen == Screen.ManufacturingJournalEntry)
             ManufacturingJournalEntry?.Cancel();
+        else if (CurrentScreen == Screen.JobWorkOrderEntry)
+            JobWorkOrderEntry?.Cancel();
+        else if (CurrentScreen == Screen.MaterialMovementEntry)
+            MaterialMovementEntry?.Cancel();
         else if (CurrentScreen == Screen.PosBilling)
             PosBilling?.Cancel();
         else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
@@ -2863,6 +2965,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
+            case Screen.JobWorkOrderEntry:
+                JobWorkOrderEntry?.Accept();
+                return;
+            case Screen.MaterialMovementEntry:
+                MaterialMovementEntry?.Accept();
+                return;
             case Screen.PosBilling:
                 PosBilling?.Accept();
                 return;
@@ -3078,6 +3186,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Physical Stock": OpenInventoryVoucher(VoucherBaseType.PhysicalStock); break;
             case "Manufacturing Journal": OpenManufacturingJournal(); break;
             case "POS Billing": OpenPosBilling(); break;
+            // Job Work vouchers (Phase 6 slice 8; RQ-47/RQ-48) — under F10 Other Vouchers, gated by the F11 feature.
+            case "Job Work In Order": OpenJobWorkOrder(JobWorkDirection.In); break;
+            case "Job Work Out Order": OpenJobWorkOrder(JobWorkDirection.Out); break;
+            case "Material In": OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
+            case "Material Out": OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            // Job Work registers (Phase 6 slice 8; RQ-51) — under Reports → Inventory Reports → Job Work Reports.
+            case "Job Work In Order Book": OpenReport(ReportKind.JobWorkInOrderBook); break;
+            case "Job Work Out Order Book": OpenReport(ReportKind.JobWorkOutOrderBook); break;
+            case "Material In Register": OpenReport(ReportKind.MaterialInRegister); break;
+            case "Material Out Register": OpenReport(ReportKind.MaterialOutRegister); break;
         }
     }
 

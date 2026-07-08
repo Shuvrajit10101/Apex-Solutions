@@ -565,6 +565,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 23;
         }
 
+        // v23 → v24: apply the Job Work schema (three new tables + three additive flag columns), then bump the
+        // marker. Existing v23 data survives untouched (three CREATE TABLE/INDEX + three ALTER ADD COLUMN DEFAULT 0;
+        // no row rewrites — Phase 6 slice 8).
+        if (version == 23)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV23ToV24;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 24);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 24;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -583,7 +606,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    base_currency_name, decimal_places, decimal_unit_name,
                    primary_cost_category, main_location, profit_and_loss_head_id,
                    gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
-                   use_separate_actual_billed_qty, enable_multiple_price_levels
+                   use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -614,6 +637,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 UseSeparateActualBilledQuantity = r.GetInt64(22) != 0,
                 // v21 (RQ-26): F11 "Enable multiple Price Levels" — a plain persisted toggle, read verbatim.
                 EnableMultiplePriceLevels = r.GetInt64(23) != 0,
+                // v24 (RQ-45): F11 "Enable Job Order Processing" — a plain persisted toggle, read verbatim.
+                EnableJobOrderProcessing = r.GetInt64(24) != 0,
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -1019,7 +1044,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
-                   allow_zero_valued, use_for_pos
+                   allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1046,7 +1071,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v20 (RQ-21): "Allow zero-valued transactions" flag, read verbatim.
                 allowZeroValuedTransactions: r.GetInt64(12) != 0,
                 // v23 (RQ-38): "Use for POS invoicing" flag, read verbatim.
-                useForPos: useForPos);
+                useForPos: useForPos,
+                // v24 (RQ-45/RQ-48): "Use for Job Work" + "Allow Consumption" flags, read verbatim.
+                useForJobWork: r.GetInt64(14) != 0,
+                allowConsumption: r.GetInt64(15) != 0);
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -1605,9 +1633,90 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 partyId: h.PartyId,
                 cancelled: h.Cancelled,
                 postDated: h.PostDated,
-                additionalCostLines: ReadAdditionalCostLines(h.Id)));
+                additionalCostLines: ReadAdditionalCostLines(h.Id),
+                jobWorkOrder: ReadJobWorkOrder(h.Id),
+                orderLinks: ReadMaterialOrderLinks(h.Id)));
         }
         return result;
+    }
+
+    /// <summary>Reads the Job Work Order payload for one inventory voucher (v24; RQ-47), or <c>null</c> when the
+    /// voucher is not a Job Work order. job_work_orders is 1:1 with inventory_vouchers (its id == the voucher id).</summary>
+    private JobWorkOrder? ReadJobWorkOrder(Guid voucherId)
+    {
+        JobWorkDirection direction;
+        string orderNo;
+        string? duration, nature;
+        Guid fgItem;
+        decimal fgQty;
+        DateOnly? fgDue;
+        Guid? fgGodown;
+        Money? fgRate;
+        bool tracking;
+        Guid? bomId;
+
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT direction, order_no, duration_of_process, nature_of_processing, fg_stock_item_id, fg_qty_micro,
+                       fg_due_date, fg_godown_id, fg_rate_paisa, tracking_components, fill_components_bom_id
+                FROM job_work_orders WHERE inventory_voucher_id = $vid;
+                """;
+            cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            if (!r.Read()) return null;
+            direction = (JobWorkDirection)(int)r.GetInt64(0);
+            orderNo = r.GetString(1);
+            duration = r.IsDBNull(2) ? null : r.GetString(2);
+            nature = r.IsDBNull(3) ? null : r.GetString(3);
+            fgItem = Guid.Parse(r.GetString(4));
+            fgQty = QtyMicroToDecimal(r.GetInt64(5));
+            fgDue = r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6));
+            fgGodown = r.IsDBNull(7) ? (Guid?)null : Guid.Parse(r.GetString(7));
+            fgRate = r.IsDBNull(8) ? null : Paisa.ToMoney(r.GetInt64(8));
+            tracking = r.GetInt64(9) != 0;
+            bomId = r.IsDBNull(10) ? (Guid?)null : Guid.Parse(r.GetString(10));
+        }
+
+        var lines = new List<JobWorkOrderLine>();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT component_stock_item_id, track, due_date, godown_id, qty_micro, rate_paisa
+                FROM job_work_order_lines WHERE job_work_order_id = $jwo ORDER BY line_order, id;
+                """;
+            cmd.Parameters.AddWithValue("$jwo", voucherId.ToString("D"));
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                lines.Add(new JobWorkOrderLine(
+                    Guid.Parse(r.GetString(0)),
+                    (JobWorkComponentTrack)(int)r.GetInt64(1),
+                    QtyMicroToDecimal(r.GetInt64(4)),
+                    godownId: r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                    dueDate: r.IsDBNull(2) ? (DateOnly?)null : ParseDate(r.GetString(2)),
+                    rate: r.IsDBNull(5) ? null : Paisa.ToMoney(r.GetInt64(5))));
+        }
+
+        return new JobWorkOrder(
+            direction, orderNo, fgItem, fgQty, lines,
+            finishedGoodRate: fgRate, finishedGoodDueDate: fgDue, finishedGoodGodownId: fgGodown,
+            trackingComponents: tracking, fillComponentsBomId: bomId,
+            durationOfProcess: duration, natureOfProcessing: nature);
+    }
+
+    /// <summary>Reads the fulfilled Job Work order ids linked to a Material In/Out voucher (v24; RQ-48).</summary>
+    private List<Guid> ReadMaterialOrderLinks(Guid voucherId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT job_work_order_id FROM material_order_links WHERE material_voucher_id = $vid ORDER BY id;
+            """;
+        cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Guid>();
+        while (r.Read())
+            list.Add(Guid.Parse(r.GetString(0)));
+        return list;
     }
 
     private List<AdditionalCostLine> ReadAdditionalCostLines(Guid voucherId)
@@ -2063,6 +2172,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             DELETE FROM additional_cost_lines WHERE inventory_voucher_id IN (
                 SELECT id FROM inventory_vouchers WHERE company_id = $cid);
             """, ("$cid", cid));
+        // v24 Job Work: material_order_links FK inventory_vouchers + job_work_orders; job_work_order_lines FK
+        // job_work_orders; job_work_orders FK inventory_vouchers + stock_items + godowns + bill_of_materials →
+        // delete links, then lines, then headers, all before inventory_vouchers / stock masters / BOM below.
+        ExecTx(tx, """
+            DELETE FROM material_order_links WHERE material_voucher_id IN (
+                SELECT id FROM inventory_vouchers WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM job_work_order_lines WHERE job_work_order_id IN (
+                SELECT id FROM job_work_orders WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM job_work_orders WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM inventory_vouchers WHERE company_id = $cid;", ("$cid", cid));
         // Budgets (and their lines) FK groups + ledgers → delete them before those masters.
         ExecTx(tx, """
@@ -2128,12 +2249,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  base_currency_name, decimal_places, decimal_unit_name,
                  primary_cost_category, main_location, profit_and_loss_head_id,
                  gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
-                 use_separate_actual_billed_qty, enable_multiple_price_levels)
+                 use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
                  $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper,
-                 $abqty, $empl);
+                 $abqty, $empl, $ejop);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -2163,6 +2284,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$abqty", c.UseSeparateActualBilledQuantity ? 1 : 0);
         // v21 (RQ-26): the F11 "Enable multiple Price Levels" toggle, written verbatim (default 0 — ER-13).
         cmd.Parameters.AddWithValue("$empl", c.EnableMultiplePriceLevels ? 1 : 0);
+        // v24 (RQ-45): the F11 "Enable Job Order Processing" toggle, written verbatim (default 0 — ER-13).
+        cmd.Parameters.AddWithValue("$ejop", c.EnableJobOrderProcessing ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
@@ -2350,8 +2473,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
-                     use_for_pos)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos);
+                     use_for_pos, use_for_job_work, allow_consumption)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2368,6 +2491,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tac", t.TrackAdditionalCosts ? 1 : 0);      // v19 (RQ-16..RQ-20)
             cmd.Parameters.AddWithValue("$azv", t.AllowZeroValuedTransactions ? 1 : 0); // v20 (RQ-21)
             cmd.Parameters.AddWithValue("$pos", t.UseForPos ? 1 : 0);                  // v23 (RQ-38)
+            cmd.Parameters.AddWithValue("$ujw", t.UseForJobWork ? 1 : 0);              // v24 (RQ-45/RQ-48)
+            cmd.Parameters.AddWithValue("$ac", t.AllowConsumption ? 1 : 0);            // v24 (RQ-49)
             cmd.ExecuteNonQuery();
         }
     }
@@ -2880,6 +3005,75 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$ord", order++);
                 cmd.Parameters.AddWithValue("$ledger", acl.LedgerId.ToString("D"));
                 cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(acl.Amount));
+                cmd.ExecuteNonQuery();
+            }
+
+            // v24 (RQ-47): the Job Work Order payload (empty for every non-order voucher). job_work_orders.id is
+            // populated with the SAME value as the voucher id, so a material_order_links.job_work_order_id equals the
+            // order voucher's id (matching the domain's order-link Guids).
+            if (v.JobWorkOrder is { } jwo)
+            {
+                using (var cmd = _connection.CreateCommand())
+                {
+                    cmd.Transaction = tx;
+                    cmd.CommandText = """
+                        INSERT INTO job_work_orders
+                            (id, company_id, inventory_voucher_id, direction, order_no, duration_of_process,
+                             nature_of_processing, fg_stock_item_id, fg_qty_micro, fg_due_date, fg_godown_id,
+                             fg_rate_paisa, tracking_components, fill_components_bom_id)
+                        VALUES ($id, $cid, $vid, $dir, $ono, $dur, $nat, $fg, $fgq, $fgd, $fgg, $fgr, $tc, $bom);
+                        """;
+                    cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
+                    cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                    cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+                    cmd.Parameters.AddWithValue("$dir", (int)jwo.Direction);
+                    cmd.Parameters.AddWithValue("$ono", jwo.OrderNo);
+                    cmd.Parameters.AddWithValue("$dur", (object?)jwo.DurationOfProcess ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$nat", (object?)jwo.NatureOfProcessing ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$fg", jwo.FinishedGoodStockItemId.ToString("D"));
+                    cmd.Parameters.AddWithValue("$fgq", QtyMicroFromDecimal(jwo.FinishedGoodQuantity));
+                    cmd.Parameters.AddWithValue("$fgd", jwo.FinishedGoodDueDate is { } dd ? FormatDate(dd) : (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("$fgg", (object?)jwo.FinishedGoodGodownId?.ToString("D") ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$fgr", jwo.FinishedGoodRate is { } fr ? Paisa.FromMoney(fr) : (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("$tc", jwo.TrackingComponents ? 1 : 0);
+                    cmd.Parameters.AddWithValue("$bom", (object?)jwo.FillComponentsBomId?.ToString("D") ?? DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+
+                var lineOrder = 0;
+                foreach (var line in jwo.Lines)
+                {
+                    using var cmd = _connection.CreateCommand();
+                    cmd.Transaction = tx;
+                    cmd.CommandText = """
+                        INSERT INTO job_work_order_lines
+                            (job_work_order_id, line_order, component_stock_item_id, track, due_date, godown_id,
+                             qty_micro, rate_paisa)
+                        VALUES ($jwo, $ord, $item, $track, $due, $godown, $qty, $rate);
+                        """;
+                    cmd.Parameters.AddWithValue("$jwo", v.Id.ToString("D"));
+                    cmd.Parameters.AddWithValue("$ord", lineOrder++);
+                    cmd.Parameters.AddWithValue("$item", line.ComponentStockItemId.ToString("D"));
+                    cmd.Parameters.AddWithValue("$track", (int)line.Track);
+                    cmd.Parameters.AddWithValue("$due", line.DueDate is { } d ? FormatDate(d) : (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("$godown", (object?)line.GodownId?.ToString("D") ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("$qty", QtyMicroFromDecimal(line.Quantity));
+                    cmd.Parameters.AddWithValue("$rate", line.Rate is { } r ? Paisa.FromMoney(r) : (object)DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            // v24 (RQ-48): material→order links (empty for every non-material voucher).
+            foreach (var linkId in v.OrderLinks)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO material_order_links (material_voucher_id, job_work_order_id)
+                    VALUES ($vid, $jwo);
+                    """;
+                cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$jwo", linkId.ToString("D"));
                 cmd.ExecuteNonQuery();
             }
         }

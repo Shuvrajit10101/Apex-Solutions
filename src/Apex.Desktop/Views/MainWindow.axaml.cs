@@ -411,6 +411,11 @@ public partial class MainWindow : Window
             case Key.F7: Fire(vm, "F7"); e.Handled = true; break;
             case Key.F8: Fire(vm, "F8"); e.Handled = true; break;
             case Key.F9: Fire(vm, "F9"); e.Handled = true; break;
+            // F10 opens the "Other Vouchers" menu (Transactions → Vouchers → Other Vouchers) — the route to the
+            // Job Work In/Out Order + Material In/Out screens (Phase 6 slice 8; RQ-45/RQ-53). Menu context only,
+            // never while typing in a field.
+            case Key.F10 when vm.Company is not null && !IsTyping(e):
+                vm.ShowOtherVouchersMenu(); e.Handled = true; break;
             case Key.F11: Fire(vm, "F11"); e.Handled = true; break;
             case Key.F12: Fire(vm, "F12"); e.Handled = true; break;
 
@@ -593,6 +598,29 @@ public partial class MainWindow : Window
 
     private void OnShowPosTaxAnalysisClick(object? sender, RoutedEventArgs e)
         => Vm?.PosBilling?.ShowTaxAnalysis();
+
+    // Job Work In/Out Order (Phase 6 slice 8; RQ-47) — accept / cancel / add component line.
+    private void OnAcceptJobWorkOrderClick(object? sender, RoutedEventArgs e)
+        => Vm?.JobWorkOrderEntry?.Accept();
+
+    private void OnCancelJobWorkOrderClick(object? sender, RoutedEventArgs e)
+        => Vm?.CancelVoucher();
+
+    private void OnAddJobWorkLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.JobWorkOrderEntry?.AddBlankLine();
+
+    // Material In/Out movement (Phase 6 slice 8; RQ-48) — accept / cancel / add source & destination lines.
+    private void OnAcceptMaterialClick(object? sender, RoutedEventArgs e)
+        => Vm?.MaterialMovementEntry?.Accept();
+
+    private void OnCancelMaterialClick(object? sender, RoutedEventArgs e)
+        => Vm?.CancelVoucher();
+
+    private void OnAddMaterialSourceLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.MaterialMovementEntry?.AddSourceLine();
+
+    private void OnAddMaterialDestinationLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.MaterialMovementEntry?.AddDestinationLine();
 
     /// <summary>Opens the batch-allocation sub-screen (RQ-3) for the inventory-voucher line the button sits on.</summary>
     private void OnOpenBatchAllocationClick(object? sender, RoutedEventArgs e)

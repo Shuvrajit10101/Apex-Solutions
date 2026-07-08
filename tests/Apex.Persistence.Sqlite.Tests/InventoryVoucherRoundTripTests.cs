@@ -290,6 +290,17 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS pos_tender_allocations;");
         Exec(conn, "DROP TABLE IF EXISTS pos_tender_ledger_defaults;");
         Exec(conn, "DROP TABLE IF EXISTS pos_voucher_type_config;");
+        // Drop the v24 Job Work tables + their indexes so the reopen's v23→v24 CREATE TABLE does not collide (the
+        // companies/voucher_types rebuilds below strip the v24 ALTER columns back to the v9 shape).
+        Exec(conn, "DROP INDEX IF EXISTS ix_material_order_links_order;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_material_order_links_voucher;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_job_work_order_lines_order;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_job_work_orders_item;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_job_work_orders_voucher;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_job_work_orders_company;");
+        Exec(conn, "DROP TABLE IF EXISTS material_order_links;");
+        Exec(conn, "DROP TABLE IF EXISTS job_work_order_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS job_work_orders;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");
         Exec(conn, "DROP INDEX IF EXISTS ux_bom_item_name;");
