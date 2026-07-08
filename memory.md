@@ -761,6 +761,53 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   (b) docs `docs(memory): Phase 6 slice 4 log`.
 - **Next:** Phase 6 slice 5 (Price Levels / Price Lists, per plan.md). [A5]
 
+### Phase 6 slice 5 — Price Levels & Price Lists (RQ-26..RQ-31, DP-A; PR-7) ✅ (2026-07-08) — SQLite schema v20→v21
+- **Finalized from the paused WIP `8e1c22e`** (engine+schema+UI+tests were present but NOT reviewed/gated). This
+  session A12 re-ran the gate, folded in A10's review fixes (with regression tests), and landed a CLEAN checkpoint on
+  top of the WIP — the WIP was never reset/force-pushed.
+- **What the feature is (Tally "Price Levels / Price Lists", Book p.34):** named **Price Levels** (e.g. Retail,
+  Wholesale) each carrying dated, quantity-**slab** Price Lists per stock item. On a Sales item-invoice line the app
+  **auto-fills** the Rate (and optional Discount%) from the resolved slab — a pure UI convenience default the operator
+  can always override; it **never** enters posting/valuation.
+- **Domain (`src/Apex.Ledger/Domain/`):** `PriceLevel` (id+name), `PriceList` (a dated version = level+item+
+  `ApplicableFrom`+ordered slabs; `ResolveSlab(qty)`), `PriceListSlab` (half-open band **From≥ / To<**, `Rate`,
+  `DiscountPercent`, deterministic `EffectiveUnitRate = Rate×(1−Disc/100)` paisa-rounded). `Company.cs` gains the
+  Price* collections + `PriceListsFor(level,item)` + party default via `DomainLedger.DefaultPriceLevelId` (RQ-30).
+- **`PriceResolver` (pure, zero posting coupling):** given (company, level, item, qty, voucherDate) → picks the
+  **latest `ApplicableFrom ≤ voucher date`** version (RQ-29, RateInForce pattern; RQ-27 strict-increasing guard makes
+  ties impossible), then the slab whose half-open band holds the qty (RQ-28), returning `ResolvedPrice` or `null`
+  (auto-fill leaves the line blank). Consumed ONLY by the ViewModel auto-fill + `PriceListReport` — never by
+  `InventoryPostingService`/`VoucherValidator`/`StockValuationService`/`ItemInvoiceStock`, so all posting/valuation
+  invariants are untouched. Integer-scale, culture-invariant, no float, no clock (ER-10).
+- **PR-7 worked example (locked by test):** Retail slabs **0–2 → ₹16,000 ; 2–4 → ₹14,850** (last slab CLOSED). qty 3
+  → ₹14,850 (headline); boundary **qty 2 → the HIGHER 2–4 slab** (From≥); qty 4 → **null** (falls in no slab).
+  Open-ended top slab (Wholesale 10–null → ₹900) resolves any large qty. On the Sales line qty 3 auto-fills
+  14,850.00 and posts 3 × 14,850 = ₹44,550.
+- **Schema v20→v21 (`MigrateV20ToV21`):** purely additive — new `price_levels`, `price_lists`, `price_list_slabs`
+  tables + `ledgers.default_price_level_id` (nullable). Feature-off round-trips byte-identically; lossless
+  JSON/XML + SQLite round-trip proven (`PriceListRoundTripTests`, `PriceListSchemaTests`).
+- **UI (Miller-column cascade, keyboard-first):** `PriceLevelsViewModel` (create/list levels) + `PriceListsViewModel`
+  (pick level+item, dated `ApplicableFrom`, editable slab grid, Save = add/revise a dated version) wired into
+  `MainWindowViewModel` (new `Screen.PriceLevelsMaster`/`PriceListsMaster`) + `MainWindow.axaml`. Sales
+  `VoucherEntryViewModel` gains the Price-Level header selector (defaults from the party's default level, overridable)
+  + per-line auto-fill (`ApplyPriceAutoFill` writes only non-user-dirty fields).
+- **A10 adversarial fixes (this session, each regression-locked):** (1) **stale-rate leak** — switching an
+  un-dirtied line to an item with no price list left the prior item's auto-filled Rate lingering; now a no-slab miss
+  clears the auto-fill (empty Rate/Discount) while the operator's own edits still stick
+  (`Switching_line_to_item_without_price_list_clears_the_stale_rate`). (2) **party-switch header inheritance** —
+  selecting a party with NO default level silently kept the previous party's level; now the header always resets to
+  the new party's default, falling back to "Not Applicable" (RQ-30;
+  `Selecting_party_without_default_level_resets_header_to_not_applicable`). (3) **Ctrl+A keyboard route** — wired
+  `Screen.PriceLevelsMaster`→`Create()` and `PriceListsMaster`→`Save()` into `ActivateSelected` so Ctrl+A creates a
+  level / saves a dated list (`Ctrl_a_creates_price_level_and_saves_price_list_via_activate_selected`).
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1162 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 134 · Ledger 515 · Sqlite 83 · Desktop 430). **Schema v21.** Robert & Bright green. No
+  scratch/probe/ZZ/temp files staged — clean finalize set (2 VM fixes + 3 new regression tests on top of the WIP).
+- **Committed & pushed by A12 (R4):** finalize commit `feat(inventory): Phase 6 slice 5 finalize — Price Levels &
+  Price Lists green + A10 fixes (schema v21)` + docs `docs(memory): Phase 6 slice 5 log`. Branch pushed; **`main`
+  NOT touched** (the ff-merge of Phases 3–6 onto `main` is a separate follow-up step).
+- **Next:** Phase 6 slice 6 (Reorder level + stock-status report, schema v22 per plan.md). [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
