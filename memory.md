@@ -885,6 +885,48 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Next:** Phase 6 slice 8 — Job Work (Material Out/In, third-party godown, Allow Consumption), schema v24 per
   plan.md. [A5]
 
+### Phase 6 slice 8 — Job Work (In/Out orders + Material In/Out + third-party godowns) (RQ-45..RQ-51; PR-10; ER-1/ER-5/ER-7/ER-13) ✅ (2026-07-08) — SQLite schema v23→v24
+- **What shipped (catalog Job Work; Book1 p.83/p.90):** F11 **"Enable Job Order Processing"** activates four voucher
+  types — **Job Work In/Out Order** (pure order docs) + **Material In/Out** (the physical moves) — plus the two type
+  flags **"Use for Job Work"** and **"Allow Consumption"**. A **Job Work Order moves neither accounts nor stock** (it is
+  a commitment doc). **Material Out** is a value-neutral **balanced transfer** that keeps stock on OUR books at a
+  **third-party godown** (a location move, not a disposal, RQ-46). **Material In with Allow Consumption** is a transform
+  that **consumes the third-party components leaving no phantom RM** and **produces a valued FG from LIVE component cost**
+  (not the supplied/order rate, RQ-49). The **SAME four types serve both principal (Out) and worker (In) sides with no
+  hard-coded branch** — direction is carried per component line by `JobWorkComponentTrack` (PendingToIssue /
+  PendingToReceive), not baked into a posting rule.
+- **Engine (TDD, `JobWorkService` + domain):** `JobWorkDirection` (In=0/Out=1), `JobWorkOrder` + `JobWorkOrderLine`
+  (tracked component lines with godown), `JobWorkComponentTrack`. Invariants enforced: unbalanced Material Out rejected;
+  consuming material the worker site never received is **rejected with rollback, no phantom** ("negative" on-hand guard);
+  an Out-order book does **not** double-count consumption as a second issue; a Job Work Order type **rejects a stock-
+  movement payload** and an Out-order payload filed under the In type is rejected. `JobWorkReports` renders four
+  registers over the fixture.
+- **PR-10 exit gate (regression-locked in `JobWorkPostingTests`):** Out Order (order 10 FG) → Material Out dispatches
+  components to a third-party "Worker Site" godown (value-neutral, stock stays on our books) → **Material In consumes**
+  the components (every component back to **0 at Worker Site — no phantom RM**) and **produces FG +10 at Main valued Σ
+  consumed component cost paisa-exact (₹140,000)**, with **source qty ≠ dest qty** and **accounts untouched** (the job-
+  charge invoice rides the separate accounting path). Value proven to come from **live component cost, not the supplied
+  rate**; a diverging supplied rate leaves the Material Out transfer value-neutral.
+- **Schema v23→v24 (`MigrateV23ToV24`, wired `SqliteCompanyStore.cs`):** purely additive — three new tables
+  (`job_work_orders`, `job_work_order_lines`, `material_order_links`) + their indexes (incl. UNIQUE 1:1
+  `ux_job_work_orders_voucher`), plus additive columns (`companies.job_order_processing_enabled`,
+  `voucher_types.use_for_job_work`, `voucher_types.allow_consumption`). No rewriting `ALTER`. Fresh DB stamped straight
+  to v24 via `CreateV1`. Lossless SQLite round-trip proven (`JobWorkSchemaTests`, `JobWorkRoundTripTests`); pre-Job-Work
+  round-trip tests re-asserted (v24-stamped, feature-off byte-identical).
+- **UI (Miller-column cascade, keyboard-first):** `JobWorkOrderEntryViewModel` + `JobWorkComponentLineViewModel` +
+  `MaterialMovementEntryViewModel` wired into `MainWindowViewModel` + `MainWindow.axaml`; Job Work registers surfaced via
+  `ReportsViewModel`.
+- **A10 adversarial review:** no surviving HIGH/MED defects on the Slice-8 set at gate time (transfer value-neutrality,
+  no-phantom consumption guard, live-cost FG valuation, and type/payload rejections all held under adversarial probing;
+  invariant tests fail-on-pre-fix).
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1265 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 139 · Ledger 569 · Sqlite 97 · Desktop 460). **Schema v24.** Robert & Bright + GST golden + order-
+  processing tests green. No scratch/probe/ZZ/temp files — clean Slice-8 set (13 new files + 16 modified, all Job
+  Work/schema/UI/tests).
+- **Committed & pushed by A12 (R4):** `feat(inventory): Phase 6 slice 8 — Job Work (In/Out orders + Material In/Out +
+  third-party godowns), SQLite schema v24` + `docs(memory): Phase 6 slice 8 log`. Branch pushed; **`main` NOT touched**.
+- **Next:** Phase 6 slice 9 — exit gate. [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
