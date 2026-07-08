@@ -951,6 +951,28 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Next:** Phase 6 slice 9 exit gate remainder — (9b) extend Bright with the full advanced-inventory flow + re-verify
   PR-1..PR-11 + migration v15→v24 + de-brand sweep + run the whole Desktop app; then merge PR #18 → pause for Phase-7. [A5]
 
+### Phase 6 slice 9b — EXIT GATE: Bright advanced-inventory reconciliation + PR-gate re-verify ✅ (2026-07-08) — no schema change
+- **Exit-gate regression added:** a new full-set reconciliation test on the rich Bright fixture,
+  `Bright_full_advanced_inventory_set_reconciles_into_stock_summary_and_balance_sheet_to_the_paisa`
+  (`tests/Apex.Ledger.Io.Tests/CanonicalRoundTripTests.cs`). It drives the FULL Phase-6 advanced-inventory set through
+  the reporting engines and asserts three-way paisa-exact consistency: (a) the per-row Stock Summary identity
+  `opening + inward − outward == closing` holds for every item and the grand total foots; (b) closing stock is IDENTICAL
+  across three independent engines — Stock Summary total, `StockValuationService.TotalClosingStockValue`, and the
+  Balance-Sheet `Stock-in-Hand` asset line (`ClosingStockMode.InventoryDerived`); (c) the ONLY Balance-Sheet imbalance is
+  the fixture's deliberate ₹55,000 opening-balance gap — every Phase-6 voucher (additional-cost transfer, Actual-vs-Billed
+  sale, POS multi-tender, Job Work Material Out) is self-balancing and leaks NOTHING into the statements. Concrete closings
+  pinned: Gizmo 167 on-hand (200 opening − 20 transfer − 10 AB sale − 3 POS), JW Raw 300 main + 200 at third-party 'Worker
+  Site' godown (Slice-8 Material Out), Assembled Gadget conserved BOM value ₹157.50 (Slice-2).
+- **PR-1..PR-11 re-verified:** existing Robert/Bright PR-gate suites plus the sibling balanced-books `BrightReVerificationTests.BR4`
+  (Dr = Cr, TotalAssets == TotalLiabilities to the paisa) all stay green; migration chain v15→v24 exercised by the SQLite suite.
+- **Gate re-run by A12 (R4), fully green: `dotnet test -c Release` → Ledger 569 · Io 143 (was 142, +1) · Sqlite 97 ·
+  Desktop 460 = 1269, 0 failed.** Only the one Io test file changed; no schema change (still v24); de-brand clean; no
+  scratch/probe/ZZ/temp files.
+- **Committed & pushed by A12 (R4):** `test(inventory): Phase 6 exit gate — Bright advanced-inventory regression + PR-gate
+  re-verify` + `docs(memory): Phase 6 slice 9b log`. Branch pushed; **`main` NOT touched** (PR #18 auto-tracks the branch tip).
+- **Next:** Phase 6 slice 9 exit-gate remainder — run the whole Desktop app (headless render each Phase-6 cluster as
+  evidence, de-branded/no-clipping) → merge PR #18 (CI now green-capable, path fix in) → pause for Phase-7 go-ahead. [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
