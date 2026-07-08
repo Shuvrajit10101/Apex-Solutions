@@ -318,7 +318,10 @@ public sealed class TabularExportTests
             TimestampSuffix = "20260706-1200",
         };
         Assert.Equal("Trial Balance_20260706-1200.xlsx", cfg.ResolvedFileName);
-        Assert.Equal("C:\\out\\Trial Balance_20260706-1200.xlsx", cfg.FullPath);
+        // FullPath uses Path.Combine (a real OS filesystem path), so build the expected value the same way
+        // rather than hardcoding a '\\' separator — otherwise this assertion fails on Linux/macOS where the
+        // separator is '/'. ResolvedFileName above stays a hardcoded literal because it is separator-free.
+        Assert.Equal(Path.Combine("C:\\out", "Trial Balance_20260706-1200.xlsx"), cfg.FullPath);
     }
 
     [Fact]
