@@ -33,6 +33,13 @@ internal sealed class ApplyJournal
     private readonly List<CostCentre> _costCentres = new();
     private readonly List<Budget> _budgets = new();
     private readonly List<Scenario> _scenarios = new();
+    private readonly List<PriceLevel> _priceLevels = new();
+    private readonly List<PriceList> _priceLists = new();
+    private readonly List<ReorderDefinition> _reorderDefinitions = new();
+
+    // Enable Job Order Processing: whether it was already on before the import stamped the seeded voucher types, so a
+    // rollback re-runs JobWorkService.SetEnabled(prior) to restore both the company flag and the seeded type flags.
+    private bool? _jobOrderProcessingBefore;
 
     // GST enable: whether GST was already on, and the ledger ids present just before EnableGst ran (so its
     // auto-created tax + round-off ledgers can be pruned on rollback).
@@ -68,6 +75,14 @@ internal sealed class ApplyJournal
     public void RecordCostCentre(CostCentre c) => _costCentres.Add(c);
     public void RecordBudget(Budget b) => _budgets.Add(b);
     public void RecordScenario(Scenario s) => _scenarios.Add(s);
+    public void RecordPriceLevel(PriceLevel l) => _priceLevels.Add(l);
+    public void RecordPriceList(PriceList l) => _priceLists.Add(l);
+    public void RecordReorderDefinition(ReorderDefinition d) => _reorderDefinitions.Add(d);
+
+    /// <summary>Snapshots the Enable-Job-Order-Processing flag as it was BEFORE the import toggled it (via
+    /// <c>JobWorkService.SetEnabled</c>), so a rollback restores the flag AND the seeded voucher-type flags it
+    /// stamps. Call before toggling.</summary>
+    public void RecordJobOrderProcessingBefore(bool wasEnabled) => _jobOrderProcessingBefore ??= wasEnabled;
 
     public void RecordLedgerOpeningSnapshot(Domain.Ledger l, bool captureGroup) =>
         _openingSnapshots.Add((l, l.OpeningBalance, l.OpeningIsDebit, captureGroup ? l.GroupId : null));
@@ -99,6 +114,12 @@ internal sealed class ApplyJournal
         // 1b) Budgets & scenarios reference groups/ledgers/voucher-types — remove them before those masters.
         for (var i = _scenarios.Count - 1; i >= 0; i--) _company.RemoveScenario(_scenarios[i]);
         for (var i = _budgets.Count - 1; i >= 0; i--) _company.RemoveBudget(_budgets[i]);
+
+        // 1c) Phase 6 slice-5/6 masters: price lists (reference a level + item) and reorder definitions (reference an
+        //     item/group/category) before those masters are removed; then the bare price levels.
+        for (var i = _priceLists.Count - 1; i >= 0; i--) _company.RemovePriceList(_priceLists[i]);
+        for (var i = _reorderDefinitions.Count - 1; i >= 0; i--) _company.RemoveReorderDefinition(_reorderDefinitions[i]);
+        for (var i = _priceLevels.Count - 1; i >= 0; i--) _company.RemovePriceLevel(_priceLevels[i]);
 
         // 2) Opening-stock allocations, then BOMs + batch masters (reference items + godowns), then stock items,
         //    godowns, categories, stock groups, units.
@@ -152,6 +173,12 @@ internal sealed class ApplyJournal
         if (_gstRecorded)
             _company.Gst = _priorGst; // the ORIGINAL config (null when GST was off before EnableGst ran)
 
+        // 5b) Enable Job Order Processing undo: re-run SetEnabled(prior) so both the company flag and the seeded
+        //     Material In/Out + Job Work Order voucher-type flags (IsActive / UseForJobWork / AllowConsumption) are
+        //     restored to exactly what they were before the import stamped them.
+        if (_jobOrderProcessingBefore is { } wasEnabled)
+            new Services.JobWorkService(_company).SetEnabled(wasEnabled);
+
         // 6) Company header.
         _header?.RestoreTo(_company);
     }
@@ -159,12 +186,14 @@ internal sealed class ApplyJournal
     private sealed record CompanyHeaderSnapshot(
         string Name, string MailingName, string? Address, string Country, string? State, string? Pin,
         DateOnly FinancialYearStart, DateOnly BooksBeginFrom, string BaseCurrencySymbol, string BaseCurrencyName,
-        int DecimalPlaces, string DecimalUnitName)
+        int DecimalPlaces, string DecimalUnitName,
+        bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels)
     {
         public static CompanyHeaderSnapshot Capture(Company t) => new(
             t.Name, t.MailingName, t.Address, t.Country, t.State, t.Pin,
             t.FinancialYearStart, t.BooksBeginFrom, t.BaseCurrencySymbol, t.BaseCurrencyName,
-            t.DecimalPlaces, t.DecimalUnitName);
+            t.DecimalPlaces, t.DecimalUnitName,
+            t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels);
 
         public void RestoreTo(Company t)
         {
@@ -180,6 +209,8 @@ internal sealed class ApplyJournal
             t.BaseCurrencyName = BaseCurrencyName;
             t.DecimalPlaces = DecimalPlaces;
             t.DecimalUnitName = DecimalUnitName;
+            t.UseSeparateActualBilledQuantity = UseSeparateActualBilledQuantity;
+            t.EnableMultiplePriceLevels = EnableMultiplePriceLevels;
         }
     }
 }

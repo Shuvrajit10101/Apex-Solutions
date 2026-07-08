@@ -16,8 +16,8 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v14).</summary>
-    public const int SchemaVersion = 14;
+    /// <summary>The persistence schema version this export targets (SQLite schema v24).</summary>
+    public const int SchemaVersion = 24;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -66,6 +66,9 @@ public static class CanonicalMapper
         DecimalPlaces = c.DecimalPlaces,
         DecimalUnitName = c.DecimalUnitName,
         Gst = c.Gst is { } g ? MapGstConfig(g) : null,
+        UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity,
+        EnableMultiplePriceLevels = c.EnableMultiplePriceLevels,
+        EnableJobOrderProcessing = c.EnableJobOrderProcessing,
     };
 
     private static PayloadDto MapPayload(Company c) => new()
@@ -99,6 +102,17 @@ public static class CanonicalMapper
             .OrderBy(b => b.StockItemId).ThenBy(b => b.Name, StringComparer.Ordinal).ThenBy(b => b.Id)
             .Select(MapBom).ToList(),
         StockOpeningBalances = c.StockOpeningBalances.OrderBy(b => b.Id).Select(MapStockOpeningBalance).ToList(),
+        // Price Levels — ordered by (name, id) so the stream is stable regardless of insertion order.
+        PriceLevels = OrderById(c.PriceLevels, x => x.Name, x => x.Id).Select(MapPriceLevel).ToList(),
+        // Price Lists — ordered by (level id, item id, applicable-from, id); the slab order within a list is the
+        // list's own ascending slab order, preserved verbatim (it is load-bearing).
+        PriceLists = c.PriceLists
+            .OrderBy(p => p.PriceLevelId).ThenBy(p => p.StockItemId).ThenBy(p => p.ApplicableFrom).ThenBy(p => p.Id)
+            .Select(MapPriceList).ToList(),
+        // Reorder definitions — ordered by (scope, target id, id) so the stream is stable.
+        ReorderDefinitions = c.ReorderDefinitions
+            .OrderBy(d => d.Scope).ThenBy(d => d.TargetId).ThenBy(d => d.Id)
+            .Select(MapReorderDefinition).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
@@ -134,6 +148,8 @@ public static class CanonicalMapper
         PartyGst = l.PartyGst is { } p ? MapPartyGst(p) : null,
         SalesPurchaseGst = l.SalesPurchaseGst is { } s ? MapStockItemGst(s) : null,
         GstClassification = l.GstClassification is { } gc ? MapGstClassification(gc) : null,
+        MethodOfAppropriation = l.MethodOfAppropriation is { } m ? m.ToString() : null,
+        DefaultPriceLevelId = l.DefaultPriceLevelId,
     };
 
     private static InterestParametersDto MapInterest(InterestParameters i) => new()
@@ -195,6 +211,52 @@ public static class CanonicalMapper
         IsActive = t.IsActive, IsPredefined = t.IsPredefined,
         AffectsAccounts = t.AffectsAccounts, AffectsStock = t.AffectsStock,
         UseAsManufacturingJournal = t.UseAsManufacturingJournal,
+        TrackAdditionalCosts = t.TrackAdditionalCosts,
+        AllowZeroValuedTransactions = t.AllowZeroValuedTransactions,
+        UseForPos = t.UseForPos,
+        UseForJobWork = t.UseForJobWork,
+        AllowConsumption = t.AllowConsumption,
+        PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
+    };
+
+    private static PosConfigDto MapPosConfig(PosConfig c) => new()
+    {
+        DefaultGodownId = c.DefaultGodownId,
+        DefaultPartyId = c.DefaultPartyId,
+        PrintAfterSave = c.PrintAfterSave,
+        DefaultTitle = c.DefaultTitle,
+        Message1 = c.Message1,
+        Message2 = c.Message2,
+        Declaration = c.Declaration,
+        // Ordered by tender-type ordinal so the byte stream is stable regardless of dictionary insertion order.
+        TenderLedgerDefaults = c.TenderLedgerDefaults
+            .OrderBy(kv => (int)kv.Key)
+            .Select(kv => new PosTenderLedgerDefaultDto { TenderType = kv.Key.ToString(), LedgerId = kv.Value })
+            .ToList(),
+    };
+
+    private static PriceLevelDto MapPriceLevel(PriceLevel x) => new() { Id = x.Id, Name = x.Name };
+
+    private static PriceListDto MapPriceList(PriceList x) => new()
+    {
+        Id = x.Id, PriceLevelId = x.PriceLevelId, StockItemId = x.StockItemId,
+        ApplicableFrom = Iso(x.ApplicableFrom),
+        // Slab order is the list's own ascending slab order — preserved verbatim (NOT reordered).
+        Slabs = x.Slabs.Select(s => new PriceListSlabDto
+        {
+            FromQty = s.FromQty, ToQty = s.ToQty, RatePaisa = MoneyCodec.ToPaisa(s.Rate),
+            DiscountPercent = s.DiscountPercent,
+        }).ToList(),
+    };
+
+    private static ReorderDefinitionDto MapReorderDefinition(ReorderDefinition d) => new()
+    {
+        Id = d.Id, Scope = d.Scope.ToString(), TargetId = d.TargetId,
+        ReorderAdvanced = d.ReorderAdvanced, ReorderQuantity = d.ReorderQuantity,
+        MinQtyAdvanced = d.MinQtyAdvanced, MinOrderQuantity = d.MinOrderQuantity,
+        PeriodCount = d.PeriodCount,
+        PeriodUnit = d.PeriodUnit is { } u ? u.ToString() : null,
+        Criteria = d.Criteria is { } cr ? cr.ToString() : null,
     };
 
     private static UnitDto MapUnit(Unit u) => new()
@@ -305,6 +367,16 @@ public static class CanonicalMapper
         ApplicableUpto = Iso(v.ApplicableUpto),
         Lines = v.Lines.Select(MapEntryLine).ToList(),
         InventoryLines = v.InventoryLines.Select(MapVoucherInventoryLine).ToList(),
+        // POS tenders preserved in their declared (stable) order — Gift, Card, Cheque, Cash.
+        PosTenders = v.PosTenders.Select(MapPosTender).ToList(),
+    };
+
+    private static PosTenderDto MapPosTender(PosTender t) => new()
+    {
+        TenderType = t.Type.ToString(), LedgerId = t.LedgerId, AmountPaisa = MoneyCodec.ToPaisa(t.Amount),
+        TenderedPaisa = t.Tendered is { } td ? MoneyCodec.ToPaisa(td) : null,
+        ChangePaisa = t.Change is { } ch ? MoneyCodec.ToPaisa(ch) : null,
+        CardNo = t.CardNo, BankName = t.BankName, ChequeNo = t.ChequeNo,
     };
 
     private static EntryLineDto MapEntryLine(EntryLine l) => new()
@@ -349,6 +421,8 @@ public static class CanonicalMapper
     {
         StockItemId = l.StockItemId, GodownId = l.GodownId, Quantity = l.Quantity,
         RatePaisa = MoneyCodec.ToPaisa(l.Rate), Direction = l.Direction.ToString(), BatchLabel = l.BatchLabel,
+        // Emit Billed only when it differs from Actual (feature off ⇒ null ⇒ byte-identical, ER-13).
+        BilledQuantity = l.BilledQuantity == l.Quantity ? null : l.BilledQuantity,
     };
 
     // ------------------------------------------------------------- inventory / order vouchers
@@ -361,6 +435,30 @@ public static class CanonicalMapper
         DestinationAllocations = v.DestinationAllocations.Select(MapInventoryAllocation).ToList(),
         OrderLines = v.OrderLines.Select(MapOrderLine).ToList(),
         PhysicalLines = v.PhysicalLines.Select(MapPhysicalStockLine).ToList(),
+        // Additional-cost lines preserve their own order (load-bearing for apportionment reporting).
+        AdditionalCostLines = v.AdditionalCostLines
+            .Select(a => new AdditionalCostLineDto { LedgerId = a.LedgerId, AmountPaisa = MoneyCodec.ToPaisa(a.Amount) })
+            .ToList(),
+        JobWorkOrder = v.JobWorkOrder is { } jwo ? MapJobWorkOrder(jwo) : null,
+        // Order links preserved verbatim (each is a source Job Work Order voucher id).
+        OrderLinks = v.OrderLinks.ToList(),
+    };
+
+    private static JobWorkOrderDto MapJobWorkOrder(JobWorkOrder j) => new()
+    {
+        Direction = j.Direction.ToString(), OrderNo = j.OrderNo,
+        DurationOfProcess = j.DurationOfProcess, NatureOfProcessing = j.NatureOfProcessing,
+        FinishedGoodStockItemId = j.FinishedGoodStockItemId, FinishedGoodQuantity = j.FinishedGoodQuantity,
+        FinishedGoodDueDate = Iso(j.FinishedGoodDueDate), FinishedGoodGodownId = j.FinishedGoodGodownId,
+        FinishedGoodRatePaisa = j.FinishedGoodRate is { } r ? MoneyCodec.ToPaisa(r) : null,
+        TrackingComponents = j.TrackingComponents, FillComponentsBomId = j.FillComponentsBomId,
+        // Component line order is the order's own order — preserved verbatim.
+        Lines = j.Lines.Select(l => new JobWorkOrderLineDto
+        {
+            ComponentStockItemId = l.ComponentStockItemId, Track = l.Track.ToString(),
+            DueDate = Iso(l.DueDate), GodownId = l.GodownId, Quantity = l.Quantity,
+            RatePaisa = l.Rate is { } r ? MoneyCodec.ToPaisa(r) : null,
+        }).ToList(),
     };
 
     private static InventoryAllocationDto MapInventoryAllocation(InventoryAllocation a) => new()

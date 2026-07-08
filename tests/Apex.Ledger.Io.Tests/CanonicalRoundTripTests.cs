@@ -302,7 +302,8 @@ public class CanonicalRoundTripTests
 
         // Vouchers: same count, and the item-invoice voucher preserves its lines, GST tax line, and inventory line.
         Assert.Equal(company.Vouchers.Count, model.Payload.Vouchers.Count);
-        var sale = company.Vouchers.Single(v => v.HasInventoryLines);
+        // The GST'd item-invoice Purchase (the fixture now also carries non-GST Sales/POS item-invoices).
+        var sale = company.Vouchers.Single(v => v.Narration == "Bought 10 widgets from Ram & Co");
         var saleDto = model.Payload.Vouchers.Single(x => x.Id == sale.Id);
         Assert.Equal(sale.Lines.Count, saleDto.Lines.Count);
         Assert.Equal(sale.PartyId, saleDto.PartyId);
@@ -564,6 +565,232 @@ public class CanonicalRoundTripTests
         Assert.Equal(before, after); // byte-for-byte unchanged: the pre-existing BOM is intact
         Assert.Single(target.BillsOfMaterials);
         Assert.Equal("PRE", target.BillsOfMaterials[0].Name);
+    }
+
+    // ------------------------------------------------------------------ advanced inventory (Phase 6 slices 3–8)
+
+    [Fact]
+    public void Json_round_trips_advanced_inventory_price_reorder_pos_jobwork()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var (model, errors) = CanonicalJson.Parse(CanonicalJson.Export(company));
+        Assert.Empty(errors);
+        AssertAdvancedInventoryProjection(model!, company);
+    }
+
+    [Fact]
+    public void Xml_round_trips_advanced_inventory_price_reorder_pos_jobwork()
+    {
+        var company = CanonicalFixture.BuildBright();
+        var (model, errors) = CanonicalXml.Parse(CanonicalXml.Export(company));
+        Assert.Empty(errors);
+        AssertAdvancedInventoryProjection(model!, company);
+    }
+
+    [Fact]
+    public void Advanced_inventory_company_export_import_into_fresh_company_reconciles_json_and_xml()
+    {
+        // PR-4 gate extended to Phase-6 slices 3–8 (the previously-DROPPED entities): export a company carrying
+        // price levels/lists, reorder definitions, an additional-cost ledger + loaded Stock-Journal transfer, an
+        // Actual-vs-Billed item invoice, a POS Sales type + POS sale, and a Job Work Out Order + linked Material Out
+        // to JSON AND XML, import EACH into a fresh (differently-Guid'd) company through the engine-routed
+        // CompanyImportService, and assert every master/sub-object COUNT is EQUAL source == target and every figure
+        // reconciles to the paisa. Before this task these entities were silently dropped on export+import.
+        var source = CanonicalFixture.BuildBright();
+
+        foreach (var bytes in new[] { CanonicalJson.Export(source), CanonicalXml.Export(source) })
+        {
+            var (model, errors) = bytes[0] == (byte)'{' ? CanonicalJson.Parse(bytes) : CanonicalXml.Parse(bytes);
+            Assert.Empty(errors);
+
+            var fresh = FreshTarget();
+            var result = new CompanyImportService(fresh).Apply(model!);
+            Assert.True(result.Applied, string.Join("; ", result.Errors));
+
+            AssertAdvancedInventoryReconcilesAcrossCompanies(source, fresh);
+        }
+    }
+
+    /// <summary>The Phase-6 slice 3–8 entities survive the projection into the canonical model with every field.</summary>
+    private static void AssertAdvancedInventoryProjection(CanonicalModel model, Company company)
+    {
+        // Company F11 toggles.
+        Assert.True(model.Company.UseSeparateActualBilledQuantity);
+        Assert.True(model.Company.EnableMultiplePriceLevels);
+        Assert.True(model.Company.EnableJobOrderProcessing);
+
+        // Slice 5: price level + list + party default level.
+        var wholesale = company.FindPriceLevelByName("Wholesale")!;
+        Assert.Contains(model.Payload.PriceLevels, x => x.Id == wholesale.Id && x.Name == "Wholesale");
+        var gizmo = company.FindStockItemByName("Gizmo")!;
+        var listDto = model.Payload.PriceLists.Single(x => x.PriceLevelId == wholesale.Id && x.StockItemId == gizmo.Id);
+        Assert.Equal(2, listDto.Slabs.Count);
+        Assert.Null(listDto.Slabs[1].ToQty);                       // open-ended top
+        Assert.Equal(5m, listDto.Slabs[1].DiscountPercent);
+        Assert.Equal(11000L, listDto.Slabs[1].RatePaisa);          // ₹110
+        var partyDto = model.Payload.Ledgers.Single(x => x.Name == "Ram & Co");
+        Assert.Equal(wholesale.Id, partyDto.DefaultPriceLevelId);
+
+        // Slice 6: two reorder definitions (Simple item + Advanced group).
+        Assert.Equal(company.ReorderDefinitions.Count, model.Payload.ReorderDefinitions.Count);
+        var itemDef = model.Payload.ReorderDefinitions.Single(x => x.Scope == "Item" && x.TargetId == gizmo.Id);
+        Assert.Equal(25m, itemDef.ReorderQuantity);
+        Assert.Equal(50m, itemDef.MinOrderQuantity);
+        var advGrp = company.FindStockGroupByName("Advanced Goods")!;
+        var grpDef = model.Payload.ReorderDefinitions.Single(x => x.Scope == "Group" && x.TargetId == advGrp.Id);
+        Assert.True(grpDef.ReorderAdvanced);
+        Assert.Equal("Months", grpDef.PeriodUnit);
+        Assert.Equal("Higher", grpDef.Criteria);
+        Assert.Equal(3, grpDef.PeriodCount);
+
+        // Slice 3: additional-cost ledger + Track-Additional-Costs type + a loaded Stock-Journal transfer.
+        var freightDto = model.Payload.Ledgers.Single(x => x.Name == "Freight Inward");
+        Assert.Equal("ByValue", freightDto.MethodOfAppropriation);
+        Assert.True(model.Payload.VoucherTypes.Single(x => x.Name == "Import Purchase").TrackAdditionalCosts);
+        var transferDto = model.Payload.InventoryVouchers.Single(x => x.AdditionalCostLines.Count > 0);
+        var acl = Assert.Single(transferDto.AdditionalCostLines);
+        Assert.Equal(5000L, acl.AmountPaisa);                      // ₹50 freight
+
+        // Slice 4: Actual (10) vs Billed (8) on the sale item line.
+        var abDto = model.Payload.Vouchers.Single(x => x.Narration == "Sale 10 Gizmo, billed 8 (2 free)");
+        var abLine = Assert.Single(abDto.InventoryLines);
+        Assert.Equal(10m, abLine.Quantity);
+        Assert.Equal(8m, abLine.BilledQuantity);
+
+        // Slice 7: POS type + config + a POS sale settled by a Cash tender.
+        var posTypeDto = model.Payload.VoucherTypes.Single(x => x.Name == "POS Sale");
+        Assert.True(posTypeDto.UseForPos);
+        Assert.NotNull(posTypeDto.PosConfig);
+        Assert.Equal("Retail Invoice", posTypeDto.PosConfig!.DefaultTitle);
+        Assert.Equal(company.MainLocation!.Id, posTypeDto.PosConfig.DefaultGodownId);
+        var tld = Assert.Single(posTypeDto.PosConfig.TenderLedgerDefaults);
+        Assert.Equal("Cash", tld.TenderType);
+        var posDto = model.Payload.Vouchers.Single(x => x.Narration == "POS retail sale");
+        var tender = Assert.Single(posDto.PosTenders);
+        Assert.Equal("Cash", tender.TenderType);
+        Assert.Equal(45000L, tender.AmountPaisa);                  // ₹450 payable (residual)
+        Assert.Equal(50000L, tender.TenderedPaisa);                // ₹500 tendered
+        Assert.Equal(5000L, tender.ChangePaisa);                   // ₹50 change
+
+        // Slice 8: Job Work Out Order payload + a Material Out linking it.
+        var orderDto = model.Payload.InventoryVouchers.Single(x => x.JobWorkOrder is not null);
+        Assert.Equal("Out", orderDto.JobWorkOrder!.Direction);
+        Assert.Equal("JW/001", orderDto.JobWorkOrder.OrderNo);
+        Assert.Equal(100m, orderDto.JobWorkOrder.FinishedGoodQuantity);
+        Assert.Equal(3000L, orderDto.JobWorkOrder.FinishedGoodRatePaisa);
+        var jwLine = Assert.Single(orderDto.JobWorkOrder.Lines);
+        Assert.Equal("PendingToIssue", jwLine.Track);
+        Assert.Equal(200m, jwLine.Quantity);
+        var matOutDto = model.Payload.InventoryVouchers.Single(x => x.OrderLinks.Count > 0);
+        Assert.Equal(orderDto.Id, Assert.Single(matOutDto.OrderLinks));
+    }
+
+    /// <summary>
+    /// After an export → import into a fresh company (by name, differently-Guid'd), every Phase-6 slice 3–8 entity
+    /// reconciles count-for-count and figure-for-figure to the paisa across the two companies.
+    /// </summary>
+    private static void AssertAdvancedInventoryReconcilesAcrossCompanies(Company source, Company target)
+    {
+        // F11 company toggles survived.
+        Assert.Equal(source.UseSeparateActualBilledQuantity, target.UseSeparateActualBilledQuantity);
+        Assert.Equal(source.EnableMultiplePriceLevels, target.EnableMultiplePriceLevels);
+        Assert.Equal(source.EnableJobOrderProcessing, target.EnableJobOrderProcessing);
+
+        // ---- slice 5: price levels + lists + party default level (all resolve by name across companies) ----
+        Assert.Equal(source.PriceLevels.Count, target.PriceLevels.Count);
+        Assert.Equal(source.PriceLists.Count, target.PriceLists.Count);
+        var srcGizmo = source.FindStockItemByName("Gizmo")!;
+        var tgtGizmo = target.FindStockItemByName("Gizmo")!;
+        var srcWholesale = source.FindPriceLevelByName("Wholesale")!;
+        var tgtWholesale = target.FindPriceLevelByName("Wholesale")!;
+        var srcList = source.PriceListsFor(srcWholesale.Id, srcGizmo.Id).Single();
+        var tgtList = target.PriceListsFor(tgtWholesale.Id, tgtGizmo.Id).Single();
+        Assert.Equal(srcList.ApplicableFrom, tgtList.ApplicableFrom);
+        Assert.Equal(srcList.Slabs.Count, tgtList.Slabs.Count);
+        for (var i = 0; i < srcList.Slabs.Count; i++)
+        {
+            Assert.Equal(srcList.Slabs[i].FromQty, tgtList.Slabs[i].FromQty);
+            Assert.Equal(srcList.Slabs[i].ToQty, tgtList.Slabs[i].ToQty);
+            Assert.Equal(srcList.Slabs[i].Rate, tgtList.Slabs[i].Rate);                 // paisa-exact
+            Assert.Equal(srcList.Slabs[i].DiscountPercent, tgtList.Slabs[i].DiscountPercent);
+        }
+        // The party's default price level resolves to the TARGET's own Wholesale level (RQ-30).
+        Assert.Equal(tgtWholesale.Id, target.FindLedgerByName("Ram & Co")!.DefaultPriceLevelId);
+
+        // ---- slice 6: reorder definitions reconcile per (scope, resolved-target) ----
+        Assert.Equal(source.ReorderDefinitions.Count, target.ReorderDefinitions.Count);
+        var tgtItemDef = target.FindReorderDefinition(ReorderScope.Item, tgtGizmo.Id)!;
+        Assert.Equal(25m, tgtItemDef.ReorderQuantity);
+        Assert.Equal(50m, tgtItemDef.MinOrderQuantity);
+        var tgtAdvGrp = target.FindStockGroupByName("Advanced Goods")!;
+        var tgtGrpDef = target.FindReorderDefinition(ReorderScope.Group, tgtAdvGrp.Id)!;
+        Assert.True(tgtGrpDef.ReorderAdvanced);
+        Assert.True(tgtGrpDef.MinQtyAdvanced);
+        Assert.Equal(3, tgtGrpDef.PeriodCount);
+        Assert.Equal(ExpiryPeriodUnit.Months, tgtGrpDef.PeriodUnit);
+        Assert.Equal(ReorderCriteria.Higher, tgtGrpDef.Criteria);
+
+        // ---- slice 3: additional-cost ledger method + Track-Additional-Costs type + loaded transfer line ----
+        Assert.Equal(MethodOfAppropriation.ByValue, target.FindLedgerByName("Freight Inward")!.MethodOfAppropriation);
+        Assert.True(target.FindVoucherTypeByName("Import Purchase")!.TrackAdditionalCosts);
+        var tgtTransfer = target.InventoryVouchers.Single(v => v.AdditionalCostLines.Count > 0);
+        var tgtAcl = Assert.Single(tgtTransfer.AdditionalCostLines);
+        Assert.Equal(Money.FromRupees(50m), tgtAcl.Amount);
+        Assert.Equal(target.FindLedgerByName("Freight Inward")!.Id, tgtAcl.LedgerId);
+
+        // ---- slice 4: Actual vs Billed survived on the sale item line ----
+        var tgtAbSale = target.Vouchers.Single(v => v.Narration == "Sale 10 Gizmo, billed 8 (2 free)");
+        var tgtAbLine = Assert.Single(tgtAbSale.InventoryLines);
+        Assert.Equal(10m, tgtAbLine.Quantity);
+        Assert.Equal(8m, tgtAbLine.BilledQuantity);
+        Assert.Equal(Money.FromRupees(1200m), tgtAbLine.Value); // billed × rate
+
+        // ---- slice 7: POS type + config + the POS sale's Cash tender split ----
+        var tgtPosType = target.FindVoucherTypeByName("POS Sale")!;
+        Assert.True(tgtPosType.IsPosSales);
+        Assert.NotNull(tgtPosType.PosConfig);
+        Assert.Equal(target.MainLocation!.Id, tgtPosType.PosConfig!.DefaultGodownId);
+        Assert.True(tgtPosType.PosConfig.PrintAfterSave);
+        Assert.Equal("Retail Invoice", tgtPosType.PosConfig.DefaultTitle);
+        Assert.Equal(target.FindLedgerByName("Cash")!.Id, tgtPosType.PosConfig.TenderLedgerDefault(PosTenderType.Cash));
+        var tgtPosSale = target.Vouchers.Single(v => v.Narration == "POS retail sale");
+        var tgtTender = Assert.Single(tgtPosSale.PosTenders);
+        Assert.Equal(PosTenderType.Cash, tgtTender.Type);
+        Assert.Equal(Money.FromRupees(450m), tgtTender.Amount);
+        Assert.Equal(Money.FromRupees(500m), tgtTender.Tendered);
+        Assert.Equal(Money.FromRupees(50m), tgtTender.Change);
+        Assert.Equal(target.FindLedgerByName("Cash")!.Id, tgtTender.LedgerId);
+
+        // ---- slice 8: Job Work Out Order + the linked Material Out issue reconcile, incl. third-party on-hand ----
+        Assert.Equal(source.InventoryVouchers.Count, target.InventoryVouchers.Count);
+        var tgtOrder = target.InventoryVouchers.Single(v => v.JobWorkOrder is not null);
+        Assert.Equal(JobWorkDirection.Out, tgtOrder.JobWorkOrder!.Direction);
+        Assert.Equal("JW/001", tgtOrder.JobWorkOrder.OrderNo);
+        Assert.Equal(Money.FromRupees(30m), tgtOrder.JobWorkOrder.FinishedGoodRate);
+        Assert.Equal(target.FindStockItemByName("JW Assembly")!.Id, tgtOrder.JobWorkOrder.FinishedGoodStockItemId);
+        var tgtJwLine = Assert.Single(tgtOrder.JobWorkOrder.Lines);
+        Assert.Equal(JobWorkComponentTrack.PendingToIssue, tgtJwLine.Track);
+        Assert.Equal(target.FindStockItemByName("JW Raw")!.Id, tgtJwLine.ComponentStockItemId);
+        Assert.Equal(200m, tgtJwLine.Quantity);
+
+        var tgtMatOut = target.InventoryVouchers.Single(v => v.OrderLinks.Count > 0);
+        Assert.Equal(tgtOrder.Id, Assert.Single(tgtMatOut.OrderLinks)); // link resolved to the target order voucher
+
+        // The Material Out moved 200 JW Raw to the third-party 'Worker Site' godown (balanced transfer) — on-hand
+        // reconciles to the paisa/qty under the target's own inventory ledger.
+        var asOf = new DateOnly(2021, 4, 30);
+        var tgtRaw = target.FindStockItemByName("JW Raw")!;
+        var tgtWorker = target.FindGodownByName("Worker Site")!;
+        var tgtMain = target.MainLocation!.Id;
+        var onHand = new Apex.Ledger.Services.InventoryLedger(target);
+        Assert.Equal(200m, onHand.OnHand(tgtRaw.Id, tgtWorker.Id, asOf));
+        Assert.Equal(300m, onHand.OnHand(tgtRaw.Id, tgtMain, asOf)); // 500 opening − 200 issued
+
+        // Gizmo on-hand reconciles across both companies (200 opening − 20 transfer − 10 AB sale − 3 POS = 167).
+        var srcGizmoOnHand = new Apex.Ledger.Services.InventoryLedger(source).OnHand(srcGizmo.Id, source.MainLocation!.Id, asOf);
+        var tgtGizmoOnHand = onHand.OnHand(tgtGizmo.Id, tgtMain, asOf);
+        Assert.Equal(srcGizmoOnHand, tgtGizmoOnHand);
+        Assert.Equal(167m, tgtGizmoOnHand);
     }
 
     // ------------------------------------------------------------------ XXE safety (XML only)

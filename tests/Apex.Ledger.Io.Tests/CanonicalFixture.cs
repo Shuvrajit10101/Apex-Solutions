@@ -134,8 +134,146 @@ internal static class CanonicalFixture
         AddCostAndBankAndForex(company, service, inv, cash, sg, nos, mainGodown, item);
         AddBatches(company, inv, sg, nos, mainGodown);
         AddBomAndManufacture(company, inv, sg, nos, mainGodown);
+        AddAdvancedInventoryFeatures(company, service, inv, cash, nos, mainGodown, party);
 
         return company;
+    }
+
+    /// <summary>
+    /// Adds Phase-6 <b>slices 5–8</b> so the canonical round-trip proves every previously-dropped advanced-inventory
+    /// entity survives (PR-4): the F11 company toggles (Actual/Billed, Multiple Price Levels, Job Order Processing),
+    /// a <b>Price Level</b> + a dated <b>Price List</b> (with a discounted open-ended top slab) + a party's default
+    /// level (slice 5); two <b>Reorder-Level</b> definitions — one Simple per-item, one Advanced per-group with a
+    /// shared consumption period + Higher criterion (slice 6); an <b>additional-cost ledger</b> (Method of
+    /// Appropriation = By Value) + a Purchase type flagged <b>Track Additional Costs</b> + a Stock-Journal transfer
+    /// carrying an <b>additional-cost line</b> (slice 3); an item-invoice with a separate <b>Actual vs Billed</b>
+    /// quantity (slice 4); a <b>POS</b> Sales voucher type (+ its retail-till <see cref="PosConfig"/> and a Cash
+    /// tender-ledger default) plus a POS sale settled by a single Cash tender with tendered/change (slice 7); and a
+    /// <b>Job Work Out Order</b> (finished good + a tracked component line) with a linked <b>Material Out</b> issue
+    /// to a third-party godown (slice 8). Every figure is paisa-exact so the round-trip reconciles.
+    /// </summary>
+    private static void AddAdvancedInventoryFeatures(
+        Company company, LedgerService service, InventoryService inv, Domain.Ledger cash,
+        Unit nos, Godown mainGodown, Domain.Ledger party)
+    {
+        // F11 company toggles (slices 4, 5). Job Order Processing is enabled below through JobWorkService.
+        company.UseSeparateActualBilledQuantity = true;
+        company.EnableMultiplePriceLevels = true;
+
+        // A dedicated non-taxable group/item so the advanced-feature vouchers stay clear of the GST'd Widget flows.
+        var advGrp = inv.CreateStockGroup("Advanced Goods");
+        var gizmo = inv.CreateStockItem("Gizmo", advGrp.Id, nos.Id);
+        inv.AddOpeningBalance(gizmo.Id, mainGodown.Id, 200m, Money.FromRupees(100m));
+
+        // ---- slice 5: a Price Level + a dated Price List (discounted open-ended top slab) + a party default level ----
+        var pls = new PriceListService(company);
+        var wholesale = pls.CreateLevel("Wholesale");
+        pls.AddOrReviseList(wholesale.Id, gizmo.Id, new DateOnly(2021, 4, 1), new[]
+        {
+            new PriceListSlab(0m, 10m, Money.FromRupees(120m)),
+            new PriceListSlab(10m, null, Money.FromRupees(110m), discountPercent: 5m), // open-ended top, 5% off
+        });
+        party.DefaultPriceLevelId = wholesale.Id; // RQ-30: a party ledger's default level
+
+        // ---- slice 6: two Reorder-Level definitions (Simple per-item + Advanced per-group) ----
+        company.AddReorderDefinition(new ReorderDefinition(Guid.NewGuid(), ReorderScope.Item, gizmo.Id,
+            reorderQuantity: 25m, minOrderQuantity: 50m));
+        company.AddReorderDefinition(new ReorderDefinition(Guid.NewGuid(), ReorderScope.Group, advGrp.Id,
+            reorderAdvanced: true, reorderQuantity: 30m, minQtyAdvanced: true, minOrderQuantity: 40m,
+            periodCount: 3, periodUnit: ExpiryPeriodUnit.Months, criteria: ReorderCriteria.Higher));
+
+        // ---- slice 3: additional-cost ledger + a Track-Additional-Costs Purchase type + a loaded Stock-Journal transfer ----
+        var freight = new Domain.Ledger(Guid.NewGuid(), "Freight Inward",
+            company.FindGroupByName("Direct Expenses")!.Id, Money.Zero, openingIsDebit: true,
+            methodOfAppropriation: MethodOfAppropriation.ByValue);
+        company.AddLedger(freight);
+        company.AddVoucherType(new VoucherType(Guid.NewGuid(), "Import Purchase", VoucherBaseType.Purchase,
+            trackAdditionalCosts: true));
+
+        var warehouseB = inv.CreateGodown("Warehouse B");
+        var stockJournalType = company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.StockJournal);
+        var invPost = new InventoryPostingService(company);
+        invPost.Post(InventoryVoucher.StockJournal(Guid.NewGuid(), stockJournalType.Id, new DateOnly(2021, 4, 20),
+            source: new[] { new InventoryAllocation(gizmo.Id, mainGodown.Id, 20m, StockDirection.Outward, Money.FromRupees(100m)) },
+            destination: new[] { new InventoryAllocation(gizmo.Id, warehouseB.Id, 20m, StockDirection.Inward, Money.FromRupees(102.50m)) },
+            number: 1, narration: "Transfer 20 Gizmo to Warehouse B (freight loaded)",
+            additionalCostLines: new[] { new AdditionalCostLine(freight.Id, Money.FromRupees(50m)) }));
+
+        // ---- slice 4: an item-invoice with a separate Actual (10) vs Billed (8) quantity — 2 free goods ----
+        var retailSales = new Domain.Ledger(Guid.NewGuid(), "Retail Sales",
+            company.FindGroupByName("Sales Accounts")!.Id, Money.Zero, openingIsDebit: false);
+        company.AddLedger(retailSales);
+        var salesType = company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales);
+        service.Post(new Voucher(Guid.NewGuid(), salesType.Id, new DateOnly(2021, 4, 22),
+            new[]
+            {
+                new EntryLine(cash.Id, Money.FromRupees(1200m), DrCr.Debit),
+                new EntryLine(retailSales.Id, Money.FromRupees(1200m), DrCr.Credit), // 8 billed × ₹150 = ₹1200
+            },
+            number: 2, narration: "Sale 10 Gizmo, billed 8 (2 free)",
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(gizmo.Id, mainGodown.Id, 10m, Money.FromRupees(150m),
+                    StockDirection.Outward, billedQuantity: 8m),
+            }));
+
+        // ---- slice 7: a POS Sales voucher type (+ config) and a POS sale settled by a single Cash tender ----
+        var posConfig = new PosConfig
+        {
+            DefaultGodownId = mainGodown.Id,
+            PrintAfterSave = true,
+            DefaultTitle = "Retail Invoice",
+            Message1 = "Thank you for shopping",
+            Message2 = "Visit again",
+            Declaration = "Goods once sold are not returnable",
+        };
+        posConfig.SetTenderLedgerDefault(PosTenderType.Cash, cash.Id);
+        var posType = new VoucherType(Guid.NewGuid(), "POS Sale", VoucherBaseType.Sales,
+            useForPos: true, posConfig: posConfig);
+        company.AddVoucherType(posType);
+
+        var posValue = Money.FromRupees(450m); // 3 Gizmo × ₹150
+        service.Post(new Voucher(Guid.NewGuid(), posType.Id, new DateOnly(2021, 4, 23),
+            new[]
+            {
+                new EntryLine(cash.Id, posValue, DrCr.Debit),
+                new EntryLine(retailSales.Id, posValue, DrCr.Credit),
+            },
+            number: 3, narration: "POS retail sale",
+            inventoryLines: new[] { new VoucherInventoryLine(gizmo.Id, mainGodown.Id, 3m, Money.FromRupees(150m), StockDirection.Outward) },
+            posTenders: new[]
+            {
+                new PosTender(PosTenderType.Cash, cash.Id, posValue,
+                    Tendered: Money.FromRupees(500m), Change: Money.FromRupees(50m)),
+            }));
+
+        // ---- slice 8: Enable Job Order Processing + a Job Work Out Order + a linked Material Out ----
+        new JobWorkService(company).SetEnabled(true); // activates the seeded Material In/Out + Job Work Order types
+        var jwFg = inv.CreateStockItem("JW Assembly", advGrp.Id, nos.Id);
+        var jwRaw = inv.CreateStockItem("JW Raw", advGrp.Id, nos.Id);
+        inv.AddOpeningBalance(jwRaw.Id, mainGodown.Id, 500m, Money.FromRupees(20m));
+        var workerSite = inv.CreateGodown("Worker Site", thirdParty: true);
+
+        var jwOutOrderType = company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.JobWorkOutOrder);
+        var matOutType = company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.MaterialOut);
+
+        var order = InventoryVoucher.JobWork(Guid.NewGuid(), jwOutOrderType.Id, new DateOnly(2021, 4, 24),
+            new JobWorkOrder(JobWorkDirection.Out, "JW/001", jwFg.Id, 100m,
+                new[]
+                {
+                    new JobWorkOrderLine(jwRaw.Id, JobWorkComponentTrack.PendingToIssue, 200m,
+                        godownId: mainGodown.Id, dueDate: new DateOnly(2021, 5, 10), rate: Money.FromRupees(20m)),
+                },
+                finishedGoodRate: Money.FromRupees(30m), finishedGoodDueDate: new DateOnly(2021, 5, 24),
+                finishedGoodGodownId: mainGodown.Id, durationOfProcess: "30 days", natureOfProcessing: "Assembly"),
+            number: 1, narration: "Delegate assembly to worker");
+        invPost.Post(order);
+
+        invPost.Post(InventoryVoucher.MaterialMovement(Guid.NewGuid(), matOutType.Id, new DateOnly(2021, 4, 25),
+            source: new[] { new InventoryAllocation(jwRaw.Id, mainGodown.Id, 200m, StockDirection.Outward, Money.FromRupees(20m)) },
+            destination: new[] { new InventoryAllocation(jwRaw.Id, workerSite.Id, 200m, StockDirection.Inward, Money.FromRupees(20m)) },
+            orderLinks: new[] { order.Id },
+            number: 1, narration: "Issue raw material to worker"));
     }
 
     /// <summary>

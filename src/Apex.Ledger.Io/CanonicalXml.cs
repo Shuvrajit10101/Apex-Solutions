@@ -55,7 +55,10 @@ public static class CanonicalXml
             Opt("country", c.Country), Opt("state", c.State), Opt("pin", c.Pin),
             Attr("financialYearStart", c.FinancialYearStart), Attr("booksBeginFrom", c.BooksBeginFrom),
             Opt("baseCurrencySymbol", c.BaseCurrencySymbol), Opt("baseCurrencyName", c.BaseCurrencyName),
-            Attr("decimalPlaces", c.DecimalPlaces), Opt("decimalUnitName", c.DecimalUnitName));
+            Attr("decimalPlaces", c.DecimalPlaces), Opt("decimalUnitName", c.DecimalUnitName),
+            Attr("useSeparateActualBilledQuantity", c.UseSeparateActualBilledQuantity),
+            Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
+            Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing));
         if (c.Gst is { } gst) company.Add(BuildGstConfig(gst));
         root.Add(company);
 
@@ -78,6 +81,9 @@ public static class CanonicalXml
             List("batchMasters", "batchMaster", p.BatchMasters, BuildBatchMaster),
             List("billsOfMaterials", "billOfMaterials", p.BillsOfMaterials, BuildBom),
             List("stockOpeningBalances", "stockOpeningBalance", p.StockOpeningBalances, BuildStockOpeningBalance),
+            List("priceLevels", "priceLevel", p.PriceLevels, BuildPriceLevel),
+            List("priceLists", "priceList", p.PriceLists, BuildPriceList),
+            List("reorderDefinitions", "reorderDefinition", p.ReorderDefinitions, BuildReorderDefinition),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher));
         return root;
@@ -105,13 +111,37 @@ public static class CanonicalXml
             OptBool("costCentresApplicable", l.CostCentresApplicable),
             Attr("enableChequePrinting", l.EnableChequePrinting),
             Opt("chequePrintingBankName", l.ChequePrintingBankName),
-            OptId("currencyId", l.CurrencyId));
+            OptId("currencyId", l.CurrencyId),
+            Opt("methodOfAppropriation", l.MethodOfAppropriation),
+            OptId("defaultPriceLevelId", l.DefaultPriceLevelId));
         if (l.Interest is { } i) el.Add(BuildInterest(i));
         if (l.PartyGst is { } p) el.Add(BuildPartyGst(p));
         if (l.SalesPurchaseGst is { } s) el.Add(BuildStockItemGst("salesPurchaseGst", s));
         if (l.GstClassification is { } gc) el.Add(BuildGstClassification(gc));
         return el;
     }
+
+    private static XElement BuildPriceLevel(PriceLevelDto x) => new("priceLevel",
+        Attr("id", x.Id), Attr("name", x.Name));
+
+    private static XElement BuildPriceList(PriceListDto x)
+    {
+        var el = new XElement("priceList",
+            Attr("id", x.Id), Attr("priceLevelId", x.PriceLevelId), Attr("stockItemId", x.StockItemId),
+            Attr("applicableFrom", x.ApplicableFrom));
+        var slabs = new XElement("slabs");
+        foreach (var s in x.Slabs)
+            slabs.Add(new XElement("slab", Attr("fromQty", Dec(s.FromQty)), OptDec("toQty", s.ToQty),
+                Attr("ratePaisa", s.RatePaisa), Attr("discountPercent", Dec(s.DiscountPercent))));
+        el.Add(slabs);
+        return el;
+    }
+
+    private static XElement BuildReorderDefinition(ReorderDefinitionDto d) => new("reorderDefinition",
+        Attr("id", d.Id), Attr("scope", d.Scope), Attr("targetId", d.TargetId),
+        Attr("reorderAdvanced", d.ReorderAdvanced), OptDec("reorderQuantity", d.ReorderQuantity),
+        Attr("minQtyAdvanced", d.MinQtyAdvanced), OptDec("minOrderQuantity", d.MinOrderQuantity),
+        OptInt("periodCount", d.PeriodCount), Opt("periodUnit", d.PeriodUnit), Opt("criteria", d.Criteria));
 
     private static XElement BuildInterest(InterestParametersDto i) => new("interest",
         Attr("enabled", i.Enabled), Attr("ratePercent", Dec(i.RatePercent)), Attr("per", i.Per),
@@ -160,12 +190,35 @@ public static class CanonicalXml
         return el;
     }
 
-    private static XElement BuildVoucherType(VoucherTypeDto t) => new("voucherType",
-        Attr("id", t.Id), Attr("name", t.Name), Attr("baseType", t.BaseType), Attr("numbering", t.Numbering),
-        Opt("defaultShortcut", t.DefaultShortcut), Opt("abbreviation", t.Abbreviation),
-        Attr("isActive", t.IsActive), Attr("isPredefined", t.IsPredefined),
-        Attr("affectsAccounts", t.AffectsAccounts), Attr("affectsStock", t.AffectsStock),
-        Attr("useAsManufacturingJournal", t.UseAsManufacturingJournal));
+    private static XElement BuildVoucherType(VoucherTypeDto t)
+    {
+        var el = new XElement("voucherType",
+            Attr("id", t.Id), Attr("name", t.Name), Attr("baseType", t.BaseType), Attr("numbering", t.Numbering),
+            Opt("defaultShortcut", t.DefaultShortcut), Opt("abbreviation", t.Abbreviation),
+            Attr("isActive", t.IsActive), Attr("isPredefined", t.IsPredefined),
+            Attr("affectsAccounts", t.AffectsAccounts), Attr("affectsStock", t.AffectsStock),
+            Attr("useAsManufacturingJournal", t.UseAsManufacturingJournal),
+            Attr("trackAdditionalCosts", t.TrackAdditionalCosts),
+            Attr("allowZeroValuedTransactions", t.AllowZeroValuedTransactions),
+            Attr("useForPos", t.UseForPos),
+            Attr("useForJobWork", t.UseForJobWork),
+            Attr("allowConsumption", t.AllowConsumption));
+        if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
+        return el;
+    }
+
+    private static XElement BuildPosConfig(PosConfigDto c)
+    {
+        var el = new XElement("posConfig",
+            OptId("defaultGodownId", c.DefaultGodownId), OptId("defaultPartyId", c.DefaultPartyId),
+            Attr("printAfterSave", c.PrintAfterSave), Opt("defaultTitle", c.DefaultTitle),
+            Opt("message1", c.Message1), Opt("message2", c.Message2), Opt("declaration", c.Declaration));
+        var defaults = new XElement("tenderLedgerDefaults");
+        foreach (var d in c.TenderLedgerDefaults)
+            defaults.Add(new XElement("tenderLedgerDefault", Attr("tenderType", d.TenderType), Attr("ledgerId", d.LedgerId)));
+        el.Add(defaults);
+        return el;
+    }
 
     private static XElement BuildUnit(UnitDto u) => new("unit",
         Attr("id", u.Id), Attr("symbol", u.Symbol), Attr("formalName", u.FormalName),
@@ -263,8 +316,16 @@ public static class CanonicalXml
         var inv = new XElement("inventoryLines");
         foreach (var il in v.InventoryLines) inv.Add(BuildVoucherInventoryLine(il));
         el.Add(inv);
+        var tenders = new XElement("posTenders");
+        foreach (var t in v.PosTenders) tenders.Add(BuildPosTender(t));
+        el.Add(tenders);
         return el;
     }
+
+    private static XElement BuildPosTender(PosTenderDto t) => new("posTender",
+        Attr("tenderType", t.TenderType), Attr("ledgerId", t.LedgerId), Attr("amountPaisa", t.AmountPaisa),
+        OptLong("tenderedPaisa", t.TenderedPaisa), OptLong("changePaisa", t.ChangePaisa),
+        Opt("cardNo", t.CardNo), Opt("bankName", t.BankName), Opt("chequeNo", t.ChequeNo));
 
     private static XElement BuildEntryLine(EntryLineDto l)
     {
@@ -295,7 +356,8 @@ public static class CanonicalXml
 
     private static XElement BuildVoucherInventoryLine(VoucherInventoryLineDto l) => new("inventoryLine",
         Attr("stockItemId", l.StockItemId), Attr("godownId", l.GodownId), Attr("quantity", Dec(l.Quantity)),
-        Attr("ratePaisa", l.RatePaisa), Attr("direction", l.Direction), Opt("batchLabel", l.BatchLabel));
+        Attr("ratePaisa", l.RatePaisa), Attr("direction", l.Direction), Opt("batchLabel", l.BatchLabel),
+        OptDec("billedQuantity", l.BilledQuantity));
 
     private static XElement BuildInventoryVoucher(InventoryVoucherDto v)
     {
@@ -307,6 +369,34 @@ public static class CanonicalXml
         el.Add(List("destinationAllocations", "allocation", v.DestinationAllocations, BuildInventoryAllocation));
         el.Add(List("orderLines", "orderLine", v.OrderLines, BuildOrderLine));
         el.Add(List("physicalLines", "physicalLine", v.PhysicalLines, BuildPhysicalStockLine));
+        el.Add(List("additionalCostLines", "additionalCostLine", v.AdditionalCostLines, BuildAdditionalCostLine));
+        if (v.JobWorkOrder is { } jwo) el.Add(BuildJobWorkOrder(jwo));
+        var links = new XElement("orderLinks");
+        foreach (var id in v.OrderLinks) links.Add(new XElement("orderLink", Attr("id", id)));
+        el.Add(links);
+        return el;
+    }
+
+    private static XElement BuildAdditionalCostLine(AdditionalCostLineDto a) => new("additionalCostLine",
+        Attr("ledgerId", a.LedgerId), Attr("amountPaisa", a.AmountPaisa));
+
+    private static XElement BuildJobWorkOrder(JobWorkOrderDto j)
+    {
+        var el = new XElement("jobWorkOrder",
+            Attr("direction", j.Direction), Attr("orderNo", j.OrderNo),
+            Opt("durationOfProcess", j.DurationOfProcess), Opt("natureOfProcessing", j.NatureOfProcessing),
+            Attr("finishedGoodStockItemId", j.FinishedGoodStockItemId),
+            Attr("finishedGoodQuantity", Dec(j.FinishedGoodQuantity)),
+            Opt("finishedGoodDueDate", j.FinishedGoodDueDate), OptId("finishedGoodGodownId", j.FinishedGoodGodownId),
+            OptLong("finishedGoodRatePaisa", j.FinishedGoodRatePaisa),
+            Attr("trackingComponents", j.TrackingComponents), OptId("fillComponentsBomId", j.FillComponentsBomId));
+        var lines = new XElement("lines");
+        foreach (var l in j.Lines)
+            lines.Add(new XElement("line",
+                Attr("componentStockItemId", l.ComponentStockItemId), Attr("track", l.Track),
+                Opt("dueDate", l.DueDate), OptId("godownId", l.GodownId),
+                Attr("quantity", Dec(l.Quantity)), OptLong("ratePaisa", l.RatePaisa)));
+        el.Add(lines);
         return el;
     }
 
@@ -445,6 +535,9 @@ public static class CanonicalXml
             DecimalPlaces = Int(e, "decimalPlaces"),
             DecimalUnitName = Str(e, "decimalUnitName"),
             Gst = gstEl is null ? null : ReadGstConfig(gstEl),
+            UseSeparateActualBilledQuantity = Bool(e, "useSeparateActualBilledQuantity"),
+            EnableMultiplePriceLevels = Bool(e, "enableMultiplePriceLevels"),
+            EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
         };
     }
 
@@ -471,6 +564,9 @@ public static class CanonicalXml
                 BatchMasters = ReadList(root, "batchMasters", "batchMaster", ReadBatchMaster),
                 BillsOfMaterials = ReadList(root, "billsOfMaterials", "billOfMaterials", ReadBom),
                 StockOpeningBalances = ReadList(root, "stockOpeningBalances", "stockOpeningBalance", ReadStockOpeningBalance),
+                PriceLevels = ReadList(root, "priceLevels", "priceLevel", ReadPriceLevel),
+                PriceLists = ReadList(root, "priceLists", "priceList", ReadPriceList),
+                ReorderDefinitions = ReadList(root, "reorderDefinitions", "reorderDefinition", ReadReorderDefinition),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
             };
@@ -510,6 +606,33 @@ public static class CanonicalXml
         PartyGst = e.Element("partyGst") is { } p ? ReadPartyGst(p) : null,
         SalesPurchaseGst = e.Element("salesPurchaseGst") is { } s ? ReadStockItemGst(s) : null,
         GstClassification = e.Element("gstClassification") is { } gc ? ReadGstClassification(gc) : null,
+        MethodOfAppropriation = Str(e, "methodOfAppropriation"),
+        DefaultPriceLevelId = OptGuid(e, "defaultPriceLevelId"),
+    };
+
+    private static PriceLevelDto ReadPriceLevel(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!,
+    };
+
+    private static PriceListDto ReadPriceList(XElement e) => new()
+    {
+        Id = Guid(e, "id"), PriceLevelId = Guid(e, "priceLevelId"), StockItemId = Guid(e, "stockItemId"),
+        ApplicableFrom = Str(e, "applicableFrom") ?? string.Empty,
+        Slabs = (e.Element("slabs")?.Elements("slab") ?? Enumerable.Empty<XElement>())
+            .Select(s => new PriceListSlabDto
+            {
+                FromQty = DecReq(s, "fromQty"), ToQty = OptDec(s, "toQty"),
+                RatePaisa = Long(s, "ratePaisa"), DiscountPercent = DecReq(s, "discountPercent"),
+            }).ToList(),
+    };
+
+    private static ReorderDefinitionDto ReadReorderDefinition(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Scope = Str(e, "scope")!, TargetId = Guid(e, "targetId"),
+        ReorderAdvanced = Bool(e, "reorderAdvanced"), ReorderQuantity = OptDec(e, "reorderQuantity"),
+        MinQtyAdvanced = Bool(e, "minQtyAdvanced"), MinOrderQuantity = OptDec(e, "minOrderQuantity"),
+        PeriodCount = OptInt(e, "periodCount"), PeriodUnit = Str(e, "periodUnit"), Criteria = Str(e, "criteria"),
     };
 
     private static InterestParametersDto ReadInterest(XElement e) => new()
@@ -574,6 +697,22 @@ public static class CanonicalXml
         IsActive = Bool(e, "isActive"), IsPredefined = Bool(e, "isPredefined"),
         AffectsAccounts = Bool(e, "affectsAccounts"), AffectsStock = Bool(e, "affectsStock"),
         UseAsManufacturingJournal = Bool(e, "useAsManufacturingJournal"),
+        TrackAdditionalCosts = Bool(e, "trackAdditionalCosts"),
+        AllowZeroValuedTransactions = Bool(e, "allowZeroValuedTransactions"),
+        UseForPos = Bool(e, "useForPos"),
+        UseForJobWork = Bool(e, "useForJobWork"),
+        AllowConsumption = Bool(e, "allowConsumption"),
+        PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
+    };
+
+    private static PosConfigDto ReadPosConfig(XElement e) => new()
+    {
+        DefaultGodownId = OptGuid(e, "defaultGodownId"), DefaultPartyId = OptGuid(e, "defaultPartyId"),
+        PrintAfterSave = Bool(e, "printAfterSave"), DefaultTitle = Str(e, "defaultTitle"),
+        Message1 = Str(e, "message1"), Message2 = Str(e, "message2"), Declaration = Str(e, "declaration"),
+        TenderLedgerDefaults = (e.Element("tenderLedgerDefaults")?.Elements("tenderLedgerDefault") ?? Enumerable.Empty<XElement>())
+            .Select(d => new PosTenderLedgerDefaultDto { TenderType = Str(d, "tenderType")!, LedgerId = Guid(d, "ledgerId") })
+            .ToList(),
     };
 
     private static UnitDto ReadUnit(XElement e) => new()
@@ -680,6 +819,15 @@ public static class CanonicalXml
         Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>()).Select(ReadEntryLine).ToList(),
         InventoryLines = (e.Element("inventoryLines")?.Elements("inventoryLine") ?? Enumerable.Empty<XElement>())
             .Select(ReadVoucherInventoryLine).ToList(),
+        PosTenders = (e.Element("posTenders")?.Elements("posTender") ?? Enumerable.Empty<XElement>())
+            .Select(ReadPosTender).ToList(),
+    };
+
+    private static PosTenderDto ReadPosTender(XElement e) => new()
+    {
+        TenderType = Str(e, "tenderType")!, LedgerId = Guid(e, "ledgerId"), AmountPaisa = Long(e, "amountPaisa"),
+        TenderedPaisa = OptLong(e, "tenderedPaisa"), ChangePaisa = OptLong(e, "changePaisa"),
+        CardNo = Str(e, "cardNo"), BankName = Str(e, "bankName"), ChequeNo = Str(e, "chequeNo"),
     };
 
     private static EntryLineDto ReadEntryLine(XElement e) => new()
@@ -717,6 +865,7 @@ public static class CanonicalXml
     {
         StockItemId = Guid(e, "stockItemId"), GodownId = Guid(e, "godownId"), Quantity = DecReq(e, "quantity"),
         RatePaisa = Long(e, "ratePaisa"), Direction = Str(e, "direction")!, BatchLabel = Str(e, "batchLabel"),
+        BilledQuantity = OptDec(e, "billedQuantity"),
     };
 
     private static InventoryVoucherDto ReadInventoryVoucher(XElement e) => new()
@@ -732,6 +881,30 @@ public static class CanonicalXml
             .Select(ReadOrderLine).ToList(),
         PhysicalLines = (e.Element("physicalLines")?.Elements("physicalLine") ?? Enumerable.Empty<XElement>())
             .Select(ReadPhysicalStockLine).ToList(),
+        AdditionalCostLines = (e.Element("additionalCostLines")?.Elements("additionalCostLine") ?? Enumerable.Empty<XElement>())
+            .Select(a => new AdditionalCostLineDto { LedgerId = Guid(a, "ledgerId"), AmountPaisa = Long(a, "amountPaisa") })
+            .ToList(),
+        JobWorkOrder = e.Element("jobWorkOrder") is { } jwo ? ReadJobWorkOrder(jwo) : null,
+        OrderLinks = (e.Element("orderLinks")?.Elements("orderLink") ?? Enumerable.Empty<XElement>())
+            .Select(l => Guid(l, "id")).ToList(),
+    };
+
+    private static JobWorkOrderDto ReadJobWorkOrder(XElement e) => new()
+    {
+        Direction = Str(e, "direction")!, OrderNo = Str(e, "orderNo")!,
+        DurationOfProcess = Str(e, "durationOfProcess"), NatureOfProcessing = Str(e, "natureOfProcessing"),
+        FinishedGoodStockItemId = Guid(e, "finishedGoodStockItemId"),
+        FinishedGoodQuantity = DecReq(e, "finishedGoodQuantity"),
+        FinishedGoodDueDate = Str(e, "finishedGoodDueDate"), FinishedGoodGodownId = OptGuid(e, "finishedGoodGodownId"),
+        FinishedGoodRatePaisa = OptLong(e, "finishedGoodRatePaisa"),
+        TrackingComponents = Bool(e, "trackingComponents"), FillComponentsBomId = OptGuid(e, "fillComponentsBomId"),
+        Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>())
+            .Select(l => new JobWorkOrderLineDto
+            {
+                ComponentStockItemId = Guid(l, "componentStockItemId"), Track = Str(l, "track")!,
+                DueDate = Str(l, "dueDate"), GodownId = OptGuid(l, "godownId"),
+                Quantity = DecReq(l, "quantity"), RatePaisa = OptLong(l, "ratePaisa"),
+            }).ToList(),
     };
 
     private static InventoryAllocationDto ReadInventoryAllocation(XElement e) => new()

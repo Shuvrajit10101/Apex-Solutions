@@ -86,6 +86,12 @@ internal sealed class ImportPlan
         var costCategoryId = new Dictionary<Guid, Guid>();
         var costCentreId = new Dictionary<Guid, Guid>();
         var currencyId = new Dictionary<Guid, Guid>();
+        var priceLevelId = new Dictionary<Guid, Guid>();   // Phase 6 slice 5
+        var bomId = new Dictionary<Guid, Guid>();          // Phase 6 slice 2 (needed to resolve Job Work fill-BOM refs)
+
+        // Phase 6 slice 7: POS retail-till configs reference godowns + ledgers created later, so they are attached in
+        // a deferred pass once those masters exist. Each pair is a newly-created POS voucher type + its exported config.
+        var posConfigWork = new List<(VoucherType Domain, PosConfigDto Dto)>();
 
         var inv = new InventoryService(t);
         var gstService = new GstService(t);
@@ -132,14 +138,40 @@ internal sealed class ImportPlan
                 reused++;
                 continue;
             }
+            // Phase 6: the additional-cost / zero-valued / POS / job-work flags ride the type verbatim. The POS
+            // retail-till config (which references godowns + ledgers created later) is attached in a deferred pass.
             var domain = new VoucherType(Guid.NewGuid(), vt.Name,
                 ParseEnum<VoucherBaseType>(vt.BaseType), ParseEnum<NumberingMethod>(vt.Numbering),
                 vt.DefaultShortcut, vt.Abbreviation, vt.IsActive, isPredefined: false,
                 affectsAccounts: vt.AffectsAccounts, affectsStock: vt.AffectsStock,
-                useAsManufacturingJournal: vt.UseAsManufacturingJournal);
+                useAsManufacturingJournal: vt.UseAsManufacturingJournal,
+                trackAdditionalCosts: vt.TrackAdditionalCosts,
+                allowZeroValuedTransactions: vt.AllowZeroValuedTransactions,
+                useForPos: vt.UseForPos,
+                useForJobWork: vt.UseForJobWork,
+                allowConsumption: vt.AllowConsumption);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
+            if (vt.PosConfig is { } pcDto) posConfigWork.Add((domain, pcDto));
+            created++;
+        }
+
+        // 2a) Price Levels (Phase 6 slice 5; RQ-26) — bare id+name masters referenced by a party ledger's default
+        //     level and by every dated price list, so they are created BEFORE ledgers. Reused by name on an overlay
+        //     import (a fresh company seeds none, so all are new here).
+        foreach (var pl in _model.Payload.PriceLevels)
+        {
+            if (t.FindPriceLevelByName(pl.Name) is { } existing)
+            {
+                priceLevelId[pl.Id] = existing.Id;
+                reused++;
+                continue;
+            }
+            var domain = new PriceLevel(Guid.NewGuid(), pl.Name);
+            t.AddPriceLevel(domain);
+            journal.RecordPriceLevel(domain);
+            priceLevelId[pl.Id] = domain.Id;
             created++;
         }
 
@@ -250,7 +282,11 @@ internal sealed class ImportPlan
                 currencyId: l.CurrencyId is { } cid ? ResolveCurrencyId(cid, currencyId, t) : null,
                 partyGst: BuildPartyGst(l.PartyGst),
                 salesPurchaseGst: BuildStockItemGst(l.SalesPurchaseGst),
-                gstClassification: BuildGstClassification(l.GstClassification));
+                gstClassification: BuildGstClassification(l.GstClassification),
+                // Phase 6 slice 3: a non-null method MARKS an additional-cost ledger (Freight/Packing/…).
+                methodOfAppropriation: l.MethodOfAppropriation is { } m ? ParseEnum<MethodOfAppropriation>(m) : null,
+                // Phase 6 slice 5: a party ledger's default Price Level, resolved by name across companies.
+                defaultPriceLevelId: l.DefaultPriceLevelId is { } plid ? ResolvePriceLevelId(plid, priceLevelId, t) : null);
             t.AddLedger(domain);
             journal.RecordLedger(domain);
             ledgerId[l.Id] = domain.Id;
@@ -400,6 +436,43 @@ internal sealed class ImportPlan
             var bom = bomService.CreateBom(
                 ResolveStockItemId(bomDto.StockItemId, stockItemId, t), bomDto.Name, bomDto.UnitOfManufacture, lines);
             journal.RecordBillOfMaterials(bom);
+            bomId[bomDto.Id] = bom.Id;
+        }
+
+        // 8d) Price Lists (Phase 6 slice 5; RQ-27) — append-only dated versions scoped to a (level, item) pair, both
+        //     resolved above. The slab order is the list's own ascending order (preserved verbatim on export).
+        foreach (var plDto in _model.Payload.PriceLists)
+        {
+            var slabs = plDto.Slabs
+                .Select(s => new PriceListSlab(s.FromQty, s.ToQty, MoneyCodec.FromPaisa(s.RatePaisa), s.DiscountPercent))
+                .ToList();
+            var domain = new PriceList(Guid.NewGuid(),
+                ResolvePriceLevelId(plDto.PriceLevelId, priceLevelId, t),
+                ResolveStockItemId(plDto.StockItemId, stockItemId, t),
+                CompanyImportService.ParseDate(plDto.ApplicableFrom), slabs);
+            t.AddPriceList(domain);
+            journal.RecordPriceList(domain);
+        }
+
+        // 8e) Reorder-Level definitions (Phase 6 slice 6; RQ-32) — per item / group / category; the target resolves
+        //     by scope. Quantity-only (no money); the shared period + criteria govern both Advanced figures.
+        foreach (var rd in _model.Payload.ReorderDefinitions)
+        {
+            var scope = ParseEnum<ReorderScope>(rd.Scope);
+            var targetId = scope switch
+            {
+                ReorderScope.Item => ResolveStockItemId(rd.TargetId, stockItemId, t),
+                ReorderScope.Group => ResolveStockGroupId(rd.TargetId, stockGroupId, t),
+                ReorderScope.Category => ResolveStockCategoryId(rd.TargetId, stockCategoryId, t),
+                _ => rd.TargetId,
+            };
+            var domain = new ReorderDefinition(Guid.NewGuid(), scope, targetId,
+                rd.ReorderAdvanced, rd.ReorderQuantity, rd.MinQtyAdvanced, rd.MinOrderQuantity,
+                rd.PeriodCount,
+                rd.PeriodUnit is { } u ? ParseEnum<ExpiryPeriodUnit>(u) : null,
+                rd.Criteria is { } cr ? ParseEnum<ReorderCriteria>(cr) : null);
+            t.AddReorderDefinition(domain);
+            journal.RecordReorderDefinition(domain);
         }
 
         // 9) Stock opening balances (only for newly-created items — a duplicate item's opening rode the merge path).
@@ -460,7 +533,28 @@ internal sealed class ImportPlan
             created++;
         }
 
-        // 10) Vouchers LAST — post through LedgerService so the full validator runs (balance, refs, pairing, stock).
+        // 9d) Attach POS retail-till configs (Phase 6 slice 7; DP-4) now that godowns + ledgers exist. Each config
+        //     hangs off a newly-created POS Sales voucher type; its refs (default godown/party, tender-ledger map)
+        //     resolve by name across companies. A rollback removes the owning voucher type, taking the config with it.
+        foreach (var (domainType, pcDto) in posConfigWork)
+        {
+            var pc = new PosConfig
+            {
+                DefaultGodownId = pcDto.DefaultGodownId is { } g ? ResolveGodownId(g, godownId, t) : null,
+                DefaultPartyId = pcDto.DefaultPartyId is { } p ? ResolveLedgerId(p, ledgerId, t) : null,
+                PrintAfterSave = pcDto.PrintAfterSave,
+                DefaultTitle = pcDto.DefaultTitle,
+                Message1 = pcDto.Message1,
+                Message2 = pcDto.Message2,
+                Declaration = pcDto.Declaration,
+            };
+            foreach (var d in pcDto.TenderLedgerDefaults)
+                pc.SetTenderLedgerDefault(ParseEnum<PosTenderType>(d.TenderType), ResolveLedgerId(d.LedgerId, ledgerId, t));
+            domainType.PosConfig = pc;
+        }
+
+        // 10) Vouchers LAST — post through LedgerService so the full validator runs (balance, refs, pairing, stock,
+        //     POS tender split).
         var posting = new LedgerService(t);
         var posted = 0;
         foreach (var v in _model.Payload.Vouchers)
@@ -474,14 +568,24 @@ internal sealed class ImportPlan
 
         // 11) Inventory / order vouchers — post through InventoryPostingService (type-vs-content, Stock-Journal
         //     balance, no-negative-stock guards). They carry no accounting entry, so they post after accounting.
+        //     Job Work In/Out Order vouchers post FIRST (a Material In/Out links them by id — RQ-48), so a Material
+        //     voucher's order links resolve to an already-posted order. The DTO id → new domain id map backs that.
         var invPosting = new InventoryPostingService(t);
-        foreach (var iv in _model.Payload.InventoryVouchers)
+        var invVoucherId = new Dictionary<Guid, Guid>();
+
+        void PostInventoryVoucher(InventoryVoucherDto iv)
         {
-            var domain = BuildInventoryVoucher(iv, voucherTypeId, ledgerId, stockItemId, godownId, unitId, t);
+            var domain = BuildInventoryVoucher(iv, voucherTypeId, ledgerId, stockItemId, godownId, unitId, bomId, invVoucherId, t);
             invPosting.Post(domain);
             journal.RecordInventoryVoucher(domain);
+            invVoucherId[iv.Id] = domain.Id;
             posted++;
         }
+
+        foreach (var iv in _model.Payload.InventoryVouchers.Where(x => x.JobWorkOrder is not null))
+            PostInventoryVoucher(iv);
+        foreach (var iv in _model.Payload.InventoryVouchers.Where(x => x.JobWorkOrder is null))
+            PostInventoryVoucher(iv);
 
         return (created, reused, posted);
     }
@@ -507,6 +611,20 @@ internal sealed class ImportPlan
         if (c.BaseCurrencyName is not null) t.BaseCurrencyName = c.BaseCurrencyName;
         t.DecimalPlaces = c.DecimalPlaces;
         if (c.DecimalUnitName is not null) t.DecimalUnitName = c.DecimalUnitName;
+
+        // Phase 6 company feature toggles. The two plain flags are captured by the header snapshot for rollback.
+        t.UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity;   // slice 4 (RQ-22)
+        t.EnableMultiplePriceLevels = c.EnableMultiplePriceLevels;               // slice 5 (RQ-26)
+
+        // Enable Job Order Processing through the engine (slice 8; RQ-45) so the seeded Material In/Out + Job Work
+        // Order voucher types get their IsActive / UseForJobWork / AllowConsumption flags stamped exactly as the app
+        // does — the export captures those stamped flags, so a reused seeded type reconciles without an overlay. The
+        // prior state is recorded so a rollback fully restores both the company flag and the seeded type flags.
+        if (c.EnableJobOrderProcessing != t.EnableJobOrderProcessing)
+        {
+            journal.RecordJobOrderProcessingBefore(t.EnableJobOrderProcessing);
+            new JobWorkService(t).SetEnabled(c.EnableJobOrderProcessing);
+        }
     }
 
     private static GstConfig BuildGstConfig(GstConfigDto g)
@@ -556,14 +674,27 @@ internal sealed class ImportPlan
                 ResolveStockItemId(il.StockItemId, stockItemId, t),
                 ResolveGodownId(il.GodownId, godownId, t),
                 il.Quantity, MoneyCodec.FromPaisa(il.RatePaisa),
-                ParseEnum<StockDirection>(il.Direction), il.BatchLabel)).ToList();
+                ParseEnum<StockDirection>(il.Direction), il.BatchLabel,
+                // Phase 6 slice 4: Billed defaults to Actual when null (feature off ⇒ byte-identical, ER-13).
+                billedQuantity: il.BilledQuantity)).ToList();
+
+        // Phase 6 slice 7: POS payment tenders (empty for every non-POS voucher). The tender ledgers resolve by name.
+        var posTenders = v.PosTenders.Count == 0
+            ? null
+            : v.PosTenders.Select(pt => new PosTender(
+                ParseEnum<PosTenderType>(pt.TenderType),
+                ResolveLedgerId(pt.LedgerId, ledgerId, t),
+                MoneyCodec.FromPaisa(pt.AmountPaisa),
+                pt.TenderedPaisa is { } td ? MoneyCodec.FromPaisa(td) : null,
+                pt.ChangePaisa is { } ch ? MoneyCodec.FromPaisa(ch) : null,
+                pt.CardNo, pt.BankName, pt.ChequeNo)).ToList();
 
         return new Voucher(
             Guid.NewGuid(), ResolveVoucherTypeId(v.TypeId, voucherTypeId, t),
             CompanyImportService.ParseDate(v.Date), lines, v.Number, v.Narration,
             v.PartyId is { } pid ? ResolveLedgerId(pid, ledgerId, t) : null,
             v.Cancelled, v.Optional, v.PostDated, CompanyImportService.ParseDateOpt(v.ApplicableUpto),
-            invLines);
+            invLines, posTenders);
     }
 
     private static BillAllocation BuildBillAllocation(BillAllocationDto a) => new(
@@ -604,6 +735,8 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> stockItemId,
         Dictionary<Guid, Guid> godownId,
         Dictionary<Guid, Guid> unitId,
+        Dictionary<Guid, Guid> bomId,
+        Dictionary<Guid, Guid> invVoucherId,
         Company t)
     {
         var typeId = ResolveVoucherTypeId(v.TypeId, voucherTypeId, t);
@@ -616,29 +749,66 @@ internal sealed class ImportPlan
             a.RatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null, a.BatchLabel,
             a.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null);
 
-        // Dispatch on the shape the DTO carries (mirrors the InventoryVoucher factory the domain uses).
-        if (v.OrderLines.Count > 0)
-            return InventoryVoucher.Order(Guid.NewGuid(), typeId, date,
-                v.OrderLines.Select(l => new OrderLine(
-                    ResolveStockItemId(l.StockItemId, stockItemId, t), ResolveGodownId(l.GodownId, godownId, t),
-                    l.Quantity, l.RatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null)),
-                v.Number, v.Narration, party, v.Cancelled, v.PostDated);
+        // Reconstruct EVERY part verbatim (Phase 6: additional-cost lines, Job Work order payload, order links) and
+        // rehydrate through FromStorage, then post through the engine (InventoryPostingService validates the
+        // content-vs-base-type, Stock-Journal / Material balance, and the no-negative-stock guard). This preserves
+        // the Stock-Journal-vs-Material distinction (both carry source + destination) without a lossy shape guess.
+        var source = v.Allocations.Select(MapAlloc).ToList();
+        var destination = v.DestinationAllocations.Select(MapAlloc).ToList();
+        var orderLines = v.OrderLines.Select(l => new OrderLine(
+            ResolveStockItemId(l.StockItemId, stockItemId, t), ResolveGodownId(l.GodownId, godownId, t),
+            l.Quantity, l.RatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null)).ToList();
+        var physicalLines = v.PhysicalLines.Select(l => new PhysicalStockLine(
+            ResolveStockItemId(l.StockItemId, stockItemId, t), ResolveGodownId(l.GodownId, godownId, t),
+            l.CountedQuantity, l.BatchLabel)).ToList();
 
-        if (v.PhysicalLines.Count > 0)
-            return InventoryVoucher.PhysicalStock(Guid.NewGuid(), typeId, date,
-                v.PhysicalLines.Select(l => new PhysicalStockLine(
-                    ResolveStockItemId(l.StockItemId, stockItemId, t), ResolveGodownId(l.GodownId, godownId, t),
-                    l.CountedQuantity, l.BatchLabel)),
-                v.Number, v.Narration, v.Cancelled, v.PostDated);
+        // Additional-cost lines (Phase 6 slice 3; RQ-20) on a Stock-Journal transfer — resolve the cost ledger.
+        var additionalCostLines = v.AdditionalCostLines.Select(a => new AdditionalCostLine(
+            ResolveLedgerId(a.LedgerId, ledgerId, t), MoneyCodec.FromPaisa(a.AmountPaisa))).ToList();
 
-        if (v.DestinationAllocations.Count > 0)
-            return InventoryVoucher.StockJournal(Guid.NewGuid(), typeId, date,
-                v.Allocations.Select(MapAlloc), v.DestinationAllocations.Select(MapAlloc),
-                v.Number, v.Narration, v.Cancelled, v.PostDated);
+        // Job Work In/Out Order payload (Phase 6 slice 8; RQ-47) — finished good + tracked component lines.
+        var jobWorkOrder = v.JobWorkOrder is { } j ? BuildJobWorkOrder(j, stockItemId, godownId, bomId, t) : null;
 
-        // Default: a stock-moving voucher (Receipt/Delivery/Rejection) carrying plain allocations.
-        return new InventoryVoucher(Guid.NewGuid(), typeId, date, v.Allocations.Select(MapAlloc),
-            v.Number, v.Narration, party, v.Cancelled, v.PostDated);
+        // Material In/Out order links (Phase 6 slice 8; RQ-48) — each is a source Job Work Order voucher's id,
+        // resolved to its already-posted target voucher (order vouchers are posted first).
+        var orderLinks = v.OrderLinks.Select(id => invVoucherId.TryGetValue(id, out var did) ? did
+            : t.FindInventoryVoucher(id)?.Id
+            ?? throw new InvalidOperationException($"Material voucher references unknown Job Work order {id}.")).ToList();
+
+        return InventoryVoucher.FromStorage(Guid.NewGuid(), typeId, date,
+            source, destination, orderLines, physicalLines,
+            v.Number, v.Narration, party, v.Cancelled, v.PostDated,
+            additionalCostLines, jobWorkOrder, orderLinks);
+    }
+
+    private JobWorkOrder BuildJobWorkOrder(
+        JobWorkOrderDto j,
+        Dictionary<Guid, Guid> stockItemId,
+        Dictionary<Guid, Guid> godownId,
+        Dictionary<Guid, Guid> bomId,
+        Company t)
+    {
+        var lines = j.Lines.Select(l => new JobWorkOrderLine(
+            ResolveStockItemId(l.ComponentStockItemId, stockItemId, t),
+            ParseEnum<JobWorkComponentTrack>(l.Track),
+            l.Quantity,
+            l.GodownId is { } g ? ResolveGodownId(g, godownId, t) : null,
+            CompanyImportService.ParseDateOpt(l.DueDate),
+            l.RatePaisa is { } r ? MoneyCodec.FromPaisa(r) : null)).ToList();
+
+        return new JobWorkOrder(
+            ParseEnum<JobWorkDirection>(j.Direction), j.OrderNo,
+            ResolveStockItemId(j.FinishedGoodStockItemId, stockItemId, t), j.FinishedGoodQuantity, lines,
+            finishedGoodRate: j.FinishedGoodRatePaisa is { } fr ? MoneyCodec.FromPaisa(fr) : null,
+            finishedGoodDueDate: CompanyImportService.ParseDateOpt(j.FinishedGoodDueDate),
+            finishedGoodGodownId: j.FinishedGoodGodownId is { } fgg ? ResolveGodownId(fgg, godownId, t) : null,
+            trackingComponents: j.TrackingComponents,
+            // Provenance BOM link (Slice-2), resolved to the re-minted target BOM id.
+            fillComponentsBomId: j.FillComponentsBomId is { } b
+                ? (bomId.TryGetValue(b, out var bid) ? bid : t.FindBillOfMaterials(b)?.Id
+                    ?? throw new InvalidOperationException($"Job Work order references unknown Bill of Materials {b}."))
+                : null,
+            durationOfProcess: j.DurationOfProcess, natureOfProcessing: j.NatureOfProcessing);
     }
 
     private static PartyGstDetails? BuildPartyGst(PartyGstDto? p) => p is null ? null : new PartyGstDetails
@@ -730,6 +900,9 @@ internal sealed class ImportPlan
     private static Guid ResolveCurrencyId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
         map.TryGetValue(dtoId, out var id) ? id : t.FindCurrency(dtoId)?.Id
             ?? throw new InvalidOperationException($"Currency reference {dtoId} could not be resolved.");
+    private static Guid ResolvePriceLevelId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindPriceLevel(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Price level reference {dtoId} could not be resolved.");
 
     // ---- dependency ordering (parents before children; simple units before compound) ----
 

@@ -60,6 +60,17 @@ public sealed record CompanyDto
 
     /// <summary>Company GST config, or <c>null</c> when GST is off (the default).</summary>
     public GstConfigDto? Gst { get; init; }
+
+    // ---- Phase 6 persisted company feature toggles (real companies columns; cannot be inferred). ----
+
+    /// <summary>F11 "Use separate Actual &amp; Billed Quantity columns" (Phase 6 slice 4; RQ-22; DP-7). Default false.</summary>
+    public bool UseSeparateActualBilledQuantity { get; init; }
+
+    /// <summary>F11 "Enable multiple Price Levels" (Phase 6 slice 5; RQ-26). Default false.</summary>
+    public bool EnableMultiplePriceLevels { get; init; }
+
+    /// <summary>F11 "Enable Job Order Processing" (Phase 6 slice 8; RQ-45). Default false.</summary>
+    public bool EnableJobOrderProcessing { get; init; }
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>
@@ -94,6 +105,13 @@ public sealed record PayloadDto
     public IReadOnlyList<BillOfMaterialsDto> BillsOfMaterials { get; init; } = [];
 
     public IReadOnlyList<StockOpeningBalanceDto> StockOpeningBalances { get; init; } = [];
+
+    // Price Levels / Price Lists (Phase 6 slice 5; catalog §11): named rate tiers + dated slab-rate history.
+    public IReadOnlyList<PriceLevelDto> PriceLevels { get; init; } = [];
+    public IReadOnlyList<PriceListDto> PriceLists { get; init; } = [];
+
+    // Reorder-Level definitions (Phase 6 slice 6; catalog §11): per item / group / category.
+    public IReadOnlyList<ReorderDefinitionDto> ReorderDefinitions { get; init; } = [];
 
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
 
@@ -132,6 +150,14 @@ public sealed record LedgerDto
     public PartyGstDto? PartyGst { get; init; }
     public StockItemGstDto? SalesPurchaseGst { get; init; }
     public LedgerGstClassificationDto? GstClassification { get; init; }
+
+    /// <summary>"Method of Appropriation" on an additional-cost ledger (Phase 6 slice 3; RQ-16..RQ-20). A non-null
+    /// value (ByQuantity/ByValue) MARKS this Direct-Expenses ledger as an additional-cost ledger; <c>null</c> (the
+    /// default) = a plain P&amp;L ledger that never touches a stock rate.</summary>
+    public string? MethodOfAppropriation { get; init; }
+
+    /// <summary>A party ledger's default Price Level (Phase 6 slice 5; RQ-30); <c>null</c> = no default level.</summary>
+    public Guid? DefaultPriceLevelId { get; init; }
 }
 
 /// <summary>The optional interest-calculation block on a ledger (catalog §7). <c>null</c> ⇒ no interest.</summary>
@@ -164,6 +190,48 @@ public sealed record VoucherTypeDto
     /// <summary>"Use as Manufacturing Journal" (Phase 6 Cluster 2; RQ-11). Default false ⇒ a plain Stock Journal
     /// (or any non-manufacturing type) serialises byte-identically (ER-13). Only meaningful on a Stock-Journal base.</summary>
     public bool UseAsManufacturingJournal { get; init; }
+
+    /// <summary>"Track Additional Costs for Purchases" (Phase 6 slice 3; RQ-16). Default false.</summary>
+    public bool TrackAdditionalCosts { get; init; }
+
+    /// <summary>"Allow zero-valued transactions" (Phase 6 slice 4; RQ-21). Default false.</summary>
+    public bool AllowZeroValuedTransactions { get; init; }
+
+    /// <summary>"Use for POS invoicing" (Phase 6 slice 7; RQ-38) — a Sales voucher-type flag. Default false.</summary>
+    public bool UseForPos { get; init; }
+
+    /// <summary>"Use for Job Work" (Material In/Out) (Phase 6 slice 8; RQ-45/RQ-48). Default false.</summary>
+    public bool UseForJobWork { get; init; }
+
+    /// <summary>"Allow Consumption" (Material In) (Phase 6 slice 8; RQ-48). Default false.</summary>
+    public bool AllowConsumption { get; init; }
+
+    /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
+    public PosConfigDto? PosConfig { get; init; }
+}
+
+/// <summary>The POS retail-till configuration carried by a POS-flagged Sales voucher type (Phase 6 slice 7; RQ-38;
+/// DP-4), mirroring the domain <c>PosConfig</c> and the SQLite <c>pos_voucher_type_config</c> +
+/// <c>pos_tender_ledger_defaults</c> rows.</summary>
+public sealed record PosConfigDto
+{
+    public Guid? DefaultGodownId { get; init; }
+    public Guid? DefaultPartyId { get; init; }         // null = walk-in "(cash)"
+    public bool PrintAfterSave { get; init; }
+    public string? DefaultTitle { get; init; }
+    public string? Message1 { get; init; }
+    public string? Message2 { get; init; }
+    public string? Declaration { get; init; }
+
+    /// <summary>The POS Voucher Class tender-ledger pre-map (DP-4): a default ledger per tender kind.</summary>
+    public IReadOnlyList<PosTenderLedgerDefaultDto> TenderLedgerDefaults { get; init; } = [];
+}
+
+/// <summary>One tender-ledger default in a <see cref="PosConfigDto"/> (Phase 6 slice 7; DP-4).</summary>
+public sealed record PosTenderLedgerDefaultDto
+{
+    public required string TenderType { get; init; }   // PosTenderType name
+    public required Guid LedgerId { get; init; }
 }
 
 public sealed record UnitDto
@@ -298,6 +366,58 @@ public sealed record StockOpeningBalanceDto
     public string? ExpiryDate { get; init; }          // ISO or null
 }
 
+// ----------------------------------------------------------------- price levels / lists (catalog §11; slice 5)
+
+/// <summary>A named Price Level (Phase 6 slice 5; RQ-26), mirroring the domain <c>PriceLevel</c> and the SQLite
+/// <c>price_levels</c> row. A level is nothing but an id + name; the party default and the dated price lists
+/// reference it.</summary>
+public sealed record PriceLevelDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+}
+
+/// <summary>A dated Price List version scoped to a (level, item) pair (Phase 6 slice 5; RQ-27), mirroring the
+/// domain <c>PriceList</c> + <c>PriceListSlab</c> and the SQLite <c>price_lists</c> + <c>price_list_lines</c> rows.
+/// Append-only history: a revision appends a new version with a later <see cref="ApplicableFrom"/>.</summary>
+public sealed record PriceListDto
+{
+    public required Guid Id { get; init; }
+    public required Guid PriceLevelId { get; init; }
+    public required Guid StockItemId { get; init; }
+    public required string ApplicableFrom { get; init; }   // ISO yyyy-MM-dd
+    public IReadOnlyList<PriceListSlabDto> Slabs { get; init; } = [];
+}
+
+/// <summary>One quantity slab of a <see cref="PriceListDto"/> (Phase 6 slice 5; RQ-27/RQ-28). From is inclusive,
+/// To is exclusive; <c>ToQty</c> null = open-ended top slab. Rate is integer paisa; the discount is a percent.</summary>
+public sealed record PriceListSlabDto
+{
+    public decimal FromQty { get; init; }
+    public decimal? ToQty { get; init; }               // null = open-ended top slab
+    public long RatePaisa { get; init; }
+    public decimal DiscountPercent { get; init; }
+}
+
+// ----------------------------------------------------------------- reorder definitions (catalog §11; slice 6)
+
+/// <summary>A Reorder-Level definition per stock item / group / category (Phase 6 slice 6; RQ-32..RQ-35),
+/// mirroring the domain <c>ReorderDefinition</c> and the SQLite <c>reorder_definitions</c> row. Quantity-only
+/// (no money); the shared period + criteria govern both Advanced figures.</summary>
+public sealed record ReorderDefinitionDto
+{
+    public required Guid Id { get; init; }
+    public required string Scope { get; init; }        // ReorderScope name (Item/Group/Category)
+    public required Guid TargetId { get; init; }
+    public bool ReorderAdvanced { get; init; }
+    public decimal? ReorderQuantity { get; init; }
+    public bool MinQtyAdvanced { get; init; }
+    public decimal? MinOrderQuantity { get; init; }
+    public int? PeriodCount { get; init; }
+    public string? PeriodUnit { get; init; }           // ExpiryPeriodUnit name, or null
+    public string? Criteria { get; init; }             // ReorderCriteria name, or null
+}
+
 // ----------------------------------------------------------------- cost accounting (catalog §6)
 
 public sealed record CostCategoryDto
@@ -427,6 +547,24 @@ public sealed record VoucherDto
     public string? ApplicableUpto { get; init; }       // ISO or null
     public IReadOnlyList<EntryLineDto> Lines { get; init; } = [];
     public IReadOnlyList<VoucherInventoryLineDto> InventoryLines { get; init; } = [];
+
+    /// <summary>The POS payment tenders on a POS Sales voucher (Phase 6 slice 7; RQ-39/RQ-40; DP-6). Empty for
+    /// every non-POS voucher.</summary>
+    public IReadOnlyList<PosTenderDto> PosTenders { get; init; } = [];
+}
+
+/// <summary>One POS payment tender on a POS Sales voucher (Phase 6 slice 7; RQ-39/RQ-40; DP-6), mirroring the
+/// domain <c>PosTender</c> and the SQLite <c>pos_tender_allocations</c> row. Money is integer paisa.</summary>
+public sealed record PosTenderDto
+{
+    public required string TenderType { get; init; }   // PosTenderType name
+    public required Guid LedgerId { get; init; }
+    public long AmountPaisa { get; init; }             // posted payable share (Cash = residual, not tendered)
+    public long? TenderedPaisa { get; init; }          // Cash only
+    public long? ChangePaisa { get; init; }            // Cash only (informational)
+    public string? CardNo { get; init; }               // Card only
+    public string? BankName { get; init; }             // Cheque/DD only
+    public string? ChequeNo { get; init; }             // Cheque/DD only
 }
 
 public sealed record EntryLineDto
@@ -485,10 +623,14 @@ public sealed record VoucherInventoryLineDto
 {
     public required Guid StockItemId { get; init; }
     public required Guid GodownId { get; init; }
-    public decimal Quantity { get; init; }
+    public decimal Quantity { get; init; }             // the Actual (stock) quantity
     public long RatePaisa { get; init; }
     public required string Direction { get; init; }    // StockDirection name
     public string? BatchLabel { get; init; }
+
+    /// <summary>The Billed quantity (Phase 6 slice 4; RQ-22/RQ-23; DP-7) when it differs from <see cref="Quantity"/>
+    /// (the Actual); <c>null</c> ⇒ Billed ≡ Actual, so a feature-off line round-trips byte-identically (ER-13).</summary>
+    public decimal? BilledQuantity { get; init; }
 }
 
 // ----------------------------------------------------------------- inventory / order vouchers (catalog §10)
@@ -513,6 +655,54 @@ public sealed record InventoryVoucherDto
     public IReadOnlyList<InventoryAllocationDto> DestinationAllocations { get; init; } = [];
     public IReadOnlyList<OrderLineDto> OrderLines { get; init; } = [];
     public IReadOnlyList<PhysicalStockLineDto> PhysicalLines { get; init; } = [];
+
+    /// <summary>Additional-cost lines on a Stock-Journal transfer (Phase 6 slice 3; RQ-20). Empty otherwise.</summary>
+    public IReadOnlyList<AdditionalCostLineDto> AdditionalCostLines { get; init; } = [];
+
+    /// <summary>The Job Work Order payload on a Job Work In/Out Order voucher (Phase 6 slice 8; RQ-47); null otherwise.</summary>
+    public JobWorkOrderDto? JobWorkOrder { get; init; }
+
+    /// <summary>The Job Work order(s) a Material In/Out voucher fulfils (Phase 6 slice 8; RQ-48) — each id is the
+    /// source Job Work Order voucher's id. Empty otherwise.</summary>
+    public IReadOnlyList<Guid> OrderLinks { get; init; } = [];
+}
+
+/// <summary>One additional-cost line on a Stock-Journal transfer (Phase 6 slice 3; RQ-20), mirroring the domain
+/// <c>AdditionalCostLine</c> and the SQLite <c>additional_cost_lines</c> row. Money is integer paisa.</summary>
+public sealed record AdditionalCostLineDto
+{
+    public required Guid LedgerId { get; init; }
+    public long AmountPaisa { get; init; }
+}
+
+/// <summary>The Job Work Order payload (Phase 6 slice 8; RQ-47), mirroring the domain <c>JobWorkOrder</c> and the
+/// SQLite <c>job_work_orders</c> + <c>job_work_order_lines</c> rows. Quantities are exact decimals; money is
+/// integer paisa.</summary>
+public sealed record JobWorkOrderDto
+{
+    public required string Direction { get; init; }    // JobWorkDirection name (In/Out)
+    public required string OrderNo { get; init; }
+    public string? DurationOfProcess { get; init; }
+    public string? NatureOfProcessing { get; init; }
+    public required Guid FinishedGoodStockItemId { get; init; }
+    public decimal FinishedGoodQuantity { get; init; }
+    public string? FinishedGoodDueDate { get; init; }  // ISO or null
+    public Guid? FinishedGoodGodownId { get; init; }
+    public long? FinishedGoodRatePaisa { get; init; }
+    public bool TrackingComponents { get; init; }
+    public Guid? FillComponentsBomId { get; init; }    // Slice-2 BOM provenance, or null (manual)
+    public IReadOnlyList<JobWorkOrderLineDto> Lines { get; init; } = [];
+}
+
+/// <summary>One tracked-component line on a <see cref="JobWorkOrderDto"/> (Phase 6 slice 8; RQ-47).</summary>
+public sealed record JobWorkOrderLineDto
+{
+    public required Guid ComponentStockItemId { get; init; }
+    public required string Track { get; init; }        // JobWorkComponentTrack name
+    public string? DueDate { get; init; }              // ISO or null
+    public Guid? GodownId { get; init; }
+    public decimal Quantity { get; init; }
+    public long? RatePaisa { get; init; }
 }
 
 public sealed record InventoryAllocationDto
