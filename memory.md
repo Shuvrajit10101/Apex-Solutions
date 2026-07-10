@@ -1175,6 +1175,40 @@ Working tree clean (only Slice-4 files: Form26Q projection + FvuWriter + Form26Q
 + tests; no Schema.cs / migration change). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then
 this docs note); pushed to origin, main untouched. **Next = S5 (TCS compute — additive collect-at-source engine).**
 
+## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
+Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
+return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
+projection off already-posted data, so nothing new is persisted. **Finalized after a session-limit interruption killed
+the UI mid-write** — the engine + PDF + report edits had already landed on disk; I (A12) re-verified and completed the
+Desktop VM wiring, then ran the full gate green before committing. Delivered:
+- **Form 16A** (`src/Apex.Ledger/Reports/Form16A.cs`) — the **TDS certificate**: a `Form16ADeductorBlock` (deductor
+  name/TAN/PAN + F11 person-responsible identity), a per-party `Form16ADeducteeBlock`, and `Form16ADeductionRow`s read
+  **verbatim off the matching `Form26QDeducteeRow`** so the certificate **reconciles to the 26Q return by construction**
+  (GST-exclusive assessable base; §194 section + FVU code; rate/PAN-applied). `Form16ATests`.
+- **Form 27D** (`src/Apex.Ledger/Reports/Form27D.cs`) — the **TCS certificate**, exact mirror of 16A on the collector
+  side: `Form27DCollectorBlock` + `Form27DCollecteeBlock` + `Form27DCollectionRow`s verbatim off `Form27EQCollecteeRow`
+  (GST-**inclusive** base per Circular 17/2020; §206C code; TCS additive). Reconciles to 27EQ by construction.
+  `Form27DTests`.
+- **Form 27A** (`src/Apex.Ledger/Reports/Form27A.cs`) — the return **control chart** for a 26Q *or* 27EQ quarter: a pure
+  projection of the return's control totals (deductee/collectee count, challan count, total tax, total amount, total
+  deposited) + the FVU-style cross-check messages the return itself surfaces (`Form26QControlTotals.Validate` /
+  `Form27EQControlTotals.Validate`); figures **tally with the return by construction**. `Tallies` ⇒ no messages.
+  `Form27ATests`.
+- **PDFs** (`src/Apex.Ledger.Io/Form16APdf.cs`, `Form27DPdf.cs`, `Form27APdf.cs`, shared `CertificatePdfSupport.cs`) —
+  hand-rolled, deterministic, **byte-stable, de-branded** (no NuGet), sharing header/label/amount-in-words helpers. The
+  27A cover renders the **tally status** with the visible text **de-branded TALLY→AGREE** ("Control totals AGREE — the
+  return cross-checks and is clear for FVU validation"). `CertificatePdfTests` assert byte-identical re-render.
+- **UI** — `Form16AViewModel`/`Form27DViewModel`/`Form27AViewModel` + `CertificatePages.cs` wired into
+  `GatewayColumn`/`MainWindowViewModel` (`MainWindow.axaml`/`.axaml.cs`); the panes this slice re-completed after the
+  mid-write interruption. `Form16AViewModelTests`/`Form27DViewModelTests`/`Form27AViewModelTests`.
+No A10 HIGH/MED carve-overs this slice (certificates are verbatim projections off the S4/S6 return rows and reconcile to
+them by construction; 27A control totals derive from the same projection as the returns; no persistence, no schema). Gate
+fully green in Release: **Io 181 · Ledger 665 (incl. Robert/Bright + GST golden) · Sqlite 111 · Desktop 558 = 1515 total,
+0 failures.** Working tree clean (only Slice-7 files: Form16A/27D/27A reports + Form16A/27D/27A PDFs +
+CertificatePdfSupport + 3 cert VMs + CertificatePages + Gateway/MainWindow wiring + tests; **Schema.cs UNCHANGED at
+v29**; no scratch/probe files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note);
+pushed to origin, main untouched. **Next = S8 (TDS/TCS exception reports).**
+
 ## Phase 7 Slice 6 — TCS Stat Payment deposit + challan reconciliation + Form 27EQ + FVU (2026-07-10) — SQLite schema v28→v29
 Sixth TDS/TCS slice: the **TCS deposit + statutory-return** half — the mirror of the S3 (TDS deposit/challan/recon) and
 S4 (Form 26Q + FVU) slices, now on the collect-at-source side. **SQLite schema v28→v29** (new `tcs_challans` +
