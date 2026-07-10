@@ -1123,3 +1123,24 @@ nature+applicability with party-driven PAN/rate. Gate re-verified fully green in
 Robert/Bright + GST golden) · Sqlite 103 · Desktop 490 = 1353 total, 0 failures. Working tree clean (only the detection
 fix + test files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note); pushed to
 origin, main untouched.
+
+## Phase 7 Slice 3 — TDS Stat Payment deposit + challan + reconciliation (2026-07-10)
+Third TDS slice: deposit the withheld TDS to the government and reconcile it against a challan. **SQLite schema
+v26→v27** (new `tds_challans` + challan↔voucher link tables). Delivered:
+- **TDS Stat Payment (deposit) voucher** — a statutory-payment Payment voucher (`is_stat_payment` flag **reuses the
+  existing Payment base voucher type**, not a new type, per Tally) that Dr's the `TDS/TCS Payable` ledger and Cr's Bank,
+  **zeroing the payable** for the deposited dues. `TdsDepositService` picks up the outstanding payable balance and
+  builds the balanced deposit legs; `TdsStatPaymentViewModel` drives the UI.
+- **Challan ITNS-281** — `TdsChallan` domain type (BSR code, challan serial no, tender date, section/nature, amount
+  breakup) generated on deposit; persisted via `SqliteCompanyStore` and linked to the deposit voucher through
+  `ChallanVoucherLink`.
+- **Reconciliation (Alt+R)** — `ChallanReconciliation` report + `ChallanReconciliationViewModel` match deposited
+  vouchers to challans and surface unmatched/partly-matched dues; reached via the **Alt+R** shortcut.
+- **Io losslessness** — `tds_challans` (+ links) folded into the `Apex.Ledger.Io` canonical model (`CanonicalModel`,
+  `CanonicalMapper`, `CanonicalXml`, `ApplyJournal`, `ImportPlan`) so challans round-trip **paisa- and count-exact**
+  through JSON+XML export/import (`CanonicalChallanRoundTripTests`).
+No A10 HIGH/MED carve-overs this slice (deposit legs balance gross by construction; payable zeroed exactly). Gate fully
+green in Release: **Io 151 · Ledger 620 (incl. Robert/Bright + GST golden) · Sqlite 106 · Desktop 503 = 1380 total, 0
+failures.** Working tree clean (only Slice-3 files: TDS deposit/challan/reconciliation engine + VMs + views + schema v27
+migration + Io canonical + tests). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs
+note); pushed to origin, main untouched. **Next = S4 (Form 26Q + FVU generation).**
