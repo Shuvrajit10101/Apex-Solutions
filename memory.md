@@ -1174,3 +1174,39 @@ credits by construction; file control totals are counted from the emitted record
 Working tree clean (only Slice-4 files: Form26Q projection + FvuWriter + Form26QViewModel + Gateway/MainWindow wiring
 + tests; no Schema.cs / migration change). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then
 this docs note); pushed to origin, main untouched. **Next = S5 (TCS compute — additive collect-at-source engine).**
+
+## Phase 7 Slice 5 — TCS compute + auto-collection on sales (additive, goods-driven) (2026-07-10) — SQLite schema v27→v28
+Fifth TDS/TCS slice: the **TCS collect-at-source** engine — the mirror of GST and the additive counterpart of the S2
+withholding TDS engine. Unlike TDS (carve-out withholding), **TCS is additive**: collected *on top* of the sale, so on
+a TCS-applicable Sales voucher the collector books `Dr Party = value + GST + TCS`, `Cr Sales = value` (unchanged),
+`Cr Output GST` (unchanged Phase-4 engine), `Cr "TCS Payable" = TCS` (a Duties & Taxes liability). Delivered:
+- **`TcsService`** (`src/Apex.Ledger/Services/TcsService.cs`) — pure, framework/DB/clock/RNG-free computation over the
+  `Company` aggregate (like `GstService`). **Goods-driven Nature-of-Goods detection (the S2 lesson applied to TCS):**
+  the §206C `NatureOfGoods` resolves from the STOCK ITEM's `TcsNatureOfGoodsId` first, then the sales ledger's (only
+  when `TcsApplicable`), **never the party**. The **party** drives only PAN/rate + the collectee gate: PAN ⇒
+  `RateWithPanBp`; **no-PAN ⇒ §206CC `RateWithoutPanBp`** (higher of 2×/5%, EXCEPT the 206C(1H) no-PAN cap of 1% the
+  S1 seed already encodes). **Base includes GST** for every §206C row (Circular 17/2020, `BaseIncludesGst` flag).
+  Rounding = income-tax **nearest-rupee round-half-up** (reuses `TdsService.NearestRupee`).
+- **Threshold + §206C(1H) legacy gate** — a nature with no threshold collects on the full base (scrap); the legacy
+  **§206C(1H)** nature applies its ₹50-lakh threshold as a **cumulative-FY receipts projection** (`ProjectPriorCumulative`
+  over prior posted vouchers, like `Gstr1` YTD) and charges only receipts **exceeding** the threshold (`ChargeableBase`,
+  bare-section "sale consideration exceeding fifty lakh rupees"); any other threshold-bearing nature (§206C(1F) motor
+  vehicle) applies it **per single transaction**. "Exceeds" is strict. The §206C(1H) legacy nature is **non-selectable
+  for dates ≥ 01-Apr-2025** (FA2025 year-gate, `IsSelectableOn`).
+- **No GSTR-1 / 27EQ double-count** — TCS Payable sits under Duties & Taxes, so `ClassificationRules.IsDutiesAndTaxesLedger`
+  excludes it from the item-invoice pairing sum exactly like the GST tax ledgers: the additive collection foots without
+  disturbing the Sales pairing invariant (Sales credit == Σ item value). TCS is its own payable, never a sales/GST amount.
+- **`TcsLineTax`** (`src/Apex.Ledger/Domain/TcsLineTax.cs`) rides the party/payable `EntryLine` (nature, collection code,
+  assessable value, rate bp, TCS amount, collectee id, PAN-applied); present even below threshold (TCS 0) so the FY
+  receipts projection stays exact. **Io-lossless**: `tcs_lines` folded into the canonical model (`CanonicalModel`/
+  `CanonicalMapper`/`CanonicalXml`/`ImportPlan`) — paisa+count-exact JSON+XML round-trip (`CanonicalTcsLineRoundTripTests`).
+- **Schema v27→v28** (`Schema.cs` `CurrentVersion = 28`, `SqliteCompanyStore` persists `tcs_lines`); migration is
+  additive (new table + index inside the version-bump transaction, no ALTER).
+- **UI** — `VoucherEntryViewModel` computes + shows the additive TCS leg on Sales; `MainWindow.axaml` wiring.
+No A10 HIGH/MED carve-overs surfaced this slice (additive design foots by construction; goods-driven detection avoids the
+S2 party-driven trap from the outset; assessable stays FULL receipts while only the charged base is carved so subsequent-
+year cumulative arithmetic remains exact). Gate fully green in Release: **Io 161 · Ledger 638 (incl. Robert/Bright + GST
+golden) · Sqlite 108 · Desktop 519 = 1426 total, 0 failures.** Working tree clean (only Slice-5 files: TcsService +
+TcsLineTax + EntryLine.Tcs + Schema/SqliteCompanyStore v28 + Io canonical wiring + VoucherEntryViewModel/MainWindow +
+tests; no scratch/probe files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note);
+pushed to origin, main untouched. **Next = S6 (Form 27EQ quarterly TCS return + TCS challan/stat-payment, schema v29).**
