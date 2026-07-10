@@ -99,6 +99,14 @@ public partial class MainWindow : Window
                 SaveEmailToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
                 vm.SaveSmtpSettings();
+            // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
+            // de-branded PDF (the accelerator every one of those pages advertises) — no dead shortcut.
+            else if (vm.CurrentScreen == Screen.Form16A)
+                vm.Form16A?.ExportPdf();
+            else if (vm.CurrentScreen == Screen.Form27D)
+                vm.Form27D?.ExportPdf();
+            else if (vm.CurrentScreen == Screen.Form27A)
+                vm.Form27A?.ExportPdf();
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -194,6 +202,23 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.Form27EQ && !IsTyping(e))
         {
             vm.SaveReturnForm27EQ();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on a TDS/TCS certificate / control-chart page (Phase 7 slice 7) SAVES the PDF and RETURNS to the
+        // menu — the mirror of the Form 26Q / 27EQ Alt+B above. Scoped to each certificate screen so it never
+        // collides with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e)
+            && vm.CurrentScreen is Screen.Form16A or Screen.Form27D or Screen.Form27A)
+        {
+            switch (vm.CurrentScreen)
+            {
+                case Screen.Form16A: vm.SaveReturnForm16A(); break;
+                case Screen.Form27D: vm.SaveReturnForm27D(); break;
+                case Screen.Form27A: vm.SaveReturnForm27A(); break;
+            }
             e.Handled = true;
             return;
         }
@@ -708,6 +733,25 @@ public partial class MainWindow : Window
 
     private void OnSaveReturnForm27EQClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnForm27EQ();
+
+    // Phase 7 slice 7 — TDS/TCS certificates + control chart: Export PDF (Ctrl+A) / Save & Return (Alt+B).
+    private void OnExportPdfForm16AClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form16A?.ExportPdf();
+
+    private void OnSaveReturnForm16AClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm16A();
+
+    private void OnExportPdfForm27DClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form27D?.ExportPdf();
+
+    private void OnSaveReturnForm27DClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm27D();
+
+    private void OnExportPdfForm27AClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form27A?.ExportPdf();
+
+    private void OnSaveReturnForm27AClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm27A();
 
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();

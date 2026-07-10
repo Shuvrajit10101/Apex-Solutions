@@ -156,6 +156,15 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Form 27EQ quarterly-TCS-return report (non-null only for that column; Phase 7 slice 6).</summary>
     public Form27EQViewModel? Form27EQ => Page as Form27EQViewModel;
 
+    /// <summary>The hosted Form 16A TDS-certificate report (non-null only for that column; Phase 7 slice 7).</summary>
+    public Form16AViewModel? Form16A => Page as Form16AViewModel;
+
+    /// <summary>The hosted Form 27D TCS-certificate report (non-null only for that column; Phase 7 slice 7).</summary>
+    public Form27DViewModel? Form27D => Page as Form27DViewModel;
+
+    /// <summary>The hosted Form 27A return-control-chart report (non-null only for that column; Phase 7 slice 7).</summary>
+    public Form27AViewModel? Form27A => Page as Form27AViewModel;
+
     /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
     public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
 

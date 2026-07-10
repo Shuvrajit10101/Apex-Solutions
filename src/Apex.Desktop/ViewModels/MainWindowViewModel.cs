@@ -67,6 +67,9 @@ public enum Screen
     TcsStatPayment,
     TcsChallanReconciliation,
     Form27EQ,
+    Form16A,
+    Form27D,
+    Form27A,
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
@@ -265,6 +268,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Form 27EQ quarterly-TCS-return report (Phase 7 slice 6), non-null only while that page is open.</summary>
     [ObservableProperty] private Form27EQViewModel? _form27EQ;
 
+    /// <summary>The Form 16A TDS-certificate report (Phase 7 slice 7), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form16AViewModel? _form16A;
+
+    /// <summary>The Form 27D TCS-certificate report (Phase 7 slice 7), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form27DViewModel? _form27D;
+
+    /// <summary>The Form 27A return-control-chart report (Phase 7 slice 7), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form27AViewModel? _form27A;
+
     /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
 
@@ -338,6 +350,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
+        && Form16A is null && Form27D is null && Form27A is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -383,6 +396,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnTcsStatPaymentChanged(TcsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTcsChallanReconciliationChanged(TcsChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm27EQChanged(Form27EQViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm16AChanged(Form16AViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm27DChanged(Form27DViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm27AChanged(Form27AViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -972,6 +988,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Form 26Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 16A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27A (TDS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
 
         // TCS Challan Reconciliation + Form 27EQ (Phase 7 slice 6; catalog §13) — the collector's mirror of the TDS
@@ -982,6 +1000,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(MenuItemViewModel.Header("TCS"));
             col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Form 27EQ", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27D", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27A (TCS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2614,6 +2634,90 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BackFromPage();
     }
 
+    // =============================================================== screen: TDS/TCS certificates & control chart (slice 7)
+
+    /// <summary>
+    /// Opens the <b>Form 16A</b> TDS-certificate report page (Reports → GST Reports → TDS → Form 16A; Phase 7 slice 7;
+    /// catalog §13). Pick a deductee + FY/quarter and export the deterministic, de-branded certificate PDF (Ctrl+A) or
+    /// save-and-return (Alt+B). A no-op unless TDS is enabled (the menu item + open path are gated on
+    /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenForm16A()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new Form16AViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 16A", page), Screen.Form16A,
+            "Form 16A (TDS Certificate)", () => Form16A = page);
+    }
+
+    /// <summary>True while the Form 16A certificate page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm16AScreen => CurrentScreen == Screen.Form16A && Form16A is not null;
+
+    /// <summary>Alt+B on the Form 16A screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
+    public void SaveReturnForm16A()
+    {
+        if (!IsForm16AScreen || Form16A is null) return;
+        Form16A.ExportPdf();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Form 27D</b> TCS-certificate report page (Reports → GST Reports → TCS → Form 27D; Phase 7 slice 7;
+    /// catalog §13) — the collector's mirror of Form 16A. Pick a collectee + FY/quarter and export the certificate PDF
+    /// (Ctrl+A) or save-and-return (Alt+B). A no-op unless TCS is enabled (gated on <see cref="Company.TcsEnabled"/>, ER-13).
+    /// </summary>
+    public void OpenForm27D()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new Form27DViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 27D", page), Screen.Form27D,
+            "Form 27D (TCS Certificate)", () => Form27D = page);
+    }
+
+    /// <summary>True while the Form 27D certificate page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm27DScreen => CurrentScreen == Screen.Form27D && Form27D is not null;
+
+    /// <summary>Alt+B on the Form 27D screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
+    public void SaveReturnForm27D()
+    {
+        if (!IsForm27DScreen || Form27D is null) return;
+        Form27D.ExportPdf();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Form 27A</b> return-control-chart report page (Reports → GST Reports → TDS/TCS → Form 27A; Phase 7
+    /// slice 7; catalog §13). Pick a return (26Q/27EQ) + FY/quarter and export the deterministic, de-branded control
+    /// chart PDF (Ctrl+A) or save-and-return (Alt+B). <paramref name="initialForm"/> ("26Q"/"27EQ") pre-selects the
+    /// return the menu entry represents. A no-op unless the corresponding tax is enabled (ER-13).
+    /// </summary>
+    public void OpenForm27A(string initialForm)
+    {
+        bool available = initialForm switch
+        {
+            "27EQ" => Company is { TcsEnabled: true },
+            _ => Company is { TdsEnabled: true },
+        };
+        if (!available) return;
+
+        var page = new Form27AViewModel(Company!, initialForm);
+        OpenPageColumn(new GatewayColumn("Form 27A", page), Screen.Form27A,
+            "Form 27A (Return Control Chart)", () => Form27A = page);
+    }
+
+    /// <summary>True while the Form 27A control-chart page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm27AScreen => CurrentScreen == Screen.Form27A && Form27A is not null;
+
+    /// <summary>Alt+B on the Form 27A screen — <b>save &amp; return</b>: writes the control-chart PDF then pops back to the menu.</summary>
+    public void SaveReturnForm27A()
+    {
+        if (!IsForm27AScreen || Form27A is null) return;
+        Form27A.ExportPdf();
+        BackFromPage();
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -2886,6 +2990,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         TcsStatPayment = null;
         TcsChallanReconciliation = null;
         Form27EQ = null;
+        Form16A = null;
+        Form27D = null;
+        Form27A = null;
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
@@ -3449,6 +3556,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "TCS Stat Payment": ShowTcsStatPayment(); break;
             case "TCS Challan Reconciliation": OpenTcsChallanReconciliation(); break;
             case "Form 27EQ": OpenForm27EQ(); break;
+            case "Form 16A": OpenForm16A(); break;
+            case "Form 27D": OpenForm27D(); break;
+            case "Form 27A (TDS)": OpenForm27A("26Q"); break;
+            case "Form 27A (TCS)": OpenForm27A("27EQ"); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
