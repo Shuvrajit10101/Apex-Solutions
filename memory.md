@@ -1025,6 +1025,60 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Next:** Phase 7 slice 2 — TDS compute (withholding on payment/expense vouchers, section-conditional rate branches,
   threshold accumulation, TDS Payable posting). [A5]
 
+### Phase 7 slice 2 — TDS compute + auto-deduction (carve-out) engine + validator + voucher UI ✅ (2026-07-10) — SQLite schema v25→v26
+- **Scope:** the TDS **withholding COMPUTE** layer on top of the slice-1 masters — resolve rate, apply the section
+  threshold, round, and book the carve-out. Grounded in `docs/phase7-tds-tcs-*`; every rate/threshold A14-web-verified
+  for **FY 2025-26 (AY 2026-27)**, stored as editable data. TCS additive-compute + returns/FVU stay for later slices.
+- **Engine (framework-/DB-/clock-/RNG-free `Apex.Ledger`):** new `TdsService` — a pure, deterministic assessment over
+  the `Company` aggregate, **withholding not additive** (unlike `GstService`). `ComputeWithholding(assessable, nature,
+  deductee, date)` → `Withholding` record: resolves the rate (PAN ⇒ `RateWithPanBp`; no valid PAN ⇒ the §206AA 20%
+  general / §194Q 5% special no-PAN rate the seed encodes), tests the section threshold (single-transaction OR
+  cumulative-FY), and — when crossed — computes `TDS = round_half_up(assessable × rate / 10000)` to the **nearest
+  rupee** (`NearestRupee`, income-tax `MidpointRounding.AwayFromZero`, A14). The **cumulative-FY threshold is a pure
+  projection** (`ProjectPriorCumulative` over prior posted `TdsLineTax` per party×nature in the FY — deterministic, no
+  clock/order side-effect, exactly like `Gstr1` YTD accumulation). TDS assessed on the **GST-exclusive** base
+  (Circular 23/2017). **Carve-out posting:** `Dr Expense/Purchase = GROSS`, `Cr Party = NET` (**derived** GROSS−TDS,
+  never gross×(1−rate)), `Cr "TDS Payable" = TDS` ⇒ `GROSS Dr == NET Cr + TDS Cr` to the paisa **by construction** —
+  the balance invariant is the guard, a leaky independently-computed net trips `VoucherValidator`. New domain
+  `TdsLineTax` value object (immutable, paisa-exact, whole-rupee withheld) rides **one** line per (voucher, party,
+  nature) — the TDS-Payable credit when withheld, or the party leg when below-threshold (`TdsAmount`=0) — giving the
+  projection exactly one assessable contribution per transaction, like posted `GstLineTax`. `EntryLine` carries an
+  optional `TdsLineTax` (mirrors `GstLineTax`).
+- **Validator:** `VoucherValidator` documented+verified that the stock-leg pairing sum is unchanged by a withholding
+  purchase — Purchases stays the GROSS debit (= item-lines value); the reduced party NET leg and the TDS-Payable credit
+  are both outside the stock-leg sum (TDS Payable via `IsDutiesAndTaxesLedger`, exactly like GST tax ledgers) — so the
+  pairing foots unchanged and `Σ Dr == Σ Cr` guards `net + withheld == gross`.
+- **S1 carry-forwards fixed (from A10 slice-1 review notes):** (1) **§194A threshold ₹50k → ₹10k** — the generic
+  (non-bank) SMB cumulative threshold, not the bank/co-op/PO ₹50k. (2) **Payable-ledger relocation** — `TdsTcsService`
+  now relocates a pre-existing "TDS/TCS Payable" ledger under **Duties & Taxes** whenever
+  `!IsDutiesAndTaxesLedger(existing, _company)` (group-based), not merely when `GroupId == Guid.Empty`; a payable a user
+  pre-created under a wrong primary group (e.g. Sundry Creditors) would otherwise be mis-counted in the item-invoice
+  pairing and leak the withholding credit. Relocation guarantees the classification holds.
+- **Persistence — SQLite schema v25→v26** (`MigrateV25ToV26`, additive/idempotent/lossless): one new child table
+  `tds_lines` (one row per TDS-assessed entry line) + `ix_tds_lines_entry_line`; a fresh DB stamped straight to v26 via
+  `CreateV1`. A voucher with no TDS carries no `tds_lines` row — every existing path byte-for-byte unchanged (ER-13).
+  Schema + round-trip tests updated (`TdsTcsSchemaTests`, `TdsTcsRoundTripTests`, inventory/item-invoice round-trips).
+- **Io losslessness:** `tds_lines` folded into the `Apex.Ledger.Io` canonical model (CanonicalModel/CanonicalMapper/
+  CanonicalXml/ImportPlan) so withholding detail survives JSON+XML export→import into a fresh company **paisa- and
+  count-exact** (PR-4), guarding the Phase-6 "silently dropped" regression. Locked by `CanonicalTdsTcsRoundTripTests`.
+- **UI (Avalonia, cascade Miller-column, keyboard-first):** `VoucherEntryViewModel` + MainWindow voucher-entry surface
+  gained the TDS carve-out path (nature pick + live withheld figure from the engine, ER-4). Locked by
+  `TdsVoucherEntryViewModelTests`.
+- **A10 adversarial review:** the carve-out surface is money-movement — the derived-NET-never-gross×(1−rate) rule and
+  the balance-invariant-as-guard were the explicit defences; no HIGH/MED defect survived to the gate.
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1350 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 147 · Ledger 613 · Sqlite 103 · Desktop 487). **Schema v26.** Robert & Bright green + GST golden
+  green (ER-13). No known-flaky SQLite isolation failure this run. Working tree = the clean Slice-2 set (engine +
+  `TdsService`/`TdsLineTax` + validator + schema + Io + UI + tests); **no scratch/probe/ZZ/temp files staged**.
+- **Note (process):** the prior slice-2 finalize was interrupted after the engine+UI landed but before the commit
+  (a `StructuredOutput` interruption left the change set UNCOMMITTED at v26 on HEAD `ffb6b5d`=S1); this run re-verified
+  the gate from the working tree and finalized the two commits.
+- **Committed & pushed by A12 (R4):** two commits — (a) code+tests `feat(tds): Phase 7 slice 2 — TDS auto-deduction
+  (carve-out) engine + validator + voucher UI, SQLite schema v26`; (b) docs `docs(memory): Phase 7 slice 2 log`.
+  Branch `claude/wonderful-hellman-59520a` pushed; **`main` NOT touched**.
+- **Next:** Phase 7 slice 3 — TCS additive-compute on sale-of-goods vouchers (§206C nature, collectee, threshold,
+  TCS Payable posting). [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
