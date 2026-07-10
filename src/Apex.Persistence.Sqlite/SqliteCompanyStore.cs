@@ -611,6 +611,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 25;
         }
 
+        // v25 → v26: apply the TDS withholding-detail schema (one new tds_lines table + index), then bump the
+        // marker. Existing v25 data survives untouched (a single CREATE TABLE/INDEX; no ALTER, no row rewrites —
+        // Phase 7 slice 2). ER-13 byte-identical when TDS is never withheld (the table stays empty).
+        if (version == 25)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV25ToV26;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 26);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 26;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2168,6 +2191,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var allocs = ReadBillAllocations(id);
             var costAllocs = ReadCostAllocations(id);
             var bankAlloc = ReadBankAllocation(id);
+            var tds = ReadTdsLine(id); // v26: TDS withholding detail (null for a non-TDS line)
             lines.Add(new EntryLine(
                 ledgerId,
                 Paisa.ToMoney(amountPaisa),
@@ -2176,9 +2200,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 costAllocs.Count > 0 ? costAllocs : null,
                 bankAlloc,
                 forex,
-                gst));
+                gst,
+                tds));
         }
         return lines;
+    }
+
+    /// <summary>v26: reads the TDS withholding detail hung off an entry line, or <c>null</c> for a non-TDS line.</summary>
+    private TdsLineTax? ReadTdsLine(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT nature_id, section_code, assessable_value_micro, rate_bp, tds_amount_micro,
+                   deductee_ledger_id, pan_applied
+            FROM tds_lines WHERE entry_line_id = $lid LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new TdsLineTax(
+            Guid.Parse(r.GetString(0)),
+            r.GetString(1),
+            new Money(r.GetInt64(2) / 1_000_000m),
+            (int)r.GetInt64(3),
+            new Money(r.GetInt64(4) / 1_000_000m),
+            Guid.Parse(r.GetString(5)),
+            r.GetInt64(6) != 0);
     }
 
     private List<BillAllocation> ReadBillAllocations(long entryLineId)
@@ -2287,6 +2334,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, """
             DELETE FROM pos_voucher_type_config WHERE voucher_type_id IN (
                 SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
+        // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
+        ExecTx(tx, """
+            DELETE FROM tds_lines WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
@@ -3491,10 +3545,36 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             InsertBillAllocations(tx, lineId, line);
             InsertCostAllocations(tx, lineId, line);
             InsertBankAllocation(tx, lineId, line);
+            InsertTdsLine(tx, lineId, line);
         }
 
         InsertVoucherInventoryLines(tx, v);
         InsertPosTenderAllocations(tx, v);
+    }
+
+    /// <summary>v26: persists an entry line's TDS withholding detail (catalog §13; Phase 7 slice 2) to
+    /// <c>tds_lines</c>. A non-TDS line carries none, so nothing is written — byte-identical (ER-13). Money is
+    /// stored as rupees × 1,000,000 ("micros"), exact for a paisa-exact amount.</summary>
+    private void InsertTdsLine(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        if (line.Tds is not { } t) return;
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO tds_lines
+                (entry_line_id, nature_id, section_code, assessable_value_micro, rate_bp,
+                 tds_amount_micro, deductee_ledger_id, pan_applied)
+            VALUES ($lid, $nat, $sec, $asv, $rate, $tds, $ded, $pan);
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        cmd.Parameters.AddWithValue("$nat", t.NatureId.ToString("D"));
+        cmd.Parameters.AddWithValue("$sec", t.SectionCode);
+        cmd.Parameters.AddWithValue("$asv", (long)(t.AssessableValue.Amount * 1_000_000m));
+        cmd.Parameters.AddWithValue("$rate", t.RateBasisPoints);
+        cmd.Parameters.AddWithValue("$tds", (long)(t.TdsAmount.Amount * 1_000_000m));
+        cmd.Parameters.AddWithValue("$ded", t.DeducteeLedgerId.ToString("D"));
+        cmd.Parameters.AddWithValue("$pan", t.PanApplied ? 1 : 0);
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>Persists a POS voucher's tender rows (v23; RQ-39/RQ-40; DP-6) to <c>pos_tender_allocations</c>. A

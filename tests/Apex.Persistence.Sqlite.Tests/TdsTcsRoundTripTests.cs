@@ -129,6 +129,47 @@ public sealed class TdsTcsRoundTripTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
+    public void A_withholding_voucher_tds_line_survives_save_reload_paisa_exact()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-tdswh-{Guid.NewGuid():N}.db");
+        try
+        {
+            var c = SeedTdsTcsCompany();
+            var fees = new Domain.Ledger(Guid.NewGuid(), "Professional Fees",
+                c.FindGroupByName("Indirect Expenses")!.Id, Money.Zero, true);
+            c.AddLedger(fees);
+            var vendor = c.FindLedgerByName("Consultant")!;
+            var nop = c.FindNatureOfPaymentByCode("194J(b)")!;
+            var date = new DateOnly(2025, 5, 10);
+
+            var carve = new TdsService(c).BuildCarveOut(Money.FromRupees(1_00_000m), Money.FromRupees(1_00_000m), nop, vendor, date);
+            var posted = new LedgerService(c).Post(new Voucher(Guid.NewGuid(),
+                c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Journal).Id, date,
+                new[] { new EntryLine(fees.Id, Money.FromRupees(1_00_000m), DrCr.Debit), carve.PartyLine, carve.TdsPayableLine! }));
+
+            using (var write = new SqliteCompanyStore(dbPath)) write.Save(c);
+            Company r;
+            using (var read = new SqliteCompanyStore(dbPath)) r = read.Load(c.Id)!;
+
+            var rv = r.FindVoucher(posted.Id)!;
+            var tdsLine = Assert.Single(rv.Lines, l => l.HasTds);
+            var t = tdsLine.Tds!;
+            Assert.Equal("194J(b)", t.SectionCode);
+            Assert.Equal(Money.FromRupees(1_00_000m), t.AssessableValue);
+            Assert.Equal(1000, t.RateBasisPoints);
+            Assert.Equal(Money.FromRupees(10_000m), t.TdsAmount);
+            Assert.Equal(vendor.Id, t.DeducteeLedgerId);
+            Assert.Equal(nop.Id, t.NatureId);
+            Assert.True(t.PanApplied);
+            // GROSS Dr == NET Cr + TDS Cr survives the round-trip.
+            Assert.Equal(Money.FromRupees(1_00_000m), rv.TotalDebit);
+            Assert.Equal(rv.TotalDebit, rv.TotalCredit);
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    [Fact]
+    [Trait("Category", "RoundTrip")]
     public void A_non_tds_tcs_company_round_trips_with_no_state()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"apex-notdstcs-{Guid.NewGuid():N}.db");

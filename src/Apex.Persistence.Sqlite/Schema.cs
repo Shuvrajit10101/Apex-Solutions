@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 25;
+    public const int CurrentVersion = 26;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -333,6 +333,22 @@ public static class Schema
             gst_rate_bp           INTEGER NULL,   -- applied head rate in basis points (900 = 9% CGST half)
             gst_taxable_value_paisa INTEGER NULL  -- the taxable value the tax was computed on, in paisa
         );
+
+        -- v26 TDS withholding detail (catalog §13; Phase 7 slice 2): one row per TDS-assessed line — the TDS
+        -- Payable credit line when withheld, or the party leg when below threshold (tds_amount_micro = 0). Empty
+        -- for a company that never withholds TDS (ER-13). Money is stored as rupees × 1,000,000 ("micros").
+        CREATE TABLE tds_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,   -- NatureOfPayment id (§194x section master)
+            section_code           TEXT    NOT NULL,  -- denormalised section code (e.g. 194J(b))
+            assessable_value_micro INTEGER NOT NULL,  -- GST-exclusive assessable base, rupees × 1,000,000
+            rate_bp                INTEGER NOT NULL,  -- applied rate in basis points (1000 = 10%)
+            tds_amount_micro       INTEGER NOT NULL,  -- TDS withheld (nearest rupee), rupees × 1,000,000; 0 below threshold
+            deductee_ledger_id     TEXT    NOT NULL,  -- the party ledger id
+            pan_applied            INTEGER NOT NULL   -- 0/1: was the with-PAN rate applied
+        );
+        CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
 
         CREATE TABLE bill_allocations (
             id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -1762,5 +1778,26 @@ public static class Schema
             legacy_cutoff       TEXT        NULL
         );
         CREATE INDEX ix_nature_of_goods_company ON nature_of_goods(company_id);
+        """;
+
+    /// <summary>
+    /// v25 → v26 (Phase 7 slice 2; TDS compute + auto-deduct): one additive <c>CREATE TABLE tds_lines</c> child of
+    /// <c>entry_lines</c> + its index, run inside a transaction that bumps <c>schema_version</c> to 26. No ALTER, no
+    /// row rewrites — an existing v25 database keeps every row and the new table starts empty (ER-13 byte-identical
+    /// when TDS is never withheld). A fresh DB is stamped straight to v26 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV25ToV26 = """
+        CREATE TABLE tds_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,
+            section_code           TEXT    NOT NULL,
+            assessable_value_micro INTEGER NOT NULL,
+            rate_bp                INTEGER NOT NULL,
+            tds_amount_micro       INTEGER NOT NULL,
+            deductee_ledger_id     TEXT    NOT NULL,
+            pan_applied            INTEGER NOT NULL
+        );
+        CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
         """;
 }

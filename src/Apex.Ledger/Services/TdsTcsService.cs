@@ -92,12 +92,18 @@ public sealed class TdsTcsService
             ?? throw new InvalidOperationException(
                 "Seed missing 'Duties & Taxes' group; cannot auto-create the TDS/TCS payable ledger.");
 
-        // If a ledger by that name exists (e.g. user pre-created), tag it; else create a fresh liability ledger.
+        // If a ledger by that name exists (e.g. user pre-created), tag it AND <b>relocate it under Duties &amp;
+        // Taxes unconditionally</b> when it is not already there. This is load-bearing for the Phase-7-slice-2
+        // carve-out: the item-invoice pairing excludes the TDS/TCS credit only when
+        // ClassificationRules.IsDutiesAndTaxesLedger (group-based) returns true, so a payable pre-created under a
+        // wrong primary group (e.g. Sundry Creditors) would otherwise be mis-counted in the pairing and leak the
+        // withholding credit. Relocating guarantees the classification holds.
         var existing = _company.FindLedgerByName(name);
         if (existing is not null)
         {
             existing.TdsTcsClassification ??= kind;
-            if (existing.GroupId == Guid.Empty) existing.GroupId = dutiesAndTaxes.Id;
+            if (!Reports.ClassificationRules.IsDutiesAndTaxesLedger(existing, _company))
+                existing.GroupId = dutiesAndTaxes.Id;
             return;
         }
 

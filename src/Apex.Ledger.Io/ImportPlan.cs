@@ -598,7 +598,7 @@ internal sealed class ImportPlan
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
             posted++;
@@ -749,6 +749,7 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> costCategoryId,
         Dictionary<Guid, Guid> costCentreId,
         Dictionary<Guid, Guid> currencyId,
+        Dictionary<Guid, Guid> tdsNatureId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -760,7 +761,8 @@ internal sealed class ImportPlan
                 : l.CostAllocations.Select(a => BuildCostAllocation(a, costCategoryId, costCentreId, t)).ToList(),
             bankAllocation: BuildBankAllocation(l.BankAllocation),
             forex: BuildForex(l.Forex, currencyId, t),
-            gst: BuildGstLineTax(l.Gst)));
+            gst: BuildGstLineTax(l.Gst),
+            tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t)));
 
         var invLines = v.InventoryLines.Count == 0
             ? null
@@ -814,6 +816,17 @@ internal sealed class ImportPlan
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
         ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa));
+
+    /// <summary>Rebuilds a line's TDS withholding detail (Phase 7 slice 2), re-mapping the source nature id and
+    /// deductee-ledger id into the target company's re-minted ids so the withholding reconciles across companies
+    /// (paisa- and count-exact). Null for a non-TDS line.</summary>
+    private static TdsLineTax? BuildTdsLineTax(
+        TdsLineTaxDto? d, Dictionary<Guid, Guid> tdsNatureId, Dictionary<Guid, Guid> ledgerId, Company t) =>
+        d is null ? null : new TdsLineTax(
+            ResolveTdsNatureId(d.NatureId, tdsNatureId, t), d.SectionCode,
+            MoneyCodec.FromPaisa(d.AssessableValuePaisa), d.RateBasisPoints,
+            MoneyCodec.FromPaisa(d.TdsAmountPaisa),
+            ResolveLedgerId(d.DeducteeLedgerId, ledgerId, t), d.PanApplied);
 
     private static InterestParameters? BuildInterest(InterestParametersDto? i) => i is null ? null : new InterestParameters(
         i.Enabled, i.RatePercent, ParseEnum<InterestPer>(i.Per), ParseEnum<InterestOnBalance>(i.OnBalance),

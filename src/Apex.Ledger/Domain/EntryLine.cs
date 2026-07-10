@@ -85,6 +85,19 @@ public sealed class EntryLine
     /// <summary>True iff this line carries GST tax detail.</summary>
     public bool HasGst => Gst is not null;
 
+    /// <summary>
+    /// The TDS withholding detail for this line (catalog §13; Phase 7 slice 2), or <c>null</c> for a non-TDS line.
+    /// Present on the <b>TDS Payable</b> credit line of a withholding voucher (the line's <see cref="Amount"/> is
+    /// the TDS withheld), or on the party leg of a payment assessed for TDS but below threshold
+    /// (<see cref="TdsLineTax.TdsAmount"/> = 0). It records the nature, the GST-exclusive assessable value, the
+    /// applied rate and the deductee, so Form 26Q and the cumulative-FY threshold project it. A non-TDS line
+    /// carries no <see cref="TdsLineTax"/> (mirrors <see cref="Gst"/> on a base line).
+    /// </summary>
+    public TdsLineTax? Tds { get; }
+
+    /// <summary>True iff this line carries TDS withholding detail.</summary>
+    public bool HasTds => Tds is not null;
+
     public EntryLine(
         Guid ledgerId,
         Money amount,
@@ -93,7 +106,8 @@ public sealed class EntryLine
         IEnumerable<CostAllocation>? costAllocations = null,
         BankAllocation? bankAllocation = null,
         ForexInfo? forex = null,
-        GstLineTax? gst = null)
+        GstLineTax? gst = null,
+        TdsLineTax? tds = null)
     {
         LedgerId = ledgerId;
         Amount = amount;
@@ -103,6 +117,7 @@ public sealed class EntryLine
         BankAllocation = bankAllocation;
         Forex = forex;
         Gst = gst;
+        Tds = tds;
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>

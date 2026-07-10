@@ -51,6 +51,16 @@ public class CanonicalTdsTcsRoundTripTests
         var scrap = inv.CreateStockItem("Scrap Metal", inv.CreateStockGroup("Waste").Id, inv.CreateSimpleUnit("Kg", "Kilogram").Id);
         scrap.TcsNatureOfGoodsId = nog.Id;
 
+        // Phase 7 slice 2: post a real 194J withholding voucher so a tds_line rides the export/import (the exact
+        // Phase-6 carry-forward defect class — a new child silently dropped on JSON/XML round-trip).
+        var fees = new Domain.Ledger(Guid.NewGuid(), "Professional Fees", c.FindGroupByName("Indirect Expenses")!.Id, Money.Zero, true);
+        c.AddLedger(fees);
+        var vendor = c.FindLedgerByName("Consultant")!;
+        var carve = new TdsService(c).BuildCarveOut(Money.FromRupees(1_00_000m), Money.FromRupees(1_00_000m), nop, vendor, new DateOnly(2025, 5, 10));
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(),
+            c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Journal).Id, new DateOnly(2025, 5, 10),
+            new[] { new Domain.EntryLine(fees.Id, Money.FromRupees(1_00_000m), DrCr.Debit), carve.PartyLine, carve.TdsPayableLine! }));
+
         return c;
     }
 
@@ -188,6 +198,20 @@ public class CanonicalTdsTcsRoundTripTests
         var tgtScrap = target.FindNatureOfGoodsByCode("6CE")!;
         var item = target.FindStockItemByName("Scrap Metal")!;
         Assert.Equal(tgtScrap.Id, item.TcsNatureOfGoodsId);
+
+        // The posted 194J withholding voucher's tds_line reconciles paisa- and count-exact, with its nature +
+        // deductee re-mapped to the target's re-minted ids (no silent drop — the Phase-6 defect class).
+        var tgtVendor = target.FindLedgerByName("Consultant")!;
+        var tgtNop = target.FindNatureOfPaymentByCode("194J(b)")!;
+        var tdsLines = target.Vouchers.SelectMany(v => v.Lines).Where(l => l.HasTds).Select(l => l.Tds!).ToList();
+        var t = Assert.Single(tdsLines);
+        Assert.Equal("194J(b)", t.SectionCode);
+        Assert.Equal(Money.FromRupees(1_00_000m), t.AssessableValue);
+        Assert.Equal(1000, t.RateBasisPoints);
+        Assert.Equal(Money.FromRupees(10_000m), t.TdsAmount);
+        Assert.True(t.PanApplied);
+        Assert.Equal(tgtNop.Id, t.NatureId);           // re-mapped to the target nature
+        Assert.Equal(tgtVendor.Id, t.DeducteeLedgerId); // re-mapped to the target ledger
     }
 
     private static void AssertNoTally(byte[] bytes)

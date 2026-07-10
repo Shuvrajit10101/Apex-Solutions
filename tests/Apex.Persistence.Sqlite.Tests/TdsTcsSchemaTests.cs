@@ -36,6 +36,7 @@ public sealed class TdsTcsSchemaTests
 
             Assert.True(TableExists(dbPath, "nature_of_payment"));
             Assert.True(TableExists(dbPath, "nature_of_goods"));
+            Assert.True(TableExists(dbPath, "tds_lines")); // v26 (Phase 7 slice 2)
 
             // §206AB / §206CCA were omitted (FA2025) — no such columns leaked in.
             Assert.DoesNotContain("higher_rate_206ab", ColumnNames(dbPath, "ledgers"));
@@ -91,6 +92,45 @@ public sealed class TdsTcsSchemaTests
             Assert.Equal(0L, ReadScalar(dbPath, "SELECT tds_enabled FROM companies LIMIT 1;"));
             Assert.Equal(0L, ReadScalar(dbPath, "SELECT tcs_enabled FROM companies LIMIT 1;"));
             Assert.Equal(0L, ReadScalar(dbPath, "SELECT tds_applicable FROM ledgers LIMIT 1;"));
+
+            using (new SqliteCompanyStore(dbPath)) { }
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+        }
+        finally { Delete(dbPath); }
+    }
+
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Legacy_v25_database_auto_migrates_to_v26_adding_tds_lines_and_preserving_rows()
+    {
+        var dbPath = TempDb("apex-tds-v25legacy");
+        try
+        {
+            var company = Guid.NewGuid();
+            var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
+            using (var conn = new SqliteConnection(connStr))
+            {
+                conn.Open();
+                Exec(conn, MinimalV25Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (25);");
+                Exec(conn, "INSERT INTO companies(id, name) VALUES ($id, 'Legacy V25 Co');", ("$id", company.ToString("D")));
+                Exec(conn, "INSERT INTO vouchers(id, company_id) VALUES ($id, $cid);",
+                    ("$id", Guid.NewGuid().ToString("D")), ("$cid", company.ToString("D")));
+                Exec(conn, "INSERT INTO entry_lines(voucher_id) VALUES ($vid);", ("$vid", Guid.NewGuid().ToString("D")));
+                SqliteConnection.ClearPool(conn);
+            }
+
+            Assert.Equal(25L, ReadSchemaVersion(dbPath));
+            Assert.False(TableExists(dbPath, "tds_lines"));
+
+            using (new SqliteCompanyStore(dbPath)) { } // opens v25 → migrates to the current version
+
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+            Assert.True(TableExists(dbPath, "tds_lines"));
+            // Every existing row survived (ER-13); the new table starts empty.
+            Assert.Equal("Legacy V25 Co", ReadScalarStr(dbPath, "SELECT name FROM companies LIMIT 1;"));
+            Assert.Equal(1L, CountRows(dbPath, "entry_lines"));
+            Assert.Equal(0L, CountRows(dbPath, "tds_lines"));
 
             using (new SqliteCompanyStore(dbPath)) { }
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
@@ -184,5 +224,14 @@ public sealed class TdsTcsSchemaTests
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        """;
+
+    /// <summary>A minimal pre-v26 (v25) DDL: just enough for the v25→v26 migration (which CREATEs
+    /// <c>tds_lines</c> referencing <c>entry_lines</c>) plus a data-preservation assertion.</summary>
+    private const string MinimalV25Ddl = """
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL);
+        CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL);
         """;
 }

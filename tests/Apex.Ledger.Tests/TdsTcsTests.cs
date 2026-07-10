@@ -170,7 +170,7 @@ public class TdsTcsTests
         }
 
         Assert.Equal(8, byCode.Count);
-        Check("194A", 1000, 2000, "94A", null, 50_000m);
+        Check("194A", 1000, 2000, "94A", null, 10_000m); // generic (non-bank) SMB default (A14); bank ₹50k is a later refinement
         Check("194C", 100, 2000, "94C", 30_000m, 1_00_000m);
         Check("194H", 200, 2000, "94H", null, 20_000m);
         Check("194I(a)", 200, 2000, "4IA", null, 6_00_000m);

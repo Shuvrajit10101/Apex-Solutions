@@ -444,6 +444,15 @@ public static class CanonicalMapper
         BankAllocation = l.BankAllocation is { } b ? MapBankAllocation(b) : null,
         Forex = l.Forex is { } f ? MapForex(f) : null,
         Gst = l.Gst is { } g ? MapGstLineTax(g) : null,
+        Tds = l.Tds is { } t ? MapTdsLineTax(t) : null,
+    };
+
+    private static TdsLineTaxDto MapTdsLineTax(TdsLineTax t) => new()
+    {
+        NatureId = t.NatureId, SectionCode = t.SectionCode,
+        AssessableValuePaisa = MoneyCodec.ToPaisa(t.AssessableValue), RateBasisPoints = t.RateBasisPoints,
+        TdsAmountPaisa = MoneyCodec.ToPaisa(t.TdsAmount), DeducteeLedgerId = t.DeducteeLedgerId,
+        PanApplied = t.PanApplied,
     };
 
     private static BillAllocationDto MapBillAllocation(BillAllocation a) => new()

@@ -35,9 +35,12 @@ public static class SeedTdsTcsRates
 
         return new[]
         {
-            // §194A Interest (non-securities): 10% / 20% no-PAN; cumulative ₹50,000 (bank/co-op/PO threshold).
+            // §194A Interest (non-securities): 10% / 20% no-PAN; cumulative ₹10,000 — the GENERIC (non-bank) SMB
+            //   default (A14: "all other payers ₹10,000"). The higher bank/co-op/post-office ₹50,000 and
+            //   senior-citizen ₹1,00,000 thresholds are a documented later refinement (payer-type-aware seed),
+            //   not modelled in this slice — the SMB clone's default deductor is a generic (non-bank) payer.
             N("194A", "Interest other than interest on securities", 1000, 2000, "94A",
-                cumulative: R(50_000m)),
+                cumulative: R(10_000m)),
             // §194C Contractors: 1% (Ind/HUF base rate) / 20% no-PAN; single ₹30,000, cumulative ₹1,00,000.
             //   (The 2% "other than Ind/HUF" branch is applied at compute by deductee type — Phase 7 slice 2.)
             N("194C", "Payment to contractors/sub-contractors", 100, 2000, "94C",

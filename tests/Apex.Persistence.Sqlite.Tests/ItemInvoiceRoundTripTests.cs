@@ -219,6 +219,9 @@ public sealed class ItemInvoiceRoundTripTests
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
+        // Drop the v26 TDS withholding-detail table (+ index) so the reopen's v25→v26 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ix_tds_lines_entry_line;");
+        Exec(conn, "DROP TABLE IF EXISTS tds_lines;");
         Exec(conn, "DROP TABLE IF EXISTS voucher_inventory_lines;");
         // Drop the v19 additional-cost table (+ its index) so the reopen's v18→v19 CREATE TABLE does not collide
         // with a table a fresh save at the current version already created.

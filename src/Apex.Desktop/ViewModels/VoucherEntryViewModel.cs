@@ -154,6 +154,54 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>The invoice party total = Σ taxable + Σ additional cost + Σ tax (what the supplier is owed).</summary>
     [ObservableProperty] private string _partyTotalText = "0.00";
 
+    // =============================================================== TDS withholding on plain-grid vouchers (catalog §13; Phase 7 slice 2)
+
+    /// <summary>
+    /// The <b>TDS compute + auto-deduct</b> engine (Phase 7 slice 2) — the SAME service the posting uses (ER-4). The
+    /// screen never re-implements the maths: it calls <see cref="TdsService.BuildCarveOut"/> for both the live panel
+    /// and the accepted voucher, so what the operator sees is exactly what posts.
+    /// </summary>
+    private readonly TdsService _tds;
+
+    /// <summary>Re-entrancy guard for the TDS panel refresh (auto-defaulting the nature selector raises a change
+    /// notification that would re-enter <see cref="Recalculate"/>); mirrors <see cref="_refreshingPrices"/>.</summary>
+    private bool _updatingTds;
+
+    /// <summary>
+    /// The Nature-of-Payment (TDS section) choices for the withholding panel — every seeded/defined
+    /// <see cref="NatureOfPayment"/> on the company. Empty (and the panel never shows) when TDS is not enabled.
+    /// </summary>
+    public ObservableCollection<NatureOfPayment> TdsNatureOptions { get; } = new();
+
+    /// <summary>
+    /// The chosen Nature of Payment (TDS section) for this voucher's withholding — defaulted from the deductee
+    /// party's <see cref="Ledger.TdsNatureOfPaymentId"/> (else the expense ledger's, else the first seeded nature),
+    /// freely overridable in the panel. Changing it re-computes the deduction via the engine.
+    /// </summary>
+    [ObservableProperty] private NatureOfPayment? _selectedTdsNature;
+
+    /// <summary>
+    /// True when the TDS withholding panel is shown: TDS is enabled on the company, this is a plain-grid
+    /// Payment/Journal/Purchase (never item-invoice), and the grid holds a complete expense (Dr) line plus a
+    /// deductee-party (Cr) line. Off ⇒ the panel is hidden and the voucher posts byte-identically (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showTdsPanel;
+
+    /// <summary>The resolved TDS section code for the panel header (e.g. "194J(b)"); empty when no TDS.</summary>
+    [ObservableProperty] private string _tdsSectionText = string.Empty;
+
+    /// <summary>The applied rate for the panel (e.g. "10%", or "20% (No PAN)"); empty when no TDS.</summary>
+    [ObservableProperty] private string _tdsRateText = string.Empty;
+
+    /// <summary>The TDS amount withheld (nearest rupee), paisa-exact display; "0.00" below threshold / no TDS.</summary>
+    [ObservableProperty] private string _tdsAmountText = "0.00";
+
+    /// <summary>The net amount payable to the deductee after the carve-out (= gross − TDS); "0.00" when no TDS.</summary>
+    [ObservableProperty] private string _tdsNetPayableText = "0.00";
+
+    /// <summary>The one-line human summary of the withholding shown under the panel figures.</summary>
+    [ObservableProperty] private string _tdsSummary = string.Empty;
+
     // =============================================================== additional cost of purchase (Book pp.133–141; catalog §11; slice 6.3)
 
     /// <summary>
@@ -358,7 +406,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
         _service = new LedgerService(company);
         _gst = new GstService(company);
+        _tds = new TdsService(company);
         Ledgers = company.Ledgers;
+
+        // TDS Nature-of-Payment choices (Phase 7 slice 2). Empty when TDS is not enabled, so the withholding
+        // panel never shows and a plain voucher is byte-identical (ER-13).
+        foreach (var n in company.NaturesOfPayment.OrderBy(n => n.SectionCode, StringComparer.OrdinalIgnoreCase))
+            TdsNatureOptions.Add(n);
 
         // Item-invoice masters (only meaningful on a Purchase/Sales, but always populated so the toggle is cheap).
         StockItems = company.StockItems;
@@ -434,6 +488,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>Recomputes Σ Dr, Σ Cr, the difference indicator, and whether Accept is allowed.</summary>
     public void Recalculate()
     {
+        // TDS withholding panel (Phase 7 slice 2): refresh first so it is cleared in item-invoice mode too (the
+        // helper self-gates via TdsPossible, which is false when item-invoice is on). Cheap + pure.
+        UpdateTdsPanel();
+
         // In item-invoice mode the plain Dr/Cr grid is not the Accept gate — the item-invoice indicators are
         // (a change to the always-present blank starter lines must not clobber that gate).
         if (IsItemInvoice) { RecalculateItemInvoice(); return; }
@@ -466,6 +524,147 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         var billSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.BillSplitOk);
         var costSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.CostSplitOk);
         CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow && billSplitsOk && costSplitsOk;
+    }
+
+    // =============================================================== TDS withholding (catalog §13; Phase 7 slice 2)
+
+    /// <summary>The context of a detected TDS withholding on the plain grid: the deductee party's Cr line, the
+    /// deductee ledger, the gross obligation (the party line amount) and the resolved Nature of Payment.</summary>
+    private readonly record struct TdsContext(
+        VoucherLineViewModel PartyLine, DomainLedger Deductee, Money Gross, NatureOfPayment Nature);
+
+    /// <summary>True when TDS could apply on this screen: TDS is enabled, this is a plain-grid Payment/Journal/
+    /// Purchase (never item-invoice). The concrete applicability (a deductee party + expense line present) is
+    /// tested in <see cref="DetectTdsContext"/>; when either is false the voucher posts byte-identically (ER-13).</summary>
+    private bool TdsPossible =>
+        _company.TdsEnabled
+        && !IsItemInvoice
+        && _type.BaseType is VoucherBaseType.Payment or VoucherBaseType.Journal or VoucherBaseType.Purchase;
+
+    /// <summary>Whether a Cr-side ledger is a TDS deductee (party): it carries the applicability flag, a deductee
+    /// legal status, or a default nature. The Cr-side filter distinguishes the party from the expense (Dr) leg.</summary>
+    private static bool IsDeducteeLedger(DomainLedger l) =>
+        l.TdsApplicable || l.DeducteeType is not null || l.TdsNatureOfPaymentId is not null;
+
+    /// <summary>
+    /// Detects a TDS withholding on the current plain grid: a complete deductee-party <b>credit</b> line (with a
+    /// positive amount = the gross obligation) plus at least one complete expense/purchase <b>debit</b> line, on a
+    /// TDS-enabled Payment/Journal/Purchase. Resolves the Nature of Payment from the operator's selection, else the
+    /// party's default, else an expense line's, else the first seeded nature. Returns <c>null</c> (no panel, no
+    /// carve-out — byte-identical posting) when TDS is not enabled / not applicable.
+    /// </summary>
+    private TdsContext? DetectTdsContext()
+    {
+        if (!TdsPossible) return null;
+        if (!Lines.Any(l => l.IsComplete && l.Side == DrCr.Debit)) return null; // need an expense/purchase Dr leg
+
+        var partyLine = Lines.FirstOrDefault(l =>
+            l.IsComplete && l.Side == DrCr.Credit && l.SelectedLedger is { } led && IsDeducteeLedger(led));
+        if (partyLine is null) return null;
+
+        var deductee = partyLine.SelectedLedger!;
+        var gross = new Money(partyLine.ParsedAmount);
+        if (gross.Amount <= 0m) return null;
+
+        var nature = SelectedTdsNature ?? DefaultNatureFor(deductee);
+        if (nature is null) return null;
+
+        return new TdsContext(partyLine, deductee, gross, nature);
+    }
+
+    /// <summary>The default Nature of Payment for a deductee: its own <see cref="Ledger.TdsNatureOfPaymentId"/>,
+    /// else an expense (Dr) line's, else the first seeded nature. <c>null</c> only when no nature exists.</summary>
+    private NatureOfPayment? DefaultNatureFor(DomainLedger deductee)
+    {
+        if (deductee.TdsNatureOfPaymentId is { } id && _company.FindNatureOfPayment(id) is { } n) return n;
+        foreach (var l in Lines.Where(l => l.IsComplete && l.Side == DrCr.Debit))
+            if (l.SelectedLedger?.TdsNatureOfPaymentId is { } eid && _company.FindNatureOfPayment(eid) is { } en)
+                return en;
+        return _company.NaturesOfPayment.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// The <b>GST-exclusive</b> assessable base for the current plain grid (CBDT Circular 23/2017 — TDS is computed
+    /// on the value excluding GST): the sum of the complete <b>debit</b> (expense/purchase) lines, EXCLUDING any leg
+    /// that posts to a <b>Duties &amp; Taxes</b> ledger (the Input CGST/SGST/IGST legs of a GST bill booked through a
+    /// Journal). Equals the party's gross obligation when no GST leg is on the grid, so a plain non-GST voucher is
+    /// unchanged; when Input-GST debit lines are present it nets them out so TDS is not over-withheld on the tax.
+    /// </summary>
+    private Money AssessableExGst()
+    {
+        var sum = 0m;
+        foreach (var l in Lines.Where(l => l.IsComplete && l.Side == DrCr.Debit))
+            if (l.SelectedLedger is { } led && !ClassificationRules.IsDutiesAndTaxesLedger(led, _company))
+                sum += l.ParsedAmount;
+        return new Money(sum);
+    }
+
+    /// <summary>
+    /// Refreshes the TDS withholding panel from the SAME <see cref="TdsService.BuildCarveOut"/> the accept path
+    /// uses (ER-4): resolves the deduction on the deductee's gross obligation, with the TDS assessed on the
+    /// <b>GST-exclusive</b> base (<see cref="AssessableExGst"/> — Input GST debit legs netted out, Circular
+    /// 23/2017), and surfaces the section, rate, withheld amount and net payable.
+    /// A no-op (panel hidden, figures cleared) when no TDS applies, so a non-TDS voucher is byte-identical (ER-13).
+    /// Re-entrancy-guarded: auto-defaulting the nature selector raises a change notification.
+    /// </summary>
+    private void UpdateTdsPanel()
+    {
+        if (_updatingTds) return;
+        _updatingTds = true;
+        try
+        {
+            var detected = DetectTdsContext();
+            if (detected is not { } ctx)
+            {
+                ShowTdsPanel = false;
+                TdsSectionText = string.Empty;
+                TdsRateText = string.Empty;
+                TdsAmountText = "0.00";
+                TdsNetPayableText = "0.00";
+                TdsSummary = string.Empty;
+                return;
+            }
+
+            // Default the operator-facing selector to the resolved nature (only when unset — an override sticks).
+            if (SelectedTdsNature is null) SelectedTdsNature = ctx.Nature;
+
+            TdsService.CarveOut carve;
+            try
+            {
+                carve = _tds.BuildCarveOut(ctx.Gross, AssessableExGst(), ctx.Nature, ctx.Deductee, Date);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                // e.g. a not-paisa-exact typed amount, or TDS ≥ obligation — hide the panel rather than crash.
+                ShowTdsPanel = false;
+                return;
+            }
+
+            var w = carve.Withholding;
+            ShowTdsPanel = true;
+            TdsSectionText = ctx.Nature.SectionCode;
+            TdsRateText = (w.RateBasisPoints / 100m).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                          + "%" + (w.PanApplied ? string.Empty : " (No PAN)");
+            TdsAmountText = IndianFormat.AmountAlways(carve.TdsAmount.Amount);
+            TdsNetPayableText = IndianFormat.AmountAlways(carve.NetPartyAmount.Amount);
+            TdsSummary = carve.Applies
+                ? $"TDS {ctx.Nature.SectionCode} @ {TdsRateText}: ₹{TdsAmountText} withheld · " +
+                  $"Net payable to {ctx.Deductee.Name} ₹{TdsNetPayableText}"
+                : $"{ctx.Nature.SectionCode}: below threshold — no TDS, full " +
+                  $"₹{IndianFormat.AmountAlways(ctx.Gross.Amount)} payable to {ctx.Deductee.Name}";
+        }
+        finally
+        {
+            _updatingTds = false;
+        }
+    }
+
+    /// <summary>The operator changing the TDS section re-computes the deduction (unless the change came from the
+    /// auto-default inside <see cref="UpdateTdsPanel"/>, which is guarded to avoid re-entrancy).</summary>
+    partial void OnSelectedTdsNatureChanged(NatureOfPayment? value)
+    {
+        if (_updatingTds) return;
+        Recalculate();
     }
 
     /// <summary>
@@ -514,10 +713,34 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // TDS withholding carve-out (Phase 7 slice 2): when a deductee party + expense line are on the grid, the
+        // party's Cr leg is replaced with the DERIVED net (gross − TDS) and a TDS-Payable Cr leg is appended — via
+        // the SAME TdsService.BuildCarveOut the panel showed (ER-4), so gross Dr == net Cr + TDS Cr by construction
+        // and VoucherValidator accepts the carve-out. Null (no TDS) ⇒ every line posts verbatim (byte-identical,
+        // ER-13). Below threshold ⇒ the party is credited the full gross carrying the assessment detail (TDS 0).
+        TdsService.CarveOut? carve = null;
+        var tds = DetectTdsContext();
+        if (tds is { } tctx)
+        {
+            try
+            {
+                carve = _tds.BuildCarveOut(tctx.Gross, AssessableExGst(), tctx.Nature, tctx.Deductee, Date);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot compute TDS: {ex.Message}";
+                return false;
+            }
+        }
+
         var entryLines = Lines
             .Where(l => l.IsComplete)
             .Select(l =>
             {
+                // The deductee party leg is carved to NET (carrying the withholding detail); everything else verbatim.
+                if (carve is { } cv && tds is { } t && ReferenceEquals(l, t.PartyLine))
+                    return cv.PartyLine;
+
                 var billAllocs = l.ToBillAllocations();
                 var costAllocs = l.ToCostAllocations();
                 var bankAlloc = l.ToBankAllocation();
@@ -530,6 +753,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                     forex);
             })
             .ToList();
+
+        // Append the TDS-Payable credit leg (only when the threshold was crossed).
+        if (carve is { TdsPayableLine: { } payableLine })
+            entryLines.Add(payableLine);
 
         if (entryLines.Count < 2)
         {

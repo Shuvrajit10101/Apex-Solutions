@@ -683,6 +683,9 @@ public sealed record EntryLineDto
     public BankAllocationDto? BankAllocation { get; init; }
     public ForexDto? Forex { get; init; }
     public GstLineTaxDto? Gst { get; init; }
+
+    /// <summary>The TDS withholding detail (Phase 7 slice 2), or null for a non-TDS line. Money is integer paisa.</summary>
+    public TdsLineTaxDto? Tds { get; init; }
 }
 
 public sealed record BillAllocationDto
@@ -723,6 +726,20 @@ public sealed record GstLineTaxDto
     public required string TaxHead { get; init; }      // GstTaxHead name
     public int RateBasisPoints { get; init; }
     public long TaxableValuePaisa { get; init; }
+}
+
+/// <summary>The TDS withholding detail carried on an entry line (Phase 7 slice 2), mirroring the domain
+/// <c>TdsLineTax</c> and the SQLite <c>tds_lines</c> row. Money is integer paisa (the canonical wire scale — the
+/// domain amounts are paisa-exact, so this is lossless).</summary>
+public sealed record TdsLineTaxDto
+{
+    public required Guid NatureId { get; init; }
+    public required string SectionCode { get; init; }
+    public long AssessableValuePaisa { get; init; }
+    public int RateBasisPoints { get; init; }
+    public long TdsAmountPaisa { get; init; }
+    public required Guid DeducteeLedgerId { get; init; }
+    public bool PanApplied { get; init; }
 }
 
 public sealed record VoucherInventoryLineDto

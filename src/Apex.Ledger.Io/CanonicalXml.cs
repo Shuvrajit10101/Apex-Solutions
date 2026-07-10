@@ -408,6 +408,11 @@ public static class CanonicalXml
         if (l.Gst is { } g)
             el.Add(new XElement("gst", Attr("taxHead", g.TaxHead), Attr("rateBasisPoints", g.RateBasisPoints),
                 Attr("taxableValuePaisa", g.TaxableValuePaisa)));
+        if (l.Tds is { } t)
+            el.Add(new XElement("tds", Attr("natureId", t.NatureId), Attr("sectionCode", t.SectionCode),
+                Attr("assessableValuePaisa", t.AssessableValuePaisa), Attr("rateBasisPoints", t.RateBasisPoints),
+                Attr("tdsAmountPaisa", t.TdsAmountPaisa), Attr("deducteeLedgerId", t.DeducteeLedgerId),
+                Attr("panApplied", t.PanApplied)));
         return el;
     }
 
@@ -972,6 +977,13 @@ public static class CanonicalXml
         {
             TaxHead = Str(g, "taxHead")!, RateBasisPoints = Int(g, "rateBasisPoints"),
             TaxableValuePaisa = Long(g, "taxableValuePaisa"),
+        } : null,
+        Tds = e.Element("tds") is { } t ? new TdsLineTaxDto
+        {
+            NatureId = Guid(t, "natureId"), SectionCode = Str(t, "sectionCode")!,
+            AssessableValuePaisa = Long(t, "assessableValuePaisa"), RateBasisPoints = Int(t, "rateBasisPoints"),
+            TdsAmountPaisa = Long(t, "tdsAmountPaisa"), DeducteeLedgerId = Guid(t, "deducteeLedgerId"),
+            PanApplied = Bool(t, "panApplied"),
         } : null,
     };
 
