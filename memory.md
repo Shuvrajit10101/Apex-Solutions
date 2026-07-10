@@ -1144,3 +1144,33 @@ green in Release: **Io 151 · Ledger 620 (incl. Robert/Bright + GST golden) · S
 failures.** Working tree clean (only Slice-3 files: TDS deposit/challan/reconciliation engine + VMs + views + schema v27
 migration + Io canonical + tests). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs
 note); pushed to origin, main untouched. **Next = S4 (Form 26Q + FVU generation).**
+
+## Phase 7 Slice 4 — Form 26Q quarterly return + FVU flat-file export + control totals (2026-07-10)
+Fourth TDS slice: project the posted TDS data into the statutory **Form 26Q** quarterly return and export the
+NSDL/Protean **FVU**-compatible offline upload file. **No schema change — projection-only over the existing v27
+tables** (`CurrentVersion` stays 27); nothing was persisted, everything is derived from posted vouchers/TDS lines +
+`tds_challans`. Delivered:
+- **Form 26Q projection** (`src/Apex.Ledger/Reports/Form26Q.cs`) — a deductor block (TAN, deductor type,
+  person-responsible identity denormalised off F11 `TdsConfig`), per-party **deductee-detail rows** read *verbatim*
+  off the posted `TdsLineTax` (assessable GST-exclusive base, TDS withheld, applied rate bp, PAN-applied flag,
+  §197 hook) so the rows **reconcile to the "TDS/TCS Payable" credit postings for the quarter by construction**, and
+  per-challan blocks linking ITNS-281 deposits to the deductions they discharge (FIFO).
+- **Quarter attribution by DEDUCTION date, not deposit date** — a March deduction deposited on 7-Apr belongs to Q4
+  (the challan is listed under Q4), fixing the **cross-FY attribution** edge (deductions and their late-deposited
+  challans land in the same return quarter across the FY boundary).
+- **FVU flat-file writer** (`src/Apex.Ledger.Io/FvuWriter.cs`) — caret(`^`)-delimited, one-record-per-line eTDS
+  format: File Header (FH) → Batch/deductor Header (BH) → per attributed challan a Challan Detail (CD) + its
+  Deductee Detail (DD) records → File Trailer (FT) with control totals. Deterministic + byte-stable like
+  `CsvWriter`/`TabularExport` (no clock, no RNG, invariant culture, de-branded ER-11), pinned to `FvuVersion` 8.9.
+  DD/challan counts derive from the records **actually written** (undeposited/short-deposited in-quarter deductions
+  produce fewer DD lines) so the FH/BH/FT counts always agree with the file body; the gross-deducted-vs-deposited
+  reconciliation gap lives in `Form26QControlTotals`. Offline emulation only (no bundled govt FVU/RPU JARs, no
+  TRACES/portal upload — decision D4); empty return yields a valid header-only file.
+- **UI** — `Form26QViewModel` drives the return preview + FVU export; wired into `GatewayColumn`/`MainWindowViewModel`
+  (`MainWindow.axaml`/`.axaml.cs`).
+No A10 HIGH/MED carve-overs this slice (deductee rows are verbatim off posted TDS lines and reconcile to the payable
+credits by construction; file control totals are counted from the emitted records). Gate fully green in Release:
+**Io 157 · Ledger 628 (incl. Robert/Bright + GST golden) · Sqlite 106 · Desktop 511 = 1402 total, 0 failures.**
+Working tree clean (only Slice-4 files: Form26Q projection + FvuWriter + Form26QViewModel + Gateway/MainWindow wiring
++ tests; no Schema.cs / migration change). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then
+this docs note); pushed to origin, main untouched. **Next = S5 (TCS compute — additive collect-at-source engine).**
