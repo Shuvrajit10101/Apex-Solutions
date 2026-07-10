@@ -1112,3 +1112,14 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   usage-limit signal.**
 - **Deferred to Phase 9:** RCM, composition, cess, e-invoice/e-way, GSTR-2A/2B, Rule-88A ITC set-off + Alt+J/Ctrl+F
   posting.
+
+## Phase 7 Slice 2 follow-up — expense-ledger-driven TDS detection (2026-07-10)
+Corrected the S2 TDS detection contract to match Tally: TDS nature and applicability are now derived from the **debit
+(expense) ledger** — the expense ledger carries the TDS nature-of-payment and the applicability flag — while the
+**party** ledger drives PAN, deductee type, and the resulting rate. A "Not Applicable" escape is honoured (expense
+ledger marked not-applicable → no TDS detection/deduction). Reworked `VoucherEntryViewModel` detection accordingly and
+corrected the previously party-driven contract tests in `TdsVoucherEntryViewModelTests` to assert expense-driven
+nature+applicability with party-driven PAN/rate. Gate re-verified fully green in Release: Io 147 · Ledger 613 (incl.
+Robert/Bright + GST golden) · Sqlite 103 · Desktop 490 = 1353 total, 0 failures. Working tree clean (only the detection
+fix + test files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note); pushed to
+origin, main untouched.
