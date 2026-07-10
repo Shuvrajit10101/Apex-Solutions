@@ -144,6 +144,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Challan Reconciliation report (non-null only for that column; Phase 7 slice 3).</summary>
     public ChallanReconciliationViewModel? ChallanReconciliation => Page as ChallanReconciliationViewModel;
 
+    /// <summary>The hosted Form 26Q quarterly-TDS-return report (non-null only for that column; Phase 7 slice 4).</summary>
+    public Form26QViewModel? Form26Q => Page as Form26QViewModel;
+
     /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
     public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
 

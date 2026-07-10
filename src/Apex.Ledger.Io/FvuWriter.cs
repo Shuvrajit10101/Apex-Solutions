@@ -1,0 +1,134 @@
+using System.Globalization;
+using System.Text;
+using Apex.Ledger.Domain;
+using Apex.Ledger.Reports;
+
+namespace Apex.Ledger.Io;
+
+/// <summary>
+/// Serializes a <see cref="Form26Q"/> return to the NSDL/Protean <b>FVU-compatible</b> offline flat-file (Phase 7
+/// slice 4; catalog §13). The layout is the caret (<c>^</c>)-delimited, one-record-per-line eTDS text format the
+/// government File Validation Utility consumes: a <b>File Header</b> (FH), a <b>Batch/deductor Header</b> (BH),
+/// then per attributed challan a <b>Challan Detail</b> (CD) record followed by its <b>Deductee Detail</b> (DD)
+/// records, and a <b>File Trailer</b> (FT) carrying the control totals. This mirrors the deterministic, byte-stable
+/// discipline of <see cref="CsvWriter"/>/<see cref="TabularExport"/>: no clock, no RNG, invariant-culture number
+/// and date formatting, and every free-text field de-branded (ER-11) so the produced file can never leak a
+/// third-party accounting brand. The output is pinned to <see cref="FvuVersion"/>.
+/// <para>
+/// This produces the upload file offline and <b>emulates</b> the FVU control-total checks (see
+/// <see cref="Form26QControlTotals"/>); it does not bundle the government FVU/RPU JARs and performs no online
+/// TRACES/portal upload (project decision D4). An empty return still yields a valid header-only file.
+/// </para>
+/// </summary>
+public static class FvuWriter
+{
+    /// <summary>The pinned FVU file-format version this writer targets. The eTDS/FVU layout is versioned by
+    /// Protean (NSDL) and revised periodically — this constant pins the build to one version.</summary>
+    public const string FvuVersion = "8.9";
+
+    /// <summary>The statement (form) type.</summary>
+    private const string FormType = "26Q";
+
+    /// <summary>The record-field delimiter (caret) and the record separator (LF) of the flat file.</summary>
+    private const char Delimiter = '^';
+    private const string RecordSeparator = "\n";
+
+    /// <summary>Serializes <paramref name="return26Q"/> to FVU-compatible flat-file bytes (UTF-8, no BOM). Pure,
+    /// deterministic and byte-stable for a fixed return.</summary>
+    public static byte[] Write(Form26Q return26Q)
+    {
+        ArgumentNullException.ThrowIfNull(return26Q);
+
+        var sb = new StringBuilder();
+
+        // Control totals are derived from the DD (deductee) records ACTUALLY written — the per-challan rows — not
+        // from the full-quarter Deductees projection: an undeposited / short-deposited in-quarter deduction produces
+        // no (or a smaller) DD line, so counting the projection would overstate the DD rows in the file and make the
+        // FH / BH / FT record counts disagree with the file's own contents. The report-level reconciliation gap
+        // (gross deducted vs. deposited) lives in Form26QControlTotals; the file totals below describe the file.
+        var totals = return26Q.ControlTotals;
+        int ddRecordCount = return26Q.Challans.Sum(c => c.DeducteeRows.Count);
+        var ddTotalTds = new Money(return26Q.Challans.Sum(c => c.DeducteeRows.Sum(r => r.TdsAmount.Amount)));
+        var ddTotalPaid = new Money(return26Q.Challans.Sum(c => c.DeducteeRows.Sum(r => r.AmountPaid.Amount)));
+
+        // ---- File Header (FH): record type, form, pinned version, TAN, FY, quarter, deductor type, total records.
+        int totalRecords = 2 + return26Q.Challans.Count + ddRecordCount + 1; // FH + BH + CD* + DD* + FT
+        WriteRecord(sb,
+            "FH", FormType, FvuVersion, Text(return26Q.Deductor.Tan),
+            return26Q.FinancialYearLabel, return26Q.QuarterLabel,
+            return26Q.Deductor.DeductorType.ToString(), Int(totalRecords));
+
+        // ---- Batch / deductor Header (BH): the person-responsible identity from F11.
+        var d = return26Q.Deductor;
+        WriteRecord(sb,
+            "BH", Text(d.Tan), Text(d.ResponsiblePersonName), Text(d.ResponsiblePersonPan),
+            Text(d.ResponsiblePersonDesignation), Text(d.ResponsiblePersonAddress),
+            Int(return26Q.Challans.Count), Int(ddRecordCount));
+
+        // ---- Per-challan: a Challan Detail (CD) then its Deductee Detail (DD) rows.
+        int challanSeq = 0;
+        foreach (var ch in return26Q.Challans)
+        {
+            challanSeq++;
+            WriteRecord(sb,
+                "CD", Int(challanSeq), Text(ch.ChallanNo), Text(ch.BsrCode),
+                Date(ch.DepositDate), Money(ch.Amount), Text(ch.Section), Text(ch.MinorHead),
+                Int(ch.DeducteeRows.Count));
+
+            int deducteeSeq = 0;
+            foreach (var row in ch.DeducteeRows)
+            {
+                deducteeSeq++;
+                WriteDeductee(sb, challanSeq, deducteeSeq, row);
+            }
+        }
+
+        // ---- File Trailer (FT): the file's own control totals — deductee/challan record counts and money totals
+        // over the DD rows actually written, so the trailer is internally consistent with the file's contents.
+        WriteRecord(sb,
+            "FT", Int(ddRecordCount), Int(totals.ChallanRecordCount),
+            Money(ddTotalTds), Money(ddTotalPaid),
+            Money(totals.TotalDepositedAsPerChallans));
+
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    private static void WriteDeductee(StringBuilder sb, int challanSeq, int seq, Form26QDeducteeRow row) =>
+        WriteRecord(sb,
+            "DD", Int(challanSeq), Int(seq), Text(row.DeducteePan), Text(row.DeducteeName),
+            Text(row.SectionCode), Text(row.FvuSectionCode), Date(row.DeductionDate),
+            Money(row.AmountPaid), Money(row.TdsAmount), Rate(row.RateBasisPoints),
+            row.PanApplied ? "Y" : "N", Text(row.Section197Reason));
+
+    // ---- field encoders (invariant, de-branded, delimiter-safe) ----
+
+    private static string Text(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        // De-brand (ER-11) then strip the delimiter/record separators so a stray caret or newline in a user field
+        // can never corrupt the record framing. Deterministic; no culture leak.
+        var cleaned = Debrand.Text(value);
+        return cleaned.Replace(Delimiter, ' ').Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>Money as an invariant 2-dp figure (paisa-exact), matching the CSV/XLSX number discipline.</summary>
+    private static string Money(Money value) => value.Amount.ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>Rate as an invariant percentage with 2 dp (e.g. 1000 bp ⇒ "10.00").</summary>
+    private static string Rate(int basisPoints) => (basisPoints / 100m).ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>Date in the eTDS <c>ddMMyyyy</c> form (invariant), the FVU deposit/deduction date format.</summary>
+    private static string Date(DateOnly value) => value.ToString("ddMMyyyy", CultureInfo.InvariantCulture);
+
+    private static void WriteRecord(StringBuilder sb, params string[] fields)
+    {
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (i > 0) sb.Append(Delimiter);
+            sb.Append(fields[i]);
+        }
+        sb.Append(RecordSeparator);
+    }
+}

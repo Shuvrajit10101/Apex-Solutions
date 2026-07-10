@@ -174,6 +174,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+B on the Form 26Q return (Phase 7 slice 4) SAVES the FVU flat file and RETURNS to the menu. Scoped to
+        // the Form 26Q screen so it never collides with the inventory-voucher Alt+B (batch allocation) below; not
+        // while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.Form26Q && !IsTyping(e))
+        {
+            vm.SaveReturnForm26Q();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B (NFR-2 / RQ-3) opens the batch-allocation sub-screen for a batch-tracked inventory-voucher line —
         // the keyboard equivalent of the "⧉" affordance the tooltip advertises. Resolves the focused line from the
         // key source (so Alt+B on a specific row targets it), falling back to the first eligible line on the
@@ -669,6 +681,12 @@ public partial class MainWindow : Window
 
     private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.TdsStatPayment?.Deposit();
+
+    private void OnExportFvuForm26QClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form26Q?.ExportFvu();
+
+    private void OnSaveReturnForm26QClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm26Q();
 
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();

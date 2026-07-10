@@ -63,6 +63,7 @@ public enum Screen
     NatureOfGoodsMaster,
     TdsStatPayment,
     ChallanReconciliation,
+    Form26Q,
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
@@ -249,6 +250,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Challan Reconciliation (Alt+R) report (Phase 7 slice 3), non-null only while that page is open.</summary>
     [ObservableProperty] private ChallanReconciliationViewModel? _challanReconciliation;
 
+    /// <summary>The Form 26Q quarterly-TDS-return report (Phase 7 slice 4), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form26QViewModel? _form26Q;
+
     /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
 
@@ -320,7 +324,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
-        && TdsStatPayment is null && ChallanReconciliation is null
+        && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -362,6 +366,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChallanReconciliationChanged(ChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm26QChanged(Form26QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -944,6 +949,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 26Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2484,6 +2490,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsChallanReconciliationScreen =>
         CurrentScreen == Screen.ChallanReconciliation && ChallanReconciliation is not null;
 
+    /// <summary>
+    /// Opens the <b>Form 26Q</b> quarterly-TDS-return report page (Reports → GST Reports → TDS → Form 26Q; Phase 7
+    /// slice 4) as a page column: the deductor / challan / deductee blocks + control totals for a chosen FY + quarter,
+    /// with a Ctrl+A FVU export and an Alt+B save-return. A no-op unless TDS is enabled (the menu item + the open path
+    /// are gated on <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenForm26Q()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new Form26QViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 26Q", page), Screen.Form26Q,
+            "Form 26Q (Quarterly TDS Return)", () => Form26Q = page);
+    }
+
+    /// <summary>True while the Form 26Q return report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm26QScreen => CurrentScreen == Screen.Form26Q && Form26Q is not null;
+
+    /// <summary>
+    /// Alt+B on the Form 26Q screen — <b>save &amp; return</b>: writes the FVU-compatible flat file for the current
+    /// return to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnForm26Q()
+    {
+        if (!IsForm26QScreen || Form26Q is null) return;
+        Form26Q.ExportFvu();
+        BackFromPage();
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -2752,6 +2787,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         NatureOfGoodsMaster = null;
         TdsStatPayment = null;
         ChallanReconciliation = null;
+        Form26Q = null;
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
@@ -2999,6 +3035,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the Form 26Q return the arrows move the deductee-row highlight (keeps a live selection).
+        if (IsForm26QScreen)
+        {
+            Form26Q!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -3122,6 +3165,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.ChallanReconciliation:
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
+            case Screen.Form26Q:
+                Form26Q?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
+                return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
                 return;
@@ -3279,6 +3325,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
+            case "Form 26Q": OpenForm26Q(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
