@@ -1953,6 +1953,37 @@
                                 </Grid>
                               </Border>
 
+                              <!-- TCS collection band (Phase 7 slice 5) — shown only on a TCS-enabled Sales item
+                                   invoice to a collectee party carrying a §206C-applicable stock item / sales ledger
+                                   (ShowTcs). TCS is ADDITIVE (collected on top → the party total already includes it);
+                                   the figures come from the SAME engine the posting uses (ER-4). Off ⇒ byte-identical. -->
+                              <Border IsVisible="{Binding ShowTcs}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="TCS — Nature of Goods (§206C)"
+                                             FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="18"
+                                              VerticalAlignment="Center">
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="Collection code "/><Run Text="{Binding TcsCollectionCodeText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="Rate "/><Run Text="{Binding TcsRateText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="TCS ₹ "/><Run Text="{Binding TcsAmountText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                  </StackPanel>
+                                  <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                             Text="{Binding TcsSummary}" Margin="0,6,0,0"
+                                             FontSize="11.5" Foreground="{StaticResource BrandNavy}"
+                                             TextWrapping="Wrap"/>
+                                </Grid>
+                              </Border>
+
                               <TextBox Text="{Binding Narration, Mode=TwoWay}"
                                        PlaceholderText="Narration…" AcceptsReturn="False"/>
                               <Grid ColumnDefinitions="*,Auto,Auto">

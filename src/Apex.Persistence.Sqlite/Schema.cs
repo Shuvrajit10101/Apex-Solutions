@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 27;
+    public const int CurrentVersion = 28;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -353,6 +353,23 @@ public static class Schema
             pan_applied            INTEGER NOT NULL   -- 0/1: was the with-PAN rate applied
         );
         CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
+
+        -- v28 TCS collection detail (catalog §13; Phase 7 slice 5): one row per TCS-assessed sale line — the TCS
+        -- Payable credit line when collected, or the party leg when below threshold (tcs_amount_micro = 0). TCS is
+        -- ADDITIVE (collected on top, the mirror of GST), unlike the tds_lines carve-out. Empty for a company that
+        -- never collects TCS (ER-13). Money is stored as rupees × 1,000,000 ("micros").
+        CREATE TABLE tcs_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,   -- NatureOfGoods id (§206C nature master)
+            collection_code        TEXT    NOT NULL,  -- denormalised Form-27EQ collection code (e.g. 6CE)
+            assessable_value_micro INTEGER NOT NULL,  -- assessable base (GST-inclusive per the nature flag), rupees × 1,000,000
+            rate_bp                INTEGER NOT NULL,  -- applied rate in basis points (100 = 1%)
+            tcs_amount_micro       INTEGER NOT NULL,  -- TCS collected (nearest rupee), rupees × 1,000,000; 0 below threshold
+            collectee_ledger_id    TEXT    NOT NULL,  -- the buyer party ledger id
+            pan_applied            INTEGER NOT NULL   -- 0/1: was the with-PAN rate applied
+        );
+        CREATE INDEX ix_tcs_lines_entry_line ON tcs_lines(entry_line_id);
 
         -- v27 TDS deposit challans (catalog §13; Phase 7 slice 3): one row per ITNS-281 challan (a TDS payment into
         -- the bank). Empty for a company that never deposits TDS (ER-13). amount_micro is rupees × 1,000,000.
@@ -1857,5 +1874,27 @@ public static class Schema
             voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
         );
         CREATE INDEX ix_challan_voucher_links_challan ON challan_voucher_links(challan_id);
+        """;
+
+    /// <summary>
+    /// v27 → v28 (Phase 7 slice 5; TCS compute + auto-collect): one additive <c>CREATE TABLE tcs_lines</c> child of
+    /// <c>entry_lines</c> + its index, run inside a transaction that bumps <c>schema_version</c> to 28. No ALTER, no
+    /// row rewrites — an existing v27 database keeps every row and the new table starts empty (ER-13 byte-identical
+    /// when TCS is never collected). TCS is ADDITIVE (the mirror of GST), so this is a straight sibling of the v26
+    /// tds_lines table. A fresh DB is stamped straight to v28 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV27ToV28 = """
+        CREATE TABLE tcs_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,
+            collection_code        TEXT    NOT NULL,
+            assessable_value_micro INTEGER NOT NULL,
+            rate_bp                INTEGER NOT NULL,
+            tcs_amount_micro       INTEGER NOT NULL,
+            collectee_ledger_id    TEXT    NOT NULL,
+            pan_applied            INTEGER NOT NULL
+        );
+        CREATE INDEX ix_tcs_lines_entry_line ON tcs_lines(entry_line_id);
         """;
 }

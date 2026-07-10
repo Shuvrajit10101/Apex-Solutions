@@ -658,6 +658,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 27;
         }
 
+        // v27 → v28: apply the TCS collection-detail schema (one new tcs_lines table + index), then bump the marker.
+        // Existing v27 data survives untouched (a single CREATE TABLE/INDEX; no ALTER, no row rewrites — Phase 7
+        // slice 5). ER-13 byte-identical when TCS is never collected (the table stays empty). TCS is additive (the
+        // mirror of GST), a straight sibling of the v26 tds_lines table.
+        if (version == 27)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV27ToV28;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 28);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 28;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2260,6 +2284,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var costAllocs = ReadCostAllocations(id);
             var bankAlloc = ReadBankAllocation(id);
             var tds = ReadTdsLine(id); // v26: TDS withholding detail (null for a non-TDS line)
+            var tcs = ReadTcsLine(id); // v28: TCS collection detail (null for a non-TCS line)
             lines.Add(new EntryLine(
                 ledgerId,
                 Paisa.ToMoney(amountPaisa),
@@ -2269,9 +2294,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 bankAlloc,
                 forex,
                 gst,
-                tds));
+                tds,
+                tcs));
         }
         return lines;
+    }
+
+    /// <summary>v28: reads the TCS collection detail hung off an entry line, or <c>null</c> for a non-TCS line.</summary>
+    private TcsLineTax? ReadTcsLine(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT nature_id, collection_code, assessable_value_micro, rate_bp, tcs_amount_micro,
+                   collectee_ledger_id, pan_applied
+            FROM tcs_lines WHERE entry_line_id = $lid LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new TcsLineTax(
+            Guid.Parse(r.GetString(0)),
+            r.GetString(1),
+            new Money(r.GetInt64(2) / 1_000_000m),
+            (int)r.GetInt64(3),
+            new Money(r.GetInt64(4) / 1_000_000m),
+            Guid.Parse(r.GetString(5)),
+            r.GetInt64(6) != 0);
     }
 
     /// <summary>v26: reads the TDS withholding detail hung off an entry line, or <c>null</c> for a non-TDS line.</summary>
@@ -2413,6 +2461,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
         ExecTx(tx, """
             DELETE FROM tds_lines WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
+            """, ("$cid", cid));
+        // v28 TCS collection detail FKs the entry line → delete before entry_lines (Phase 7 slice 5).
+        ExecTx(tx, """
+            DELETE FROM tcs_lines WHERE entry_line_id IN (
                 SELECT el.id FROM entry_lines el
                 JOIN vouchers v ON v.id = el.voucher_id
                 WHERE v.company_id = $cid);
@@ -3662,6 +3717,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             InsertCostAllocations(tx, lineId, line);
             InsertBankAllocation(tx, lineId, line);
             InsertTdsLine(tx, lineId, line);
+            InsertTcsLine(tx, lineId, line);
         }
 
         InsertVoucherInventoryLines(tx, v);
@@ -3689,6 +3745,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$rate", t.RateBasisPoints);
         cmd.Parameters.AddWithValue("$tds", (long)(t.TdsAmount.Amount * 1_000_000m));
         cmd.Parameters.AddWithValue("$ded", t.DeducteeLedgerId.ToString("D"));
+        cmd.Parameters.AddWithValue("$pan", t.PanApplied ? 1 : 0);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>v28: persists an entry line's TCS collection detail (catalog §13; Phase 7 slice 5) to
+    /// <c>tcs_lines</c>. TCS is additive (the mirror of GST). A non-TCS line carries none, so nothing is written —
+    /// byte-identical (ER-13). Money is stored as rupees × 1,000,000 ("micros"), exact for a paisa-exact amount.</summary>
+    private void InsertTcsLine(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        if (line.Tcs is not { } t) return;
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO tcs_lines
+                (entry_line_id, nature_id, collection_code, assessable_value_micro, rate_bp,
+                 tcs_amount_micro, collectee_ledger_id, pan_applied)
+            VALUES ($lid, $nat, $code, $asv, $rate, $tcs, $col, $pan);
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        cmd.Parameters.AddWithValue("$nat", t.NatureId.ToString("D"));
+        cmd.Parameters.AddWithValue("$code", t.CollectionCode);
+        cmd.Parameters.AddWithValue("$asv", (long)(t.AssessableValue.Amount * 1_000_000m));
+        cmd.Parameters.AddWithValue("$rate", t.RateBasisPoints);
+        cmd.Parameters.AddWithValue("$tcs", (long)(t.TcsAmount.Amount * 1_000_000m));
+        cmd.Parameters.AddWithValue("$col", t.CollecteeLedgerId.ToString("D"));
         cmd.Parameters.AddWithValue("$pan", t.PanApplied ? 1 : 0);
         cmd.ExecuteNonQuery();
     }

@@ -17,7 +17,7 @@ public static class CanonicalMapper
     public const int FormatVersion = 1;
 
     /// <summary>The persistence schema version this export targets (SQLite schema v27).</summary>
-    public const int SchemaVersion = 27;
+    public const int SchemaVersion = 28;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -465,6 +465,7 @@ public static class CanonicalMapper
         Forex = l.Forex is { } f ? MapForex(f) : null,
         Gst = l.Gst is { } g ? MapGstLineTax(g) : null,
         Tds = l.Tds is { } t ? MapTdsLineTax(t) : null,
+        Tcs = l.Tcs is { } tc ? MapTcsLineTax(tc) : null,
     };
 
     private static TdsLineTaxDto MapTdsLineTax(TdsLineTax t) => new()
@@ -472,6 +473,14 @@ public static class CanonicalMapper
         NatureId = t.NatureId, SectionCode = t.SectionCode,
         AssessableValuePaisa = MoneyCodec.ToPaisa(t.AssessableValue), RateBasisPoints = t.RateBasisPoints,
         TdsAmountPaisa = MoneyCodec.ToPaisa(t.TdsAmount), DeducteeLedgerId = t.DeducteeLedgerId,
+        PanApplied = t.PanApplied,
+    };
+
+    private static TcsLineTaxDto MapTcsLineTax(TcsLineTax t) => new()
+    {
+        NatureId = t.NatureId, CollectionCode = t.CollectionCode,
+        AssessableValuePaisa = MoneyCodec.ToPaisa(t.AssessableValue), RateBasisPoints = t.RateBasisPoints,
+        TcsAmountPaisa = MoneyCodec.ToPaisa(t.TcsAmount), CollecteeLedgerId = t.CollecteeLedgerId,
         PanApplied = t.PanApplied,
     };
 

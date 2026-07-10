@@ -719,6 +719,9 @@ public sealed record EntryLineDto
 
     /// <summary>The TDS withholding detail (Phase 7 slice 2), or null for a non-TDS line. Money is integer paisa.</summary>
     public TdsLineTaxDto? Tds { get; init; }
+
+    /// <summary>The TCS collection detail (Phase 7 slice 5), or null for a non-TCS line. Money is integer paisa.</summary>
+    public TcsLineTaxDto? Tcs { get; init; }
 }
 
 public sealed record BillAllocationDto
@@ -772,6 +775,20 @@ public sealed record TdsLineTaxDto
     public int RateBasisPoints { get; init; }
     public long TdsAmountPaisa { get; init; }
     public required Guid DeducteeLedgerId { get; init; }
+    public bool PanApplied { get; init; }
+}
+
+/// <summary>The TCS collection detail carried on an entry line (Phase 7 slice 5), mirroring the domain
+/// <c>TcsLineTax</c> and the SQLite <c>tcs_lines</c> row. TCS is additive (the mirror of GST). Money is integer paisa
+/// (the canonical wire scale — the domain amounts are paisa-exact, so this is lossless).</summary>
+public sealed record TcsLineTaxDto
+{
+    public required Guid NatureId { get; init; }
+    public required string CollectionCode { get; init; }
+    public long AssessableValuePaisa { get; init; }
+    public int RateBasisPoints { get; init; }
+    public long TcsAmountPaisa { get; init; }
+    public required Guid CollecteeLedgerId { get; init; }
     public bool PanApplied { get; init; }
 }
 

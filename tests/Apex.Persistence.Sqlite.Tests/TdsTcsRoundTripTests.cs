@@ -170,6 +170,47 @@ public sealed class TdsTcsRoundTripTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
+    public void A_tcs_sale_line_survives_save_reload_paisa_exact()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"apex-tcs-{Guid.NewGuid():N}.db");
+        try
+        {
+            var c = SeedTdsTcsCompany();
+            var buyer = c.FindLedgerByName("Scrap Buyer")!;   // TcsApplicable, nature 6CE, PAN, collectee Individual
+            var nature = c.FindNatureOfGoodsByCode("6CE")!;
+            var date = new DateOnly(2025, 5, 10);
+
+            // scrap ₹1,00,000 + 18% GST ₹18,000 → TCS 1% of the GST-inclusive base = ₹1,180 (additive).
+            var col = new TcsService(c).BuildCollection(Money.FromRupees(1_00_000m), Money.FromRupees(18_000m), nature, buyer, date);
+            Assert.Equal(Money.FromRupees(1_180m), col.TcsAmount);
+
+            // A balanced journal that carries the TCS Payable credit line (the detail rides it). The party debit is the
+            // collected amount so the line persists exactly; accounting correctness is proven in TcsServiceTests.
+            var posted = new LedgerService(c).Post(new Voucher(Guid.NewGuid(),
+                c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Journal).Id, date,
+                new[] { new EntryLine(buyer.Id, col.TcsAmount, DrCr.Debit), col.TcsPayableLine! }));
+
+            using (var write = new SqliteCompanyStore(dbPath)) write.Save(c);
+            Company r;
+            using (var read = new SqliteCompanyStore(dbPath)) r = read.Load(c.Id)!;
+
+            var rv = r.FindVoucher(posted.Id)!;
+            var tcsLine = Assert.Single(rv.Lines, l => l.HasTcs);
+            var t = tcsLine.Tcs!;
+            Assert.Equal("6CE", t.CollectionCode);
+            Assert.Equal(Money.FromRupees(1_18_000m), t.AssessableValue); // base INCLUDES GST
+            Assert.Equal(100, t.RateBasisPoints);
+            Assert.Equal(Money.FromRupees(1_180m), t.TcsAmount);
+            Assert.Equal(buyer.Id, t.CollecteeLedgerId);
+            Assert.Equal(nature.Id, t.NatureId);
+            Assert.True(t.PanApplied);
+            Assert.Equal(rv.TotalDebit, rv.TotalCredit);
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    [Fact]
+    [Trait("Category", "RoundTrip")]
     public void A_non_tds_tcs_company_round_trips_with_no_state()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"apex-notdstcs-{Guid.NewGuid():N}.db");

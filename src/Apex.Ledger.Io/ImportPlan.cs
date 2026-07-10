@@ -600,7 +600,7 @@ internal sealed class ImportPlan
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, tdsNatureId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
@@ -777,6 +777,7 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> costCentreId,
         Dictionary<Guid, Guid> currencyId,
         Dictionary<Guid, Guid> tdsNatureId,
+        Dictionary<Guid, Guid> tcsNatureId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -789,7 +790,8 @@ internal sealed class ImportPlan
             bankAllocation: BuildBankAllocation(l.BankAllocation),
             forex: BuildForex(l.Forex, currencyId, t),
             gst: BuildGstLineTax(l.Gst),
-            tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t)));
+            tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t),
+            tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t)));
 
         var invLines = v.InventoryLines.Count == 0
             ? null
@@ -854,6 +856,17 @@ internal sealed class ImportPlan
             MoneyCodec.FromPaisa(d.AssessableValuePaisa), d.RateBasisPoints,
             MoneyCodec.FromPaisa(d.TdsAmountPaisa),
             ResolveLedgerId(d.DeducteeLedgerId, ledgerId, t), d.PanApplied);
+
+    /// <summary>Rebuilds a line's TCS collection detail (Phase 7 slice 5; the additive mirror of the TDS carve-out),
+    /// re-mapping the source Nature-of-Goods id and collectee-ledger id into the target company's re-minted ids so
+    /// the collection reconciles across companies (paisa- and count-exact). Null for a non-TCS line.</summary>
+    private static TcsLineTax? BuildTcsLineTax(
+        TcsLineTaxDto? d, Dictionary<Guid, Guid> tcsNatureId, Dictionary<Guid, Guid> ledgerId, Company t) =>
+        d is null ? null : new TcsLineTax(
+            ResolveTcsNatureId(d.NatureId, tcsNatureId, t), d.CollectionCode,
+            MoneyCodec.FromPaisa(d.AssessableValuePaisa), d.RateBasisPoints,
+            MoneyCodec.FromPaisa(d.TcsAmountPaisa),
+            ResolveLedgerId(d.CollecteeLedgerId, ledgerId, t), d.PanApplied);
 
     private static InterestParameters? BuildInterest(InterestParametersDto? i) => i is null ? null : new InterestParameters(
         i.Enabled, i.RatePercent, ParseEnum<InterestPer>(i.Per), ParseEnum<InterestOnBalance>(i.OnBalance),

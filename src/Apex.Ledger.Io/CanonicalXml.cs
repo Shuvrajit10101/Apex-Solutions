@@ -424,6 +424,11 @@ public static class CanonicalXml
                 Attr("assessableValuePaisa", t.AssessableValuePaisa), Attr("rateBasisPoints", t.RateBasisPoints),
                 Attr("tdsAmountPaisa", t.TdsAmountPaisa), Attr("deducteeLedgerId", t.DeducteeLedgerId),
                 Attr("panApplied", t.PanApplied)));
+        if (l.Tcs is { } tc)
+            el.Add(new XElement("tcs", Attr("natureId", tc.NatureId), Attr("collectionCode", tc.CollectionCode),
+                Attr("assessableValuePaisa", tc.AssessableValuePaisa), Attr("rateBasisPoints", tc.RateBasisPoints),
+                Attr("tcsAmountPaisa", tc.TcsAmountPaisa), Attr("collecteeLedgerId", tc.CollecteeLedgerId),
+                Attr("panApplied", tc.PanApplied)));
         return el;
     }
 
@@ -1010,6 +1015,13 @@ public static class CanonicalXml
             AssessableValuePaisa = Long(t, "assessableValuePaisa"), RateBasisPoints = Int(t, "rateBasisPoints"),
             TdsAmountPaisa = Long(t, "tdsAmountPaisa"), DeducteeLedgerId = Guid(t, "deducteeLedgerId"),
             PanApplied = Bool(t, "panApplied"),
+        } : null,
+        Tcs = e.Element("tcs") is { } tc ? new TcsLineTaxDto
+        {
+            NatureId = Guid(tc, "natureId"), CollectionCode = Str(tc, "collectionCode")!,
+            AssessableValuePaisa = Long(tc, "assessableValuePaisa"), RateBasisPoints = Int(tc, "rateBasisPoints"),
+            TcsAmountPaisa = Long(tc, "tcsAmountPaisa"), CollecteeLedgerId = Guid(tc, "collecteeLedgerId"),
+            PanApplied = Bool(tc, "panApplied"),
         } : null,
     };
 
