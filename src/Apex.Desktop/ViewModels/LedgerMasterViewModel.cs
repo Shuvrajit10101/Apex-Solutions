@@ -274,6 +274,59 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     public bool ShowDefaultPriceLevel => _company.EnableMultiplePriceLevels && IsPartyGroup;
 
+    // --------------------------------------------------------------- TDS / TCS (Phase 7 slice 1; catalog §13)
+
+    /// <summary>True iff TDS is enabled for the company — the ledger-TDS fields are only offered then.</summary>
+    public bool TdsEnabled => _company.TdsEnabled;
+
+    /// <summary>True iff TCS is enabled for the company — the ledger-TCS fields are only offered then.</summary>
+    public bool TcsEnabled => _company.TcsEnabled;
+
+    /// <summary>True iff the TDS/TCS sub-form should render at all (either feature on). Gated for ER-13.</summary>
+    public bool ShowTdsTcs => TdsEnabled || TcsEnabled;
+
+    /// <summary>
+    /// True iff the party deductee/collectee fields (deductee/collectee type + PAN + "deduct in same voucher")
+    /// should render: a TDS/TCS feature is on AND the chosen group is a party group (Sundry Debtors/Creditors).
+    /// </summary>
+    public bool ShowPartyTdsTcs => ShowTdsTcs && IsPartyGroup;
+
+    /// <summary>"Is TDS Applicable" for this (expense) ledger — a Journal/Payment line on it triggers withholding.</summary>
+    [ObservableProperty] private bool _tdsApplicable;
+
+    /// <summary>The default Nature of Payment (TDS section) for this ledger — "(none)" leaves it unset.</summary>
+    [ObservableProperty] private NatureOfPaymentChoice? _selectedTdsNature;
+
+    /// <summary>"Is TCS Applicable" for this (sales) ledger — a Sales line on it collects TCS on top.</summary>
+    [ObservableProperty] private bool _tcsApplicable;
+
+    /// <summary>The default Nature of Goods (§206C) for this ledger — "(none)" leaves it unset.</summary>
+    [ObservableProperty] private NatureOfGoodsChoice? _selectedTcsNature;
+
+    /// <summary>The party's deductee type (selects the §194C 1%/2% rate branch) — "(not set)" leaves it null.</summary>
+    [ObservableProperty] private DeducteeTypeChoice? _selectedDeducteeType;
+
+    /// <summary>The party's collectee type — "(not set)" leaves it null.</summary>
+    [ObservableProperty] private CollecteeTypeChoice? _selectedCollecteeType;
+
+    /// <summary>The party's PAN (validated on Create when set); drives §206AA/§206CC no-PAN rates. Blank ⇒ no PAN.</summary>
+    [ObservableProperty] private string _partyPan = string.Empty;
+
+    /// <summary>Whether TDS is deducted in the same voucher as the party payment (Tally's "deduct in same voucher").</summary>
+    [ObservableProperty] private bool _deductTdsInSameVoucher;
+
+    /// <summary>The Nature-of-Payment picker options ("(none)" + every defined nature).</summary>
+    public IReadOnlyList<NatureOfPaymentChoice> TdsNatureChoices { get; }
+
+    /// <summary>The Nature-of-Goods picker options ("(none)" + every defined nature).</summary>
+    public IReadOnlyList<NatureOfGoodsChoice> TcsNatureChoices { get; }
+
+    /// <summary>The deductee-type picker options ("(not set)" + every legal person).</summary>
+    public IReadOnlyList<DeducteeTypeChoice> DeducteeTypeChoices { get; } = TdsTcsDisplay.DeducteeTypeChoices();
+
+    /// <summary>The collectee-type picker options ("(not set)" + every legal person).</summary>
+    public IReadOnlyList<CollecteeTypeChoice> CollecteeTypeChoices { get; } = TdsTcsDisplay.CollecteeTypeChoices();
+
     public LedgerMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -297,6 +350,13 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         PriceLevelChoices = BuildPriceLevelChoices(company);
         _selectedPriceLevel = PriceLevelChoices[0]; // (none)
+
+        TdsNatureChoices = TdsTcsDisplay.NatureOfPaymentChoices(company);
+        TcsNatureChoices = TdsTcsDisplay.NatureOfGoodsChoices(company);
+        _selectedTdsNature = TdsNatureChoices[0];         // (none)
+        _selectedTcsNature = TcsNatureChoices[0];         // (none)
+        _selectedDeducteeType = DeducteeTypeChoices[0];   // (not set)
+        _selectedCollecteeType = CollecteeTypeChoices[0]; // (not set)
 
         RefreshList();
     }
@@ -349,6 +409,7 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         OnPropertyChanged(nameof(IsDirectExpensesGroup));
         OnPropertyChanged(nameof(ShowAppropriation));
         OnPropertyChanged(nameof(ShowDefaultPriceLevel));
+        OnPropertyChanged(nameof(ShowPartyTdsTcs));
     }
 
     partial void OnShowConfigurationChanged(bool value) => OnPropertyChanged(nameof(ShowAppropriation));
@@ -485,6 +546,23 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // null (no default) for every non-price-level or non-party ledger (ER-13).
         Guid? defaultPriceLevelId = ShowDefaultPriceLevel ? SelectedPriceLevel?.PriceLevelId : null;
 
+        // TDS/TCS party PAN (Phase 7 slice 1) — pre-validate a non-empty PAN so the domain error never fires.
+        // A blank PAN is a no-PAN party (§206AA/§206CC higher rate applies at compute; captured null here).
+        string? partyPanOrNull = null;
+        if (ShowPartyTdsTcs)
+        {
+            var pan = Pan.Normalize(PartyPan ?? string.Empty);
+            if (pan.Length > 0)
+            {
+                if (!Pan.IsValid(pan))
+                {
+                    Message = $"'{pan}' is not a valid PAN (5 letters + 4 digits + 1 letter, e.g. AAPFU0939F).";
+                    return false;
+                }
+                partyPanOrNull = pan;
+            }
+        }
+
         // Opening balance defaults to 0; the natural side follows the group's nature
         // (Asset/Expense = Debit, Liability/Income = Credit) — the conventional default.
         var openingIsDebit = SelectedGroup.Nature is GroupNature.Asset or GroupNature.Expense;
@@ -499,6 +577,30 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             partyGst: partyGst,
             methodOfAppropriation: methodOfAppropriation,
             defaultPriceLevelId: defaultPriceLevelId);
+
+        // TDS applicability (expense side) + party deductee details (Phase 7 slice 1). Captured only when TDS is
+        // enabled; every field stays at its default (false / null) otherwise, so a non-TDS ledger is byte-identical.
+        if (TdsEnabled)
+        {
+            ledger.TdsApplicable = TdsApplicable;
+            ledger.TdsNatureOfPaymentId = SelectedTdsNature?.NatureId;
+            if (ShowPartyTdsTcs)
+            {
+                ledger.DeducteeType = SelectedDeducteeType?.Value;
+                ledger.DeductTdsInSameVoucher = DeductTdsInSameVoucher;
+            }
+        }
+        // TCS applicability (sales side) + party collectee details. Same gating discipline.
+        if (TcsEnabled)
+        {
+            ledger.TcsApplicable = TcsApplicable;
+            ledger.TcsNatureOfGoodsId = SelectedTcsNature?.NatureId;
+            if (ShowPartyTdsTcs)
+                ledger.CollecteeType = SelectedCollecteeType?.Value;
+        }
+        // PAN is shared by both deductee/collectee roles; set it whenever a party PAN was captured.
+        if (ShowPartyTdsTcs)
+            ledger.PartyPan = partyPanOrNull;
 
         _company.AddLedger(ledger);
         _storage.Save(_company);
@@ -517,6 +619,14 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         PartyRegistrationType = PartyRegistrationTypes[2]; // back to Unregistered
         PartyState = null;
         SelectedPriceLevel = PriceLevelChoices[0];         // reset to (none)
+        TdsApplicable = false;
+        SelectedTdsNature = TdsNatureChoices[0];           // (none)
+        TcsApplicable = false;
+        SelectedTcsNature = TcsNatureChoices[0];           // (none)
+        SelectedDeducteeType = DeducteeTypeChoices[0];     // (not set)
+        SelectedCollecteeType = CollecteeTypeChoices[0];   // (not set)
+        PartyPan = string.Empty;
+        DeductTdsInSameVoucher = false;
         _onChanged();
         return true;
     }

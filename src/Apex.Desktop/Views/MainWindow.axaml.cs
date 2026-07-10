@@ -632,6 +632,19 @@ public partial class MainWindow : Window
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.Apply();
 
+    // TDS/TCS (Phase 7 slice 1) — F11 Enable TDS / Enable TCS + the two Statutory-master Create actions.
+    private void OnApplyTdsClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyTds();
+
+    private void OnApplyTcsClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyTcs();
+
+    private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
+        => Vm?.NatureOfPaymentMaster?.Create();
+
+    private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
+        => Vm?.NatureOfGoodsMaster?.Create();
+
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();
 

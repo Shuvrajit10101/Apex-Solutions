@@ -120,6 +120,45 @@ public sealed class Ledger
     /// </summary>
     public Guid? DefaultPriceLevelId { get; set; }
 
+    // ---- Phase 7 slice 1: TDS/TCS applicability flags (plain post-construction properties; all default off/null so
+    //      every existing ledger is byte-identical, ER-13). No computation lives here — the TDS/TCS compute engine
+    //      (Phase 7 slices 2/5) reads these to decide whether to withhold/collect and at what rate. ----
+
+    /// <summary>"Is TDS Applicable" on an expense/purchase ledger (Phase 7 slice 1). When on, a payment/journal to
+    /// this ledger carves TDS out of the party leg at compute time. Default false.</summary>
+    public bool TdsApplicable { get; set; }
+
+    /// <summary>The default <see cref="NatureOfPayment"/> (TDS section) for this ledger; <c>null</c> ⇒ none set.</summary>
+    public Guid? TdsNatureOfPaymentId { get; set; }
+
+    /// <summary>The party's deductee legal status (selects §194C-style conditional rates at compute); <c>null</c> ⇒ unset.</summary>
+    public DeducteeType? DeducteeType { get; set; }
+
+    /// <summary>The party's PAN (validated per <see cref="Pan"/> when set); drives §206AA/§206CC no-PAN rates.
+    /// <c>null</c> ⇒ no PAN recorded. Shared by the TDS (deductee) and TCS (collectee) paths.</summary>
+    public string? PartyPan { get; set; }
+
+    /// <summary>"Deduct TDS in the same voucher" (Phase 7 slice 1). When on, the deduction posts within the
+    /// expense/payment voucher rather than a separate journal. Default false.</summary>
+    public bool DeductTdsInSameVoucher { get; set; }
+
+    /// <summary>"Is TCS Applicable" on a sales ledger (Phase 7 slice 1). When on, TCS is collected on top at compute
+    /// time. Default false.</summary>
+    public bool TcsApplicable { get; set; }
+
+    /// <summary>The default <see cref="NatureOfGoods"/> (§206C) for this ledger; <c>null</c> ⇒ none set.</summary>
+    public Guid? TcsNatureOfGoodsId { get; set; }
+
+    /// <summary>The party's collectee legal status; <c>null</c> ⇒ unset.</summary>
+    public CollecteeType? CollecteeType { get; set; }
+
+    /// <summary>
+    /// Marks this ledger as the auto-created <b>TDS Payable</b> / <b>TCS Payable</b> liability ledger under
+    /// Duties &amp; Taxes (Phase 7 slice 1). Auto-set by <c>TdsTcsService.EnableTds/EnableTcs</c>. <c>null</c> ⇒
+    /// ordinary ledger. Mirrors <see cref="GstClassification"/>.
+    /// </summary>
+    public TdsTcsLedgerKind? TdsTcsClassification { get; set; }
+
     public Ledger(
         Guid id,
         string name,

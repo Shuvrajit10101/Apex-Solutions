@@ -301,6 +301,9 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS material_order_links;");
         Exec(conn, "DROP TABLE IF EXISTS job_work_order_lines;");
         Exec(conn, "DROP TABLE IF EXISTS job_work_orders;");
+        // v25 (TDS/TCS) master tables — drop so re-migrating v9→v25 does not hit "table already exists".
+        Exec(conn, "DROP TABLE IF EXISTS nature_of_payment;");
+        Exec(conn, "DROP TABLE IF EXISTS nature_of_goods;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");
         Exec(conn, "DROP INDEX IF EXISTS ux_bom_item_name;");

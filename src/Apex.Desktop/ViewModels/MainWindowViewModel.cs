@@ -59,6 +59,8 @@ public enum Screen
     MaterialMovementEntry,
     PosBilling,
     GstConfig,
+    NatureOfPaymentMaster,
+    NatureOfGoodsMaster,
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
@@ -233,6 +235,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
+    /// <summary>The Nature-of-Payment (TDS section) master (Phase 7 slice 1), non-null only while that page is open.</summary>
+    [ObservableProperty] private NatureOfPaymentMasterViewModel? _natureOfPaymentMaster;
+
+    /// <summary>The Nature-of-Goods (§206C TCS) master (Phase 7 slice 1), non-null only while that page is open.</summary>
+    [ObservableProperty] private NatureOfGoodsMasterViewModel? _natureOfGoodsMaster;
+
     /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
 
@@ -303,7 +311,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
-        && GstConfig is null && ReportConfig is null
+        && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
+        && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
@@ -340,6 +349,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -731,6 +742,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         col.Add(MenuItemViewModel.Header("Multi-Currency"));
         col.Add(new MenuItemViewModel("Currency", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Statutory Masters (Phase 7 slice 1; TDS/TCS) — the Nature-of-Payment (TDS section) master surfaces only
+        // when the F11 feature "Enable TDS" is on; Nature-of-Goods (§206C) only when "Enable TCS" is on. A company
+        // with neither is byte-identical (ER-13), so the whole header hides when both are off.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Statutory Masters"));
+            if (Company is { TdsEnabled: true })
+                col.Add(new MenuItemViewModel("Nature of Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            if (Company is { TcsEnabled: true })
+                col.Add(new MenuItemViewModel("Nature of Goods", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -2372,6 +2395,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "GST — Statutory Configuration", () => GstConfig = page);
     }
 
+    /// <summary>
+    /// Opens the Nature-of-Payment (TDS section) master (Masters → Create → Statutory Masters → Nature of
+    /// Payment; Phase 7 slice 1) as a page column: lists the seeded predefined TDS sections and creates customs.
+    /// A no-op unless TDS is enabled (the menu item is itself gated on <see cref="Company.TdsEnabled"/>).
+    /// </summary>
+    public void ShowNatureOfPaymentMaster()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var master = new NatureOfPaymentMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Nature of Payment", master), Screen.NatureOfPaymentMaster,
+            "Nature of Payment (TDS)", () => NatureOfPaymentMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Nature-of-Goods (§206C TCS) master (Masters → Create → Statutory Masters → Nature of Goods;
+    /// Phase 7 slice 1) as a page column: lists the seeded predefined §206C set and creates customs. A no-op
+    /// unless TCS is enabled (the menu item is itself gated on <see cref="Company.TcsEnabled"/>).
+    /// </summary>
+    public void ShowNatureOfGoodsMaster()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var master = new NatureOfGoodsMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Nature of Goods", master), Screen.NatureOfGoodsMaster,
+            "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -2636,6 +2687,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         MaterialMovementEntry = null;
         PosBilling = null;
         GstConfig = null;
+        NatureOfPaymentMaster = null;
+        NatureOfGoodsMaster = null;
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
@@ -2696,7 +2749,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
-                 or Screen.GstConfig)
+                 or Screen.GstConfig
+                 or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster)
             BackFromPage();
     }
 
@@ -2984,7 +3038,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 CurrencyMaster?.CreateCurrency();
                 return;
             case Screen.GstConfig:
-                GstConfig?.Apply();
+                GstConfig?.AcceptStatutoryConfig();
+                return;
+            case Screen.NatureOfPaymentMaster:
+                NatureOfPaymentMaster?.Create();
+                return;
+            case Screen.NatureOfGoodsMaster:
+                NatureOfGoodsMaster?.Create();
                 return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
@@ -3139,6 +3199,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
             case "GST": ShowGstConfig(); break;
+            case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
+            case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;

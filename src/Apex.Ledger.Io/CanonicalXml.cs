@@ -60,6 +60,8 @@ public static class CanonicalXml
             Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
             Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing));
         if (c.Gst is { } gst) company.Add(BuildGstConfig(gst));
+        if (c.Tds is { } tds) company.Add(BuildTdsConfig(tds));
+        if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
         root.Add(company);
 
         var p = m.Payload;
@@ -113,7 +115,18 @@ public static class CanonicalXml
             Opt("chequePrintingBankName", l.ChequePrintingBankName),
             OptId("currencyId", l.CurrencyId),
             Opt("methodOfAppropriation", l.MethodOfAppropriation),
-            OptId("defaultPriceLevelId", l.DefaultPriceLevelId));
+            OptId("defaultPriceLevelId", l.DefaultPriceLevelId),
+            // Phase 7 slice 1: TDS/TCS applicability flags. Emit the booleans only when true so an ordinary ledger
+            // serialises byte-identically to a v24 export (ER-13); the optional refs/enums emit only when present.
+            OptTrue("tdsApplicable", l.TdsApplicable),
+            OptId("tdsNatureOfPaymentId", l.TdsNatureOfPaymentId),
+            Opt("deducteeType", l.DeducteeType),
+            Opt("partyPan", l.PartyPan),
+            OptTrue("deductTdsInSameVoucher", l.DeductTdsInSameVoucher),
+            OptTrue("tcsApplicable", l.TcsApplicable),
+            OptId("tcsNatureOfGoodsId", l.TcsNatureOfGoodsId),
+            Opt("collecteeType", l.CollecteeType),
+            Opt("tdsTcsClassification", l.TdsTcsClassification));
         if (l.Interest is { } i) el.Add(BuildInterest(i));
         if (l.PartyGst is { } p) el.Add(BuildPartyGst(p));
         if (l.SalesPurchaseGst is { } s) el.Add(BuildStockItemGst("salesPurchaseGst", s));
@@ -248,7 +261,8 @@ public static class CanonicalXml
             Attr("maintainInBatches", i.MaintainInBatches),
             Attr("trackManufacturingDate", i.TrackManufacturingDate),
             Attr("useExpiryDates", i.UseExpiryDates),
-            Attr("setComponents", i.SetComponents));
+            Attr("setComponents", i.SetComponents),
+            OptId("tcsNatureOfGoodsId", i.TcsNatureOfGoodsId)); // Phase 7 slice 1
         if (i.Gst is { } g) el.Add(BuildStockItemGst("gst", g));
         return el;
     }
@@ -302,6 +316,49 @@ public static class CanonicalXml
 
     private static XElement BuildGstClassification(LedgerGstClassificationDto c) => new("gstClassification",
         Attr("taxHead", c.TaxHead), Attr("direction", c.Direction));
+
+    private static XElement BuildTdsConfig(TdsConfigDto t)
+    {
+        var el = new XElement("tds",
+            Attr("enabled", t.Enabled), Opt("tan", t.Tan), Attr("deductorType", t.DeductorType),
+            Opt("responsiblePersonName", t.ResponsiblePersonName), Opt("responsiblePersonPan", t.ResponsiblePersonPan),
+            Opt("responsiblePersonDesignation", t.ResponsiblePersonDesignation),
+            Opt("responsiblePersonAddress", t.ResponsiblePersonAddress),
+            Attr("surchargeApplicable", t.SurchargeApplicable), Attr("cessApplicable", t.CessApplicable),
+            Attr("periodicity", t.Periodicity), Opt("applicableFrom", t.ApplicableFrom));
+        var natures = new XElement("naturesOfPayment");
+        foreach (var n in t.NaturesOfPayment) natures.Add(BuildNatureOfPayment(n));
+        el.Add(natures);
+        return el;
+    }
+
+    private static XElement BuildNatureOfPayment(NatureOfPaymentDto n) => new("natureOfPayment",
+        Attr("id", n.Id), Attr("sectionCode", n.SectionCode), Attr("name", n.Name),
+        Attr("rateWithPanBp", n.RateWithPanBp), Attr("rateWithoutPanBp", n.RateWithoutPanBp),
+        OptLong("singleThresholdPaisa", n.SingleThresholdPaisa), OptLong("cumulativeThresholdPaisa", n.CumulativeThresholdPaisa),
+        Attr("fvuSectionCode", n.FvuSectionCode), Opt("effectiveFrom", n.EffectiveFrom), Attr("isPredefined", n.IsPredefined));
+
+    private static XElement BuildTcsConfig(TcsConfigDto t)
+    {
+        var el = new XElement("tcs",
+            Attr("enabled", t.Enabled), Opt("tan", t.Tan), Attr("collectorType", t.CollectorType),
+            Opt("responsiblePersonName", t.ResponsiblePersonName), Opt("responsiblePersonPan", t.ResponsiblePersonPan),
+            Opt("responsiblePersonDesignation", t.ResponsiblePersonDesignation),
+            Opt("responsiblePersonAddress", t.ResponsiblePersonAddress),
+            Attr("surchargeApplicable", t.SurchargeApplicable), Attr("cessApplicable", t.CessApplicable),
+            Attr("periodicity", t.Periodicity), Opt("applicableFrom", t.ApplicableFrom));
+        var natures = new XElement("naturesOfGoods");
+        foreach (var n in t.NaturesOfGoods) natures.Add(BuildNatureOfGoods(n));
+        el.Add(natures);
+        return el;
+    }
+
+    private static XElement BuildNatureOfGoods(NatureOfGoodsDto n) => new("natureOfGoods",
+        Attr("id", n.Id), Attr("collectionCode", n.CollectionCode), Attr("name", n.Name),
+        Attr("rateWithPanBp", n.RateWithPanBp), Attr("rateWithoutPanBp", n.RateWithoutPanBp),
+        OptLong("thresholdPaisa", n.ThresholdPaisa), Attr("baseIncludesGst", n.BaseIncludesGst),
+        Attr("fvuCode", n.FvuCode), Opt("effectiveFrom", n.EffectiveFrom), Attr("isPredefined", n.IsPredefined),
+        Attr("isLegacy", n.IsLegacy), Opt("legacyCutoff", n.LegacyCutoff));
 
     private static XElement BuildVoucher(VoucherDto v)
     {
@@ -426,6 +483,8 @@ public static class CanonicalXml
     private static XAttribute? OptInt(string name, int? value) => value is { } v ? new XAttribute(name, v.ToString(CultureInfo.InvariantCulture)) : null;
     private static XAttribute? OptLong(string name, long? value) => value is { } v ? new XAttribute(name, v.ToString(CultureInfo.InvariantCulture)) : null;
     private static XAttribute? OptBool(string name, bool? value) => value is { } v ? new XAttribute(name, v ? "true" : "false") : null;
+    // Emit a boolean attribute ONLY when true, so a default-false flag is absent (byte-identical to a prior export).
+    private static XAttribute? OptTrue(string name, bool value) => value ? new XAttribute(name, "true") : null;
     private static XAttribute? OptDec(string name, decimal? value) => value is { } v ? new XAttribute(name, Dec(v)) : null;
 
     private static string Dec(decimal d) => d.ToString(CultureInfo.InvariantCulture);
@@ -519,6 +578,8 @@ public static class CanonicalXml
     {
         if (!TryGuid(e.Attribute("id")?.Value, out var id)) { errors.Add("company @id is missing or not a GUID."); return null; }
         var gstEl = e.Element("gst");
+        var tdsEl = e.Element("tds");
+        var tcsEl = e.Element("tcs");
         return new CompanyDto
         {
             Id = id,
@@ -535,6 +596,8 @@ public static class CanonicalXml
             DecimalPlaces = Int(e, "decimalPlaces"),
             DecimalUnitName = Str(e, "decimalUnitName"),
             Gst = gstEl is null ? null : ReadGstConfig(gstEl),
+            Tds = tdsEl is null ? null : ReadTdsConfig(tdsEl),
+            Tcs = tcsEl is null ? null : ReadTcsConfig(tcsEl),
             UseSeparateActualBilledQuantity = Bool(e, "useSeparateActualBilledQuantity"),
             EnableMultiplePriceLevels = Bool(e, "enableMultiplePriceLevels"),
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
@@ -608,6 +671,15 @@ public static class CanonicalXml
         GstClassification = e.Element("gstClassification") is { } gc ? ReadGstClassification(gc) : null,
         MethodOfAppropriation = Str(e, "methodOfAppropriation"),
         DefaultPriceLevelId = OptGuid(e, "defaultPriceLevelId"),
+        TdsApplicable = Bool(e, "tdsApplicable"),
+        TdsNatureOfPaymentId = OptGuid(e, "tdsNatureOfPaymentId"),
+        DeducteeType = Str(e, "deducteeType"),
+        PartyPan = Str(e, "partyPan"),
+        DeductTdsInSameVoucher = Bool(e, "deductTdsInSameVoucher"),
+        TcsApplicable = Bool(e, "tcsApplicable"),
+        TcsNatureOfGoodsId = OptGuid(e, "tcsNatureOfGoodsId"),
+        CollecteeType = Str(e, "collecteeType"),
+        TdsTcsClassification = Str(e, "tdsTcsClassification"),
     };
 
     private static PriceLevelDto ReadPriceLevel(XElement e) => new()
@@ -751,6 +823,7 @@ public static class CanonicalXml
         TrackManufacturingDate = Bool(e, "trackManufacturingDate"),
         UseExpiryDates = Bool(e, "useExpiryDates"),
         SetComponents = Bool(e, "setComponents"),
+        TcsNatureOfGoodsId = OptGuid(e, "tcsNatureOfGoodsId"),
     };
 
     private static BatchMasterDto ReadBatchMaster(XElement e) => new()
@@ -808,6 +881,47 @@ public static class CanonicalXml
     private static LedgerGstClassificationDto ReadGstClassification(XElement e) => new()
     {
         TaxHead = Str(e, "taxHead")!, Direction = Str(e, "direction")!,
+    };
+
+    private static TdsConfigDto ReadTdsConfig(XElement e) => new()
+    {
+        Enabled = Bool(e, "enabled"), Tan = Str(e, "tan"), DeductorType = Str(e, "deductorType")!,
+        ResponsiblePersonName = Str(e, "responsiblePersonName"), ResponsiblePersonPan = Str(e, "responsiblePersonPan"),
+        ResponsiblePersonDesignation = Str(e, "responsiblePersonDesignation"),
+        ResponsiblePersonAddress = Str(e, "responsiblePersonAddress"),
+        SurchargeApplicable = Bool(e, "surchargeApplicable"), CessApplicable = Bool(e, "cessApplicable"),
+        Periodicity = Str(e, "periodicity")!, ApplicableFrom = Str(e, "applicableFrom"),
+        NaturesOfPayment = (e.Element("naturesOfPayment")?.Elements("natureOfPayment") ?? Enumerable.Empty<XElement>())
+            .Select(ReadNatureOfPayment).ToList(),
+    };
+
+    private static NatureOfPaymentDto ReadNatureOfPayment(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SectionCode = Str(e, "sectionCode")!, Name = Str(e, "name")!,
+        RateWithPanBp = Int(e, "rateWithPanBp"), RateWithoutPanBp = Int(e, "rateWithoutPanBp"),
+        SingleThresholdPaisa = OptLong(e, "singleThresholdPaisa"), CumulativeThresholdPaisa = OptLong(e, "cumulativeThresholdPaisa"),
+        FvuSectionCode = Str(e, "fvuSectionCode")!, EffectiveFrom = Str(e, "effectiveFrom"), IsPredefined = Bool(e, "isPredefined"),
+    };
+
+    private static TcsConfigDto ReadTcsConfig(XElement e) => new()
+    {
+        Enabled = Bool(e, "enabled"), Tan = Str(e, "tan"), CollectorType = Str(e, "collectorType")!,
+        ResponsiblePersonName = Str(e, "responsiblePersonName"), ResponsiblePersonPan = Str(e, "responsiblePersonPan"),
+        ResponsiblePersonDesignation = Str(e, "responsiblePersonDesignation"),
+        ResponsiblePersonAddress = Str(e, "responsiblePersonAddress"),
+        SurchargeApplicable = Bool(e, "surchargeApplicable"), CessApplicable = Bool(e, "cessApplicable"),
+        Periodicity = Str(e, "periodicity")!, ApplicableFrom = Str(e, "applicableFrom"),
+        NaturesOfGoods = (e.Element("naturesOfGoods")?.Elements("natureOfGoods") ?? Enumerable.Empty<XElement>())
+            .Select(ReadNatureOfGoods).ToList(),
+    };
+
+    private static NatureOfGoodsDto ReadNatureOfGoods(XElement e) => new()
+    {
+        Id = Guid(e, "id"), CollectionCode = Str(e, "collectionCode")!, Name = Str(e, "name")!,
+        RateWithPanBp = Int(e, "rateWithPanBp"), RateWithoutPanBp = Int(e, "rateWithoutPanBp"),
+        ThresholdPaisa = OptLong(e, "thresholdPaisa"), BaseIncludesGst = Bool(e, "baseIncludesGst"),
+        FvuCode = Str(e, "fvuCode")!, EffectiveFrom = Str(e, "effectiveFrom"), IsPredefined = Bool(e, "isPredefined"),
+        IsLegacy = Bool(e, "isLegacy"), LegacyCutoff = Str(e, "legacyCutoff"),
     };
 
     private static VoucherDto ReadVoucher(XElement e) => new()

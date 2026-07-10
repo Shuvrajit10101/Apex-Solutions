@@ -61,6 +61,12 @@ public sealed record CompanyDto
     /// <summary>Company GST config, or <c>null</c> when GST is off (the default).</summary>
     public GstConfigDto? Gst { get; init; }
 
+    /// <summary>Company TDS deductor config (Phase 7 slice 1), or <c>null</c> when TDS is off (the default).</summary>
+    public TdsConfigDto? Tds { get; init; }
+
+    /// <summary>Company TCS collector config (Phase 7 slice 1), or <c>null</c> when TCS is off (the default).</summary>
+    public TcsConfigDto? Tcs { get; init; }
+
     // ---- Phase 6 persisted company feature toggles (real companies columns; cannot be inferred). ----
 
     /// <summary>F11 "Use separate Actual &amp; Billed Quantity columns" (Phase 6 slice 4; RQ-22; DP-7). Default false.</summary>
@@ -158,6 +164,35 @@ public sealed record LedgerDto
 
     /// <summary>A party ledger's default Price Level (Phase 6 slice 5; RQ-30); <c>null</c> = no default level.</summary>
     public Guid? DefaultPriceLevelId { get; init; }
+
+    // ---- Phase 7 slice 1: TDS/TCS ledger applicability flags (all default off/null). ----
+
+    /// <summary>"Is TDS Applicable" (Phase 7 slice 1). Default false.</summary>
+    public bool TdsApplicable { get; init; }
+
+    /// <summary>Default Nature-of-Payment (TDS section) id; <c>null</c> ⇒ none.</summary>
+    public Guid? TdsNatureOfPaymentId { get; init; }
+
+    /// <summary>The party's deductee legal status (DeducteeType name); <c>null</c> ⇒ unset.</summary>
+    public string? DeducteeType { get; init; }
+
+    /// <summary>The party's PAN; <c>null</c> ⇒ none.</summary>
+    public string? PartyPan { get; init; }
+
+    /// <summary>"Deduct TDS in same voucher" (Phase 7 slice 1). Default false.</summary>
+    public bool DeductTdsInSameVoucher { get; init; }
+
+    /// <summary>"Is TCS Applicable" (Phase 7 slice 1). Default false.</summary>
+    public bool TcsApplicable { get; init; }
+
+    /// <summary>Default Nature-of-Goods (§206C) id; <c>null</c> ⇒ none.</summary>
+    public Guid? TcsNatureOfGoodsId { get; init; }
+
+    /// <summary>The party's collectee legal status (CollecteeType name); <c>null</c> ⇒ unset.</summary>
+    public string? CollecteeType { get; init; }
+
+    /// <summary>The auto-created payable-ledger tag (TdsTcsLedgerKind name: "Tds"/"Tcs"); <c>null</c> ⇒ ordinary ledger.</summary>
+    public string? TdsTcsClassification { get; init; }
 }
 
 /// <summary>The optional interest-calculation block on a ledger (catalog §7). <c>null</c> ⇒ no interest.</summary>
@@ -299,6 +334,9 @@ public sealed record StockItemDto
     /// <summary>"Set Components (BOM)" (Phase 6 Cluster 2; RQ-10): the item is a manufactured finished good with
     /// ≥1 BOM. Default false ⇒ a non-manufactured item serialises byte-identically (ER-13).</summary>
     public bool SetComponents { get; init; }
+
+    /// <summary>The item's default Nature-of-Goods (§206C TCS) id (Phase 7 slice 1); <c>null</c> ⇒ none (default).</summary>
+    public Guid? TcsNatureOfGoodsId { get; init; }
 }
 
 /// <summary>
@@ -529,6 +567,74 @@ public sealed record LedgerGstClassificationDto
 {
     public required string TaxHead { get; init; }   // GstTaxHead name
     public required string Direction { get; init; } // GstTaxDirection name
+}
+
+// ----------------------------------------------------------------- tds / tcs value objects (Phase 7 slice 1)
+
+/// <summary>The company TDS deductor config (mirrors <see cref="GstConfigDto"/>). Money is integer paisa.</summary>
+public sealed record TdsConfigDto
+{
+    public bool Enabled { get; init; }
+    public string? Tan { get; init; }
+    public required string DeductorType { get; init; }   // DeductorType name
+    public string? ResponsiblePersonName { get; init; }
+    public string? ResponsiblePersonPan { get; init; }
+    public string? ResponsiblePersonDesignation { get; init; }
+    public string? ResponsiblePersonAddress { get; init; }
+    public bool SurchargeApplicable { get; init; }
+    public bool CessApplicable { get; init; }
+    public required string Periodicity { get; init; }     // TdsTcsPeriodicity name
+    public string? ApplicableFrom { get; init; }           // ISO or null
+    public IReadOnlyList<NatureOfPaymentDto> NaturesOfPayment { get; init; } = [];
+}
+
+/// <summary>The company TCS collector config (mirrors <see cref="TdsConfigDto"/>).</summary>
+public sealed record TcsConfigDto
+{
+    public bool Enabled { get; init; }
+    public string? Tan { get; init; }
+    public required string CollectorType { get; init; }   // DeductorType name
+    public string? ResponsiblePersonName { get; init; }
+    public string? ResponsiblePersonPan { get; init; }
+    public string? ResponsiblePersonDesignation { get; init; }
+    public string? ResponsiblePersonAddress { get; init; }
+    public bool SurchargeApplicable { get; init; }
+    public bool CessApplicable { get; init; }
+    public required string Periodicity { get; init; }
+    public string? ApplicableFrom { get; init; }
+    public IReadOnlyList<NatureOfGoodsDto> NaturesOfGoods { get; init; } = [];
+}
+
+/// <summary>A Nature-of-Payment (TDS section) master. Thresholds are integer paisa (null ⇒ no threshold).</summary>
+public sealed record NatureOfPaymentDto
+{
+    public required Guid Id { get; init; }
+    public required string SectionCode { get; init; }
+    public required string Name { get; init; }
+    public int RateWithPanBp { get; init; }
+    public int RateWithoutPanBp { get; init; }
+    public long? SingleThresholdPaisa { get; init; }
+    public long? CumulativeThresholdPaisa { get; init; }
+    public required string FvuSectionCode { get; init; }
+    public string? EffectiveFrom { get; init; }            // ISO or null
+    public bool IsPredefined { get; init; }
+}
+
+/// <summary>A Nature-of-Goods (§206C) master. Threshold is integer paisa (null ⇒ collected on full value).</summary>
+public sealed record NatureOfGoodsDto
+{
+    public required Guid Id { get; init; }
+    public required string CollectionCode { get; init; }
+    public required string Name { get; init; }
+    public int RateWithPanBp { get; init; }
+    public int RateWithoutPanBp { get; init; }
+    public long? ThresholdPaisa { get; init; }
+    public bool BaseIncludesGst { get; init; }
+    public required string FvuCode { get; init; }
+    public string? EffectiveFrom { get; init; }
+    public bool IsPredefined { get; init; }
+    public bool IsLegacy { get; init; }
+    public string? LegacyCutoff { get; init; }             // ISO or null
 }
 
 // ----------------------------------------------------------------- vouchers

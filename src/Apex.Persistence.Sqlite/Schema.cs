@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 24;
+    public const int CurrentVersion = 25;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -115,8 +115,57 @@ public static class Schema
             enable_multiple_price_levels INTEGER NOT NULL DEFAULT 0,    -- 0/1
             -- v24 (Phase 6 slice 8; RQ-45): F11 "Enable Job Order Processing" — a pure persisted toggle (cannot be
             -- inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
-            enable_job_order_processing INTEGER NOT NULL DEFAULT 0      -- 0/1
+            enable_job_order_processing INTEGER NOT NULL DEFAULT 0,     -- 0/1
+            -- v25 (Phase 7 slice 1): TDS/TCS deductor/collector config (F11 Enable TDS/TCS). All default 0/NULL for
+            -- every existing company, so a non-TDS/TCS company is byte-identical (ER-13). The deductor identity
+            -- (TAN/type/responsible person/surcharge/cess/periodicity) is SHARED by TDS and TCS (one TAN files both
+            -- 26Q and 27EQ) and stored once here.
+            tds_enabled                    INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            tcs_enabled                    INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            tan                            TEXT        NULL,            -- 10-char TAN, NULL when unset
+            deductor_type                  INTEGER     NULL,            -- DeductorType enum ordinal
+            responsible_person_name        TEXT        NULL,
+            responsible_person_pan         TEXT        NULL,            -- 10-char PAN, NULL when unset
+            responsible_person_designation TEXT        NULL,
+            responsible_person_address     TEXT        NULL,
+            surcharge_applicable           INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            cess_applicable                INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            tds_periodicity                INTEGER     NULL,            -- TdsTcsPeriodicity enum ordinal
+            tds_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
+            tcs_applicable_from            TEXT        NULL             -- ISO yyyy-MM-dd, or NULL
         );
+
+        CREATE TABLE nature_of_payment (
+            id                         TEXT    NOT NULL PRIMARY KEY,
+            company_id                 TEXT    NOT NULL REFERENCES companies(id),
+            section_code               TEXT    NOT NULL,   -- income-tax section (e.g. 194J(b))
+            name                       TEXT    NOT NULL,
+            rate_with_pan_bp           INTEGER NOT NULL,   -- basis points (1000 = 10%)
+            rate_without_pan_bp        INTEGER NOT NULL,   -- §206AA no-PAN rate in basis points
+            single_threshold_micro     INTEGER     NULL,   -- single-transaction threshold, rupees × 1,000,000
+            cumulative_threshold_micro INTEGER     NULL,   -- cumulative-FY threshold, rupees × 1,000,000
+            fvu_code                   TEXT    NOT NULL,   -- Form 26Q / FVU section code (e.g. 94J-B)
+            effective_from             TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL
+            is_predefined              INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_nature_of_payment_company ON nature_of_payment(company_id);
+
+        CREATE TABLE nature_of_goods (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            collection_code     TEXT    NOT NULL,   -- §206C Form-27EQ collection code (e.g. 6CE)
+            name                TEXT    NOT NULL,
+            rate_with_pan_bp    INTEGER NOT NULL,
+            rate_without_pan_bp INTEGER NOT NULL,   -- §206CC no-PAN rate in basis points
+            threshold_micro     INTEGER     NULL,   -- value threshold, rupees × 1,000,000
+            base_includes_gst   INTEGER NOT NULL DEFAULT 1,  -- 0/1
+            fvu_code            TEXT    NOT NULL,
+            effective_from      TEXT        NULL,
+            is_predefined       INTEGER NOT NULL DEFAULT 0,
+            is_legacy           INTEGER NOT NULL DEFAULT 0,  -- 0/1 (206C(1H) year-gated)
+            legacy_cutoff       TEXT        NULL             -- ISO yyyy-MM-dd cut-off, or NULL
+        );
+        CREATE INDEX ix_nature_of_goods_company ON nature_of_goods(company_id);
 
         CREATE TABLE gst_rate_slabs (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -186,7 +235,19 @@ public static class Schema
             method_of_appropriation INTEGER  NULL,             -- MethodOfAppropriation enum ordinal, or NULL
             -- v21 (Phase 6 slice 5; RQ-30): a party ledger's default Price Level. Nullable FK; NULL (the default for
             -- every existing ledger) = no default level. Only meaningful while enable_multiple_price_levels is on.
-            default_price_level_id  TEXT     NULL REFERENCES price_levels(id)
+            default_price_level_id  TEXT     NULL REFERENCES price_levels(id),
+            -- v25 (Phase 7 slice 1): TDS/TCS ledger applicability flags + party PAN + the auto-created payable
+            -- classification. All default 0/NULL so every existing ledger is byte-identical (ER-13). The nature ids
+            -- are bare ids (resolved against nature_of_payment / nature_of_goods; no FK, like reorder target_id).
+            tds_applicable         INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Is TDS Applicable")
+            tds_nature_id          TEXT        NULL,             -- default Nature-of-Payment id, or NULL
+            deductee_type          INTEGER     NULL,             -- DeducteeType enum ordinal, or NULL
+            party_pan              TEXT        NULL,             -- 10-char PAN, or NULL
+            deduct_in_same_voucher INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Deduct TDS in same voucher")
+            tcs_applicable         INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Is TCS Applicable")
+            tcs_nature_id          TEXT        NULL,             -- default Nature-of-Goods id, or NULL
+            collectee_type         INTEGER     NULL,             -- CollecteeType enum ordinal, or NULL
+            tds_tcs_class_kind     INTEGER     NULL              -- TdsTcsLedgerKind ordinal (payable ledger tag), or NULL
         );
 
         CREATE TABLE currencies (
@@ -420,7 +481,10 @@ public static class Schema
             use_expiry_dates         INTEGER NOT NULL DEFAULT 0,   -- "Use Expiry dates" 0/1
             -- v18 (RQ-10): "Set Components (BOM)" — the item is a manufactured finished good with ≥1 BOM. 0/1,
             -- default 0 so an existing item is unchanged (ER-13); a plain model flag read/written verbatim.
-            set_components           INTEGER NOT NULL DEFAULT 0    -- 0/1
+            set_components           INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS category). NULL (the default for
+            -- every existing item) = no TCS nature; byte-identical (ER-13). Bare id (no FK, resolved at compute).
+            tcs_nature_id            TEXT        NULL
         );
 
         CREATE TABLE stock_opening_balances (
@@ -1626,5 +1690,77 @@ public static class Schema
         CREATE INDEX ix_job_work_order_lines_order      ON job_work_order_lines(job_work_order_id);
         CREATE INDEX ix_material_order_links_voucher    ON material_order_links(material_voucher_id);
         CREATE INDEX ix_material_order_links_order      ON material_order_links(job_work_order_id);
+        """;
+
+    /// <summary>
+    /// v24 → v25: <b>TDS / TCS masters + config + duty-ledger flags</b> (Phase 7 slice 1; ER-1, ER-13). Purely
+    /// additive — eleven <c>ALTER TABLE companies ADD COLUMN</c> (the shared TDS/TCS deductor config + the two
+    /// enable flags), nine <c>ALTER TABLE ledgers ADD COLUMN</c> (the per-ledger TDS/TCS applicability flags + party
+    /// PAN + the payable-ledger classification tag), one <c>ALTER TABLE stock_items ADD COLUMN tcs_nature_id</c>,
+    /// and two new tables (<c>nature_of_payment</c>, <c>nature_of_goods</c>) with their company indexes. No
+    /// <c>ALTER</c> that rewrites rows, no data backfill: an existing v24 database keeps every row untouched, the
+    /// flags default 0, the columns default NULL, and the two tables start empty — so a company that never enables
+    /// TDS/TCS serialises byte-identically to a v24 company (ER-13). No §206AB/§206CCA columns (omitted, FA2025).
+    /// Run inside a transaction that also bumps <c>schema_version</c> to 25. A fresh DB is stamped straight to v25
+    /// via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV24ToV25 = """
+        ALTER TABLE companies ADD COLUMN tds_enabled                    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN tcs_enabled                    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN tan                            TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN deductor_type                  INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_name        TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_pan         TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_designation TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_address     TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN surcharge_applicable           INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN cess_applicable                INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN tds_periodicity                INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN tds_applicable_from            TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN tcs_applicable_from            TEXT        NULL;
+
+        ALTER TABLE ledgers ADD COLUMN tds_applicable         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN tds_nature_id          TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN deductee_type          INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN party_pan              TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN deduct_in_same_voucher INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN tcs_applicable         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN tcs_nature_id          TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN collectee_type         INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN tds_tcs_class_kind     INTEGER     NULL;
+
+        ALTER TABLE stock_items ADD COLUMN tcs_nature_id TEXT NULL;
+
+        CREATE TABLE nature_of_payment (
+            id                         TEXT    NOT NULL PRIMARY KEY,
+            company_id                 TEXT    NOT NULL REFERENCES companies(id),
+            section_code               TEXT    NOT NULL,
+            name                       TEXT    NOT NULL,
+            rate_with_pan_bp           INTEGER NOT NULL,
+            rate_without_pan_bp        INTEGER NOT NULL,
+            single_threshold_micro     INTEGER     NULL,
+            cumulative_threshold_micro INTEGER     NULL,
+            fvu_code                   TEXT    NOT NULL,
+            effective_from             TEXT        NULL,
+            is_predefined              INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_nature_of_payment_company ON nature_of_payment(company_id);
+
+        CREATE TABLE nature_of_goods (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            collection_code     TEXT    NOT NULL,
+            name                TEXT    NOT NULL,
+            rate_with_pan_bp    INTEGER NOT NULL,
+            rate_without_pan_bp INTEGER NOT NULL,
+            threshold_micro     INTEGER     NULL,
+            base_includes_gst   INTEGER NOT NULL DEFAULT 1,
+            fvu_code            TEXT    NOT NULL,
+            effective_from      TEXT        NULL,
+            is_predefined       INTEGER NOT NULL DEFAULT 0,
+            is_legacy           INTEGER NOT NULL DEFAULT 0,
+            legacy_cutoff       TEXT        NULL
+        );
+        CREATE INDEX ix_nature_of_goods_company ON nature_of_goods(company_id);
         """;
 }

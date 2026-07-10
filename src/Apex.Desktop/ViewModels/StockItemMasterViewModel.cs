@@ -170,6 +170,18 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// <summary>True iff GST is enabled for the company — the item-GST sub-form is only offered then.</summary>
     public bool GstEnabled => _company.GstEnabled;
 
+    // ---- TCS Nature of Goods (Phase 7 slice 1; catalog §13) — only offered when TCS is enabled ----
+
+    /// <summary>True iff TCS is enabled for the company — the item-TCS nature field is only offered then.</summary>
+    public bool TcsEnabled => _company.TcsEnabled;
+
+    /// <summary>The item's default Nature of Goods (§206C) — "(none)" leaves it unset (no auto-TCS on its sale).</summary>
+    [ObservableProperty] private NatureOfGoodsChoice? _selectedTcsNature;
+
+    /// <summary>The Nature-of-Goods picker options ("(none)" + every defined §206C nature).</summary>
+    public IReadOnlyList<NatureOfGoodsChoice> TcsNatureChoices { get; private set; } =
+        System.Array.Empty<NatureOfGoodsChoice>();
+
     // ---- Opening balance (all optional) ----
     [ObservableProperty] private Godown? _openingGodown;
     [ObservableProperty] private string _openingQuantityText = string.Empty;
@@ -203,6 +215,9 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         foreach (var slab in slabs.OrderBy(s => s.RateBasisPoints))
             GstRates.Add(new GstRateOption { RateBasisPoints = slab.RateBasisPoints, Display = slab.Label });
         GstRate = GstRates.First();
+
+        TcsNatureChoices = TdsTcsDisplay.NatureOfGoodsChoices(company);
+        SelectedTcsNature = TcsNatureChoices[0]; // (none)
 
         RefreshPickers();
         RefreshList();
@@ -332,6 +347,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             if (ShowBomSwitch)
                 item.SetComponents = SetComponents;
 
+            // TCS Nature of Goods (Phase 7 slice 1) — captured only when TCS is enabled; null (no auto-TCS) for
+            // every non-TCS company, so a non-TCS item is byte-identical (ER-13).
+            if (TcsEnabled)
+                item.TcsNatureOfGoodsId = SelectedTcsNature?.NatureId;
+
             if (wantsOpening && openingQty > 0m)
             {
                 var batch = string.IsNullOrWhiteSpace(OpeningBatchLabel) ? null : OpeningBatchLabel.Trim();
@@ -363,6 +383,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         OpeningBatchLabel = string.Empty;
         Taxability = Taxabilities.First();
         GstRate = GstRates.First();
+        SelectedTcsNature = TcsNatureChoices.Count > 0 ? TcsNatureChoices[0] : null;
         MaintainInBatches = false;
         TrackManufacturingDate = false;
         UseExpiryDates = false;

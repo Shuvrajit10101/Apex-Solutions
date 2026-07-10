@@ -48,6 +48,17 @@ internal sealed class ApplyJournal
     private GstConfig? _priorGst;
     private HashSet<Guid> _ledgerIdsBeforeGst = new();
 
+    // TDS/TCS enable (Phase 7 slice 1): mirror the GST enable rollback — snapshot the prior config + ledger set so
+    // the auto-created "TDS Payable"/"TCS Payable" ledger can be pruned and the config restored on rollback.
+    private bool _tdsRecorded;
+    private bool _tdsWasEnabled;
+    private TdsConfig? _priorTds;
+    private HashSet<Guid> _ledgerIdsBeforeTds = new();
+    private bool _tcsRecorded;
+    private bool _tcsWasEnabled;
+    private TcsConfig? _priorTcs;
+    private HashSet<Guid> _ledgerIdsBeforeTcs = new();
+
     // Ledger-opening merges / overlays: the pre-change (magnitude, side, group) so it can be restored.
     private readonly List<(Domain.Ledger Ledger, Money Opening, bool IsDebit, Guid? GroupId)> _openingSnapshots = new();
 
@@ -101,6 +112,25 @@ internal sealed class ApplyJournal
         _gstWasEnabled = _company.Gst is not null;
         _priorGst = _company.Gst;                    // the ORIGINAL config (or null), captured before EnableGst mutates
         _ledgerIdsBeforeGst = _company.Ledgers.Select(l => l.Id).ToHashSet();
+    }
+
+    /// <summary>Captures the pre-EnableTds state for rollback (mirror of <see cref="RecordGstEnabledBefore"/>).
+    /// Call BEFORE <c>TdsTcsService.EnableTds</c> runs.</summary>
+    public void RecordTdsEnabledBefore()
+    {
+        _tdsRecorded = true;
+        _tdsWasEnabled = _company.Tds is not null;
+        _priorTds = _company.Tds;
+        _ledgerIdsBeforeTds = _company.Ledgers.Select(l => l.Id).ToHashSet();
+    }
+
+    /// <summary>Captures the pre-EnableTcs state for rollback. Call BEFORE <c>TdsTcsService.EnableTcs</c> runs.</summary>
+    public void RecordTcsEnabledBefore()
+    {
+        _tcsRecorded = true;
+        _tcsWasEnabled = _company.Tcs is not null;
+        _priorTcs = _company.Tcs;
+        _ledgerIdsBeforeTcs = _company.Ledgers.Select(l => l.Id).ToHashSet();
     }
 
     public void RecordCompanyHeader(Company t) => _header = CompanyHeaderSnapshot.Capture(t);
@@ -172,6 +202,19 @@ internal sealed class ApplyJournal
         }
         if (_gstRecorded)
             _company.Gst = _priorGst; // the ORIGINAL config (null when GST was off before EnableGst ran)
+
+        // 5a) TDS/TCS enable undo (Phase 7 slice 1): mirror the GST undo. Runs AFTER the explicit journal ledger
+        //     removals (step 3) and the GST prune, so pruning "ledgers not in the pre-enable snapshot" catches
+        //     exactly the auto-created "TDS Payable"/"TCS Payable" ledger — never a pre-existing tagged ledger.
+        if (_tdsRecorded && !_tdsWasEnabled)
+            foreach (var l in _company.Ledgers.Where(l => !_ledgerIdsBeforeTds.Contains(l.Id)).ToList())
+                _company.RemoveLedger(l);
+        if (_tdsRecorded) _company.Tds = _priorTds;
+
+        if (_tcsRecorded && !_tcsWasEnabled)
+            foreach (var l in _company.Ledgers.Where(l => !_ledgerIdsBeforeTcs.Contains(l.Id)).ToList())
+                _company.RemoveLedger(l);
+        if (_tcsRecorded) _company.Tcs = _priorTcs;
 
         // 5b) Enable Job Order Processing undo: re-run SetEnabled(prior) so both the company flag and the seeded
         //     Material In/Out + Job Work Order voucher-type flags (IsActive / UseForJobWork / AllowConsumption) are

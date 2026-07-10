@@ -588,6 +588,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 24;
         }
 
+        // v24 → v25: apply the TDS/TCS masters+config schema (two new tables + additive company/ledger/stock-item
+        // columns), then bump the marker. Existing v24 data survives untouched (CREATE TABLE/INDEX + ALTER ADD COLUMN
+        // with 0/NULL defaults; no row rewrites — Phase 7 slice 1).
+        if (version == 24)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV24ToV25;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 25);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 25;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -606,7 +629,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    base_currency_name, decimal_places, decimal_unit_name,
                    primary_cost_category, main_location, profit_and_loss_head_id,
                    gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
-                   use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing
+                   use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing,
+                   tds_enabled, tcs_enabled, tan, deductor_type, responsible_person_name, responsible_person_pan,
+                   responsible_person_designation, responsible_person_address, surcharge_applicable,
+                   cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -656,12 +682,52 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     Periodicity = r.IsDBNull(21) ? GstReturnPeriodicity.Monthly : (GstReturnPeriodicity)(int)r.GetInt64(21),
                 };
             }
+
+            // v25 (Phase 7 slice 1): TDS/TCS deductor config. The deductor identity (TAN/type/responsible person/
+            // surcharge/cess/periodicity) is shared, stored once on the row, and read into whichever config(s) are
+            // enabled. A non-TDS/TCS company (tds_enabled = tcs_enabled = 0) leaves both null (ER-13).
+            var deductorType = r.IsDBNull(28) ? DeductorType.Company : (DeductorType)(int)r.GetInt64(28);
+            var respName = r.IsDBNull(29) ? null : r.GetString(29);
+            var respPan = r.IsDBNull(30) ? null : r.GetString(30);
+            var respDesig = r.IsDBNull(31) ? null : r.GetString(31);
+            var respAddr = r.IsDBNull(32) ? null : r.GetString(32);
+            var surcharge = r.GetInt64(33) != 0;
+            var cess = r.GetInt64(34) != 0;
+            var periodicity = r.IsDBNull(35) ? TdsTcsPeriodicity.Quarterly : (TdsTcsPeriodicity)(int)r.GetInt64(35);
+            var tan = r.IsDBNull(27) ? null : r.GetString(27);
+
+            if (r.GetInt64(25) != 0)
+                company.Tds = new TdsConfig
+                {
+                    Enabled = true, Tan = tan, DeductorType = deductorType,
+                    ResponsiblePersonName = respName, ResponsiblePersonPan = respPan,
+                    ResponsiblePersonDesignation = respDesig, ResponsiblePersonAddress = respAddr,
+                    SurchargeApplicable = surcharge, CessApplicable = cess, Periodicity = periodicity,
+                    ApplicableFrom = r.IsDBNull(36) ? (DateOnly?)null : ParseDate(r.GetString(36)),
+                };
+            if (r.GetInt64(26) != 0)
+                company.Tcs = new TcsConfig
+                {
+                    Enabled = true, Tan = tan, CollectorType = deductorType,
+                    ResponsiblePersonName = respName, ResponsiblePersonPan = respPan,
+                    ResponsiblePersonDesignation = respDesig, ResponsiblePersonAddress = respAddr,
+                    SurchargeApplicable = surcharge, CessApplicable = cess, Periodicity = periodicity,
+                    ApplicableFrom = r.IsDBNull(37) ? (DateOnly?)null : ParseDate(r.GetString(37)),
+                };
         }
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
         if (company.Gst is not null)
             foreach (var slab in ReadGstRateSlabs(companyId))
                 company.Gst.AddRateSlab(slab);
+
+        // v25 TDS/TCS masters (only present when the respective feature was enabled). Loaded into the config.
+        if (company.Tds is not null)
+            foreach (var nature in ReadNaturesOfPayment(companyId))
+                company.Tds.AddNatureOfPayment(nature);
+        if (company.Tcs is not null)
+            foreach (var nature in ReadNaturesOfGoods(companyId))
+                company.Tcs.AddNatureOfGoods(nature);
 
         // Groups: the reserved P&L head (is_pl_head = 1) is registered via SetProfitAndLossHead and
         // kept OUT of Company.Groups; the 28 (and any custom) groups go into Company.Groups. Load
@@ -951,7 +1017,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    interest_round_method, interest_round_decimals, currency_id,
                    party_gst_reg_type, party_gstin, party_gst_state,
                    sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
-                   gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id
+                   gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id,
+                   tds_applicable, tds_nature_id, deductee_type, party_pan, deduct_in_same_voucher,
+                   tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -980,7 +1048,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v19 (RQ-16..RQ-20): method of appropriation (NULL = plain P&L ledger, not additional-cost).
                 methodOfAppropriation: r.IsDBNull(31) ? (MethodOfAppropriation?)null : (MethodOfAppropriation)(int)r.GetInt64(31),
                 // v21 (RQ-30): a party ledger's default Price Level (NULL = no default level).
-                defaultPriceLevelId: r.IsDBNull(32) ? (Guid?)null : Guid.Parse(r.GetString(32))));
+                defaultPriceLevelId: r.IsDBNull(32) ? (Guid?)null : Guid.Parse(r.GetString(32)))
+            {
+                // v25 (Phase 7 slice 1): TDS/TCS applicability flags + party PAN + payable classification (all
+                // read verbatim; default off/null for every existing ledger, ER-13).
+                TdsApplicable = r.GetInt64(33) != 0,
+                TdsNatureOfPaymentId = r.IsDBNull(34) ? (Guid?)null : Guid.Parse(r.GetString(34)),
+                DeducteeType = r.IsDBNull(35) ? (DeducteeType?)null : (DeducteeType)(int)r.GetInt64(35),
+                PartyPan = r.IsDBNull(36) ? null : r.GetString(36),
+                DeductTdsInSameVoucher = r.GetInt64(37) != 0,
+                TcsApplicable = r.GetInt64(38) != 0,
+                TcsNatureOfGoodsId = r.IsDBNull(39) ? (Guid?)null : Guid.Parse(r.GetString(39)),
+                CollecteeType = r.IsDBNull(40) ? (CollecteeType?)null : (CollecteeType)(int)r.GetInt64(40),
+                TdsTcsClassification = r.IsDBNull(41) ? (TdsTcsLedgerKind?)null : (TdsTcsLedgerKind)(int)r.GetInt64(41),
+            });
         }
         return list;
     }
@@ -1142,6 +1223,60 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (int)r.GetInt64(1),
                 r.GetString(2),
                 isPredefined: r.GetInt64(3) != 0));
+        return list;
+    }
+
+    /// <summary>v25: a threshold stored as rupees × 1,000,000 ("micros") → exact <see cref="Money"/> (rupees).</summary>
+    private static Money? MicroToMoney(object? micro) =>
+        micro is null ? null : new Money(Convert.ToInt64(micro) / 1_000_000m);
+
+    /// <summary>v25: an exact <see cref="Money"/> (rupees) → rupees × 1,000,000 ("micros") for storage.</summary>
+    private static object MoneyToMicro(Money? money) =>
+        money is { } m ? (long)(m.Amount * 1_000_000m) : (object)DBNull.Value;
+
+    private IEnumerable<NatureOfPayment> ReadNaturesOfPayment(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, section_code, name, rate_with_pan_bp, rate_without_pan_bp,
+                   single_threshold_micro, cumulative_threshold_micro, fvu_code, effective_from, is_predefined
+            FROM nature_of_payment WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<NatureOfPayment>();
+        while (r.Read())
+            list.Add(new NatureOfPayment(
+                Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2),
+                (int)r.GetInt64(3), (int)r.GetInt64(4), r.GetString(7),
+                singleTransactionThreshold: MicroToMoney(r.IsDBNull(5) ? null : r.GetInt64(5)),
+                cumulativeThreshold: MicroToMoney(r.IsDBNull(6) ? null : r.GetInt64(6)),
+                effectiveFrom: r.IsDBNull(8) ? (DateOnly?)null : ParseDate(r.GetString(8)),
+                isPredefined: r.GetInt64(9) != 0));
+        return list;
+    }
+
+    private IEnumerable<NatureOfGoods> ReadNaturesOfGoods(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, collection_code, name, rate_with_pan_bp, rate_without_pan_bp, threshold_micro,
+                   base_includes_gst, fvu_code, effective_from, is_predefined, is_legacy, legacy_cutoff
+            FROM nature_of_goods WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<NatureOfGoods>();
+        while (r.Read())
+            list.Add(new NatureOfGoods(
+                Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2),
+                (int)r.GetInt64(3), (int)r.GetInt64(4), r.GetString(7),
+                threshold: MicroToMoney(r.IsDBNull(5) ? null : r.GetInt64(5)),
+                baseIncludesGst: r.GetInt64(6) != 0,
+                effectiveFrom: r.IsDBNull(8) ? (DateOnly?)null : ParseDate(r.GetString(8)),
+                isPredefined: r.GetInt64(9) != 0,
+                isLegacy: r.GetInt64(10) != 0,
+                legacyCutoff: r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11))));
         return list;
     }
 
@@ -1335,7 +1470,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
                    hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
                    gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
-                   maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components
+                   maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components,
+                   tcs_nature_id
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1363,6 +1499,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             item.UseExpiryDates = r.GetInt64(18) != 0;
             // v18 Set-Components (BOM) flag (column 19; RQ-10), read verbatim.
             item.SetComponents = r.GetInt64(19) != 0;
+            // v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS) id (column 20), read verbatim.
+            item.TcsNatureOfGoodsId = r.IsDBNull(20) ? (Guid?)null : Guid.Parse(r.GetString(20));
             list.Add(item);
         }
         return list;
@@ -2235,6 +2373,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         // v13 GST rate slabs FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM gst_rate_slabs WHERE company_id = $cid;", ("$cid", cid));
+        // v25 TDS/TCS masters FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM nature_of_payment WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM nature_of_goods WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
 
@@ -2249,12 +2390,17 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  base_currency_name, decimal_places, decimal_unit_name,
                  primary_cost_category, main_location, profit_and_loss_head_id,
                  gst_enabled, gstin, gst_home_state, gst_reg_type, gst_applicable_from, gst_periodicity,
-                 use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing)
+                 use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing,
+                 tds_enabled, tcs_enabled, tan, deductor_type, responsible_person_name, responsible_person_pan,
+                 responsible_person_designation, responsible_person_address, surcharge_applicable,
+                 cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
                  $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper,
-                 $abqty, $empl, $ejop);
+                 $abqty, $empl, $ejop,
+                 $tdsen, $tcsen, $tan, $dedtype, $rpname, $rppan, $rpdesig, $rpaddr, $surch, $cess, $tdsper,
+                 $tdsfrom, $tcsfrom);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -2286,6 +2432,26 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$empl", c.EnableMultiplePriceLevels ? 1 : 0);
         // v24 (RQ-45): the F11 "Enable Job Order Processing" toggle, written verbatim (default 0 — ER-13).
         cmd.Parameters.AddWithValue("$ejop", c.EnableJobOrderProcessing ? 1 : 0);
+
+        // v25 (Phase 7 slice 1): the shared TDS/TCS deductor config. All 0/NULL for a non-TDS/TCS company (ER-13).
+        // The deductor identity is shared: write it from whichever config is present (they carry identical values).
+        var tds = c.Tds;
+        var tcs = c.Tcs;
+        cmd.Parameters.AddWithValue("$tdsen", tds is { Enabled: true } ? 1 : 0);
+        cmd.Parameters.AddWithValue("$tcsen", tcs is { Enabled: true } ? 1 : 0);
+        cmd.Parameters.AddWithValue("$tan", (object?)(tds?.Tan ?? tcs?.Tan) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$dedtype",
+            tds is not null ? (int)tds.DeductorType : tcs is not null ? (int)tcs.CollectorType : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$rpname", (object?)(tds?.ResponsiblePersonName ?? tcs?.ResponsiblePersonName) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$rppan", (object?)(tds?.ResponsiblePersonPan ?? tcs?.ResponsiblePersonPan) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$rpdesig", (object?)(tds?.ResponsiblePersonDesignation ?? tcs?.ResponsiblePersonDesignation) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$rpaddr", (object?)(tds?.ResponsiblePersonAddress ?? tcs?.ResponsiblePersonAddress) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$surch", (tds?.SurchargeApplicable ?? tcs?.SurchargeApplicable ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$cess", (tds?.CessApplicable ?? tcs?.CessApplicable ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$tdsper",
+            tds is not null ? (int)tds.Periodicity : tcs is not null ? (int)tcs.Periodicity : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$tdsfrom", tds?.ApplicableFrom is { } tf ? FormatDate(tf) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$tcsfrom", tcs?.ApplicableFrom is { } cf ? FormatDate(cf) : (object)DBNull.Value);
         cmd.ExecuteNonQuery();
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
@@ -2303,6 +2469,61 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 s.Parameters.AddWithValue("$bp", slab.RateBasisPoints);
                 s.Parameters.AddWithValue("$label", slab.Label);
                 s.Parameters.AddWithValue("$pre", slab.IsPredefined ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
+
+        // v25 Nature-of-Payment masters (only when TDS is enabled), hung off the TDS config like the GST slabs.
+        if (tds is not null)
+            foreach (var n in tds.NaturesOfPayment)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO nature_of_payment
+                        (id, company_id, section_code, name, rate_with_pan_bp, rate_without_pan_bp,
+                         single_threshold_micro, cumulative_threshold_micro, fvu_code, effective_from, is_predefined)
+                    VALUES ($id, $cid, $sec, $name, $wp, $np, $single, $cum, $fvu, $eff, $pre);
+                    """;
+                s.Parameters.AddWithValue("$id", n.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$sec", n.SectionCode);
+                s.Parameters.AddWithValue("$name", n.Name);
+                s.Parameters.AddWithValue("$wp", n.RateWithPanBp);
+                s.Parameters.AddWithValue("$np", n.RateWithoutPanBp);
+                s.Parameters.AddWithValue("$single", MoneyToMicro(n.SingleTransactionThreshold));
+                s.Parameters.AddWithValue("$cum", MoneyToMicro(n.CumulativeThreshold));
+                s.Parameters.AddWithValue("$fvu", n.FvuSectionCode);
+                s.Parameters.AddWithValue("$eff", n.EffectiveFrom is { } ef ? FormatDate(ef) : (object)DBNull.Value);
+                s.Parameters.AddWithValue("$pre", n.IsPredefined ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
+
+        // v25 Nature-of-Goods masters (only when TCS is enabled).
+        if (tcs is not null)
+            foreach (var n in tcs.NaturesOfGoods)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO nature_of_goods
+                        (id, company_id, collection_code, name, rate_with_pan_bp, rate_without_pan_bp,
+                         threshold_micro, base_includes_gst, fvu_code, effective_from, is_predefined,
+                         is_legacy, legacy_cutoff)
+                    VALUES ($id, $cid, $code, $name, $wp, $np, $th, $bg, $fvu, $eff, $pre, $leg, $cut);
+                    """;
+                s.Parameters.AddWithValue("$id", n.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$code", n.CollectionCode);
+                s.Parameters.AddWithValue("$name", n.Name);
+                s.Parameters.AddWithValue("$wp", n.RateWithPanBp);
+                s.Parameters.AddWithValue("$np", n.RateWithoutPanBp);
+                s.Parameters.AddWithValue("$th", MoneyToMicro(n.Threshold));
+                s.Parameters.AddWithValue("$bg", n.BaseIncludesGst ? 1 : 0);
+                s.Parameters.AddWithValue("$fvu", n.FvuCode);
+                s.Parameters.AddWithValue("$eff", n.EffectiveFrom is { } ef ? FormatDate(ef) : (object)DBNull.Value);
+                s.Parameters.AddWithValue("$pre", n.IsPredefined ? 1 : 0);
+                s.Parameters.AddWithValue("$leg", n.IsLegacy ? 1 : 0);
+                s.Parameters.AddWithValue("$cut", n.LegacyCutoff is { } lc ? FormatDate(lc) : (object)DBNull.Value);
                 s.ExecuteNonQuery();
             }
     }
@@ -2360,10 +2581,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      interest_round_method, interest_round_decimals, currency_id,
                      party_gst_reg_type, party_gstin, party_gst_state,
                      sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
-                     gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id)
+                     gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id,
+                     tds_applicable, tds_nature_id, deductee_type, party_pan, deduct_in_same_voucher,
+                     tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
-                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl);
+                        $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
+                        $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2417,6 +2641,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$moa", l.MethodOfAppropriation is { } moa ? (int)moa : (object)DBNull.Value);
             // v21 party default Price Level (NULL when the ledger carries no default level).
             cmd.Parameters.AddWithValue("$dpl", (object?)l.DefaultPriceLevelId?.ToString("D") ?? DBNull.Value);
+
+            // v25 (Phase 7 slice 1): TDS/TCS applicability flags + party PAN + the payable classification tag.
+            // All default off/NULL for an ordinary ledger, so an existing ledger is byte-identical (ER-13).
+            cmd.Parameters.AddWithValue("$tdsap", l.TdsApplicable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$tdsnat", (object?)l.TdsNatureOfPaymentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dedtype", l.DeducteeType is { } dt ? (int)dt : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$ppan", (object?)l.PartyPan ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dsv", l.DeductTdsInSameVoucher ? 1 : 0);
+            cmd.Parameters.AddWithValue("$tcsap", l.TcsApplicable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$tcsnat", (object?)l.TcsNatureOfGoodsId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$coltype", l.CollecteeType is { } ct ? (int)ct : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$classkind", l.TdsTcsClassification is { } k ? (int)k : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -2692,9 +2928,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, stock_group_id, category_id, base_unit_id, alias, valuation_method,
                      hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
                      gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
-                     maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components)
+                     maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components,
+                     tcs_nature_id)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
-                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc);
+                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2722,6 +2959,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tmd", item.TrackManufacturingDate ? 1 : 0);
             cmd.Parameters.AddWithValue("$ued", item.UseExpiryDates ? 1 : 0);
             cmd.Parameters.AddWithValue("$setc", item.SetComponents ? 1 : 0); // v18 Set-Components (RQ-10)
+            // v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS) id, or NULL.
+            cmd.Parameters.AddWithValue("$tcsnat", (object?)item.TcsNatureOfGoodsId?.ToString("D") ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

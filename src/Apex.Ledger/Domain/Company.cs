@@ -67,6 +67,46 @@ public sealed class Company
     public bool GstEnabled => Gst is { Enabled: true };
 
     /// <summary>
+    /// The company TDS deductor configuration (Phase 7 slice 1). <c>null</c> (or a config with
+    /// <see cref="TdsConfig.Enabled"/> false) means TDS is off — the default for every existing company, so the
+    /// pre-Phase-7 paths are byte-for-byte unchanged (ER-13). Set (and its "TDS Payable" ledger auto-created) by
+    /// <c>TdsTcsService.EnableTds</c>.
+    /// </summary>
+    public TdsConfig? Tds { get; set; }
+
+    /// <summary>The company TCS collector configuration (Phase 7 slice 1); <c>null</c>/disabled ⇒ TCS off. Set by
+    /// <c>TdsTcsService.EnableTcs</c>.</summary>
+    public TcsConfig? Tcs { get; set; }
+
+    /// <summary>True iff TDS is enabled for this company.</summary>
+    public bool TdsEnabled => Tds is { Enabled: true };
+
+    /// <summary>True iff TCS is enabled for this company.</summary>
+    public bool TcsEnabled => Tcs is { Enabled: true };
+
+    /// <summary>All Nature-of-Payment (TDS section) masters, or empty when TDS is off.</summary>
+    public IReadOnlyList<NatureOfPayment> NaturesOfPayment =>
+        Tds?.NaturesOfPayment ?? (IReadOnlyList<NatureOfPayment>)Array.Empty<NatureOfPayment>();
+
+    /// <summary>All Nature-of-Goods (§206C) masters, or empty when TCS is off.</summary>
+    public IReadOnlyList<NatureOfGoods> NaturesOfGoods =>
+        Tcs?.NaturesOfGoods ?? (IReadOnlyList<NatureOfGoods>)Array.Empty<NatureOfGoods>();
+
+    /// <summary>Finds a Nature-of-Payment master by its id, or <c>null</c>.</summary>
+    public NatureOfPayment? FindNatureOfPayment(Guid id) => NaturesOfPayment.FirstOrDefault(n => n.Id == id);
+
+    /// <summary>Finds a Nature-of-Payment master by its section code (case-insensitive), or <c>null</c>.</summary>
+    public NatureOfPayment? FindNatureOfPaymentByCode(string sectionCode) =>
+        NaturesOfPayment.FirstOrDefault(n => string.Equals(n.SectionCode, sectionCode?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a Nature-of-Goods master by its id, or <c>null</c>.</summary>
+    public NatureOfGoods? FindNatureOfGoods(Guid id) => NaturesOfGoods.FirstOrDefault(n => n.Id == id);
+
+    /// <summary>Finds a Nature-of-Goods master by its collection code (case-insensitive), or <c>null</c>.</summary>
+    public NatureOfGoods? FindNatureOfGoodsByCode(string collectionCode) =>
+        NaturesOfGoods.FirstOrDefault(n => string.Equals(n.CollectionCode, collectionCode?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// Backing field for <see cref="MaintainBatchwiseDetails"/>: <c>null</c> ⇒ "not explicitly set", so the
     /// getter falls back to inferring the flag from persisted batch state (see below).
     /// </summary>

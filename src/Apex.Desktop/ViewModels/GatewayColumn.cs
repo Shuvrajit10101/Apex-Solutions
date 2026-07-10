@@ -132,6 +132,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
 
+    /// <summary>The hosted Nature-of-Payment (TDS section) master (non-null only for that column; Phase 7 slice 1).</summary>
+    public NatureOfPaymentMasterViewModel? NatureOfPaymentMaster => Page as NatureOfPaymentMasterViewModel;
+
+    /// <summary>The hosted Nature-of-Goods (§206C TCS) master (non-null only for that column; Phase 7 slice 1).</summary>
+    public NatureOfGoodsMasterViewModel? NatureOfGoodsMaster => Page as NatureOfGoodsMasterViewModel;
+
     /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
     public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
 
