@@ -6313,6 +6313,186 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: TDS Stat Payment deposit (Payment Ctrl+F; Phase 7 slice 3) -->
+                    <ContentControl IsVisible="{Binding TdsStatPayment, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding TdsStatPayment}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:TdsStatPaymentViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="TDS Stat Payment (Deposit)"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,4"/>
+                            <TextBlock Grid.Row="1"
+                                       Text="{Binding OutstandingText, StringFormat='Outstanding TDS Payable: ₹{0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="10" MaxWidth="640">
+                                <Grid ColumnDefinitions="160,*">
+                                  <TextBlock Grid.Column="0" Text="Section (remaining)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding SectionOptions}"
+                                            SelectedItem="{Binding SelectedSection, Mode=TwoWay}"
+                                            PlaceholderText="Nothing outstanding">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:StatPaymentSectionOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="160,*,160,*">
+                                  <TextBlock Grid.Column="0" Text="Deposit Amount ₹" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding AmountText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 5000"/>
+                                  <TextBlock Grid.Column="2" Text="Pay From (Bank/Cash)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding BankOptions}"
+                                            SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
+                                            PlaceholderText="Select ledger…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12" Margin="0,4,0,0">
+                                  <StackPanel Spacing="10">
+                                    <TextBlock Text="Challan (ITNS-281)" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="160,*,160,*">
+                                      <TextBlock Grid.Column="0" Text="Challan (CIN) No." FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding ChallanNo, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 00021"/>
+                                      <TextBlock Grid.Column="2" Text="BSR Code" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding BsrCode, Mode=TwoWay}"
+                                               PlaceholderText="7-digit, e.g. 0510308"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,*,160,*">
+                                      <TextBlock Grid.Column="0" Text="Deposit Date" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBlock Grid.Column="2" Text="Section" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding SectionCode, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 194J(b)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,*">
+                                      <TextBlock Grid.Column="0" Text="Minor Head" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MinorHead, Mode=TwoWay}"
+                                               PlaceholderText="200 (TDS payable) / 400 (regular assessment)"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Deposit (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnDepositTdsStatPaymentClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Challan Reconciliation report (Alt+R; Phase 7 slice 3) -->
+                    <ContentControl IsVisible="{Binding ChallanReconciliation, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ChallanReconciliation}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ChallanReconciliationViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="2" Text="{Binding StatusText}"
+                                       FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                       Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="140,*,140,140,140,110">
+                                <TextBlock Grid.Column="0" Text="Section" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Deducted" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Remaining" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Status" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ListBox Grid.Row="4" Background="White"
+                                     ItemsSource="{Binding Rows}"
+                                     SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ChallanReconRow">
+                                  <Grid ColumnDefinitions="140,*,140,140,140,110" Height="24">
+                                    <TextBlock Grid.Column="0" Text="{Binding Section}"
+                                               Margin="4,0" VerticalAlignment="Center" FontSize="12"
+                                               FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Deducted}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding Deposited}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Remaining}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding Status}"
+                                               Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="{Binding IsMatched, Converter={StaticResource BalancedBrush}}"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Border Grid.Row="5" Background="#F4F4EC"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                              <Grid ColumnDefinitions="140,*,140,140,140,110" Height="28">
+                                <TextBlock Grid.Column="0" Text="Total" Margin="4,0"
+                                           VerticalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Grid.Column="2" Text="{Binding TotalDeducted}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Grid.Column="3" Text="{Binding TotalDeposited}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Grid.Column="4" Text="{Binding TotalRemaining}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                              </Grid>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: F12 report Configuration panel (RQ-1 period/as-of, RQ-2 detail, RQ-6 display) -->
                     <ContentControl IsVisible="{Binding ReportConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ReportConfig}">

@@ -61,6 +61,8 @@ public enum Screen
     GstConfig,
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
+    TdsStatPayment,
+    ChallanReconciliation,
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
@@ -241,6 +243,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Nature-of-Goods (§206C TCS) master (Phase 7 slice 1), non-null only while that page is open.</summary>
     [ObservableProperty] private NatureOfGoodsMasterViewModel? _natureOfGoodsMaster;
 
+    /// <summary>The TDS Stat-Payment (deposit) page (Phase 7 slice 3), non-null only while that page is open.</summary>
+    [ObservableProperty] private TdsStatPaymentViewModel? _tdsStatPayment;
+
+    /// <summary>The Challan Reconciliation (Alt+R) report (Phase 7 slice 3), non-null only while that page is open.</summary>
+    [ObservableProperty] private ChallanReconciliationViewModel? _challanReconciliation;
+
     /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
 
@@ -312,6 +320,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
+        && TdsStatPayment is null && ChallanReconciliation is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -351,6 +360,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnChallanReconciliationChanged(ChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -575,6 +586,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Provisional (off-books) voucher kinds under their own group (Reversing Journal / Memorandum).
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Other Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // TDS Stat Payment (Phase 7 slice 3; catalog §13) — the Payment "Ctrl+F" deposit of accrued TDS Payable.
+        // Surfaced only when the F11 feature "Enable TDS" is on, so a non-TDS company is byte-identical (ER-13).
+        if (Company is { TdsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Statutory"));
+            col.Add(new MenuItemViewModel("TDS Stat Payment", () => { }, "Ctrl+F", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -918,6 +937,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Tax Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-1", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-3B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Challan Reconciliation (Phase 7 slice 3; catalog §13) — deposits vs deductions per section. Surfaced
+        // under its own TDS header only when the F11 feature "Enable TDS" is on (ER-13), reached by Alt+R too.
+        if (Company is { TdsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("TDS"));
+            col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -2423,6 +2450,40 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
     }
 
+    /// <summary>
+    /// Opens the <b>TDS Stat Payment</b> deposit page (Transactions → Vouchers → TDS Stat Payment, the Payment
+    /// "Ctrl+F"; Phase 7 slice 3) as a page column: deposits the accrued TDS Payable into the bank and records the
+    /// ITNS-281 challan. A no-op unless TDS is enabled (the menu item is itself gated on
+    /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void ShowTdsStatPayment()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new TdsStatPaymentViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("TDS Stat Payment", page), Screen.TdsStatPayment,
+            "TDS Stat Payment (Deposit)", () => TdsStatPayment = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>Challan Reconciliation (Alt+R)</b> report page (Reports → GST Reports → TDS → Challan
+    /// Reconciliation; Phase 7 slice 3) as a page column: the per-section deposited-vs-deducted match and remaining
+    /// payable over the financial year. A no-op unless TDS is enabled (the menu item + Alt+R are gated on
+    /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenChallanReconciliation()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new ChallanReconciliationViewModel(Company);
+        OpenPageColumn(new GatewayColumn(page.Title, page), Screen.ChallanReconciliation,
+            "Challan Reconciliation", () => ChallanReconciliation = page);
+    }
+
+    /// <summary>True while the Challan Reconciliation report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsChallanReconciliationScreen =>
+        CurrentScreen == Screen.ChallanReconciliation && ChallanReconciliation is not null;
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -2689,6 +2750,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstConfig = null;
         NatureOfPaymentMaster = null;
         NatureOfGoodsMaster = null;
+        TdsStatPayment = null;
+        ChallanReconciliation = null;
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
@@ -2750,7 +2813,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig
-                 or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster)
+                 or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
+                 or Screen.TdsStatPayment)
             BackFromPage();
     }
 
@@ -2928,6 +2992,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the Challan Reconciliation report the arrows move the section-row highlight (keeps a live selection).
+        if (IsChallanReconciliationScreen)
+        {
+            ChallanReconciliation!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -3046,6 +3117,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.NatureOfGoodsMaster:
                 NatureOfGoodsMaster?.Create();
                 return;
+            case Screen.TdsStatPayment:
+                TdsStatPayment?.Deposit();
+                return;
+            case Screen.ChallanReconciliation:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
                 return;
@@ -3201,6 +3277,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "GST": ShowGstConfig(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
+            case "TDS Stat Payment": ShowTdsStatPayment(); break;
+            case "Challan Reconciliation": OpenChallanReconciliation(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;

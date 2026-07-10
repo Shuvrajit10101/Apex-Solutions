@@ -171,7 +171,8 @@ internal sealed class ImportPlan
                 allowZeroValuedTransactions: vt.AllowZeroValuedTransactions,
                 useForPos: vt.UseForPos,
                 useForJobWork: vt.UseForJobWork,
-                allowConsumption: vt.AllowConsumption);
+                allowConsumption: vt.AllowConsumption,
+                isStatPayment: vt.IsStatPayment);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -595,12 +596,14 @@ internal sealed class ImportPlan
         //     POS tender split).
         var posting = new LedgerService(t);
         var posted = 0;
+        var voucherId = new Dictionary<Guid, Guid>();   // Phase 7 slice 3: DTO voucher id → re-minted target id (for challan links)
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
                 costCategoryId, costCentreId, currencyId, tdsNatureId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
+            voucherId[v.Id] = domain.Id;
             posted++;
         }
 
@@ -624,6 +627,30 @@ internal sealed class ImportPlan
             PostInventoryVoucher(iv);
         foreach (var iv in _model.Payload.InventoryVouchers.Where(x => x.JobWorkOrder is null))
             PostInventoryVoucher(iv);
+
+        // 12) TDS deposit challans + their Stat-Payment-voucher links (Phase 7 slice 3). A challan is re-minted with a
+        //     fresh Guid; its links resolve the DTO voucher id to the re-minted target voucher posted in step 10 (the
+        //     Phase-6 carry-forward defect class — a new child silently dropped on export/import). Recorded in the
+        //     journal so a rollback prunes them.
+        var challanId = new Dictionary<Guid, Guid>();
+        foreach (var chDto in _model.Payload.TdsChallans)
+        {
+            var challan = new TdsChallan(Guid.NewGuid(), chDto.ChallanNo, chDto.BsrCode,
+                CompanyImportService.ParseDate(chDto.DepositDate), MoneyCodec.FromPaisa(chDto.AmountPaisa),
+                chDto.Section, chDto.MinorHead);
+            t.AddTdsChallan(challan);
+            journal.RecordTdsChallan(challan);
+            challanId[chDto.Id] = challan.Id;
+        }
+        foreach (var linkDto in _model.Payload.ChallanVoucherLinks)
+        {
+            if (!challanId.TryGetValue(linkDto.ChallanId, out var chId)) continue; // orphan link — challan not imported
+            var vId = voucherId.TryGetValue(linkDto.VoucherId, out var mapped) ? mapped
+                : t.FindVoucher(linkDto.VoucherId)?.Id;
+            if (vId is null) continue; // orphan link — voucher not imported/present
+            t.LinkChallanToVoucher(chId, vId.Value);
+            journal.RecordChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
+        }
 
         return (created, reused, posted);
     }

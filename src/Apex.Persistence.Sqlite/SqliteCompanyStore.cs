@@ -634,6 +634,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 26;
         }
 
+        // v26 → v27: apply the TDS deposit + challan schema (is_stat_payment voucher-type flag + two new challan
+        // tables + indexes), then bump the marker. Existing v26 data survives untouched (an ALTER ADD COLUMN with a
+        // 0 default + CREATE TABLE/INDEX; no row rewrites — Phase 7 slice 3). ER-13 byte-identical when no TDS is
+        // deposited (the new column defaults 0, the new tables stay empty).
+        if (version == 26)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV26ToV27;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 27);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 27;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -834,7 +858,46 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var s in ReadScenarios(companyId))
             company.AddScenario(s);
 
+        // TDS deposit challans + their voucher links (Phase 7 slice 3): challans + the challan↔stat-payment-voucher
+        // link set, loaded after vouchers so the links reference real posted vouchers.
+        foreach (var ch in ReadTdsChallans(companyId))
+            company.AddTdsChallan(ch);
+        foreach (var (challanId, voucherId) in ReadChallanVoucherLinks(companyId))
+            company.LinkChallanToVoucher(challanId, voucherId);
+
         return company;
+    }
+
+    private IEnumerable<TdsChallan> ReadTdsChallans(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, challan_no, bsr_code, deposit_date, amount_micro, section, minor_head
+            FROM tds_challans WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<TdsChallan>();
+        while (r.Read())
+            list.Add(new TdsChallan(
+                Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2), ParseDate(r.GetString(3)),
+                new Money(r.GetInt64(4) / 1_000_000m), r.GetString(5), r.GetString(6)));
+        return list;
+    }
+
+    private IEnumerable<(Guid ChallanId, Guid VoucherId)> ReadChallanVoucherLinks(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT challan_id, voucher_id FROM challan_voucher_links
+            WHERE challan_id IN (SELECT id FROM tds_challans WHERE company_id = $cid) ORDER BY id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<(Guid, Guid)>();
+        while (r.Read())
+            list.Add((Guid.Parse(r.GetString(0)), Guid.Parse(r.GetString(1))));
+        return list;
     }
 
     /// <summary>
@@ -908,6 +971,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertBudgets(tx, company);
         // Scenarios: their voucher-type rows FK voucher_types, already inserted.
         InsertScenarios(tx, company);
+        // TDS deposit challans + their voucher links (Phase 7 slice 3): challans FK companies; a link FKs a challan +
+        // a (stat-payment) voucher — both inserted above, so insert challans then links last.
+        InsertTdsChallans(tx, company);
 
         tx.Commit();
     }
@@ -1148,7 +1214,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
-                   allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption
+                   allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1178,7 +1244,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 useForPos: useForPos,
                 // v24 (RQ-45/RQ-48): "Use for Job Work" + "Allow Consumption" flags, read verbatim.
                 useForJobWork: r.GetInt64(14) != 0,
-                allowConsumption: r.GetInt64(15) != 0);
+                allowConsumption: r.GetInt64(15) != 0,
+                // v27 (Phase 7 slice 3): "Use for Statutory Payment" flag, read verbatim.
+                isStatPayment: r.GetInt64(16) != 0);
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -2335,6 +2403,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             DELETE FROM pos_voucher_type_config WHERE voucher_type_id IN (
                 SELECT id FROM voucher_types WHERE company_id = $cid);
             """, ("$cid", cid));
+        // v27 challan-voucher links FK tds_challans + vouchers; tds_challans FK companies → delete the links first,
+        // then the challans, before vouchers and the company row below (Phase 7 slice 3).
+        ExecTx(tx, """
+            DELETE FROM challan_voucher_links WHERE challan_id IN (
+                SELECT id FROM tds_challans WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM tds_challans WHERE company_id = $cid;", ("$cid", cid));
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
         ExecTx(tx, """
             DELETE FROM tds_lines WHERE entry_line_id IN (
@@ -2763,8 +2838,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
-                     use_for_pos, use_for_job_work, allow_consumption)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac);
+                     use_for_pos, use_for_job_work, allow_consumption, is_stat_payment)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -2783,6 +2858,47 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$pos", t.UseForPos ? 1 : 0);                  // v23 (RQ-38)
             cmd.Parameters.AddWithValue("$ujw", t.UseForJobWork ? 1 : 0);              // v24 (RQ-45/RQ-48)
             cmd.Parameters.AddWithValue("$ac", t.AllowConsumption ? 1 : 0);            // v24 (RQ-49)
+            cmd.Parameters.AddWithValue("$stat", t.IsStatPayment ? 1 : 0);             // v27 (Phase 7 slice 3)
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Persists the TDS deposit challans (v27; Phase 7 slice 3) and their stat-payment-voucher links. A company
+    /// that never deposits TDS writes nothing — byte-identical (ER-13). amount_micro is rupees × 1,000,000 (exact
+    /// for a paisa-exact amount).
+    /// </summary>
+    private void InsertTdsChallans(SqliteTransaction tx, Company c)
+    {
+        foreach (var ch in c.TdsChallans)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO tds_challans
+                    (id, company_id, challan_no, bsr_code, deposit_date, amount_micro, section, minor_head)
+                VALUES ($id, $cid, $no, $bsr, $date, $amt, $sec, $minor);
+                """;
+            cmd.Parameters.AddWithValue("$id", ch.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$no", ch.ChallanNo);
+            cmd.Parameters.AddWithValue("$bsr", ch.BsrCode);
+            cmd.Parameters.AddWithValue("$date", FormatDate(ch.DepositDate));
+            cmd.Parameters.AddWithValue("$amt", (long)(ch.Amount.Amount * 1_000_000m));
+            cmd.Parameters.AddWithValue("$sec", ch.Section);
+            cmd.Parameters.AddWithValue("$minor", ch.MinorHead);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var link in c.ChallanVoucherLinks)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO challan_voucher_links (challan_id, voucher_id) VALUES ($ch, $v);
+                """;
+            cmd.Parameters.AddWithValue("$ch", link.ChallanId.ToString("D"));
+            cmd.Parameters.AddWithValue("$v", link.VoucherId.ToString("D"));
             cmd.ExecuteNonQuery();
         }
     }

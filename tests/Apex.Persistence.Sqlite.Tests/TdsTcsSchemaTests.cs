@@ -37,6 +37,9 @@ public sealed class TdsTcsSchemaTests
             Assert.True(TableExists(dbPath, "nature_of_payment"));
             Assert.True(TableExists(dbPath, "nature_of_goods"));
             Assert.True(TableExists(dbPath, "tds_lines")); // v26 (Phase 7 slice 2)
+            Assert.True(TableExists(dbPath, "tds_challans"));           // v27 (Phase 7 slice 3)
+            Assert.True(TableExists(dbPath, "challan_voucher_links"));  // v27 (Phase 7 slice 3)
+            Assert.Contains("is_stat_payment", ColumnNames(dbPath, "voucher_types")); // v27 (Phase 7 slice 3)
 
             // §206AB / §206CCA were omitted (FA2025) — no such columns leaked in.
             Assert.DoesNotContain("higher_rate_206ab", ColumnNames(dbPath, "ledgers"));
@@ -138,6 +141,49 @@ public sealed class TdsTcsSchemaTests
         finally { Delete(dbPath); }
     }
 
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Legacy_v26_database_auto_migrates_to_v27_adding_challans_and_stat_flag_preserving_rows()
+    {
+        var dbPath = TempDb("apex-tds-v26legacy");
+        try
+        {
+            var company = Guid.NewGuid();
+            var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
+            using (var conn = new SqliteConnection(connStr))
+            {
+                conn.Open();
+                Exec(conn, MinimalV26Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (26);");
+                Exec(conn, "INSERT INTO companies(id, name) VALUES ($id, 'Legacy V26 Co');", ("$id", company.ToString("D")));
+                Exec(conn, "INSERT INTO voucher_types(id, company_id, name) VALUES ($id, $cid, 'Payment');",
+                    ("$id", Guid.NewGuid().ToString("D")), ("$cid", company.ToString("D")));
+                SqliteConnection.ClearPool(conn);
+            }
+
+            Assert.Equal(26L, ReadSchemaVersion(dbPath));
+            Assert.False(TableExists(dbPath, "tds_challans"));
+            Assert.DoesNotContain("is_stat_payment", ColumnNames(dbPath, "voucher_types"));
+
+            using (new SqliteCompanyStore(dbPath)) { } // opens v26 → migrates to the current version
+
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+            Assert.True(TableExists(dbPath, "tds_challans"));
+            Assert.True(TableExists(dbPath, "challan_voucher_links"));
+            Assert.Contains("is_stat_payment", ColumnNames(dbPath, "voucher_types"));
+            // Every existing row survived (ER-13); the new column defaults 0 and the new tables start empty.
+            Assert.Equal("Legacy V26 Co", ReadScalarStr(dbPath, "SELECT name FROM companies LIMIT 1;"));
+            Assert.Equal(1L, CountRows(dbPath, "voucher_types"));
+            Assert.Equal(0L, ReadScalar(dbPath, "SELECT is_stat_payment FROM voucher_types LIMIT 1;"));
+            Assert.Equal(0L, CountRows(dbPath, "tds_challans"));
+            Assert.Equal(0L, CountRows(dbPath, "challan_voucher_links"));
+
+            using (new SqliteCompanyStore(dbPath)) { }
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+        }
+        finally { Delete(dbPath); }
+    }
+
     // ---- helpers ----
 
     private static string TempDb(string prefix) => Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}.db");
@@ -224,6 +270,8 @@ public sealed class TdsTcsSchemaTests
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL);
+        CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         """;
 
     /// <summary>A minimal pre-v26 (v25) DDL: just enough for the v25→v26 migration (which CREATEs
@@ -233,5 +281,16 @@ public sealed class TdsTcsSchemaTests
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL);
+        CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        """;
+
+    /// <summary>A minimal pre-v27 (v26) DDL: just enough for the v26→v27 migration (which ALTERs
+    /// <c>voucher_types</c> and CREATEs the two challan tables referencing <c>companies</c>/<c>vouchers</c>) plus a
+    /// data-preservation assertion.</summary>
+    private const string MinimalV26Ddl = """
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL);
+        CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         """;
 }

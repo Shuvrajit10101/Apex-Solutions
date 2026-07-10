@@ -16,8 +16,8 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v25).</summary>
-    public const int SchemaVersion = 25;
+    /// <summary>The persistence schema version this export targets (SQLite schema v27).</summary>
+    public const int SchemaVersion = 27;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -122,6 +122,25 @@ public static class CanonicalMapper
         InventoryVouchers = c.InventoryVouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
             .Select(MapInventoryVoucher).ToList(),
+        // TDS deposit challans — ordered by (deposit date, challan no, id) so the stream is stable and human-legible.
+        TdsChallans = c.TdsChallans
+            .OrderBy(ch => ch.DepositDate).ThenBy(ch => ch.ChallanNo, StringComparer.Ordinal).ThenBy(ch => ch.Id)
+            .Select(MapTdsChallan).ToList(),
+        // Challan-voucher links — ordered by (challan id, voucher id) so the stream is deterministic.
+        ChallanVoucherLinks = c.ChallanVoucherLinks
+            .OrderBy(l => l.ChallanId).ThenBy(l => l.VoucherId)
+            .Select(l => new ChallanVoucherLinkDto { ChallanId = l.ChallanId, VoucherId = l.VoucherId }).ToList(),
+    };
+
+    private static TdsChallanDto MapTdsChallan(TdsChallan ch) => new()
+    {
+        Id = ch.Id,
+        ChallanNo = ch.ChallanNo,
+        BsrCode = ch.BsrCode,
+        DepositDate = Iso(ch.DepositDate),
+        AmountPaisa = MoneyCodec.ToPaisa(ch.Amount),
+        Section = ch.Section,
+        MinorHead = ch.MinorHead,
     };
 
     private static IEnumerable<T> OrderById<T>(IEnumerable<T> src, Func<T, string> name, Func<T, Guid> id) =>
@@ -227,6 +246,7 @@ public static class CanonicalMapper
         UseForPos = t.UseForPos,
         UseForJobWork = t.UseForJobWork,
         AllowConsumption = t.AllowConsumption,
+        IsStatPayment = t.IsStatPayment,
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
 

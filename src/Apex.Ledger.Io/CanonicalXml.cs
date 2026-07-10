@@ -87,9 +87,19 @@ public static class CanonicalXml
             List("priceLists", "priceList", p.PriceLists, BuildPriceList),
             List("reorderDefinitions", "reorderDefinition", p.ReorderDefinitions, BuildReorderDefinition),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
-            List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher));
+            List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
+            List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
+            List("challanVoucherLinks", "challanVoucherLink", p.ChallanVoucherLinks, BuildChallanVoucherLink));
         return root;
     }
+
+    private static XElement BuildTdsChallan(TdsChallanDto ch) => new("tdsChallan",
+        Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
+        Attr("depositDate", ch.DepositDate), Attr("amountPaisa", ch.AmountPaisa),
+        Attr("section", ch.Section), Attr("minorHead", ch.MinorHead));
+
+    private static XElement BuildChallanVoucherLink(ChallanVoucherLinkDto l) => new("challanVoucherLink",
+        Attr("challanId", l.ChallanId), Attr("voucherId", l.VoucherId));
 
     private static XElement List<T>(string wrapper, string item, IReadOnlyList<T> items, Func<T, XElement> build)
     {
@@ -215,7 +225,8 @@ public static class CanonicalXml
             Attr("allowZeroValuedTransactions", t.AllowZeroValuedTransactions),
             Attr("useForPos", t.UseForPos),
             Attr("useForJobWork", t.UseForJobWork),
-            Attr("allowConsumption", t.AllowConsumption));
+            Attr("allowConsumption", t.AllowConsumption),
+            Attr("isStatPayment", t.IsStatPayment));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
         return el;
     }
@@ -637,6 +648,8 @@ public static class CanonicalXml
                 ReorderDefinitions = ReadList(root, "reorderDefinitions", "reorderDefinition", ReadReorderDefinition),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
+                TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
+                ChallanVoucherLinks = ReadList(root, "challanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
             };
         }
         catch (Exception ex)
@@ -779,7 +792,20 @@ public static class CanonicalXml
         UseForPos = Bool(e, "useForPos"),
         UseForJobWork = Bool(e, "useForJobWork"),
         AllowConsumption = Bool(e, "allowConsumption"),
+        IsStatPayment = Bool(e, "isStatPayment"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
+    };
+
+    private static TdsChallanDto ReadTdsChallan(XElement e) => new()
+    {
+        Id = Guid(e, "id"), ChallanNo = Str(e, "challanNo")!, BsrCode = Str(e, "bsrCode")!,
+        DepositDate = Str(e, "depositDate") ?? string.Empty, AmountPaisa = Long(e, "amountPaisa"),
+        Section = Str(e, "section")!, MinorHead = Str(e, "minorHead")!,
+    };
+
+    private static ChallanVoucherLinkDto ReadChallanVoucherLink(XElement e) => new()
+    {
+        ChallanId = Guid(e, "challanId"), VoucherId = Guid(e, "voucherId"),
     };
 
     private static PosConfigDto ReadPosConfig(XElement e) => new()

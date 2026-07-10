@@ -29,6 +29,8 @@ public sealed class Company
     private readonly List<PriceLevel> _priceLevels = new();
     private readonly List<PriceList> _priceLists = new();
     private readonly List<ReorderDefinition> _reorderDefinitions = new();
+    private readonly List<TdsChallan> _tdsChallans = new();
+    private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -301,6 +303,13 @@ public sealed class Company
     /// at most one per (scope, target). The Reorder-Status report resolves the most-specific one per item.</summary>
     public IReadOnlyList<ReorderDefinition> ReorderDefinitions => _reorderDefinitions;
 
+    /// <summary>TDS deposit challans (catalog §13; Phase 7 slice 3; ITNS-281): one per TDS payment into the bank.</summary>
+    public IReadOnlyList<TdsChallan> TdsChallans => _tdsChallans;
+
+    /// <summary>Links between a <see cref="TdsChallan"/> and the Stat-Payment voucher that booked its deposit
+    /// (Phase 7 slice 3; the <c>challan_voucher_links</c> set).</summary>
+    public IReadOnlyList<ChallanVoucherLink> ChallanVoucherLinks => _challanVoucherLinks;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -379,6 +388,34 @@ public sealed class Company
 
     /// <summary>Removes a reorder-level definition (delete-guards live in <c>ReorderLevelsService</c>; also used by import roll-back).</summary>
     public bool RemoveReorderDefinition(ReorderDefinition definition) => _reorderDefinitions.Remove(definition);
+
+    /// <summary>Adds a TDS deposit challan (Phase 7 slice 3).</summary>
+    public void AddTdsChallan(TdsChallan challan) => _tdsChallans.Add(challan ?? throw new ArgumentNullException(nameof(challan)));
+
+    /// <summary>Removes a TDS deposit challan (delete-guards live in <c>TdsDepositService</c>; also used by import roll-back).</summary>
+    public bool RemoveTdsChallan(TdsChallan challan) => _tdsChallans.Remove(challan);
+
+    /// <summary>Finds a TDS challan by its id, or <c>null</c>.</summary>
+    public TdsChallan? FindTdsChallan(Guid id) => _tdsChallans.FirstOrDefault(c => c.Id == id);
+
+    /// <summary>Links a challan to the Stat-Payment voucher that booked its deposit (idempotent — a duplicate pair is
+    /// ignored).</summary>
+    public void LinkChallanToVoucher(Guid challanId, Guid voucherId)
+    {
+        var link = new ChallanVoucherLink(challanId, voucherId);
+        if (!_challanVoucherLinks.Contains(link)) _challanVoucherLinks.Add(link);
+    }
+
+    /// <summary>Removes a challan-voucher link (used by import roll-back).</summary>
+    public bool RemoveChallanVoucherLink(ChallanVoucherLink link) => _challanVoucherLinks.Remove(link);
+
+    /// <summary>The Stat-Payment voucher ids linked to a given challan (Phase 7 slice 3).</summary>
+    public IEnumerable<Guid> VouchersLinkedToChallan(Guid challanId) =>
+        _challanVoucherLinks.Where(l => l.ChallanId == challanId).Select(l => l.VoucherId);
+
+    /// <summary>The challan ids linked to a given voucher (Phase 7 slice 3).</summary>
+    public IEnumerable<Guid> ChallansLinkedToVoucher(Guid voucherId) =>
+        _challanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);

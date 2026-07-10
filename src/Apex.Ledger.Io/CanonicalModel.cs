@@ -123,6 +123,36 @@ public sealed record PayloadDto
 
     /// <summary>Stock/order vouchers (catalog §10): GRN/Delivery/Rejection/Stock-Journal/Physical/PO/SO.</summary>
     public IReadOnlyList<InventoryVoucherDto> InventoryVouchers { get; init; } = [];
+
+    /// <summary>TDS deposit challans (Phase 7 slice 3; ITNS-281): one per TDS payment into the bank.</summary>
+    public IReadOnlyList<TdsChallanDto> TdsChallans { get; init; } = [];
+
+    /// <summary>Challan ↔ Stat-Payment-voucher links (Phase 7 slice 3): which deposit voucher each challan booked.</summary>
+    public IReadOnlyList<ChallanVoucherLinkDto> ChallanVoucherLinks { get; init; } = [];
+}
+
+/// <summary>A TDS deposit challan (Phase 7 slice 3), mirroring the domain <c>TdsChallan</c> and the SQLite
+/// <c>tds_challans</c> row. Money is integer paisa (the canonical wire scale).</summary>
+public sealed record TdsChallanDto
+{
+    public required Guid Id { get; init; }
+    public required string ChallanNo { get; init; }
+    public required string BsrCode { get; init; }
+
+    /// <summary>ISO yyyy-MM-dd.</summary>
+    public required string DepositDate { get; init; }
+
+    public long AmountPaisa { get; init; }
+    public required string Section { get; init; }
+    public required string MinorHead { get; init; }
+}
+
+/// <summary>A challan ↔ Stat-Payment-voucher link (Phase 7 slice 3), mirroring the domain
+/// <c>ChallanVoucherLink</c> and the SQLite <c>challan_voucher_links</c> row.</summary>
+public sealed record ChallanVoucherLinkDto
+{
+    public required Guid ChallanId { get; init; }
+    public required Guid VoucherId { get; init; }
 }
 
 // ----------------------------------------------------------------- masters
@@ -240,6 +270,9 @@ public sealed record VoucherTypeDto
 
     /// <summary>"Allow Consumption" (Material In) (Phase 6 slice 8; RQ-48). Default false.</summary>
     public bool AllowConsumption { get; init; }
+
+    /// <summary>"Use for Statutory Payment (Stat Payment)" (Phase 7 slice 3) — a Payment voucher-type flag. Default false.</summary>
+    public bool IsStatPayment { get; init; }
 
     /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
     public PosConfigDto? PosConfig { get; init; }

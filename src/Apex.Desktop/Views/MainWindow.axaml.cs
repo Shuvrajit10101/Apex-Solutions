@@ -152,6 +152,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
+        // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
+        // Not while typing in a field, and not with Ctrl held.
+        if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
+        {
+            vm.OpenChallanReconciliation();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+F opens the TDS Stat Payment (deposit) page (the Payment "Ctrl+F"; Phase 7 slice 3) — the accelerator
+        // the menu item advertises. Gated internally on TDS being enabled (a no-op otherwise), and not while typing in
+        // a field, so a non-TDS company is unaffected (ER-13).
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
+        {
+            vm.ShowTdsStatPayment();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B (NFR-2 / RQ-3) opens the batch-allocation sub-screen for a batch-tracked inventory-voucher line —
         // the keyboard equivalent of the "⧉" affordance the tooltip advertises. Resolves the focused line from the
         // key source (so Alt+B on a specific row targets it), falling back to the first eligible line on the
@@ -644,6 +666,9 @@ public partial class MainWindow : Window
 
     private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfGoodsMaster?.Create();
+
+    private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
+        => Vm?.TdsStatPayment?.Deposit();
 
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();

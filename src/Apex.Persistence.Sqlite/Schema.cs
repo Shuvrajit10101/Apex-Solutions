@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 26;
+    public const int CurrentVersion = 27;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -299,7 +299,11 @@ public static class Schema
             -- (Material In). Both 0/1, default 0 so an existing type is byte-identical (ER-13); driven on by the F11
             -- "Enable Job Order Processing" toggle.
             use_for_job_work  INTEGER NOT NULL DEFAULT 0,            -- 0/1
-            allow_consumption INTEGER NOT NULL DEFAULT 0             -- 0/1
+            allow_consumption INTEGER NOT NULL DEFAULT 0,            -- 0/1
+            -- v27 (Phase 7 slice 3; catalog §13): "Use for Statutory Payment (Stat Payment)" — a Payment voucher-type
+            -- flag marking the Ctrl+F stat-payment deposit (Dr TDS Payable / Cr Bank). 0/1, default 0 so an existing
+            -- Payment type is byte-identical (ER-13). Reuses the Payment base type — no new VoucherBaseType.
+            is_stat_payment   INTEGER NOT NULL DEFAULT 0             -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -349,6 +353,29 @@ public static class Schema
             pan_applied            INTEGER NOT NULL   -- 0/1: was the with-PAN rate applied
         );
         CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
+
+        -- v27 TDS deposit challans (catalog §13; Phase 7 slice 3): one row per ITNS-281 challan (a TDS payment into
+        -- the bank). Empty for a company that never deposits TDS (ER-13). amount_micro is rupees × 1,000,000.
+        CREATE TABLE tds_challans (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            challan_no    TEXT    NOT NULL,   -- challan serial / CIN tender number
+            bsr_code      TEXT    NOT NULL,   -- 7-digit BSR code of the collecting branch
+            deposit_date  TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            amount_micro  INTEGER NOT NULL,   -- amount deposited, rupees × 1,000,000
+            section       TEXT    NOT NULL,   -- income-tax section / major head (e.g. 194J(b))
+            minor_head    TEXT    NOT NULL    -- ITNS-281 minor head (200 = payable by taxpayer, 400 = regular assessment)
+        );
+        CREATE INDEX ix_tds_challans_company ON tds_challans(company_id);
+
+        -- v27 challan ↔ stat-payment-voucher links (Phase 7 slice 3): a many-to-many seam pairing a challan to the
+        -- Payment voucher that booked its deposit. Empty when no TDS deposit exists (ER-13).
+        CREATE TABLE challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tds_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_challan_voucher_links_challan ON challan_voucher_links(challan_id);
 
         CREATE TABLE bill_allocations (
             id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -1799,5 +1826,36 @@ public static class Schema
             pan_applied            INTEGER NOT NULL
         );
         CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
+        """;
+
+    /// <summary>
+    /// v26 → v27 (Phase 7 slice 3; TDS deposit + challan reconciliation): additive only — one
+    /// <c>ALTER TABLE voucher_types ADD COLUMN is_stat_payment … DEFAULT 0</c> flag plus two new tables
+    /// (<c>tds_challans</c>, <c>challan_voucher_links</c>) and their indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 27. No row rewrites — an existing v26 database keeps every row (the new column
+    /// defaults 0, the new tables start empty), so a company that never deposits TDS is byte-identical (ER-13). A
+    /// fresh DB is stamped straight to v27 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV26ToV27 = """
+        ALTER TABLE voucher_types ADD COLUMN is_stat_payment INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE tds_challans (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            challan_no    TEXT    NOT NULL,
+            bsr_code      TEXT    NOT NULL,
+            deposit_date  TEXT    NOT NULL,
+            amount_micro  INTEGER NOT NULL,
+            section       TEXT    NOT NULL,
+            minor_head    TEXT    NOT NULL
+        );
+        CREATE INDEX ix_tds_challans_company ON tds_challans(company_id);
+
+        CREATE TABLE challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tds_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_challan_voucher_links_challan ON challan_voucher_links(challan_id);
         """;
 }
