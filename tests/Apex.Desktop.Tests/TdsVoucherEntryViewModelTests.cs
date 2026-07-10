@@ -54,7 +54,9 @@ public sealed class TdsVoucherEntryViewModelTests : IDisposable
         return l;
     }
 
-    /// <summary>A TDS-enabled company with a plain "Professional Fees" expense and a 194J(b) vendor (PAN optional).</summary>
+    /// <summary>A TDS-enabled company with a 194J(b) "Professional Fees" <b>expense</b> ledger (Is-TDS-Applicable +
+    /// default nature — the EXPENSE drives applicability &amp; section) and a deductee vendor (Firm; PAN optional —
+    /// the PARTY drives only the rate).</summary>
     private (MainWindowViewModel Vm, DomainLedger Fees, DomainLedger Vendor) TdsCompany(string name, string? pan)
     {
         var vm = NewCompany(name);
@@ -63,8 +65,10 @@ public sealed class TdsVoucherEntryViewModelTests : IDisposable
         var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
         var vendor = AddLedger(c, "Acme Consultants", "Sundry Creditors", false);
         var nop = c.FindNatureOfPaymentByCode("194J(b)")!;
-        vendor.TdsApplicable = true;
-        vendor.TdsNatureOfPaymentId = nop.Id;
+        // Correct (Tally) model: the EXPENSE ledger is Is-TDS-Applicable and carries the default Nature of Payment.
+        fees.TdsApplicable = true;
+        fees.TdsNatureOfPaymentId = nop.Id;
+        // The PARTY is a deductee — it drives ONLY the rate (via PAN); it carries no applicability flag / section.
         vendor.DeducteeType = DeducteeType.Firm;
         vendor.PartyPan = pan;
         return (vm, fees, vendor);
@@ -107,7 +111,9 @@ public sealed class TdsVoucherEntryViewModelTests : IDisposable
         var c = vm.Company!;
         var fees = AddLedger(c, "Professional Fees", "Indirect Expenses", true);
         var vendor = AddLedger(c, "Acme Consultants", "Sundry Creditors", false);
-        vendor.TdsApplicable = true; vendor.DeducteeType = DeducteeType.Firm; vendor.PartyPan = DeducteePan;
+        // A full correct-model TDS shape (expense Is-TDS-Applicable + deductee party) — but TDS was never enabled,
+        // so no natures exist, no panel shows, and the voucher posts verbatim.
+        fees.TdsApplicable = true; vendor.DeducteeType = DeducteeType.Firm; vendor.PartyPan = DeducteePan;
 
         var e = OpenJournal(vm, fees, 1_00_000m, vendor, 1_00_000m);
         Assert.Empty(e.TdsNatureOptions);
@@ -212,5 +218,84 @@ public sealed class TdsVoucherEntryViewModelTests : IDisposable
         var vendorLine = posted.Lines.Single(l => l.LedgerId == vendor.Id);
         Assert.Equal(Money.FromRupees(80_000m), vendorLine.Amount);
         Assert.True(VoucherValidator.IsBalanced(posted));
+    }
+
+    // ---- the corrected model: applicability is EXPENSE-driven, not party-driven ----
+
+    [Fact]
+    public void Deductee_party_on_non_tds_expense_does_not_withhold()
+    {
+        // A deductee vendor paid against a NON-TDS expense ledger (Is-TDS-Applicable = false) must NOT withhold —
+        // the trigger is the expense leg, not the party. This is the exact bug the adversarial review flagged.
+        var (vm, _, vendor) = TdsCompany("Non-TDS-Expense Co", DeducteePan);
+        var c = vm.Company!;
+        var stationery = AddLedger(c, "Office Stationery", "Indirect Expenses", true); // NOT Is-TDS-Applicable
+
+        var e = OpenJournal(vm, stationery, 1_00_000m, vendor, 1_00_000m);
+        Assert.False(e.ShowTdsPanel);           // no Is-TDS-Applicable Dr leg ⇒ no panel
+        Assert.True(e.CanAccept);
+        Assert.True(e.Accept());
+
+        var posted = c.Vouchers.Single(v => v.TypeId == e.Type.Id);
+        Assert.Equal(2, posted.Lines.Count);    // verbatim — no carved TDS-Payable leg (ER-13)
+        Assert.All(posted.Lines, l => Assert.False(l.HasTds));
+        var vendorLine = posted.Lines.Single(l => l.LedgerId == vendor.Id);
+        Assert.Equal(Money.FromRupees(1_00_000m), vendorLine.Amount); // full gross to the party
+    }
+
+    [Fact]
+    public void Section_comes_from_expense_ledger_not_party()
+    {
+        // Rent (194I(b)) expense paid to a deductee vendor whose OWN default nature is 194J(b): the section must be
+        // the EXPENSE ledger's 194I(b) @10% (rent land/building), never the party's 194J(b).
+        var vm = NewCompany("Section-Source Co");
+        var c = vm.Company!;
+        new TdsTcsService(c).EnableTds(new TdsConfig { Tan = ValidTan });
+        var rent = AddLedger(c, "Office Rent", "Indirect Expenses", true);
+        var landlord = AddLedger(c, "Estate Holdings", "Sundry Creditors", false);
+        var rent194I = c.FindNatureOfPaymentByCode("194I(b)")!;
+        var prof194J = c.FindNatureOfPaymentByCode("194J(b)")!;
+        // Expense drives the section (194I(b)); the party carries a DIFFERENT default (194J(b)) that must be ignored.
+        rent.TdsApplicable = true;
+        rent.TdsNatureOfPaymentId = rent194I.Id;
+        landlord.DeducteeType = DeducteeType.Firm;
+        landlord.PartyPan = DeducteePan;
+        landlord.TdsNatureOfPaymentId = prof194J.Id; // the party's default — deliberately the WRONG section
+
+        // 194I(b) has a cumulative ₹6,00,000/FY threshold (no single-txn cap) — cross it so TDS fires.
+        var e = OpenJournal(vm, rent, 7_00_000m, landlord, 7_00_000m);
+        Assert.True(e.ShowTdsPanel);
+        Assert.NotNull(e.SelectedTdsNature);
+        Assert.Equal("194I(b)", e.SelectedTdsNature!.SectionCode); // expense's section, not the party's 194J(b)
+        Assert.Equal("194I(b)", e.TdsSectionText);
+        Assert.Equal("70,000.00", e.TdsAmountText);                // 194I(b) @10% on 7,00,000
+
+        Assert.True(e.Accept());
+        var posted = c.Vouchers.Single(v => v.TypeId == e.Type.Id);
+        var payable = new TdsService(c).RequirePayableLedger();
+        var payableLine = posted.Lines.Single(l => l.LedgerId == payable.Id);
+        Assert.Equal(rent194I.Id, payableLine.Tds!.NatureId);      // the withholding detail records 194I(b)
+        Assert.Equal("194I(b)", payableLine.Tds!.SectionCode);
+    }
+
+    [Fact]
+    public void Operator_can_decline_tds_via_not_applicable_sentinel()
+    {
+        // The "Not Applicable" sentinel lets the operator decline TDS on a mixed/edge voucher — panel stays visible
+        // (so they can re-enable) but the voucher posts verbatim with no carve-out (ER-13).
+        var (vm, fees, vendor) = TdsCompany("Decline Co", DeducteePan);
+        var e = OpenJournal(vm, fees, 1_00_000m, vendor, 1_00_000m);
+        Assert.True(e.ShowTdsPanel);
+        Assert.Contains(e.TdsNatureOptions, n => ReferenceEquals(n, VoucherEntryViewModel.TdsNotApplicable));
+
+        e.SelectedTdsNature = VoucherEntryViewModel.TdsNotApplicable; // decline
+        e.Recalculate();
+        Assert.True(e.ShowTdsPanel);            // still visible so the operator can change their mind
+        Assert.Equal("0.00", e.TdsAmountText);
+
+        Assert.True(e.Accept());
+        var posted = vm.Company!.Vouchers.Single(v => v.TypeId == e.Type.Id);
+        Assert.Equal(2, posted.Lines.Count);    // verbatim — no TDS-Payable leg
+        Assert.All(posted.Lines, l => Assert.False(l.HasTds));
     }
 }

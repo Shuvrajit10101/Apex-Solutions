@@ -174,9 +174,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     public ObservableCollection<NatureOfPayment> TdsNatureOptions { get; } = new();
 
     /// <summary>
-    /// The chosen Nature of Payment (TDS section) for this voucher's withholding — defaulted from the deductee
-    /// party's <see cref="Ledger.TdsNatureOfPaymentId"/> (else the expense ledger's, else the first seeded nature),
-    /// freely overridable in the panel. Changing it re-computes the deduction via the engine.
+    /// The "Not Applicable" sentinel in <see cref="TdsNatureOptions"/> — lets the operator <b>decline</b> TDS on a
+    /// mixed/edge voucher (mirrors the Price-Level Not-Applicable option). Reference-identity compared; never a real
+    /// section, never posts. Present in the picker only when TDS is enabled (natures exist).
+    /// </summary>
+    public static readonly NatureOfPayment TdsNotApplicable =
+        new(Guid.Empty, "N/A", "Not Applicable (decline TDS)", 0, 0, "NA");
+
+    /// <summary>
+    /// The chosen Nature of Payment (TDS section) for this voucher's withholding — defaulted from the
+    /// <b>expense</b> (Dr) ledger's own <see cref="Ledger.TdsNatureOfPaymentId"/> (the section is expense-driven,
+    /// NOT party-driven), else a sensible first-seeded fallback, freely overridable in the panel (including the
+    /// "Not Applicable" sentinel to decline). Changing it re-computes the deduction via the engine.
     /// </summary>
     [ObservableProperty] private NatureOfPayment? _selectedTdsNature;
 
@@ -410,9 +419,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         Ledgers = company.Ledgers;
 
         // TDS Nature-of-Payment choices (Phase 7 slice 2). Empty when TDS is not enabled, so the withholding
-        // panel never shows and a plain voucher is byte-identical (ER-13).
-        foreach (var n in company.NaturesOfPayment.OrderBy(n => n.SectionCode, StringComparer.OrdinalIgnoreCase))
-            TdsNatureOptions.Add(n);
+        // panel never shows and a plain voucher is byte-identical (ER-13). When natures exist, the "Not Applicable"
+        // sentinel leads the list so the operator can decline TDS on a mixed/edge voucher.
+        if (company.NaturesOfPayment.Any())
+        {
+            TdsNatureOptions.Add(TdsNotApplicable);
+            foreach (var n in company.NaturesOfPayment.OrderBy(n => n.SectionCode, StringComparer.OrdinalIgnoreCase))
+                TdsNatureOptions.Add(n);
+        }
 
         // Item-invoice masters (only meaningful on a Purchase/Sales, but always populated so the toggle is cheap).
         StockItems = company.StockItems;
@@ -528,58 +542,89 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
     // =============================================================== TDS withholding (catalog §13; Phase 7 slice 2)
 
-    /// <summary>The context of a detected TDS withholding on the plain grid: the deductee party's Cr line, the
-    /// deductee ledger, the gross obligation (the party line amount) and the resolved Nature of Payment.</summary>
+    /// <summary>The <b>shape</b> of a potential TDS withholding on the plain grid: a complete <i>Is-TDS-Applicable</i>
+    /// expense/purchase <b>debit</b> leg (which drives applicability AND the default section) plus a complete
+    /// deductee-party <b>credit</b> line (positive amount = the gross obligation). When the shape holds the panel
+    /// shows; the operator may still decline via the "Not Applicable" sentinel.</summary>
+    private readonly record struct TdsShape(
+        VoucherLineViewModel PartyLine, DomainLedger Deductee, Money Gross, DomainLedger Expense);
+
+    /// <summary>The resolved context of a <b>firing</b> TDS withholding: the deductee party's Cr line, the deductee
+    /// ledger, the gross obligation, and the Nature of Payment (section) — resolved from the EXPENSE ledger's default
+    /// (or the operator's override), never the party's default.</summary>
     private readonly record struct TdsContext(
         VoucherLineViewModel PartyLine, DomainLedger Deductee, Money Gross, NatureOfPayment Nature);
 
     /// <summary>True when TDS could apply on this screen: TDS is enabled, this is a plain-grid Payment/Journal/
-    /// Purchase (never item-invoice). The concrete applicability (a deductee party + expense line present) is
-    /// tested in <see cref="DetectTdsContext"/>; when either is false the voucher posts byte-identically (ER-13).</summary>
+    /// Purchase (never item-invoice). The concrete applicability (an Is-TDS-Applicable expense Dr leg + a deductee
+    /// party Cr leg) is tested in <see cref="DetectTdsShape"/>; when absent the voucher posts byte-identically (ER-13).</summary>
     private bool TdsPossible =>
         _company.TdsEnabled
         && !IsItemInvoice
         && _type.BaseType is VoucherBaseType.Payment or VoucherBaseType.Journal or VoucherBaseType.Purchase;
 
-    /// <summary>Whether a Cr-side ledger is a TDS deductee (party): it carries the applicability flag, a deductee
-    /// legal status, or a default nature. The Cr-side filter distinguishes the party from the expense (Dr) leg.</summary>
-    private static bool IsDeducteeLedger(DomainLedger l) =>
-        l.TdsApplicable || l.DeducteeType is not null || l.TdsNatureOfPaymentId is not null;
+    /// <summary>Whether a Cr-side ledger is a TDS <b>deductee</b> party — per its documented meaning it carries a
+    /// <see cref="Ledger.DeducteeType"/> (legal status). This is deliberately NOT the expense ledger's
+    /// <see cref="Ledger.TdsApplicable"/> flag (that gates the Dr/expense leg): the party drives only the RATE
+    /// (PAN present ⇒ with-PAN, no PAN ⇒ 20% / 5% for 194Q), never applicability or the section.</summary>
+    private static bool IsDeducteeLedger(DomainLedger l) => l.DeducteeType is not null;
+
+    /// <summary>True when the operator has <b>declined</b> TDS on this voucher via the "Not Applicable" sentinel.</summary>
+    private bool IsTdsDeclined => SelectedTdsNature is { } s && ReferenceEquals(s, TdsNotApplicable);
 
     /// <summary>
-    /// Detects a TDS withholding on the current plain grid: a complete deductee-party <b>credit</b> line (with a
-    /// positive amount = the gross obligation) plus at least one complete expense/purchase <b>debit</b> line, on a
-    /// TDS-enabled Payment/Journal/Purchase. Resolves the Nature of Payment from the operator's selection, else the
-    /// party's default, else an expense line's, else the first seeded nature. Returns <c>null</c> (no panel, no
-    /// carve-out — byte-identical posting) when TDS is not enabled / not applicable.
+    /// Detects the TDS <b>shape</b> on the current plain grid (the panel-visibility gate): on a TDS-enabled
+    /// Payment/Journal/Purchase, at least one complete <i>Is-TDS-Applicable</i> expense/purchase <b>debit</b> leg
+    /// AND a complete deductee-party <b>credit</b> line with a positive gross. A non-TDS expense paid to a deductee
+    /// (no Is-TDS-Applicable Dr leg) does <b>not</b> qualify — no withholding. Returns <c>null</c> ⇒ the panel hides
+    /// and the voucher posts byte-identically (ER-13).
     /// </summary>
-    private TdsContext? DetectTdsContext()
+    private TdsShape? DetectTdsShape()
     {
         if (!TdsPossible) return null;
-        if (!Lines.Any(l => l.IsComplete && l.Side == DrCr.Debit)) return null; // need an expense/purchase Dr leg
 
+        // The EXPENSE (Dr) leg drives applicability: a complete debit line whose ledger is *Is TDS Applicable*.
+        var expenseLine = Lines.FirstOrDefault(l =>
+            l.IsComplete && l.Side == DrCr.Debit && l.SelectedLedger is { TdsApplicable: true });
+        if (expenseLine is null) return null; // no Is-TDS-Applicable expense leg ⇒ no withholding
+
+        // The PARTY (Cr) leg must be a deductee (carries a DeducteeType); it drives only the rate, not the section.
         var partyLine = Lines.FirstOrDefault(l =>
             l.IsComplete && l.Side == DrCr.Credit && l.SelectedLedger is { } led && IsDeducteeLedger(led));
         if (partyLine is null) return null;
 
-        var deductee = partyLine.SelectedLedger!;
         var gross = new Money(partyLine.ParsedAmount);
         if (gross.Amount <= 0m) return null;
 
-        var nature = SelectedTdsNature ?? DefaultNatureFor(deductee);
-        if (nature is null) return null;
-
-        return new TdsContext(partyLine, deductee, gross, nature);
+        return new TdsShape(partyLine, partyLine.SelectedLedger!, gross, expenseLine.SelectedLedger!);
     }
 
-    /// <summary>The default Nature of Payment for a deductee: its own <see cref="Ledger.TdsNatureOfPaymentId"/>,
-    /// else an expense (Dr) line's, else the first seeded nature. <c>null</c> only when no nature exists.</summary>
-    private NatureOfPayment? DefaultNatureFor(DomainLedger deductee)
+    /// <summary>
+    /// Resolves the <b>firing</b> TDS context from the shape: <c>null</c> when there is no shape or the operator
+    /// declined via "Not Applicable"; otherwise the Nature of Payment comes from the operator's override, else the
+    /// EXPENSE ledger's default section (<see cref="DefaultNatureFor"/>) — never the party's default. Drives the
+    /// carve-out on Accept; <c>null</c> ⇒ byte-identical posting (ER-13).
+    /// </summary>
+    private TdsContext? DetectTdsContext()
     {
-        if (deductee.TdsNatureOfPaymentId is { } id && _company.FindNatureOfPayment(id) is { } n) return n;
-        foreach (var l in Lines.Where(l => l.IsComplete && l.Side == DrCr.Debit))
-            if (l.SelectedLedger?.TdsNatureOfPaymentId is { } eid && _company.FindNatureOfPayment(eid) is { } en)
-                return en;
+        if (DetectTdsShape() is not { } shape) return null;
+        if (IsTdsDeclined) return null; // operator chose "Not Applicable"
+
+        var nature = SelectedTdsNature is { } sel && !ReferenceEquals(sel, TdsNotApplicable)
+            ? sel
+            : DefaultNatureFor(shape.Expense);
+        if (nature is null) return null;
+
+        return new TdsContext(shape.PartyLine, shape.Deductee, shape.Gross, nature);
+    }
+
+    /// <summary>The default Nature of Payment resolved from the <b>expense</b> ledger's own default section
+    /// (<see cref="Ledger.TdsNatureOfPaymentId"/>) — the section is expense-driven. When the expense ledger has no
+    /// default, a sensible fallback to the first seeded nature (operator-selectable in the panel), but <b>never</b>
+    /// the party's default. <c>null</c> only when no nature exists at all.</summary>
+    private NatureOfPayment? DefaultNatureFor(DomainLedger expense)
+    {
+        if (expense.TdsNatureOfPaymentId is { } id && _company.FindNatureOfPayment(id) is { } n) return n;
         return _company.NaturesOfPayment.FirstOrDefault();
     }
 
@@ -613,8 +658,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         _updatingTds = true;
         try
         {
-            var detected = DetectTdsContext();
-            if (detected is not { } ctx)
+            if (DetectTdsShape() is not { } shape)
             {
                 ShowTdsPanel = false;
                 TdsSectionText = string.Empty;
@@ -625,8 +669,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 return;
             }
 
-            // Default the operator-facing selector to the resolved nature (only when unset — an override sticks).
-            if (SelectedTdsNature is null) SelectedTdsNature = ctx.Nature;
+            // The shape holds ⇒ the panel shows (the operator may still decline via "Not Applicable").
+            ShowTdsPanel = true;
+
+            // Default the selector to the EXPENSE ledger's section on first sight (only when unset — any override,
+            // including the "Not Applicable" decline, sticks).
+            if (SelectedTdsNature is null) SelectedTdsNature = DefaultNatureFor(shape.Expense);
+
+            if (DetectTdsContext() is not { } ctx)
+            {
+                // Declined ("Not Applicable") or no nature to resolve — show a zeroed, byte-identical-posting state
+                // (the full gross is payable) while keeping the panel visible so the operator can re-enable TDS.
+                TdsSectionText = string.Empty;
+                TdsRateText = string.Empty;
+                TdsAmountText = "0.00";
+                TdsNetPayableText = IndianFormat.AmountAlways(shape.Gross.Amount);
+                TdsSummary = $"TDS not applied — full ₹{IndianFormat.AmountAlways(shape.Gross.Amount)} " +
+                             $"payable to {shape.Deductee.Name}.";
+                return;
+            }
 
             TdsService.CarveOut carve;
             try
