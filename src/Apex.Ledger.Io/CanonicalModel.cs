@@ -129,6 +129,13 @@ public sealed record PayloadDto
 
     /// <summary>Challan ↔ Stat-Payment-voucher links (Phase 7 slice 3): which deposit voucher each challan booked.</summary>
     public IReadOnlyList<ChallanVoucherLinkDto> ChallanVoucherLinks { get; init; } = [];
+
+    /// <summary>TCS deposit challans (Phase 7 slice 6; ITNS-281): one per TCS payment into the bank.</summary>
+    public IReadOnlyList<TcsChallanDto> TcsChallans { get; init; } = [];
+
+    /// <summary>TCS challan ↔ Stat-Payment-voucher links (Phase 7 slice 6): which deposit voucher each TCS challan
+    /// booked. Reuses <see cref="ChallanVoucherLinkDto"/>, in its own list (a TCS-specific link set).</summary>
+    public IReadOnlyList<ChallanVoucherLinkDto> TcsChallanVoucherLinks { get; init; } = [];
 }
 
 /// <summary>A TDS deposit challan (Phase 7 slice 3), mirroring the domain <c>TdsChallan</c> and the SQLite
@@ -148,11 +155,28 @@ public sealed record TdsChallanDto
 }
 
 /// <summary>A challan ↔ Stat-Payment-voucher link (Phase 7 slice 3), mirroring the domain
-/// <c>ChallanVoucherLink</c> and the SQLite <c>challan_voucher_links</c> row.</summary>
+/// <c>ChallanVoucherLink</c> and the SQLite <c>challan_voucher_links</c> row. Reused (in a distinct list) for the
+/// Phase 7 slice 6 TCS challan links.</summary>
 public sealed record ChallanVoucherLinkDto
 {
     public required Guid ChallanId { get; init; }
     public required Guid VoucherId { get; init; }
+}
+
+/// <summary>A TCS deposit challan (Phase 7 slice 6), mirroring the domain <c>TcsChallan</c> and the SQLite
+/// <c>tcs_challans</c> row. Money is integer paisa (the canonical wire scale).</summary>
+public sealed record TcsChallanDto
+{
+    public required Guid Id { get; init; }
+    public required string ChallanNo { get; init; }
+    public required string BsrCode { get; init; }
+
+    /// <summary>ISO yyyy-MM-dd.</summary>
+    public required string DepositDate { get; init; }
+
+    public long AmountPaisa { get; init; }
+    public required string CollectionCode { get; init; }
+    public required string MinorHead { get; init; }
 }
 
 // ----------------------------------------------------------------- masters

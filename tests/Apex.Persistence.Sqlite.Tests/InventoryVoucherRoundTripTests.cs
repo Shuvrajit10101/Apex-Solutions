@@ -258,6 +258,11 @@ public sealed class InventoryVoucherRoundTripTests
         // Drop the v28 TCS collection-detail table (+ index) so the reopen's v27→v28 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_tcs_lines_entry_line;");
         Exec(conn, "DROP TABLE IF EXISTS tcs_lines;");
+        // Drop the v29 TCS challan tables (+ index) so the reopen's v28→v29 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ix_tcs_challan_voucher_links_challan;");
+        Exec(conn, "DROP TABLE IF EXISTS tcs_challan_voucher_links;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_tcs_challans_company;");
+        Exec(conn, "DROP TABLE IF EXISTS tcs_challans;");
         Exec(conn, "DROP TABLE IF EXISTS challan_voucher_links;");
         Exec(conn, "DROP TABLE IF EXISTS tds_challans;");
         Exec(conn, "DROP TABLE IF EXISTS tds_lines;");

@@ -89,7 +89,9 @@ public static class CanonicalXml
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
-            List("challanVoucherLinks", "challanVoucherLink", p.ChallanVoucherLinks, BuildChallanVoucherLink));
+            List("challanVoucherLinks", "challanVoucherLink", p.ChallanVoucherLinks, BuildChallanVoucherLink),
+            List("tcsChallans", "tcsChallan", p.TcsChallans, BuildTcsChallan),
+            List("tcsChallanVoucherLinks", "tcsChallanVoucherLink", p.TcsChallanVoucherLinks, BuildChallanVoucherLink));
         return root;
     }
 
@@ -100,6 +102,11 @@ public static class CanonicalXml
 
     private static XElement BuildChallanVoucherLink(ChallanVoucherLinkDto l) => new("challanVoucherLink",
         Attr("challanId", l.ChallanId), Attr("voucherId", l.VoucherId));
+
+    private static XElement BuildTcsChallan(TcsChallanDto ch) => new("tcsChallan",
+        Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
+        Attr("depositDate", ch.DepositDate), Attr("amountPaisa", ch.AmountPaisa),
+        Attr("collectionCode", ch.CollectionCode), Attr("minorHead", ch.MinorHead));
 
     private static XElement List<T>(string wrapper, string item, IReadOnlyList<T> items, Func<T, XElement> build)
     {
@@ -655,6 +662,8 @@ public static class CanonicalXml
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
                 TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
                 ChallanVoucherLinks = ReadList(root, "challanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
+                TcsChallans = ReadList(root, "tcsChallans", "tcsChallan", ReadTcsChallan),
+                TcsChallanVoucherLinks = ReadList(root, "tcsChallanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
             };
         }
         catch (Exception ex)
@@ -811,6 +820,13 @@ public static class CanonicalXml
     private static ChallanVoucherLinkDto ReadChallanVoucherLink(XElement e) => new()
     {
         ChallanId = Guid(e, "challanId"), VoucherId = Guid(e, "voucherId"),
+    };
+
+    private static TcsChallanDto ReadTcsChallan(XElement e) => new()
+    {
+        Id = Guid(e, "id"), ChallanNo = Str(e, "challanNo")!, BsrCode = Str(e, "bsrCode")!,
+        DepositDate = Str(e, "depositDate") ?? string.Empty, AmountPaisa = Long(e, "amountPaisa"),
+        CollectionCode = Str(e, "collectionCode")!, MinorHead = Str(e, "minorHead")!,
     };
 
     private static PosConfigDto ReadPosConfig(XElement e) => new()

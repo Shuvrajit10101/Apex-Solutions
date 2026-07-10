@@ -147,6 +147,15 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Form 26Q quarterly-TDS-return report (non-null only for that column; Phase 7 slice 4).</summary>
     public Form26QViewModel? Form26Q => Page as Form26QViewModel;
 
+    /// <summary>The hosted TCS Stat-Payment deposit page (non-null only for that column; Phase 7 slice 6).</summary>
+    public TcsStatPaymentViewModel? TcsStatPayment => Page as TcsStatPaymentViewModel;
+
+    /// <summary>The hosted TCS Challan Reconciliation report (non-null only for that column; Phase 7 slice 6).</summary>
+    public TcsChallanReconciliationViewModel? TcsChallanReconciliation => Page as TcsChallanReconciliationViewModel;
+
+    /// <summary>The hosted Form 27EQ quarterly-TCS-return report (non-null only for that column; Phase 7 slice 6).</summary>
+    public Form27EQViewModel? Form27EQ => Page as Form27EQViewModel;
+
     /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
     public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
 

@@ -31,6 +31,8 @@ public sealed class Company
     private readonly List<ReorderDefinition> _reorderDefinitions = new();
     private readonly List<TdsChallan> _tdsChallans = new();
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
+    private readonly List<TcsChallan> _tcsChallans = new();
+    private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -310,6 +312,13 @@ public sealed class Company
     /// (Phase 7 slice 3; the <c>challan_voucher_links</c> set).</summary>
     public IReadOnlyList<ChallanVoucherLink> ChallanVoucherLinks => _challanVoucherLinks;
 
+    /// <summary>TCS deposit challans (catalog §13; Phase 7 slice 6; ITNS-281): one per TCS payment into the bank.</summary>
+    public IReadOnlyList<TcsChallan> TcsChallans => _tcsChallans;
+
+    /// <summary>Links between a <see cref="TcsChallan"/> and the Stat-Payment voucher that booked its deposit
+    /// (Phase 7 slice 6; the <c>tcs_challan_voucher_links</c> set — a TCS-specific sibling of the TDS one).</summary>
+    public IReadOnlyList<ChallanVoucherLink> TcsChallanVoucherLinks => _tcsChallanVoucherLinks;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -416,6 +425,34 @@ public sealed class Company
     /// <summary>The challan ids linked to a given voucher (Phase 7 slice 3).</summary>
     public IEnumerable<Guid> ChallansLinkedToVoucher(Guid voucherId) =>
         _challanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
+
+    /// <summary>Adds a TCS deposit challan (Phase 7 slice 6).</summary>
+    public void AddTcsChallan(TcsChallan challan) => _tcsChallans.Add(challan ?? throw new ArgumentNullException(nameof(challan)));
+
+    /// <summary>Removes a TCS deposit challan (delete-guards live in <c>TcsDepositService</c>; also used by import roll-back).</summary>
+    public bool RemoveTcsChallan(TcsChallan challan) => _tcsChallans.Remove(challan);
+
+    /// <summary>Finds a TCS challan by its id, or <c>null</c>.</summary>
+    public TcsChallan? FindTcsChallan(Guid id) => _tcsChallans.FirstOrDefault(c => c.Id == id);
+
+    /// <summary>Links a TCS challan to the Stat-Payment voucher that booked its deposit (idempotent — a duplicate pair
+    /// is ignored).</summary>
+    public void LinkTcsChallanToVoucher(Guid challanId, Guid voucherId)
+    {
+        var link = new ChallanVoucherLink(challanId, voucherId);
+        if (!_tcsChallanVoucherLinks.Contains(link)) _tcsChallanVoucherLinks.Add(link);
+    }
+
+    /// <summary>Removes a TCS challan-voucher link (used by import roll-back).</summary>
+    public bool RemoveTcsChallanVoucherLink(ChallanVoucherLink link) => _tcsChallanVoucherLinks.Remove(link);
+
+    /// <summary>The Stat-Payment voucher ids linked to a given TCS challan (Phase 7 slice 6).</summary>
+    public IEnumerable<Guid> VouchersLinkedToTcsChallan(Guid challanId) =>
+        _tcsChallanVoucherLinks.Where(l => l.ChallanId == challanId).Select(l => l.VoucherId);
+
+    /// <summary>The TCS challan ids linked to a given voucher (Phase 7 slice 6).</summary>
+    public IEnumerable<Guid> TcsChallansLinkedToVoucher(Guid voucherId) =>
+        _tcsChallanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);

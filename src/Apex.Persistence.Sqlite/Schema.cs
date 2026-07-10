@@ -61,7 +61,7 @@ public static class Schema
     /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
     /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
     /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 28;
+    public const int CurrentVersion = 29;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -393,6 +393,31 @@ public static class Schema
             voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
         );
         CREATE INDEX ix_challan_voucher_links_challan ON challan_voucher_links(challan_id);
+
+        -- v29 TCS deposit challans (catalog §13; Phase 7 slice 6): one row per ITNS-281 challan (a TCS payment into
+        -- the bank). The exact sibling of tds_challans, but keyed on the §206C collection code. Empty for a company
+        -- that never deposits TCS (ER-13). amount_micro is rupees × 1,000,000.
+        CREATE TABLE tcs_challans (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            challan_no      TEXT    NOT NULL,   -- challan serial / CIN tender number
+            bsr_code        TEXT    NOT NULL,   -- 7-digit BSR code of the collecting branch
+            deposit_date    TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            amount_micro    INTEGER NOT NULL,   -- amount deposited, rupees × 1,000,000
+            collection_code TEXT    NOT NULL,   -- §206C Form-27EQ collection code (e.g. 6CE)
+            minor_head      TEXT    NOT NULL    -- ITNS-281 minor head (200 = payable by taxpayer, 400 = regular assessment)
+        );
+        CREATE INDEX ix_tcs_challans_company ON tcs_challans(company_id);
+
+        -- v29 TCS challan ↔ stat-payment-voucher links (Phase 7 slice 6): a many-to-many seam pairing a TCS challan
+        -- to the Payment voucher that booked its deposit. A TCS-specific sibling of challan_voucher_links (its
+        -- challan_id FK targets tcs_challans). Empty when no TCS deposit exists (ER-13).
+        CREATE TABLE tcs_challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tcs_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_tcs_challan_voucher_links_challan ON tcs_challan_voucher_links(challan_id);
 
         CREATE TABLE bill_allocations (
             id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -1896,5 +1921,34 @@ public static class Schema
             pan_applied            INTEGER NOT NULL
         );
         CREATE INDEX ix_tcs_lines_entry_line ON tcs_lines(entry_line_id);
+        """;
+
+    /// <summary>
+    /// v28 → v29 (Phase 7 slice 6; TCS deposit + challan reconciliation): additive only — two new tables
+    /// (<c>tcs_challans</c>, <c>tcs_challan_voucher_links</c>) and their indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 29. No ALTER (the <c>is_stat_payment</c> voucher-type flag from v27 is reused for the
+    /// TCS Stat Payment), no row rewrites — an existing v28 database keeps every row and the new tables start empty,
+    /// so a company that never deposits TCS is byte-identical (ER-13). The exact sibling of the v26→v27 TDS challan
+    /// migration. A fresh DB is stamped straight to v29 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV28ToV29 = """
+        CREATE TABLE tcs_challans (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            challan_no      TEXT    NOT NULL,
+            bsr_code        TEXT    NOT NULL,
+            deposit_date    TEXT    NOT NULL,
+            amount_micro    INTEGER NOT NULL,
+            collection_code TEXT    NOT NULL,
+            minor_head      TEXT    NOT NULL
+        );
+        CREATE INDEX ix_tcs_challans_company ON tcs_challans(company_id);
+
+        CREATE TABLE tcs_challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tcs_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_tcs_challan_voucher_links_challan ON tcs_challan_voucher_links(challan_id);
         """;
 }

@@ -41,6 +41,8 @@ public sealed class TdsTcsSchemaTests
             Assert.True(TableExists(dbPath, "challan_voucher_links"));  // v27 (Phase 7 slice 3)
             Assert.Contains("is_stat_payment", ColumnNames(dbPath, "voucher_types")); // v27 (Phase 7 slice 3)
             Assert.True(TableExists(dbPath, "tcs_lines")); // v28 (Phase 7 slice 5)
+            Assert.True(TableExists(dbPath, "tcs_challans"));               // v29 (Phase 7 slice 6)
+            Assert.True(TableExists(dbPath, "tcs_challan_voucher_links"));  // v29 (Phase 7 slice 6)
 
             // §206AB / §206CCA were omitted (FA2025) — no such columns leaked in.
             Assert.DoesNotContain("higher_rate_206ab", ColumnNames(dbPath, "ledgers"));
@@ -224,6 +226,46 @@ public sealed class TdsTcsSchemaTests
         finally { Delete(dbPath); }
     }
 
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Legacy_v28_database_auto_migrates_to_v29_adding_tcs_challans_and_preserving_rows()
+    {
+        var dbPath = TempDb("apex-tcs-v28legacy");
+        try
+        {
+            var company = Guid.NewGuid();
+            var connStr = new SqliteConnectionStringBuilder { DataSource = dbPath, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
+            using (var conn = new SqliteConnection(connStr))
+            {
+                conn.Open();
+                Exec(conn, MinimalV28Ddl);
+                Exec(conn, "INSERT INTO schema_version(version) VALUES (28);");
+                Exec(conn, "INSERT INTO companies(id, name) VALUES ($id, 'Legacy V28 Co');", ("$id", company.ToString("D")));
+                Exec(conn, "INSERT INTO voucher_types(id, company_id, name) VALUES ($id, $cid, 'Payment');",
+                    ("$id", Guid.NewGuid().ToString("D")), ("$cid", company.ToString("D")));
+                SqliteConnection.ClearPool(conn);
+            }
+
+            Assert.Equal(28L, ReadSchemaVersion(dbPath));
+            Assert.False(TableExists(dbPath, "tcs_challans"));
+
+            using (new SqliteCompanyStore(dbPath)) { } // opens v28 → migrates to the current version
+
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+            Assert.True(TableExists(dbPath, "tcs_challans"));
+            Assert.True(TableExists(dbPath, "tcs_challan_voucher_links"));
+            // Every existing row survived (ER-13); the new tables start empty.
+            Assert.Equal("Legacy V28 Co", ReadScalarStr(dbPath, "SELECT name FROM companies LIMIT 1;"));
+            Assert.Equal(1L, CountRows(dbPath, "voucher_types"));
+            Assert.Equal(0L, CountRows(dbPath, "tcs_challans"));
+            Assert.Equal(0L, CountRows(dbPath, "tcs_challan_voucher_links"));
+
+            using (new SqliteCompanyStore(dbPath)) { }
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+        }
+        finally { Delete(dbPath); }
+    }
+
     // ---- helpers ----
 
     private static string TempDb(string prefix) => Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}.db");
@@ -341,6 +383,15 @@ public sealed class TdsTcsSchemaTests
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL);
+        CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        """;
+
+    /// <summary>A minimal pre-v29 (v28) DDL: just enough for the v28→v29 migration (which CREATEs the two TCS
+    /// challan tables referencing <c>companies</c>/<c>vouchers</c>) plus a data-preservation assertion.</summary>
+    private const string MinimalV28Ddl = """
+        CREATE TABLE schema_version (version INTEGER NOT NULL);
+        CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL);
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         """;
 }

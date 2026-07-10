@@ -38,6 +38,8 @@ internal sealed class ApplyJournal
     private readonly List<ReorderDefinition> _reorderDefinitions = new();
     private readonly List<TdsChallan> _tdsChallans = new();
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
+    private readonly List<TcsChallan> _tcsChallans = new();
+    private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
 
     // Enable Job Order Processing: whether it was already on before the import stamped the seeded voucher types, so a
     // rollback re-runs JobWorkService.SetEnabled(prior) to restore both the company flag and the seeded type flags.
@@ -93,6 +95,8 @@ internal sealed class ApplyJournal
     public void RecordReorderDefinition(ReorderDefinition d) => _reorderDefinitions.Add(d);
     public void RecordTdsChallan(TdsChallan ch) => _tdsChallans.Add(ch);
     public void RecordChallanVoucherLink(ChallanVoucherLink l) => _challanVoucherLinks.Add(l);
+    public void RecordTcsChallan(TcsChallan ch) => _tcsChallans.Add(ch);
+    public void RecordTcsChallanVoucherLink(ChallanVoucherLink l) => _tcsChallanVoucherLinks.Add(l);
 
     /// <summary>Snapshots the Enable-Job-Order-Processing flag as it was BEFORE the import toggled it (via
     /// <c>JobWorkService.SetEnabled</c>), so a rollback restores the flag AND the seeded voucher-type flags it
@@ -141,10 +145,12 @@ internal sealed class ApplyJournal
 
     public void Rollback()
     {
-        // 0) TDS deposit challans + their voucher links (Phase 7 slice 3) — remove the links first, then the challans,
-        //    before the vouchers they point at are removed below.
+        // 0) TDS + TCS deposit challans + their voucher links (Phase 7 slices 3, 6) — remove the links first, then the
+        //    challans, before the vouchers they point at are removed below.
         for (var i = _challanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveChallanVoucherLink(_challanVoucherLinks[i]);
         for (var i = _tdsChallans.Count - 1; i >= 0; i--) _company.RemoveTdsChallan(_tdsChallans[i]);
+        for (var i = _tcsChallanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveTcsChallanVoucherLink(_tcsChallanVoucherLinks[i]);
+        for (var i = _tcsChallans.Count - 1; i >= 0; i--) _company.RemoveTcsChallan(_tcsChallans[i]);
 
         // 1) Vouchers first (reverse posting order): inventory/order vouchers, then accounting vouchers.
         for (var i = _inventoryVouchers.Count - 1; i >= 0; i--) _company.RemoveInventoryVoucher(_inventoryVouchers[i]);

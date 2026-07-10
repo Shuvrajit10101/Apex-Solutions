@@ -652,6 +652,29 @@ internal sealed class ImportPlan
             journal.RecordChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
         }
 
+        // 13) TCS deposit challans + their Stat-Payment-voucher links (Phase 7 slice 6). The exact sibling of the TDS
+        //     challan re-mint above: a fresh Guid per challan; each link resolves the DTO voucher id to the re-minted
+        //     target voucher posted in step 10. Recorded in the journal so a rollback prunes them.
+        var tcsChallanId = new Dictionary<Guid, Guid>();
+        foreach (var chDto in _model.Payload.TcsChallans)
+        {
+            var challan = new TcsChallan(Guid.NewGuid(), chDto.ChallanNo, chDto.BsrCode,
+                CompanyImportService.ParseDate(chDto.DepositDate), MoneyCodec.FromPaisa(chDto.AmountPaisa),
+                chDto.CollectionCode, chDto.MinorHead);
+            t.AddTcsChallan(challan);
+            journal.RecordTcsChallan(challan);
+            tcsChallanId[chDto.Id] = challan.Id;
+        }
+        foreach (var linkDto in _model.Payload.TcsChallanVoucherLinks)
+        {
+            if (!tcsChallanId.TryGetValue(linkDto.ChallanId, out var chId)) continue; // orphan link — challan not imported
+            var vId = voucherId.TryGetValue(linkDto.VoucherId, out var mapped) ? mapped
+                : t.FindVoucher(linkDto.VoucherId)?.Id;
+            if (vId is null) continue; // orphan link — voucher not imported/present
+            t.LinkTcsChallanToVoucher(chId, vId.Value);
+            journal.RecordTcsChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
+        }
+
         return (created, reused, posted);
     }
 

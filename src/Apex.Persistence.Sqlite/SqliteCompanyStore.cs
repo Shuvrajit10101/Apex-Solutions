@@ -682,6 +682,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 28;
         }
 
+        // v28 → v29: apply the TCS deposit + challan schema (two new tcs_challan tables + indexes), then bump the
+        // marker. Existing v28 data survives untouched (CREATE TABLE/INDEX only; no ALTER — the is_stat_payment flag
+        // from v27 is reused; no row rewrites — Phase 7 slice 6). ER-13 byte-identical when no TCS is deposited (the
+        // new tables stay empty). The exact sibling of the v26→v27 TDS challan migration.
+        if (version == 28)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV28ToV29;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 29);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 29;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -889,6 +913,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var (challanId, voucherId) in ReadChallanVoucherLinks(companyId))
             company.LinkChallanToVoucher(challanId, voucherId);
 
+        // TCS deposit challans + their voucher links (Phase 7 slice 6): the exact sibling of the TDS challan set,
+        // loaded after vouchers so the links reference real posted vouchers.
+        foreach (var ch in ReadTcsChallans(companyId))
+            company.AddTcsChallan(ch);
+        foreach (var (challanId, voucherId) in ReadTcsChallanVoucherLinks(companyId))
+            company.LinkTcsChallanToVoucher(challanId, voucherId);
+
         return company;
     }
 
@@ -915,6 +946,38 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT challan_id, voucher_id FROM challan_voucher_links
             WHERE challan_id IN (SELECT id FROM tds_challans WHERE company_id = $cid) ORDER BY id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<(Guid, Guid)>();
+        while (r.Read())
+            list.Add((Guid.Parse(r.GetString(0)), Guid.Parse(r.GetString(1))));
+        return list;
+    }
+
+    private IEnumerable<TcsChallan> ReadTcsChallans(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, challan_no, bsr_code, deposit_date, amount_micro, collection_code, minor_head
+            FROM tcs_challans WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<TcsChallan>();
+        while (r.Read())
+            list.Add(new TcsChallan(
+                Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2), ParseDate(r.GetString(3)),
+                new Money(r.GetInt64(4) / 1_000_000m), r.GetString(5), r.GetString(6)));
+        return list;
+    }
+
+    private IEnumerable<(Guid ChallanId, Guid VoucherId)> ReadTcsChallanVoucherLinks(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT challan_id, voucher_id FROM tcs_challan_voucher_links
+            WHERE challan_id IN (SELECT id FROM tcs_challans WHERE company_id = $cid) ORDER BY id;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
         using var r = cmd.ExecuteReader();
@@ -998,6 +1061,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // TDS deposit challans + their voucher links (Phase 7 slice 3): challans FK companies; a link FKs a challan +
         // a (stat-payment) voucher — both inserted above, so insert challans then links last.
         InsertTdsChallans(tx, company);
+        // TCS deposit challans + their voucher links (Phase 7 slice 6): the exact sibling of the TDS challan set.
+        InsertTcsChallans(tx, company);
 
         tx.Commit();
     }
@@ -2458,6 +2523,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id FROM tds_challans WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM tds_challans WHERE company_id = $cid;", ("$cid", cid));
+        // v29 TCS challan-voucher links FK tcs_challans + vouchers; tcs_challans FK companies → delete the links
+        // first, then the challans, before vouchers and the company row below (Phase 7 slice 6).
+        ExecTx(tx, """
+            DELETE FROM tcs_challan_voucher_links WHERE challan_id IN (
+                SELECT id FROM tcs_challans WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM tcs_challans WHERE company_id = $cid;", ("$cid", cid));
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
         ExecTx(tx, """
             DELETE FROM tds_lines WHERE entry_line_id IN (
@@ -2951,6 +3023,41 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO challan_voucher_links (challan_id, voucher_id) VALUES ($ch, $v);
+                """;
+            cmd.Parameters.AddWithValue("$ch", link.ChallanId.ToString("D"));
+            cmd.Parameters.AddWithValue("$v", link.VoucherId.ToString("D"));
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertTcsChallans(SqliteTransaction tx, Company c)
+    {
+        foreach (var ch in c.TcsChallans)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO tcs_challans
+                    (id, company_id, challan_no, bsr_code, deposit_date, amount_micro, collection_code, minor_head)
+                VALUES ($id, $cid, $no, $bsr, $date, $amt, $code, $minor);
+                """;
+            cmd.Parameters.AddWithValue("$id", ch.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$no", ch.ChallanNo);
+            cmd.Parameters.AddWithValue("$bsr", ch.BsrCode);
+            cmd.Parameters.AddWithValue("$date", FormatDate(ch.DepositDate));
+            cmd.Parameters.AddWithValue("$amt", (long)(ch.Amount.Amount * 1_000_000m));
+            cmd.Parameters.AddWithValue("$code", ch.CollectionCode);
+            cmd.Parameters.AddWithValue("$minor", ch.MinorHead);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var link in c.TcsChallanVoucherLinks)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO tcs_challan_voucher_links (challan_id, voucher_id) VALUES ($ch, $v);
                 """;
             cmd.Parameters.AddWithValue("$ch", link.ChallanId.ToString("D"));
             cmd.Parameters.AddWithValue("$v", link.VoucherId.ToString("D"));

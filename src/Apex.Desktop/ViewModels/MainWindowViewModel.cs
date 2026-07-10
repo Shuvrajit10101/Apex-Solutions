@@ -64,6 +64,9 @@ public enum Screen
     TdsStatPayment,
     ChallanReconciliation,
     Form26Q,
+    TcsStatPayment,
+    TcsChallanReconciliation,
+    Form27EQ,
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
@@ -253,6 +256,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Form 26Q quarterly-TDS-return report (Phase 7 slice 4), non-null only while that page is open.</summary>
     [ObservableProperty] private Form26QViewModel? _form26Q;
 
+    /// <summary>The TCS Stat-Payment (deposit) page (Phase 7 slice 6), non-null only while that page is open.</summary>
+    [ObservableProperty] private TcsStatPaymentViewModel? _tcsStatPayment;
+
+    /// <summary>The TCS Challan Reconciliation report (Phase 7 slice 6), non-null only while that page is open.</summary>
+    [ObservableProperty] private TcsChallanReconciliationViewModel? _tcsChallanReconciliation;
+
+    /// <summary>The Form 27EQ quarterly-TCS-return report (Phase 7 slice 6), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form27EQViewModel? _form27EQ;
+
     /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
 
@@ -325,6 +337,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
+        && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
         && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
@@ -367,6 +380,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChallanReconciliationChanged(ChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm26QChanged(Form26QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTcsStatPaymentChanged(TcsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTcsChallanReconciliationChanged(TcsChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm27EQChanged(Form27EQViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -592,12 +608,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Other Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
-        // TDS Stat Payment (Phase 7 slice 3; catalog §13) — the Payment "Ctrl+F" deposit of accrued TDS Payable.
-        // Surfaced only when the F11 feature "Enable TDS" is on, so a non-TDS company is byte-identical (ER-13).
-        if (Company is { TdsEnabled: true })
+        // TDS / TCS Stat Payment (Phase 7 slices 3 & 6; catalog §13) — the Payment "Ctrl+F" deposit of the accrued
+        // TDS/TCS Payable liability. Each entry is surfaced only when its F11 feature is on, so a company that enables
+        // neither is byte-identical (ER-13). The "Statutory" header appears once when either tax is enabled.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
         {
             col.Add(MenuItemViewModel.Header("Statutory"));
-            col.Add(new MenuItemViewModel("TDS Stat Payment", () => { }, "Ctrl+F", isSubItem: true, kind: MenuItemKind.Page));
+            if (Company is { TdsEnabled: true })
+                col.Add(new MenuItemViewModel("TDS Stat Payment", () => { }, "Ctrl+F", isSubItem: true, kind: MenuItemKind.Page));
+            // The TCS deposit deposits collected TCS; its in-screen deposit action is Ctrl+A (no global open accelerator
+            // is advertised, so Ctrl+F stays unambiguously the TDS deposit even when both taxes are on — no dead key).
+            if (Company is { TcsEnabled: true })
+                col.Add(new MenuItemViewModel("TCS Stat Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -950,6 +972,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Form 26Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // TCS Challan Reconciliation + Form 27EQ (Phase 7 slice 6; catalog §13) — the collector's mirror of the TDS
+        // pair. Surfaced under their own TCS header only when the F11 feature "Enable TCS" is on (ER-13). No global
+        // open accelerator (Alt+R stays the TDS recon even when both taxes are on — no colliding/dead key).
+        if (Company is { TcsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("TCS"));
+            col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27EQ", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2519,6 +2551,69 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BackFromPage();
     }
 
+    /// <summary>
+    /// Opens the <b>TCS Stat Payment</b> deposit page (Transactions → Vouchers → Statutory → TCS Stat Payment, the
+    /// Payment "Ctrl+F" family; Phase 7 slice 6) as a page column: deposits the collected TCS Payable into the bank and
+    /// records the ITNS-281 challan. A no-op unless TCS is enabled (the menu item is itself gated on
+    /// <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    /// </summary>
+    public void ShowTcsStatPayment()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new TcsStatPaymentViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("TCS Stat Payment", page), Screen.TcsStatPayment,
+            "TCS Stat Payment (Deposit)", () => TcsStatPayment = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>TCS Challan Reconciliation</b> report page (Reports → GST Reports → TCS → TCS Challan
+    /// Reconciliation; Phase 7 slice 6) as a page column: the per-code deposited-vs-collected match and remaining
+    /// payable over the financial year. A no-op unless TCS is enabled (the menu item is gated on
+    /// <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenTcsChallanReconciliation()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new TcsChallanReconciliationViewModel(Company);
+        OpenPageColumn(new GatewayColumn(page.Title, page), Screen.TcsChallanReconciliation,
+            "TCS Challan Reconciliation", () => TcsChallanReconciliation = page);
+    }
+
+    /// <summary>True while the TCS Challan Reconciliation report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsTcsChallanReconciliationScreen =>
+        CurrentScreen == Screen.TcsChallanReconciliation && TcsChallanReconciliation is not null;
+
+    /// <summary>
+    /// Opens the <b>Form 27EQ</b> quarterly-TCS-return report page (Reports → GST Reports → TCS → Form 27EQ; Phase 7
+    /// slice 6) as a page column: the collector / challan / collectee blocks + control totals for a chosen FY + quarter,
+    /// with a Ctrl+A FVU export and an Alt+B save-return. A no-op unless TCS is enabled (the menu item + the open path
+    /// are gated on <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenForm27EQ()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new Form27EQViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 27EQ", page), Screen.Form27EQ,
+            "Form 27EQ (Quarterly TCS Return)", () => Form27EQ = page);
+    }
+
+    /// <summary>True while the Form 27EQ return report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm27EQScreen => CurrentScreen == Screen.Form27EQ && Form27EQ is not null;
+
+    /// <summary>
+    /// Alt+B on the Form 27EQ screen — <b>save &amp; return</b>: writes the FVU-compatible flat file for the current
+    /// return to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnForm27EQ()
+    {
+        if (!IsForm27EQScreen || Form27EQ is null) return;
+        Form27EQ.ExportFvu();
+        BackFromPage();
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -2788,6 +2883,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         TdsStatPayment = null;
         ChallanReconciliation = null;
         Form26Q = null;
+        TcsStatPayment = null;
+        TcsChallanReconciliation = null;
+        Form27EQ = null;
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
@@ -2850,7 +2948,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
-                 or Screen.TdsStatPayment)
+                 or Screen.TdsStatPayment or Screen.TcsStatPayment)
             BackFromPage();
     }
 
@@ -3042,6 +3140,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the TCS Challan Reconciliation report the arrows move the code-row highlight (keeps a live selection).
+        if (IsTcsChallanReconciliationScreen)
+        {
+            TcsChallanReconciliation!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Form 27EQ return the arrows move the collectee-row highlight (keeps a live selection).
+        if (IsForm27EQScreen)
+        {
+            Form27EQ!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -3167,6 +3279,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.Form26Q:
                 Form26Q?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
+                return;
+            case Screen.TcsStatPayment:
+                TcsStatPayment?.Deposit();
+                return;
+            case Screen.TcsChallanReconciliation:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
+            case Screen.Form27EQ:
+                Form27EQ?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
                 return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
@@ -3326,6 +3446,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
             case "Form 26Q": OpenForm26Q(); break;
+            case "TCS Stat Payment": ShowTcsStatPayment(); break;
+            case "TCS Challan Reconciliation": OpenTcsChallanReconciliation(); break;
+            case "Form 27EQ": OpenForm27EQ(); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
