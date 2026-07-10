@@ -1175,6 +1175,47 @@ Working tree clean (only Slice-4 files: Form26Q projection + FvuWriter + Form26Q
 + tests; no Schema.cs / migration change). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then
 this docs note); pushed to origin, main untouched. **Next = S5 (TCS compute — additive collect-at-source engine).**
 
+## Phase 7 Slice 6 — TCS Stat Payment deposit + challan reconciliation + Form 27EQ + FVU (2026-07-10) — SQLite schema v28→v29
+Sixth TDS/TCS slice: the **TCS deposit + statutory-return** half — the mirror of the S3 (TDS deposit/challan/recon) and
+S4 (Form 26Q + FVU) slices, now on the collect-at-source side. **SQLite schema v28→v29** (new `tcs_challans` +
+challan↔stat-payment-voucher link tables, additive `MigrateV28ToV29` inside the version-bump transaction, no ALTER).
+Delivered:
+- **TCS Stat Payment (deposit) voucher** — `TcsDepositService` picks up the outstanding "TCS Payable" balance and builds
+  the balanced ITNS-281 deposit legs (Dr TCS Payable, Cr Bank), zeroing the payable for the deposited dues; the
+  statutory-payment flag **reuses the existing Payment base voucher type** (per Tally, as in S3). `TcsStatPaymentViewModel`
+  drives the UI (`TcsStatPaymentViewModelTests`).
+- **Challan + reconciliation** — `TcsChallan` domain type (BSR code, challan serial, tender date, nature-of-goods,
+  amount breakup) persisted via `SqliteCompanyStore` and linked to the deposit voucher through a challan↔voucher link.
+  `TcsChallanReconciliation` sums collected TCS off every posted, **non-cancelled** voucher and matches it to challans
+  whose booking Stat-Payment voucher is **still live** — the **cancelled-voucher fix reused** from the S3 recon rework
+  (a cancelled/absent booking drops the challan; collected side and `LedgerBalances.SignedClosing` both already skip
+  cancelled vouchers, so the two sides stay consistent). `TcsChallanReconciliationViewModel` surfaces
+  unmatched/partly-matched dues.
+- **Form 27EQ projection** (`src/Apex.Ledger/Reports/Form27EQ.cs`) — a collector/deductor block (TAN, person-responsible
+  identity denormalised off F11 `TcsConfig`), per-party **collectee-detail rows** read *verbatim* off the posted
+  `TcsLineTax` (collection code + FVU code, collection date = voucher date, assessable value, rate bp, PAN-applied,
+  §206C(9) lower-collection hook) so the rows **reconcile to the "TCS Payable" credit postings for the quarter by
+  construction**, plus per-challan blocks. **Quarter attribution by COLLECTION date, not deposit date** (same cross-FY
+  fix as S4's Form 26Q). `Form27EQTests`.
+- **FVU 27EQ writer** (`FvuWriter.cs` 27EQ path) — caret(`^`)-delimited eTDS/eTCS record layout FH→BH→per attributed
+  challan CD + its collectee DD→FT with control totals; **portion-tracked + DD-derived totals reused from the S4 fix**
+  (undeposited/short-deposited in-quarter collections produce fewer DD lines; FH/BH/FT counts derive from records
+  actually written so the header/trailer always agree with the body). Deterministic + byte-stable + de-branded, offline
+  emulation only (decision D4). `FvuWriter27EQTests`.
+- **Io losslessness** — `tcs_challans` (+ links) folded into the `Apex.Ledger.Io` canonical model (`CanonicalModel`,
+  `CanonicalMapper`, `CanonicalXml`, `ApplyJournal`, `ImportPlan`) so TCS challans round-trip **paisa- and count-exact**
+  through JSON+XML export/import (`CanonicalTcsChallanRoundTripTests`, `TcsChallanRoundTripTests`).
+- **UI** — `Form27EQViewModel` + the two TCS VMs wired into `GatewayColumn`/`MainWindowViewModel`
+  (`MainWindow.axaml`/`.axaml.cs`).
+No A10 HIGH/MED carve-overs this slice (deposit legs balance gross + payable zeroed by construction; collectee rows are
+verbatim off posted TCS lines and reconcile to the payable credits; file control totals counted from emitted records;
+cancelled-voucher and DD-derivation fixes carried in from S3/S4). Gate fully green in Release: **Io 172 · Ledger 657
+(incl. Robert/Bright + GST golden) · Sqlite 111 · Desktop 538 = 1478 total, 0 failures.** Working tree clean (only
+Slice-6 files: TcsDepositService + TcsChallan + TcsChallanReconciliation + Form27EQ + FvuWriter 27EQ path + 3 VMs +
+Gateway/MainWindow wiring + Schema/SqliteCompanyStore v29 migration + Io canonical + tests; no scratch/probe files).
+Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note); pushed to origin, main
+untouched. **Next = S7 (TCS/TDS certificates — Form 16A + 27D + 27A).**
+
 ## Phase 7 Slice 5 — TCS compute + auto-collection on sales (additive, goods-driven) (2026-07-10) — SQLite schema v27→v28
 Fifth TDS/TCS slice: the **TCS collect-at-source** engine — the mirror of GST and the additive counterpart of the S2
 withholding TDS engine. Unlike TDS (carve-out withholding), **TCS is additive**: collected *on top* of the sale, so on
