@@ -973,6 +973,58 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Next:** Phase 6 slice 9 exit-gate remainder — run the whole Desktop app (headless render each Phase-6 cluster as
   evidence, de-branded/no-clipping) → merge PR #18 (CI now green-capable, path fix in) → pause for Phase-7 go-ahead. [A5]
 
+## PHASE 7 — TDS/TCS (2026-07-10 →)
+
+### Phase 7 slice 1 — TDS/TCS masters + F11 config + deductor details + auto-ledgers ✅ (2026-07-10) — SQLite schema v24→v25
+- **Scope (masters only, NO tax compute):** the config-driven TDS/TCS master + enable layer, mirroring the Phase-4 GST
+  slice. Withholding/collection COMPUTE is Phase 7 slice 2/5. Grounded in `docs/phase7-tds-tcs-*` requirements/plan
+  (D1–D7 resolved to recommended defaults @ `8d4aaa7`); every rate/threshold is A14-web-verified for **FY 2025-26
+  (AY 2026-27)** and stored as **editable data** (a Finance-Act change is a data edit, not a code change).
+- **Engine (framework-/DB-/clock-/RNG-free `Apex.Ledger`):** new domain types — `NatureOfPayment` (TDS §-section
+  master: section code, name, with-PAN & no-PAN rates in basis-points, Form-26Q FVU code, single + cumulative
+  thresholds, effective-from, isPredefined), `NatureOfGoods` (TCS §206C master: collection code, rates, threshold,
+  `baseIncludesGst`, isLegacy + legacyCutoff), `TdsConfig` / `TcsConfig` (company-level deductor config hung off
+  `Company`, mirroring `GstConfig`; TAN + deductor type + responsible-person + surcharge/cess seams + periodicity +
+  applicable-from + seeded masters; `EnsureValid` fail-fast — TAN required+valid, PAN valid when set), `Pan` / `Tan`
+  value validators, `DeductorType`/`DeducteeType`/`CollecteeType`/`TdsTcsPeriodicity`/`TdsTcsLedgerKind` enums.
+  **`TdsTcsService`** — idempotent `EnableTds`/`EnableTcs`: validate config → seed the predefined masters (if none) →
+  **auto-create the "TDS Payable" / "TCS Payable" liability ledger** under Duties & Taxes tagged `TdsTcsLedgerKind`
+  (so `ClassificationRules.IsDutiesAndTaxesLedger` already excludes them from item-invoice pairing, exactly like GST
+  tax ledgers); re-enable skips existing masters + ledger (no dupes).
+- **Seed (`SeedTdsTcsRates`, A14-verified FY 2025-26):** TDS Nature-of-Payment set — §194A (10%/20%, cum ₹50k),
+  §194C (1% Ind/HUF base / 20% no-PAN, single ₹30k + cum ₹1L; the 2% non-Ind/HUF branch deferred to compute),
+  §194H (2% w.e.f 01-Oct-2024, cum ₹20k FA2025), §194I(a) plant/machinery 2% + §194I(b) land/building 10%
+  (both cum ₹6L/FY FA2025), §194J(a) technical 2% + §194J(b) professional 10% (both cum ₹50k) — **bifurcated per
+  Form-26Q section codes** (4IA/4IB, 94J-A/94J-B), §194Q purchase-of-goods 0.1% over ₹50L (no-PAN = **5%** §206AA
+  2nd-proviso cap, NOT 20%). TCS Nature-of-Goods (§206C) set — scrap 6CE 1%, timber 6CB/6CC 2%, tendu 6CI 5%, liquor
+  6CA 1%, minerals 6CJ 1%, §206C(1F) motor-vehicle 6CL 1% (>₹10L), and §206C(1H) sale-of-goods 6CR 0.1% no-PAN 1%
+  (§206CC special cap) — **legacy year-gated, default OFF for dates ≥ 01-Apr-2025 (FA2025)**. §206AB/§206CCA non-filer
+  higher rates **omitted** (FA2025). TDS base excludes separately-stated GST (Circular 23/2017); every §206C TCS base
+  includes GST (Circular 17/2020).
+- **Persistence — SQLite schema v24→v25** (`MigrateV24ToV25`, additive/idempotent/lossless): deductor-config columns
+  on the company row + `natures_of_payment` / `natures_of_goods` master tables + the `TdsTcsLedgerKind` tag on the
+  auto-created payable ledgers. A company with no TdsConfig (or Enabled=false) is a non-TDS company — every existing
+  path byte-for-byte unchanged (ER-13). Schema + round-trip tests added (`TdsTcsSchemaTests`, `TdsTcsRoundTripTests`).
+- **Io losslessness:** the TDS/TCS masters + deductor config folded into the `Apex.Ledger.Io` canonical model
+  (CanonicalModel/CanonicalMapper/CanonicalXml/ApplyJournal/ImportPlan) so they survive JSON+XML export→import into a
+  fresh company paisa- and count-exact (PR-4), guarding against the Phase-6 "silently dropped master" regression.
+  Locked by `CanonicalTdsTcsRoundTripTests`.
+- **UI (Avalonia, cascade Miller-column, keyboard-first):** F11 "Enable TDS"/"Enable TCS" company-config panels
+  (deductor TAN/type/responsible-person/periodicity/applicable-from) via `TdsTcsOptions`; `NatureOfPaymentMasterViewModel`
+  + `NatureOfGoodsMasterViewModel` masters (Masters → Statutory, `IMasterListExportSource`); wired into
+  MainWindow/GatewayColumn nav. Figures from the engine (ER-4).
+- **A10 adversarial review:** clean this slice — no HIGH/MED defects survived to the gate (masters-only slice, no
+  money-movement surface; the compute-time rate branches are explicitly deferred to slice 2 and seam-tested).
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1329 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 147 · Ledger 599 · Sqlite 101 · Desktop 482). **Schema v25.** Robert & Bright green + GST golden
+  green (ER-13). No known-flaky SQLite isolation failure this run. Working tree = the clean Slice-1 set (engine +
+  seed + schema + Io + UI + tests); **no scratch/probe/ZZ/temp files staged**.
+- **Committed & pushed by A12 (R4):** two commits — (a) code+tests `feat(tds): Phase 7 slice 1 — TDS/TCS masters, F11
+  config, deductor details + duty-ledger auto-create, SQLite schema v25`; (b) docs `docs(memory): Phase 7 slice 1 log`.
+  Branch `claude/wonderful-hellman-59520a` pushed; **`main` NOT touched**.
+- **Next:** Phase 7 slice 2 — TDS compute (withholding on payment/expense vouchers, section-conditional rate branches,
+  threshold accumulation, TDS Payable posting). [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
