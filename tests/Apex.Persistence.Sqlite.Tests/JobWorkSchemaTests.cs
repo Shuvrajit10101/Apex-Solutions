@@ -204,6 +204,10 @@ public sealed class JobWorkSchemaTests
     private const string MinimalV23Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        -- ledgers + stock_items are required because the chain now runs through the v24→v25 TDS/TCS migration,
+        -- whose ALTER TABLE ledgers/stock_items ADD COLUMN … need the tables to exist.
+        CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE voucher_types (
             id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, base_type INTEGER NOT NULL, numbering INTEGER NOT NULL,

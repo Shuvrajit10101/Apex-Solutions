@@ -126,6 +126,53 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
     [ObservableProperty] private string? _message;
 
+    // ---- TDS / TCS (Phase 7 slice 1; F11 "Enable TDS" / "Enable TCS" + shared deductor identity) ----
+    // A company files Form 26Q (TDS) and 27EQ (TCS) under the SAME TAN/responsible-person, so the deductor
+    // identity fields below are shared and written to whichever of TdsConfig/TcsConfig is enabled. Every field is
+    // gated: a company that enables neither is byte-for-byte unchanged (ER-13).
+
+    /// <summary>Whether TDS is enabled for the company (the "Enable TDS" toggle; applied via <see cref="ApplyTds"/>).</summary>
+    [ObservableProperty] private bool _tdsEnabled;
+
+    /// <summary>Whether TCS is enabled for the company (the "Enable TCS" toggle; applied via <see cref="ApplyTcs"/>).</summary>
+    [ObservableProperty] private bool _tcsEnabled;
+
+    /// <summary>The deductor/collector TAN (validated on Enable via <see cref="Tan"/>); blank ⇒ unset.</summary>
+    [ObservableProperty] private string _tan = string.Empty;
+
+    /// <summary>The deductor/collector legal status (drives the 26Q/27EQ deductor block).</summary>
+    [ObservableProperty] private DeductorTypeOption? _deductorType;
+
+    /// <summary>The person responsible for deduction/collection; blank ⇒ unset.</summary>
+    [ObservableProperty] private string _responsiblePersonName = string.Empty;
+
+    /// <summary>The responsible person's PAN (validated on Enable when set); blank ⇒ unset.</summary>
+    [ObservableProperty] private string _responsiblePersonPan = string.Empty;
+
+    /// <summary>The responsible person's designation; blank ⇒ unset.</summary>
+    [ObservableProperty] private string _responsiblePersonDesignation = string.Empty;
+
+    /// <summary>The responsible person's address; blank ⇒ unset.</summary>
+    [ObservableProperty] private string _responsiblePersonAddress = string.Empty;
+
+    /// <summary>Whether surcharge applies to the deductor's computations (forward-compat seam for slice 2/5).</summary>
+    [ObservableProperty] private bool _surchargeApplicable;
+
+    /// <summary>Whether health &amp; education cess applies (forward-compat seam).</summary>
+    [ObservableProperty] private bool _cessApplicable;
+
+    /// <summary>The TDS Enable/disable result message (kept separate from the GST/TCS messages).</summary>
+    [ObservableProperty] private string? _tdsMessage;
+
+    /// <summary>The TCS Enable/disable result message.</summary>
+    [ObservableProperty] private string? _tcsMessage;
+
+    /// <summary>True iff the shared deductor-details block should render (either TDS or TCS is toggled on).</summary>
+    public bool ShowDeductorDetails => TdsEnabled || TcsEnabled;
+
+    partial void OnTdsEnabledChanged(bool value) => OnPropertyChanged(nameof(ShowDeductorDetails));
+    partial void OnTcsEnabledChanged(bool value) => OnPropertyChanged(nameof(ShowDeductorDetails));
+
     /// <summary>The Home State/UT options (the official GST state-code list).</summary>
     public ObservableCollection<IndianStateOption> HomeStates { get; } = new();
 
@@ -137,6 +184,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
     /// <summary>The tax ledgers created on Enable (Output/Input CGST/SGST/IGST + Round-Off), for confirmation.</summary>
     public ObservableCollection<GstTaxLedgerRow> TaxLedgers { get; } = new();
+
+    /// <summary>The deductor/collector legal-status options (Company / Individual / HUF / Firm …).</summary>
+    public ObservableCollection<DeductorTypeOption> DeductorTypes { get; } = new();
+
+    /// <summary>The TDS/TCS payable ledgers auto-created on Enable (TDS Payable / TCS Payable), for confirmation.</summary>
+    public ObservableCollection<GstTaxLedgerRow> TdsTcsLedgers { get; } = new();
 
     public GstConfigViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
@@ -154,6 +207,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         Periodicities.Add(new GstPeriodicityOption { Value = GstReturnPeriodicity.Monthly, Display = "Monthly" });
         Periodicities.Add(new GstPeriodicityOption { Value = GstReturnPeriodicity.Quarterly, Display = "Quarterly (QRMP)" });
+
+        foreach (var opt in TdsTcsDisplay.DeductorTypeOptions())
+            DeductorTypes.Add(opt);
 
         LoadFromCompany();
     }
@@ -174,7 +230,32 @@ public sealed partial class GstConfigViewModel : ViewModelBase
                            ?? RegistrationTypes.First();
         Periodicity = Periodicities.FirstOrDefault(o => o.Value == (cfg?.Periodicity ?? GstReturnPeriodicity.Monthly))
                       ?? Periodicities.First();
+        LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
+    }
+
+    /// <summary>
+    /// Seeds the TDS/TCS form from the company's current config. The deductor identity (TAN, type, responsible
+    /// person, surcharge/cess) is shared, so it is read from whichever of <see cref="Company.Tds"/>/<see cref="Company.Tcs"/>
+    /// carries it (TDS first). An off/never-set company loads defaults (blank TAN, Company type).
+    /// </summary>
+    private void LoadTdsTcsFromCompany()
+    {
+        var tds = _company.Tds;
+        var tcs = _company.Tcs;
+        TdsEnabled = _company.TdsEnabled;
+        TcsEnabled = _company.TcsEnabled;
+
+        Tan = tds?.Tan ?? tcs?.Tan ?? string.Empty;
+        var dtype = tds?.DeductorType ?? tcs?.CollectorType ?? Apex.Ledger.Domain.DeductorType.Company;
+        DeductorType = DeductorTypes.FirstOrDefault(o => o.Value == dtype) ?? DeductorTypes.First();
+        ResponsiblePersonName = tds?.ResponsiblePersonName ?? tcs?.ResponsiblePersonName ?? string.Empty;
+        ResponsiblePersonPan = tds?.ResponsiblePersonPan ?? tcs?.ResponsiblePersonPan ?? string.Empty;
+        ResponsiblePersonDesignation = tds?.ResponsiblePersonDesignation ?? tcs?.ResponsiblePersonDesignation ?? string.Empty;
+        ResponsiblePersonAddress = tds?.ResponsiblePersonAddress ?? tcs?.ResponsiblePersonAddress ?? string.Empty;
+        SurchargeApplicable = tds?.SurchargeApplicable ?? tcs?.SurchargeApplicable ?? false;
+        CessApplicable = tds?.CessApplicable ?? tcs?.CessApplicable ?? false;
+        RefreshTdsTcsLedgers();
     }
 
     /// <summary>
@@ -416,5 +497,246 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         foreach (var r in rows.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
             TaxLedgers.Add(r);
+    }
+
+    // =========================================================== TDS / TCS (Phase 7 slice 1)
+
+    /// <summary>
+    /// Applies the "Enable TDS" toggle (F11; Phase 7 slice 1), mirroring <see cref="Apply"/>. On enable:
+    /// pre-validate the TAN (required, structural) and the responsible-person PAN (when set), then call the
+    /// engine's <see cref="TdsTcsService.EnableTds"/> (idempotent — seeds the Nature-of-Payment masters +
+    /// auto-creates "TDS Payable" under Duties &amp; Taxes) and persist. On disable: clear
+    /// <see cref="TdsConfig.Enabled"/> and persist (masters retained, inert). Any domain error is surfaced to
+    /// <see cref="TdsMessage"/> without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyTds()
+    {
+        TdsMessage = null;
+
+        if (!TdsEnabled)
+        {
+            if (_company.Tds is { } existing)
+            {
+                existing.Enabled = false;
+                if (!TrySave(m => TdsMessage = m)) return false;
+            }
+            RefreshTdsTcsLedgers();
+            TdsMessage = "TDS is now OFF for this company. Existing masters are unchanged.";
+            _onChanged();
+            return true;
+        }
+
+        var tan = Apex.Ledger.Domain.Tan.Normalize(Tan);
+        if (string.IsNullOrEmpty(tan))
+        {
+            TdsMessage = "A TAN is required to enable TDS (10 chars, e.g. MUMA12345B).";
+            RevertTdsToggle();
+            return false;
+        }
+        if (!Apex.Ledger.Domain.Tan.IsValid(tan))
+        {
+            TdsMessage = $"'{tan}' is not a valid TAN (4 letters + 5 digits + 1 letter, e.g. MUMA12345B).";
+            RevertTdsToggle();
+            return false;
+        }
+        var pan = NormalizePanOrNull(ResponsiblePersonPan);
+        if (pan is not null && !Pan.IsValid(pan))
+        {
+            TdsMessage = $"'{pan}' is not a valid PAN (5 letters + 4 digits + 1 letter, e.g. AAPFU0939F).";
+            RevertTdsToggle();
+            return false;
+        }
+
+        var config = _company.Tds ?? new TdsConfig();
+        WriteDeductorIdentity(config, tan, pan);
+
+        try
+        {
+            new TdsTcsService(_company).EnableTds(config);
+            SyncSharedIdentityToTcs(tan, pan);   // keep 27EQ under the same TAN if TCS is already on
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            TdsMessage = ex.Message;
+            RevertTdsToggle();
+            return false;
+        }
+
+        RefreshTdsTcsLedgers();
+        TdsMessage = $"TDS enabled for {_company.Name}. {_company.NaturesOfPayment.Count} Nature-of-Payment "
+                     + "masters seeded; TDS Payable ledger ready under Duties & Taxes.";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Applies the "Enable TCS" toggle (F11; Phase 7 slice 1), the TCS mirror of <see cref="ApplyTds"/>: on
+    /// enable, pre-validate TAN + PAN, call <see cref="TdsTcsService.EnableTcs"/> (seeds Nature-of-Goods §206C
+    /// masters + auto-creates "TCS Payable") and persist; on disable, clear <see cref="TcsConfig.Enabled"/>.
+    /// </summary>
+    public bool ApplyTcs()
+    {
+        TcsMessage = null;
+
+        if (!TcsEnabled)
+        {
+            if (_company.Tcs is { } existing)
+            {
+                existing.Enabled = false;
+                if (!TrySave(m => TcsMessage = m)) return false;
+            }
+            RefreshTdsTcsLedgers();
+            TcsMessage = "TCS is now OFF for this company. Existing masters are unchanged.";
+            _onChanged();
+            return true;
+        }
+
+        var tan = Apex.Ledger.Domain.Tan.Normalize(Tan);
+        if (string.IsNullOrEmpty(tan))
+        {
+            TcsMessage = "A TAN is required to enable TCS (a collector uses the same TAN as a deductor).";
+            RevertTcsToggle();
+            return false;
+        }
+        if (!Apex.Ledger.Domain.Tan.IsValid(tan))
+        {
+            TcsMessage = $"'{tan}' is not a valid TAN (4 letters + 5 digits + 1 letter, e.g. MUMA12345B).";
+            RevertTcsToggle();
+            return false;
+        }
+        var pan = NormalizePanOrNull(ResponsiblePersonPan);
+        if (pan is not null && !Pan.IsValid(pan))
+        {
+            TcsMessage = $"'{pan}' is not a valid PAN (5 letters + 4 digits + 1 letter, e.g. AAPFU0939F).";
+            RevertTcsToggle();
+            return false;
+        }
+
+        var config = _company.Tcs ?? new TcsConfig();
+        WriteCollectorIdentity(config, tan, pan);
+
+        try
+        {
+            new TdsTcsService(_company).EnableTcs(config);
+            SyncSharedIdentityToTds(tan, pan);   // keep 26Q under the same TAN if TDS is already on
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            TcsMessage = ex.Message;
+            RevertTcsToggle();
+            return false;
+        }
+
+        RefreshTdsTcsLedgers();
+        TcsMessage = $"TCS enabled for {_company.Name}. {_company.NaturesOfGoods.Count} Nature-of-Goods (§206C) "
+                     + "masters seeded; TCS Payable ledger ready under Duties & Taxes.";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Commits the whole <b>Statutory Configuration</b> (F11) page from a single keyboard accept (Ctrl+A / Enter,
+    /// both routed through <c>ActivateSelected</c>), mirroring Tally where F11 features are accepted via Ctrl+A/Enter.
+    /// Applies the GST config (as before), then commits the "Enable TDS" / "Enable TCS" toggles whenever they differ
+    /// from the company's persisted state — so a keyboard-driven user who toggles Enable TDS/TCS gets it applied
+    /// without reaching for the mouse, matching the auto-applying sibling feature toggles on the same panel. An
+    /// unchanged toggle is left untouched (no spurious re-seed, no message), so a neither-enabled company stays
+    /// byte-identical (ER-13). Toggling on still reveals the TAN/deductor block first; the accept commits it (and
+    /// <see cref="ApplyTds"/>/<see cref="ApplyTcs"/> revert the toggle on a bad TAN/PAN, exactly as the button does).
+    /// </summary>
+    public void AcceptStatutoryConfig()
+    {
+        Apply();
+        if (TdsEnabled != _company.TdsEnabled)
+            ApplyTds();
+        if (TcsEnabled != _company.TcsEnabled)
+            ApplyTcs();
+    }
+
+    /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>
+    private bool TrySave(Action<string> setMessage)
+    {
+        try
+        {
+            _storage.Save(_company);
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            setMessage(ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>Writes the shared deductor identity from the form into a <see cref="TdsConfig"/>.</summary>
+    private void WriteDeductorIdentity(TdsConfig config, string tan, string? pan)
+    {
+        config.Tan = tan;
+        config.DeductorType = (DeductorType ?? DeductorTypes.First()).Value;
+        config.ResponsiblePersonName = BlankToNull(ResponsiblePersonName);
+        config.ResponsiblePersonPan = pan;
+        config.ResponsiblePersonDesignation = BlankToNull(ResponsiblePersonDesignation);
+        config.ResponsiblePersonAddress = BlankToNull(ResponsiblePersonAddress);
+        config.SurchargeApplicable = SurchargeApplicable;
+        config.CessApplicable = CessApplicable;
+    }
+
+    /// <summary>Writes the shared collector identity from the form into a <see cref="TcsConfig"/>.</summary>
+    private void WriteCollectorIdentity(TcsConfig config, string tan, string? pan)
+    {
+        config.Tan = tan;
+        config.CollectorType = (DeductorType ?? DeductorTypes.First()).Value;
+        config.ResponsiblePersonName = BlankToNull(ResponsiblePersonName);
+        config.ResponsiblePersonPan = pan;
+        config.ResponsiblePersonDesignation = BlankToNull(ResponsiblePersonDesignation);
+        config.ResponsiblePersonAddress = BlankToNull(ResponsiblePersonAddress);
+        config.SurchargeApplicable = SurchargeApplicable;
+        config.CessApplicable = CessApplicable;
+    }
+
+    /// <summary>If TCS is already enabled, mirror the just-saved TDS deductor identity onto it (same TAN).</summary>
+    private void SyncSharedIdentityToTcs(string tan, string? pan)
+    {
+        if (_company.Tcs is { } tcs) WriteCollectorIdentity(tcs, tan, pan);
+    }
+
+    /// <summary>If TDS is already enabled, mirror the just-saved TCS collector identity onto it (same TAN).</summary>
+    private void SyncSharedIdentityToTds(string tan, string? pan)
+    {
+        if (_company.Tds is { } tds) WriteDeductorIdentity(tds, tan, pan);
+    }
+
+    private void RevertTdsToggle()
+    {
+        if (TdsEnabled != _company.TdsEnabled) TdsEnabled = _company.TdsEnabled;
+    }
+
+    private void RevertTcsToggle()
+    {
+        if (TcsEnabled != _company.TcsEnabled) TcsEnabled = _company.TcsEnabled;
+    }
+
+    private static string? BlankToNull(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string? NormalizePanOrNull(string? pan)
+    {
+        var p = Pan.Normalize(pan ?? string.Empty);
+        return string.IsNullOrEmpty(p) ? null : p;
+    }
+
+    /// <summary>Rebuilds the TDS/TCS payable-ledger confirmation list (ledgers tagged by classification).</summary>
+    private void RefreshTdsTcsLedgers()
+    {
+        TdsTcsLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(l => l.TdsTcsClassification is not null)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            TdsTcsLedgers.Add(new GstTaxLedgerRow
+            {
+                Name = l.Name,
+                Under = _company.FindGroup(l.GroupId)?.Name ?? "—",
+            });
     }
 }

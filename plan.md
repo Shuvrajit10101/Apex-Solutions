@@ -7,8 +7,10 @@
 >
 > **Status:** APPROVED — build authorised by the user 2026-07-02. **Confirmed stack (§3): C# / .NET +
 > Avalonia (cross-platform: Windows + Linux + macOS) + SQLite**, pixel-level UI fidelity, config-driven GST
-> slabs. The domain model, phases, tests, and gates are stack-agnostic and unchanged. **Current phase:
-> Phase 0.**
+> slabs. The domain model, phases, tests, and gates are stack-agnostic and unchanged. **Phases 0–6
+> COMPLETE** (schema **v24**; on `origin/main` via PR #18). **Current phase: Phase 7 — TDS/TCS** (open
+> decisions D1–D7 RESOLVED to recommended defaults, user-approved 2026-07-10 — see
+> `docs/phase7-tds-tcs-requirements.md`).
 >
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
@@ -388,7 +390,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **Goals:** income-tax withholding statutory.
 - **Modules (catalog §13):** TDS (Nature of Payment incl. 194J/194C/194H/194I/194A/**194Q**, deductor/party
   flags, deduct→pay→deposit, **Challan Recon**, **Form 26Q** + FVU export, 206AB/206CCA), TCS (Nature of
-  Goods 206C, auto-compute, **Form 27EQ**/27D). *Decide 206C(1H) current-vs-legacy (Open Q).*
+  Goods 206C, auto-compute, **Form 27EQ**/27D). *206C(1H) → legacy year-gated; 206AB/206CCA omitted (FA
+  2025). RESOLVED (D1–D7, see `docs/phase7-tds-tcs-requirements.md`).*
 - **Agents:** per-feature pipeline with **A14 leading**.
 - **Deliverables:** TDS deduction + Form 26Q (FVU-valid) worked example; TCS on a sale.
 - **Exit gate:** R9.

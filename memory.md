@@ -973,6 +973,112 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
 - **Next:** Phase 6 slice 9 exit-gate remainder — run the whole Desktop app (headless render each Phase-6 cluster as
   evidence, de-branded/no-clipping) → merge PR #18 (CI now green-capable, path fix in) → pause for Phase-7 go-ahead. [A5]
 
+## PHASE 7 — TDS/TCS (2026-07-10 →)
+
+### Phase 7 slice 1 — TDS/TCS masters + F11 config + deductor details + auto-ledgers ✅ (2026-07-10) — SQLite schema v24→v25
+- **Scope (masters only, NO tax compute):** the config-driven TDS/TCS master + enable layer, mirroring the Phase-4 GST
+  slice. Withholding/collection COMPUTE is Phase 7 slice 2/5. Grounded in `docs/phase7-tds-tcs-*` requirements/plan
+  (D1–D7 resolved to recommended defaults @ `8d4aaa7`); every rate/threshold is A14-web-verified for **FY 2025-26
+  (AY 2026-27)** and stored as **editable data** (a Finance-Act change is a data edit, not a code change).
+- **Engine (framework-/DB-/clock-/RNG-free `Apex.Ledger`):** new domain types — `NatureOfPayment` (TDS §-section
+  master: section code, name, with-PAN & no-PAN rates in basis-points, Form-26Q FVU code, single + cumulative
+  thresholds, effective-from, isPredefined), `NatureOfGoods` (TCS §206C master: collection code, rates, threshold,
+  `baseIncludesGst`, isLegacy + legacyCutoff), `TdsConfig` / `TcsConfig` (company-level deductor config hung off
+  `Company`, mirroring `GstConfig`; TAN + deductor type + responsible-person + surcharge/cess seams + periodicity +
+  applicable-from + seeded masters; `EnsureValid` fail-fast — TAN required+valid, PAN valid when set), `Pan` / `Tan`
+  value validators, `DeductorType`/`DeducteeType`/`CollecteeType`/`TdsTcsPeriodicity`/`TdsTcsLedgerKind` enums.
+  **`TdsTcsService`** — idempotent `EnableTds`/`EnableTcs`: validate config → seed the predefined masters (if none) →
+  **auto-create the "TDS Payable" / "TCS Payable" liability ledger** under Duties & Taxes tagged `TdsTcsLedgerKind`
+  (so `ClassificationRules.IsDutiesAndTaxesLedger` already excludes them from item-invoice pairing, exactly like GST
+  tax ledgers); re-enable skips existing masters + ledger (no dupes).
+- **Seed (`SeedTdsTcsRates`, A14-verified FY 2025-26):** TDS Nature-of-Payment set — §194A (10%/20%, cum ₹50k),
+  §194C (1% Ind/HUF base / 20% no-PAN, single ₹30k + cum ₹1L; the 2% non-Ind/HUF branch deferred to compute),
+  §194H (2% w.e.f 01-Oct-2024, cum ₹20k FA2025), §194I(a) plant/machinery 2% + §194I(b) land/building 10%
+  (both cum ₹6L/FY FA2025), §194J(a) technical 2% + §194J(b) professional 10% (both cum ₹50k) — **bifurcated per
+  Form-26Q section codes** (4IA/4IB, 94J-A/94J-B), §194Q purchase-of-goods 0.1% over ₹50L (no-PAN = **5%** §206AA
+  2nd-proviso cap, NOT 20%). TCS Nature-of-Goods (§206C) set — scrap 6CE 1%, timber 6CB/6CC 2%, tendu 6CI 5%, liquor
+  6CA 1%, minerals 6CJ 1%, §206C(1F) motor-vehicle 6CL 1% (>₹10L), and §206C(1H) sale-of-goods 6CR 0.1% no-PAN 1%
+  (§206CC special cap) — **legacy year-gated, default OFF for dates ≥ 01-Apr-2025 (FA2025)**. §206AB/§206CCA non-filer
+  higher rates **omitted** (FA2025). TDS base excludes separately-stated GST (Circular 23/2017); every §206C TCS base
+  includes GST (Circular 17/2020).
+- **Persistence — SQLite schema v24→v25** (`MigrateV24ToV25`, additive/idempotent/lossless): deductor-config columns
+  on the company row + `natures_of_payment` / `natures_of_goods` master tables + the `TdsTcsLedgerKind` tag on the
+  auto-created payable ledgers. A company with no TdsConfig (or Enabled=false) is a non-TDS company — every existing
+  path byte-for-byte unchanged (ER-13). Schema + round-trip tests added (`TdsTcsSchemaTests`, `TdsTcsRoundTripTests`).
+- **Io losslessness:** the TDS/TCS masters + deductor config folded into the `Apex.Ledger.Io` canonical model
+  (CanonicalModel/CanonicalMapper/CanonicalXml/ApplyJournal/ImportPlan) so they survive JSON+XML export→import into a
+  fresh company paisa- and count-exact (PR-4), guarding against the Phase-6 "silently dropped master" regression.
+  Locked by `CanonicalTdsTcsRoundTripTests`.
+- **UI (Avalonia, cascade Miller-column, keyboard-first):** F11 "Enable TDS"/"Enable TCS" company-config panels
+  (deductor TAN/type/responsible-person/periodicity/applicable-from) via `TdsTcsOptions`; `NatureOfPaymentMasterViewModel`
+  + `NatureOfGoodsMasterViewModel` masters (Masters → Statutory, `IMasterListExportSource`); wired into
+  MainWindow/GatewayColumn nav. Figures from the engine (ER-4).
+- **A10 adversarial review:** clean this slice — no HIGH/MED defects survived to the gate (masters-only slice, no
+  money-movement surface; the compute-time rate branches are explicitly deferred to slice 2 and seam-tested).
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1329 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 147 · Ledger 599 · Sqlite 101 · Desktop 482). **Schema v25.** Robert & Bright green + GST golden
+  green (ER-13). No known-flaky SQLite isolation failure this run. Working tree = the clean Slice-1 set (engine +
+  seed + schema + Io + UI + tests); **no scratch/probe/ZZ/temp files staged**.
+- **Committed & pushed by A12 (R4):** two commits — (a) code+tests `feat(tds): Phase 7 slice 1 — TDS/TCS masters, F11
+  config, deductor details + duty-ledger auto-create, SQLite schema v25`; (b) docs `docs(memory): Phase 7 slice 1 log`.
+  Branch `claude/wonderful-hellman-59520a` pushed; **`main` NOT touched**.
+- **Next:** Phase 7 slice 2 — TDS compute (withholding on payment/expense vouchers, section-conditional rate branches,
+  threshold accumulation, TDS Payable posting). [A5]
+
+### Phase 7 slice 2 — TDS compute + auto-deduction (carve-out) engine + validator + voucher UI ✅ (2026-07-10) — SQLite schema v25→v26
+- **Scope:** the TDS **withholding COMPUTE** layer on top of the slice-1 masters — resolve rate, apply the section
+  threshold, round, and book the carve-out. Grounded in `docs/phase7-tds-tcs-*`; every rate/threshold A14-web-verified
+  for **FY 2025-26 (AY 2026-27)**, stored as editable data. TCS additive-compute + returns/FVU stay for later slices.
+- **Engine (framework-/DB-/clock-/RNG-free `Apex.Ledger`):** new `TdsService` — a pure, deterministic assessment over
+  the `Company` aggregate, **withholding not additive** (unlike `GstService`). `ComputeWithholding(assessable, nature,
+  deductee, date)` → `Withholding` record: resolves the rate (PAN ⇒ `RateWithPanBp`; no valid PAN ⇒ the §206AA 20%
+  general / §194Q 5% special no-PAN rate the seed encodes), tests the section threshold (single-transaction OR
+  cumulative-FY), and — when crossed — computes `TDS = round_half_up(assessable × rate / 10000)` to the **nearest
+  rupee** (`NearestRupee`, income-tax `MidpointRounding.AwayFromZero`, A14). The **cumulative-FY threshold is a pure
+  projection** (`ProjectPriorCumulative` over prior posted `TdsLineTax` per party×nature in the FY — deterministic, no
+  clock/order side-effect, exactly like `Gstr1` YTD accumulation). TDS assessed on the **GST-exclusive** base
+  (Circular 23/2017). **Carve-out posting:** `Dr Expense/Purchase = GROSS`, `Cr Party = NET` (**derived** GROSS−TDS,
+  never gross×(1−rate)), `Cr "TDS Payable" = TDS` ⇒ `GROSS Dr == NET Cr + TDS Cr` to the paisa **by construction** —
+  the balance invariant is the guard, a leaky independently-computed net trips `VoucherValidator`. New domain
+  `TdsLineTax` value object (immutable, paisa-exact, whole-rupee withheld) rides **one** line per (voucher, party,
+  nature) — the TDS-Payable credit when withheld, or the party leg when below-threshold (`TdsAmount`=0) — giving the
+  projection exactly one assessable contribution per transaction, like posted `GstLineTax`. `EntryLine` carries an
+  optional `TdsLineTax` (mirrors `GstLineTax`).
+- **Validator:** `VoucherValidator` documented+verified that the stock-leg pairing sum is unchanged by a withholding
+  purchase — Purchases stays the GROSS debit (= item-lines value); the reduced party NET leg and the TDS-Payable credit
+  are both outside the stock-leg sum (TDS Payable via `IsDutiesAndTaxesLedger`, exactly like GST tax ledgers) — so the
+  pairing foots unchanged and `Σ Dr == Σ Cr` guards `net + withheld == gross`.
+- **S1 carry-forwards fixed (from A10 slice-1 review notes):** (1) **§194A threshold ₹50k → ₹10k** — the generic
+  (non-bank) SMB cumulative threshold, not the bank/co-op/PO ₹50k. (2) **Payable-ledger relocation** — `TdsTcsService`
+  now relocates a pre-existing "TDS/TCS Payable" ledger under **Duties & Taxes** whenever
+  `!IsDutiesAndTaxesLedger(existing, _company)` (group-based), not merely when `GroupId == Guid.Empty`; a payable a user
+  pre-created under a wrong primary group (e.g. Sundry Creditors) would otherwise be mis-counted in the item-invoice
+  pairing and leak the withholding credit. Relocation guarantees the classification holds.
+- **Persistence — SQLite schema v25→v26** (`MigrateV25ToV26`, additive/idempotent/lossless): one new child table
+  `tds_lines` (one row per TDS-assessed entry line) + `ix_tds_lines_entry_line`; a fresh DB stamped straight to v26 via
+  `CreateV1`. A voucher with no TDS carries no `tds_lines` row — every existing path byte-for-byte unchanged (ER-13).
+  Schema + round-trip tests updated (`TdsTcsSchemaTests`, `TdsTcsRoundTripTests`, inventory/item-invoice round-trips).
+- **Io losslessness:** `tds_lines` folded into the `Apex.Ledger.Io` canonical model (CanonicalModel/CanonicalMapper/
+  CanonicalXml/ImportPlan) so withholding detail survives JSON+XML export→import into a fresh company **paisa- and
+  count-exact** (PR-4), guarding the Phase-6 "silently dropped" regression. Locked by `CanonicalTdsTcsRoundTripTests`.
+- **UI (Avalonia, cascade Miller-column, keyboard-first):** `VoucherEntryViewModel` + MainWindow voucher-entry surface
+  gained the TDS carve-out path (nature pick + live withheld figure from the engine, ER-4). Locked by
+  `TdsVoucherEntryViewModelTests`.
+- **A10 adversarial review:** the carve-out surface is money-movement — the derived-NET-never-gross×(1−rate) rule and
+  the balance-invariant-as-guard were the explicit defences; no HIGH/MED defect survived to the gate.
+- **Gate (A12 re-ran, tree is authority):** `dotnet test -c Release` = **1350 passed / 0 failed / 0 skipped**
+  (Apex.Ledger.Io 147 · Ledger 613 · Sqlite 103 · Desktop 487). **Schema v26.** Robert & Bright green + GST golden
+  green (ER-13). No known-flaky SQLite isolation failure this run. Working tree = the clean Slice-2 set (engine +
+  `TdsService`/`TdsLineTax` + validator + schema + Io + UI + tests); **no scratch/probe/ZZ/temp files staged**.
+- **Note (process):** the prior slice-2 finalize was interrupted after the engine+UI landed but before the commit
+  (a `StructuredOutput` interruption left the change set UNCOMMITTED at v26 on HEAD `ffb6b5d`=S1); this run re-verified
+  the gate from the working tree and finalized the two commits.
+- **Committed & pushed by A12 (R4):** two commits — (a) code+tests `feat(tds): Phase 7 slice 2 — TDS auto-deduction
+  (carve-out) engine + validator + voucher UI, SQLite schema v26`; (b) docs `docs(memory): Phase 7 slice 2 log`.
+  Branch `claude/wonderful-hellman-59520a` pushed; **`main` NOT touched**.
+- **Next:** Phase 7 slice 3 — TCS additive-compute on sale-of-goods vouchers (§206C nature, collectee, threshold,
+  TCS Payable posting). [A5]
+
 ### ▶▶ NEXT-SESSION START HERE (handoff 2026-07-05, after Phase 5 slice 4)
 - **Read first:** `docs/NEXT_SESSION_KICKOFF.md` (the self-contained resume prompt), then the governance files
   `CLAUDE.md` → this `memory.md` (tail) → `plan.md` → `agents.md`, plus `docs/phase5-*-requirements.md` (+ the
@@ -1006,3 +1112,277 @@ Apex.Desktop 155 — **504 total, all green** (+36 new). Build 0 warnings. No "T
   usage-limit signal.**
 - **Deferred to Phase 9:** RCM, composition, cess, e-invoice/e-way, GSTR-2A/2B, Rule-88A ITC set-off + Alt+J/Ctrl+F
   posting.
+
+## Phase 7 Slice 2 follow-up — expense-ledger-driven TDS detection (2026-07-10)
+Corrected the S2 TDS detection contract to match Tally: TDS nature and applicability are now derived from the **debit
+(expense) ledger** — the expense ledger carries the TDS nature-of-payment and the applicability flag — while the
+**party** ledger drives PAN, deductee type, and the resulting rate. A "Not Applicable" escape is honoured (expense
+ledger marked not-applicable → no TDS detection/deduction). Reworked `VoucherEntryViewModel` detection accordingly and
+corrected the previously party-driven contract tests in `TdsVoucherEntryViewModelTests` to assert expense-driven
+nature+applicability with party-driven PAN/rate. Gate re-verified fully green in Release: Io 147 · Ledger 613 (incl.
+Robert/Bright + GST golden) · Sqlite 103 · Desktop 490 = 1353 total, 0 failures. Working tree clean (only the detection
+fix + test files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note); pushed to
+origin, main untouched.
+
+## Phase 7 Slice 3 — TDS Stat Payment deposit + challan + reconciliation (2026-07-10)
+Third TDS slice: deposit the withheld TDS to the government and reconcile it against a challan. **SQLite schema
+v26→v27** (new `tds_challans` + challan↔voucher link tables). Delivered:
+- **TDS Stat Payment (deposit) voucher** — a statutory-payment Payment voucher (`is_stat_payment` flag **reuses the
+  existing Payment base voucher type**, not a new type, per Tally) that Dr's the `TDS/TCS Payable` ledger and Cr's Bank,
+  **zeroing the payable** for the deposited dues. `TdsDepositService` picks up the outstanding payable balance and
+  builds the balanced deposit legs; `TdsStatPaymentViewModel` drives the UI.
+- **Challan ITNS-281** — `TdsChallan` domain type (BSR code, challan serial no, tender date, section/nature, amount
+  breakup) generated on deposit; persisted via `SqliteCompanyStore` and linked to the deposit voucher through
+  `ChallanVoucherLink`.
+- **Reconciliation (Alt+R)** — `ChallanReconciliation` report + `ChallanReconciliationViewModel` match deposited
+  vouchers to challans and surface unmatched/partly-matched dues; reached via the **Alt+R** shortcut.
+- **Io losslessness** — `tds_challans` (+ links) folded into the `Apex.Ledger.Io` canonical model (`CanonicalModel`,
+  `CanonicalMapper`, `CanonicalXml`, `ApplyJournal`, `ImportPlan`) so challans round-trip **paisa- and count-exact**
+  through JSON+XML export/import (`CanonicalChallanRoundTripTests`).
+No A10 HIGH/MED carve-overs this slice (deposit legs balance gross by construction; payable zeroed exactly). Gate fully
+green in Release: **Io 151 · Ledger 620 (incl. Robert/Bright + GST golden) · Sqlite 106 · Desktop 503 = 1380 total, 0
+failures.** Working tree clean (only Slice-3 files: TDS deposit/challan/reconciliation engine + VMs + views + schema v27
+migration + Io canonical + tests). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs
+note); pushed to origin, main untouched. **Next = S4 (Form 26Q + FVU generation).**
+
+## Phase 7 Slice 4 — Form 26Q quarterly return + FVU flat-file export + control totals (2026-07-10)
+Fourth TDS slice: project the posted TDS data into the statutory **Form 26Q** quarterly return and export the
+NSDL/Protean **FVU**-compatible offline upload file. **No schema change — projection-only over the existing v27
+tables** (`CurrentVersion` stays 27); nothing was persisted, everything is derived from posted vouchers/TDS lines +
+`tds_challans`. Delivered:
+- **Form 26Q projection** (`src/Apex.Ledger/Reports/Form26Q.cs`) — a deductor block (TAN, deductor type,
+  person-responsible identity denormalised off F11 `TdsConfig`), per-party **deductee-detail rows** read *verbatim*
+  off the posted `TdsLineTax` (assessable GST-exclusive base, TDS withheld, applied rate bp, PAN-applied flag,
+  §197 hook) so the rows **reconcile to the "TDS/TCS Payable" credit postings for the quarter by construction**, and
+  per-challan blocks linking ITNS-281 deposits to the deductions they discharge (FIFO).
+- **Quarter attribution by DEDUCTION date, not deposit date** — a March deduction deposited on 7-Apr belongs to Q4
+  (the challan is listed under Q4), fixing the **cross-FY attribution** edge (deductions and their late-deposited
+  challans land in the same return quarter across the FY boundary).
+- **FVU flat-file writer** (`src/Apex.Ledger.Io/FvuWriter.cs`) — caret(`^`)-delimited, one-record-per-line eTDS
+  format: File Header (FH) → Batch/deductor Header (BH) → per attributed challan a Challan Detail (CD) + its
+  Deductee Detail (DD) records → File Trailer (FT) with control totals. Deterministic + byte-stable like
+  `CsvWriter`/`TabularExport` (no clock, no RNG, invariant culture, de-branded ER-11), pinned to `FvuVersion` 8.9.
+  DD/challan counts derive from the records **actually written** (undeposited/short-deposited in-quarter deductions
+  produce fewer DD lines) so the FH/BH/FT counts always agree with the file body; the gross-deducted-vs-deposited
+  reconciliation gap lives in `Form26QControlTotals`. Offline emulation only (no bundled govt FVU/RPU JARs, no
+  TRACES/portal upload — decision D4); empty return yields a valid header-only file.
+- **UI** — `Form26QViewModel` drives the return preview + FVU export; wired into `GatewayColumn`/`MainWindowViewModel`
+  (`MainWindow.axaml`/`.axaml.cs`).
+No A10 HIGH/MED carve-overs this slice (deductee rows are verbatim off posted TDS lines and reconcile to the payable
+credits by construction; file control totals are counted from the emitted records). Gate fully green in Release:
+**Io 157 · Ledger 628 (incl. Robert/Bright + GST golden) · Sqlite 106 · Desktop 511 = 1402 total, 0 failures.**
+Working tree clean (only Slice-4 files: Form26Q projection + FvuWriter + Form26QViewModel + Gateway/MainWindow wiring
++ tests; no Schema.cs / migration change). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then
+this docs note); pushed to origin, main untouched. **Next = S5 (TCS compute — additive collect-at-source engine).**
+
+## Phase 7 Slice 8 — TDS/TCS Exception & Outstanding Reports (2026-07-11) — NO schema change (v29)
+Eighth (report-side) TDS/TCS slice: the **exception & outstanding reports** — nine **pure report projections** off
+already-posted TDS/TCS data, mirroring the existing Outstandings / Negative-Stock exception-report pattern and surfaced
+through a façade on `Reports.cs`. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); nothing new is
+persisted — every figure is computed live from the `Company` aggregate. Delivered:
+- **Statutory interest math** (`src/Apex.Ledger/Reports/StatutoryInterest.cs`) — shared `StatutoryDueDate` (7th of the
+  next month, 30-Apr for a March deduction/collection), `CalendarMonthsSpanned` / `LateMonths`
+  (months = (toY*12+toM) − (fromY*12+fromM) + 1, floored at 1; **part-month = full month**), and `LateInterest`
+  (interest accrues **from the deduction/collection date** to the deposit/asOf date). The statutory due date **only
+  gates whether a deposit is late**; it is not the interest start.
+- **Shared FIFO challan coverage** (`src/Apex.Ledger/Reports/TdsCoverage.cs` / `TcsCoverage.cs`) — `CollectUnits` walks
+  posted deductions/collections and applies challan deposits **FIFO, period-attributed** (reusing the corrected S4/S6
+  Form 26Q/27EQ coverage logic — **NOT** the S3 cash-in-window recon), capping each unit's coverage on
+  `DepositDate ≤ asOf`; a **cancelled Stat-Payment voucher drops its challan** (the S3/S6 fix carried in). Feeds both
+  the outstanding and the interest reports.
+- **TDS exception reports** (`src/Apex.Ledger/Reports/TdsExceptionReports.cs`) — R1 **TDS Outstandings**
+  (deducted-not-yet-deposited, per party/section), R2 **TDS Not Deducted** (expense parties that crossed the per-nature
+  threshold with no TDS line — gate matches `TdsService.ThresholdCrossed`), R3 **TDS Interest u/s 201(1A)**
+  (1.5%/month late-deposit), R4 **TDS Nature-of-Payment summary**.
+- **TCS exception reports** (`src/Apex.Ledger/Reports/TcsExceptionReports.cs`) — R5 **TCS Outstandings**, R6 **TCS Not
+  Collected** (gate matches `TcsService.ThresholdCrossed`), R7 **TCS Interest u/s 206C(7)** (1%/month), R8 **TCS
+  Nature-of-Goods summary** — exact mirrors of R1–R4.
+- **Ledgers without PAN** (`src/Apex.Ledger/Reports/LedgersWithoutPan.cs`) — R9 lists deductee/collectee party ledgers
+  that still lack a PAN (excludes parties who have **since** added one).
+- **UI** — `ReportsViewModel` + `MainWindowViewModel` + `MainWindow.axaml` + `IndianFormat.cs`: 9 new `ReportKind`s
+  nested under **Statutory Reports → TDS/TCS Reports** (feature-gated on the tax feature), per-family `DataTemplate`s,
+  headless-render verified. `StatutoryReportsViewModelTests` (Desktop) + `TdsTcsExceptionReportsTests` (Ledger).
+Web-verified law (R7): **§201(1A)** 1.5%/month for TDS deducted-not-deposited; **§206C(7)** 1%/month for TCS
+collected-not-deposited; **part-month = full month**; month count = (toY*12+toM) − (fromY*12+fromM) + 1 floored at 1;
+interest runs from the deduction/collection date; the statutory due date (7th of next month, 30-Apr for March) only
+gates lateness. **LIMITATION:** the **§201(1A)(i) 1% late-DEDUCTION limb is NOT computable** — the model has no
+deductible-date distinct from the voucher date — so it is **omitted with an on-report footnote** (recommended default;
+to confirm with user at the gate). The month-counting convention is likewise flagged to confirm with the user.
+Adversarial review — **3 lenses**: interest-math (**NO FINDINGS**), coverage-invariant (**1 MED + 2 LOW**),
+fidelity-edge (**1 MED + 3 LOW**). Fixes, all regression-locked: **F1 (MED)** R2/R6 threshold/shortfall now match
+`TcsService`/`TdsService.ThresholdCrossed` (single-transaction vs cumulative; §206C(1F)/6CL applied per-line **not**
+FY-cumulative; §194C both limbs surfaced); **F2 (MED)** test-honesty — Σ R1/R5 ≥ `OutstandingPayable`, added
+multi-section over-deposit regressions proving R1/R5 correct while the netted `OutstandingPayable` under-reports;
+**F3 (LOW)** stable intrinsic tie-break for report ordering; **F4 (LOW)** R9 excludes parties who since added a PAN;
+**F5 (LOW)** grand totals foot to the displayed rounded rows.
+**NEW CARRY-FORWARDS (for S9 / user):** (a) the Gateway `OutstandingPayable` "TDS/TCS Payable" balance **nets across
+sections to a zero-floor** and **under-reports under multi-section over-deposit** — the per-section R1/R5 outstanding
+reports are the correct figures; making the deposit service section-aware is S3-guard blast-radius, **deferred**
+(documented in R1/R5 XML-docs). (b) FIFO coverage assumes `company.Vouchers` insertion order == chronological; a
+**backdated same-section deduction mis-attributes per-row interest months** (section totals unaffected) — inherited
+verbatim from Form 26Q/27EQ; fixing risks FVU byte-drift, documented on `TdsCoverage`/`TcsCoverage.CollectUnits`.
+(c) R1/R5 cap coverage on the challan `DepositDate` (legally-correct basis; equals the Stat-Payment voucher date in the
+normal flow) — documented, intentional.
+Gate fully green in Release: **Ledger 691 (incl. Robert/Bright + GST golden) · Io 181 · Sqlite 111 · Desktop 582 =
+1565 total, 0 failures**, 0 warnings, de-branded, no scratch/probe files; **Schema.cs UNCHANGED at v29**. Form 26Q/27EQ
+left byte-identical (shared coverage helpers only; no return-path edits). Known-flaky SQLite isolation test passes on
+isolated re-run. Committed on branch `claude/recursing-swirles-3138c6` (code+tests, then this docs note); pushed to
+origin, main untouched. **Next = S9 (Phase 7 exit gate — golden 194J/TCS worked examples; migration v24→v29; de-brand
+sweep; RUN THE APP + headless-render the TDS/TCS screens; audit Windows-only-passing tests for 3-OS CI; resolve
+carry-forwards incl. §206C(1F) ex-vs-incl-GST trigger via A14 and the recon-report cash-in-window-vs-period-attributed
+question for the user) → then A12 opens/updates a PR and merges branch→main once all 3 OS CI checks are green → PAUSE
+for Phase 7→8 go-ahead.**
+
+## Phase 7 Slice 9 — EXIT GATE (2026-07-11) — NO schema change (v29)
+Ninth and final Phase-7 slice: the **exit gate** — no new feature, purely verification, hardening and merge-readiness.
+No schema change (`Schema.cs` stays `CurrentVersion = 29`); the only production edits are hardening/de-brand fixes.
+Delivered:
+- **Golden worked examples** (`tests/Apex.Ledger.Tests/Phase7GoldenExamplesTests.cs`) — two hand-derived end-to-end
+  oracles that lock the *whole* chain (S2–S7 already lock each stage individually): **TDS 194J** ₹1,00,000 professional
+  fee → ₹10,000 withheld → the figure ties across Form 26Q, the FVU flat-file control totals, and the Form 16A
+  certificate; **TCS scrap (6CE)** ₹1,00,000 → ₹1,000 collected **additive** (on top) → ties across Form 27EQ, FVU and
+  Form 27D. Both were **adversarially verified genuine** (numbers derived by hand, not read back from the engine); no
+  engine bug surfaced — the goldens confirm the stage-locks compose correctly.
+- **Migration v1→v29 equivalence** (`tests/Apex.Persistence.Sqlite.Tests/SchemaMigrationEquivalenceTests.cs`) — asserts a
+  DB migrated all the way from **v1→v29** is structurally identical to a **fresh v29** (order-independent set-compare of
+  tables + columns + indexes). Migration v24→v29 (the Phase-7 span) is **SOUND and now COVERED**. The test **CAUGHT a
+  real create-vs-migrate divergence**: `ix_gst_rate_slabs_company` was created by `MigrateV12ToV13` but **missing from
+  `CreateV1`** → a freshly-created DB lacked an index that a migrated DB had. **FIXED** by adding the index to `CreateV1`
+  (proven non-tautological — the test fails on the pre-fix tree). No data-shape change to any Phase-7 table.
+- **De-brand sweep CLEAN** — 0 must-fix; no "Tally" in app UI or code.
+- **3-OS CI hardening** — the Phase-6 path-separator / byte-stability fix re-confirmed clean. Found a **latent culture
+  bug**: `dd-MMM-yyyy` date formatting was culture-sensitive (dormant on en-US CI, would drift on other locales) →
+  **hardened the shared `FormatDate` with `InvariantCulture`** (`ReportsViewModel.cs`). `Bank*`/`CsvCanonicalBridge`
+  culture-sensitivity is **deferred to Phase 11** (documented, non-blocking, not on the TDS/TCS path).
+- **§206C(1F) ₹10L trigger RESOLVED** — carry-forward from S5. **A14 web-verified** the trigger base = **GST-inclusive**
+  (dominant/conservative reading of the motor-vehicle >₹10L limb). The code was **already correct** — `TcsService` gates
+  on the GST-inclusive assessable value — so **no code change**; only the misleading comment gloss on `TcsService.cs`
+  was corrected.
+- **RAN THE REAL APP** — launched the Release exe clean (PID alive, no crash), headless-rendered **11 TDS/TCS screens**
+  (`s9-*.png`) — all de-branded, no clipping/overlap **except** a genuine **Form 16A/27D certificate-preview overlap**,
+  which was **caught + fixed** (`MainWindow.axaml`). Orchestrator visually confirmed the statutory-interest report
+  (450 / 600 / 300 = **1,350** ties) and the fixed 16A certificate.
+- Doc-comment staleness fixed (`Schema.cs` CreateV1 index doc + `TdsTcsSchemaTests.cs` count).
+Gate fully green in Release: **Ledger 693 · Io 181 · Sqlite 112 · Desktop 582 = 1568 total, 0 failures**, de-branded,
+no scratch/probe files, **Schema.cs UNCHANGED at v29**.
+**Carry-forwards deferred (all documented, non-blocking):** (a) recon reports use **cash-in-window** not
+period-attributed — the returns (26Q/27EQ) **and** the S8 outstanding reports **ARE** period-correct; the recon-report
+semantics are a **user design call** (surface at Phase-7→8 review). (b) `OutstandingPayable` section-awareness (S3-guard
+blast-radius). (c) FIFO backdating mis-attributes per-row interest months (inherited from Form 26Q/27EQ; section totals
+unaffected). (d) migration-equivalence could be extended to FKs/CHECK constraints. (e) `Bank*`/`CsvCanonicalBridge`
+culture (Phase 11). (f) S5 multi-below-threshold-TCS only first nature persisted. (g) S7 no-PAN placeholder rendered
+3 ways + rate-format screen-vs-PDF.
+**Merge PENDING:** A12 opened a PR (base `main` ← head `claude/recursing-swirles-3138c6`), **awaiting all 3 OS CI checks
+green + user go-ahead to merge**; `main` NOT touched. After merge → **PAUSE for Phase 7→8 go-ahead.** **PHASE 7 COMPLETE
+(pending merge).**
+
+## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
+Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
+return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
+projection off already-posted data, so nothing new is persisted. **Finalized after a session-limit interruption killed
+the UI mid-write** — the engine + PDF + report edits had already landed on disk; I (A12) re-verified and completed the
+Desktop VM wiring, then ran the full gate green before committing. Delivered:
+- **Form 16A** (`src/Apex.Ledger/Reports/Form16A.cs`) — the **TDS certificate**: a `Form16ADeductorBlock` (deductor
+  name/TAN/PAN + F11 person-responsible identity), a per-party `Form16ADeducteeBlock`, and `Form16ADeductionRow`s read
+  **verbatim off the matching `Form26QDeducteeRow`** so the certificate **reconciles to the 26Q return by construction**
+  (GST-exclusive assessable base; §194 section + FVU code; rate/PAN-applied). `Form16ATests`.
+- **Form 27D** (`src/Apex.Ledger/Reports/Form27D.cs`) — the **TCS certificate**, exact mirror of 16A on the collector
+  side: `Form27DCollectorBlock` + `Form27DCollecteeBlock` + `Form27DCollectionRow`s verbatim off `Form27EQCollecteeRow`
+  (GST-**inclusive** base per Circular 17/2020; §206C code; TCS additive). Reconciles to 27EQ by construction.
+  `Form27DTests`.
+- **Form 27A** (`src/Apex.Ledger/Reports/Form27A.cs`) — the return **control chart** for a 26Q *or* 27EQ quarter: a pure
+  projection of the return's control totals (deductee/collectee count, challan count, total tax, total amount, total
+  deposited) + the FVU-style cross-check messages the return itself surfaces (`Form26QControlTotals.Validate` /
+  `Form27EQControlTotals.Validate`); figures **tally with the return by construction**. `Tallies` ⇒ no messages.
+  `Form27ATests`.
+- **PDFs** (`src/Apex.Ledger.Io/Form16APdf.cs`, `Form27DPdf.cs`, `Form27APdf.cs`, shared `CertificatePdfSupport.cs`) —
+  hand-rolled, deterministic, **byte-stable, de-branded** (no NuGet), sharing header/label/amount-in-words helpers. The
+  27A cover renders the **tally status** with the visible text **de-branded TALLY→AGREE** ("Control totals AGREE — the
+  return cross-checks and is clear for FVU validation"). `CertificatePdfTests` assert byte-identical re-render.
+- **UI** — `Form16AViewModel`/`Form27DViewModel`/`Form27AViewModel` + `CertificatePages.cs` wired into
+  `GatewayColumn`/`MainWindowViewModel` (`MainWindow.axaml`/`.axaml.cs`); the panes this slice re-completed after the
+  mid-write interruption. `Form16AViewModelTests`/`Form27DViewModelTests`/`Form27AViewModelTests`.
+No A10 HIGH/MED carve-overs this slice (certificates are verbatim projections off the S4/S6 return rows and reconcile to
+them by construction; 27A control totals derive from the same projection as the returns; no persistence, no schema). Gate
+fully green in Release: **Io 181 · Ledger 665 (incl. Robert/Bright + GST golden) · Sqlite 111 · Desktop 558 = 1515 total,
+0 failures.** Working tree clean (only Slice-7 files: Form16A/27D/27A reports + Form16A/27D/27A PDFs +
+CertificatePdfSupport + 3 cert VMs + CertificatePages + Gateway/MainWindow wiring + tests; **Schema.cs UNCHANGED at
+v29**; no scratch/probe files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note);
+pushed to origin, main untouched. **Next = S8 (TDS/TCS exception reports).**
+
+## Phase 7 Slice 6 — TCS Stat Payment deposit + challan reconciliation + Form 27EQ + FVU (2026-07-10) — SQLite schema v28→v29
+Sixth TDS/TCS slice: the **TCS deposit + statutory-return** half — the mirror of the S3 (TDS deposit/challan/recon) and
+S4 (Form 26Q + FVU) slices, now on the collect-at-source side. **SQLite schema v28→v29** (new `tcs_challans` +
+challan↔stat-payment-voucher link tables, additive `MigrateV28ToV29` inside the version-bump transaction, no ALTER).
+Delivered:
+- **TCS Stat Payment (deposit) voucher** — `TcsDepositService` picks up the outstanding "TCS Payable" balance and builds
+  the balanced ITNS-281 deposit legs (Dr TCS Payable, Cr Bank), zeroing the payable for the deposited dues; the
+  statutory-payment flag **reuses the existing Payment base voucher type** (per Tally, as in S3). `TcsStatPaymentViewModel`
+  drives the UI (`TcsStatPaymentViewModelTests`).
+- **Challan + reconciliation** — `TcsChallan` domain type (BSR code, challan serial, tender date, nature-of-goods,
+  amount breakup) persisted via `SqliteCompanyStore` and linked to the deposit voucher through a challan↔voucher link.
+  `TcsChallanReconciliation` sums collected TCS off every posted, **non-cancelled** voucher and matches it to challans
+  whose booking Stat-Payment voucher is **still live** — the **cancelled-voucher fix reused** from the S3 recon rework
+  (a cancelled/absent booking drops the challan; collected side and `LedgerBalances.SignedClosing` both already skip
+  cancelled vouchers, so the two sides stay consistent). `TcsChallanReconciliationViewModel` surfaces
+  unmatched/partly-matched dues.
+- **Form 27EQ projection** (`src/Apex.Ledger/Reports/Form27EQ.cs`) — a collector/deductor block (TAN, person-responsible
+  identity denormalised off F11 `TcsConfig`), per-party **collectee-detail rows** read *verbatim* off the posted
+  `TcsLineTax` (collection code + FVU code, collection date = voucher date, assessable value, rate bp, PAN-applied,
+  §206C(9) lower-collection hook) so the rows **reconcile to the "TCS Payable" credit postings for the quarter by
+  construction**, plus per-challan blocks. **Quarter attribution by COLLECTION date, not deposit date** (same cross-FY
+  fix as S4's Form 26Q). `Form27EQTests`.
+- **FVU 27EQ writer** (`FvuWriter.cs` 27EQ path) — caret(`^`)-delimited eTDS/eTCS record layout FH→BH→per attributed
+  challan CD + its collectee DD→FT with control totals; **portion-tracked + DD-derived totals reused from the S4 fix**
+  (undeposited/short-deposited in-quarter collections produce fewer DD lines; FH/BH/FT counts derive from records
+  actually written so the header/trailer always agree with the body). Deterministic + byte-stable + de-branded, offline
+  emulation only (decision D4). `FvuWriter27EQTests`.
+- **Io losslessness** — `tcs_challans` (+ links) folded into the `Apex.Ledger.Io` canonical model (`CanonicalModel`,
+  `CanonicalMapper`, `CanonicalXml`, `ApplyJournal`, `ImportPlan`) so TCS challans round-trip **paisa- and count-exact**
+  through JSON+XML export/import (`CanonicalTcsChallanRoundTripTests`, `TcsChallanRoundTripTests`).
+- **UI** — `Form27EQViewModel` + the two TCS VMs wired into `GatewayColumn`/`MainWindowViewModel`
+  (`MainWindow.axaml`/`.axaml.cs`).
+No A10 HIGH/MED carve-overs this slice (deposit legs balance gross + payable zeroed by construction; collectee rows are
+verbatim off posted TCS lines and reconcile to the payable credits; file control totals counted from emitted records;
+cancelled-voucher and DD-derivation fixes carried in from S3/S4). Gate fully green in Release: **Io 172 · Ledger 657
+(incl. Robert/Bright + GST golden) · Sqlite 111 · Desktop 538 = 1478 total, 0 failures.** Working tree clean (only
+Slice-6 files: TcsDepositService + TcsChallan + TcsChallanReconciliation + Form27EQ + FvuWriter 27EQ path + 3 VMs +
+Gateway/MainWindow wiring + Schema/SqliteCompanyStore v29 migration + Io canonical + tests; no scratch/probe files).
+Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note); pushed to origin, main
+untouched. **Next = S7 (TCS/TDS certificates — Form 16A + 27D + 27A).**
+
+## Phase 7 Slice 5 — TCS compute + auto-collection on sales (additive, goods-driven) (2026-07-10) — SQLite schema v27→v28
+Fifth TDS/TCS slice: the **TCS collect-at-source** engine — the mirror of GST and the additive counterpart of the S2
+withholding TDS engine. Unlike TDS (carve-out withholding), **TCS is additive**: collected *on top* of the sale, so on
+a TCS-applicable Sales voucher the collector books `Dr Party = value + GST + TCS`, `Cr Sales = value` (unchanged),
+`Cr Output GST` (unchanged Phase-4 engine), `Cr "TCS Payable" = TCS` (a Duties & Taxes liability). Delivered:
+- **`TcsService`** (`src/Apex.Ledger/Services/TcsService.cs`) — pure, framework/DB/clock/RNG-free computation over the
+  `Company` aggregate (like `GstService`). **Goods-driven Nature-of-Goods detection (the S2 lesson applied to TCS):**
+  the §206C `NatureOfGoods` resolves from the STOCK ITEM's `TcsNatureOfGoodsId` first, then the sales ledger's (only
+  when `TcsApplicable`), **never the party**. The **party** drives only PAN/rate + the collectee gate: PAN ⇒
+  `RateWithPanBp`; **no-PAN ⇒ §206CC `RateWithoutPanBp`** (higher of 2×/5%, EXCEPT the 206C(1H) no-PAN cap of 1% the
+  S1 seed already encodes). **Base includes GST** for every §206C row (Circular 17/2020, `BaseIncludesGst` flag).
+  Rounding = income-tax **nearest-rupee round-half-up** (reuses `TdsService.NearestRupee`).
+- **Threshold + §206C(1H) legacy gate** — a nature with no threshold collects on the full base (scrap); the legacy
+  **§206C(1H)** nature applies its ₹50-lakh threshold as a **cumulative-FY receipts projection** (`ProjectPriorCumulative`
+  over prior posted vouchers, like `Gstr1` YTD) and charges only receipts **exceeding** the threshold (`ChargeableBase`,
+  bare-section "sale consideration exceeding fifty lakh rupees"); any other threshold-bearing nature (§206C(1F) motor
+  vehicle) applies it **per single transaction**. "Exceeds" is strict. The §206C(1H) legacy nature is **non-selectable
+  for dates ≥ 01-Apr-2025** (FA2025 year-gate, `IsSelectableOn`).
+- **No GSTR-1 / 27EQ double-count** — TCS Payable sits under Duties & Taxes, so `ClassificationRules.IsDutiesAndTaxesLedger`
+  excludes it from the item-invoice pairing sum exactly like the GST tax ledgers: the additive collection foots without
+  disturbing the Sales pairing invariant (Sales credit == Σ item value). TCS is its own payable, never a sales/GST amount.
+- **`TcsLineTax`** (`src/Apex.Ledger/Domain/TcsLineTax.cs`) rides the party/payable `EntryLine` (nature, collection code,
+  assessable value, rate bp, TCS amount, collectee id, PAN-applied); present even below threshold (TCS 0) so the FY
+  receipts projection stays exact. **Io-lossless**: `tcs_lines` folded into the canonical model (`CanonicalModel`/
+  `CanonicalMapper`/`CanonicalXml`/`ImportPlan`) — paisa+count-exact JSON+XML round-trip (`CanonicalTcsLineRoundTripTests`).
+- **Schema v27→v28** (`Schema.cs` `CurrentVersion = 28`, `SqliteCompanyStore` persists `tcs_lines`); migration is
+  additive (new table + index inside the version-bump transaction, no ALTER).
+- **UI** — `VoucherEntryViewModel` computes + shows the additive TCS leg on Sales; `MainWindow.axaml` wiring.
+No A10 HIGH/MED carve-overs surfaced this slice (additive design foots by construction; goods-driven detection avoids the
+S2 party-driven trap from the outset; assessable stays FULL receipts while only the charged base is carved so subsequent-
+year cumulative arithmetic remains exact). Gate fully green in Release: **Io 161 · Ledger 638 (incl. Robert/Bright + GST
+golden) · Sqlite 108 · Desktop 519 = 1426 total, 0 failures.** Working tree clean (only Slice-5 files: TcsService +
+TcsLineTax + EntryLine.Tcs + Schema/SqliteCompanyStore v28 + Io canonical wiring + VoucherEntryViewModel/MainWindow +
+tests; no scratch/probe files). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then this docs note);
+pushed to origin, main untouched. **Next = S6 (Form 27EQ quarterly TCS return + TCS challan/stat-payment, schema v29).**

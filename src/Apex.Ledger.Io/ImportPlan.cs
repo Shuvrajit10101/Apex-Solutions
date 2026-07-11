@@ -88,6 +88,8 @@ internal sealed class ImportPlan
         var currencyId = new Dictionary<Guid, Guid>();
         var priceLevelId = new Dictionary<Guid, Guid>();   // Phase 6 slice 5
         var bomId = new Dictionary<Guid, Guid>();          // Phase 6 slice 2 (needed to resolve Job Work fill-BOM refs)
+        var tdsNatureId = new Dictionary<Guid, Guid>();    // Phase 7 slice 1 (DTO nature id → re-minted target id)
+        var tcsNatureId = new Dictionary<Guid, Guid>();
 
         // Phase 6 slice 7: POS retail-till configs reference godowns + ledgers created later, so they are attached in
         // a deferred pass once those masters exist. Each pair is a newly-created POS voucher type + its exported config.
@@ -104,6 +106,26 @@ internal sealed class ImportPlan
             var config = BuildGstConfig(gstDto);
             journal.RecordGstEnabledBefore();          // snapshot the ORIGINAL config + ledger set BEFORE EnableGst mutates
             gstService.EnableGst(config); // idempotent; auto-creates tax + round-off ledgers under Duties & Taxes
+        }
+
+        // 0a) TDS/TCS config (Phase 7 slice 1). EnableTds/EnableTcs auto-create the "TDS Payable"/"TCS Payable"
+        //     ledgers (reused by name from the ledger list below, like the GST tax ledgers) and preserve the
+        //     exported Nature-of-Payment/Goods masters. Each master is re-minted with a fresh Guid; the DTO id →
+        //     target id map lets a ledger's/item's default-nature reference resolve across companies.
+        var tdsTcsService = new TdsTcsService(t);
+        if (_model.Company.Tds is { Enabled: true } tdsDto)
+        {
+            var (config, map) = BuildTdsConfig(tdsDto);
+            journal.RecordTdsEnabledBefore();
+            tdsTcsService.EnableTds(config);
+            foreach (var kv in map) tdsNatureId[kv.Key] = kv.Value;
+        }
+        if (_model.Company.Tcs is { Enabled: true } tcsDto)
+        {
+            var (config, map) = BuildTcsConfig(tcsDto);
+            journal.RecordTcsEnabledBefore();
+            tdsTcsService.EnableTcs(config);
+            foreach (var kv in map) tcsNatureId[kv.Key] = kv.Value;
         }
 
         // 1) Groups — parents before children (topological by ParentId within the imported set).
@@ -149,7 +171,8 @@ internal sealed class ImportPlan
                 allowZeroValuedTransactions: vt.AllowZeroValuedTransactions,
                 useForPos: vt.UseForPos,
                 useForJobWork: vt.UseForJobWork,
-                allowConsumption: vt.AllowConsumption);
+                allowConsumption: vt.AllowConsumption,
+                isStatPayment: vt.IsStatPayment);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -256,6 +279,7 @@ internal sealed class ImportPlan
             {
                 var existing = existingByName ?? t.FindLedgerByName(target.Name)!;
                 var seedProvided = existing.IsPredefined || existing.GstClassification is not null ||
+                    existing.TdsTcsClassification is not null ||
                     string.Equals(existing.Name, GstService.RoundOffLedgerName, StringComparison.OrdinalIgnoreCase);
 
                 if (_policy == DuplicatePolicy.MergeOpeningBalance)
@@ -287,6 +311,19 @@ internal sealed class ImportPlan
                 methodOfAppropriation: l.MethodOfAppropriation is { } m ? ParseEnum<MethodOfAppropriation>(m) : null,
                 // Phase 6 slice 5: a party ledger's default Price Level, resolved by name across companies.
                 defaultPriceLevelId: l.DefaultPriceLevelId is { } plid ? ResolvePriceLevelId(plid, priceLevelId, t) : null);
+            // Phase 7 slice 1: TDS/TCS ledger applicability flags (plain properties). Nature ids resolve via the
+            // re-minted maps (fallback: an already-present target nature id). A non-TDS/TCS ledger stays all-off.
+            domain.TdsApplicable = l.TdsApplicable;
+            domain.TdsNatureOfPaymentId = l.TdsNatureOfPaymentId is { } tn ? ResolveTdsNatureId(tn, tdsNatureId, t) : null;
+            domain.DeducteeType = l.DeducteeType is { } dt ? ParseEnum<DeducteeType>(dt) : null;
+            domain.PartyPan = l.PartyPan;
+            domain.DeductTdsInSameVoucher = l.DeductTdsInSameVoucher;
+            domain.TcsApplicable = l.TcsApplicable;
+            domain.TcsNatureOfGoodsId = l.TcsNatureOfGoodsId is { } gn ? ResolveTcsNatureId(gn, tcsNatureId, t) : null;
+            domain.CollecteeType = l.CollecteeType is { } ct ? ParseEnum<CollecteeType>(ct) : null;
+            // A payable-ledger classification only appears on the auto-created TDS/TCS Payable ledgers (reused above);
+            // an ordinary imported ledger never carries one, so this stays null here.
+            domain.TdsTcsClassification = l.TdsTcsClassification is { } k ? ParseEnum<TdsTcsLedgerKind>(k) : null;
             t.AddLedger(domain);
             journal.RecordLedger(domain);
             ledgerId[l.Id] = domain.Id;
@@ -391,6 +428,8 @@ internal sealed class ImportPlan
             domain.TrackManufacturingDate = i.TrackManufacturingDate;
             domain.UseExpiryDates = i.UseExpiryDates;
             domain.SetComponents = i.SetComponents;
+            // Phase 7 slice 1: the item's default §206C Nature-of-Goods, resolved via the re-minted map.
+            domain.TcsNatureOfGoodsId = i.TcsNatureOfGoodsId is { } gn ? ResolveTcsNatureId(gn, tcsNatureId, t) : null;
             journal.RecordStockItem(domain);
             stockItemId[i.Id] = domain.Id;
             created++;
@@ -557,12 +596,14 @@ internal sealed class ImportPlan
         //     POS tender split).
         var posting = new LedgerService(t);
         var posted = 0;
+        var voucherId = new Dictionary<Guid, Guid>();   // Phase 7 slice 3: DTO voucher id → re-minted target id (for challan links)
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
+            voucherId[v.Id] = domain.Id;
             posted++;
         }
 
@@ -586,6 +627,53 @@ internal sealed class ImportPlan
             PostInventoryVoucher(iv);
         foreach (var iv in _model.Payload.InventoryVouchers.Where(x => x.JobWorkOrder is null))
             PostInventoryVoucher(iv);
+
+        // 12) TDS deposit challans + their Stat-Payment-voucher links (Phase 7 slice 3). A challan is re-minted with a
+        //     fresh Guid; its links resolve the DTO voucher id to the re-minted target voucher posted in step 10 (the
+        //     Phase-6 carry-forward defect class — a new child silently dropped on export/import). Recorded in the
+        //     journal so a rollback prunes them.
+        var challanId = new Dictionary<Guid, Guid>();
+        foreach (var chDto in _model.Payload.TdsChallans)
+        {
+            var challan = new TdsChallan(Guid.NewGuid(), chDto.ChallanNo, chDto.BsrCode,
+                CompanyImportService.ParseDate(chDto.DepositDate), MoneyCodec.FromPaisa(chDto.AmountPaisa),
+                chDto.Section, chDto.MinorHead);
+            t.AddTdsChallan(challan);
+            journal.RecordTdsChallan(challan);
+            challanId[chDto.Id] = challan.Id;
+        }
+        foreach (var linkDto in _model.Payload.ChallanVoucherLinks)
+        {
+            if (!challanId.TryGetValue(linkDto.ChallanId, out var chId)) continue; // orphan link — challan not imported
+            var vId = voucherId.TryGetValue(linkDto.VoucherId, out var mapped) ? mapped
+                : t.FindVoucher(linkDto.VoucherId)?.Id;
+            if (vId is null) continue; // orphan link — voucher not imported/present
+            t.LinkChallanToVoucher(chId, vId.Value);
+            journal.RecordChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
+        }
+
+        // 13) TCS deposit challans + their Stat-Payment-voucher links (Phase 7 slice 6). The exact sibling of the TDS
+        //     challan re-mint above: a fresh Guid per challan; each link resolves the DTO voucher id to the re-minted
+        //     target voucher posted in step 10. Recorded in the journal so a rollback prunes them.
+        var tcsChallanId = new Dictionary<Guid, Guid>();
+        foreach (var chDto in _model.Payload.TcsChallans)
+        {
+            var challan = new TcsChallan(Guid.NewGuid(), chDto.ChallanNo, chDto.BsrCode,
+                CompanyImportService.ParseDate(chDto.DepositDate), MoneyCodec.FromPaisa(chDto.AmountPaisa),
+                chDto.CollectionCode, chDto.MinorHead);
+            t.AddTcsChallan(challan);
+            journal.RecordTcsChallan(challan);
+            tcsChallanId[chDto.Id] = challan.Id;
+        }
+        foreach (var linkDto in _model.Payload.TcsChallanVoucherLinks)
+        {
+            if (!tcsChallanId.TryGetValue(linkDto.ChallanId, out var chId)) continue; // orphan link — challan not imported
+            var vId = voucherId.TryGetValue(linkDto.VoucherId, out var mapped) ? mapped
+                : t.FindVoucher(linkDto.VoucherId)?.Id;
+            if (vId is null) continue; // orphan link — voucher not imported/present
+            t.LinkTcsChallanToVoucher(chId, vId.Value);
+            journal.RecordTcsChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
+        }
 
         return (created, reused, posted);
     }
@@ -644,6 +732,62 @@ internal sealed class ImportPlan
         return config;
     }
 
+    /// <summary>Builds a <see cref="TdsConfig"/> from its DTO (Phase 7 slice 1), preserving the exported
+    /// Nature-of-Payment masters with FRESH ids and returning the DTO-id → new-id map so a ledger's default-nature
+    /// reference resolves across companies.</summary>
+    private static (TdsConfig Config, Dictionary<Guid, Guid> NatureIdMap) BuildTdsConfig(TdsConfigDto g)
+    {
+        var config = new TdsConfig
+        {
+            Enabled = true, Tan = g.Tan, DeductorType = ParseEnum<DeductorType>(g.DeductorType),
+            ResponsiblePersonName = g.ResponsiblePersonName, ResponsiblePersonPan = g.ResponsiblePersonPan,
+            ResponsiblePersonDesignation = g.ResponsiblePersonDesignation, ResponsiblePersonAddress = g.ResponsiblePersonAddress,
+            SurchargeApplicable = g.SurchargeApplicable, CessApplicable = g.CessApplicable,
+            Periodicity = ParseEnum<TdsTcsPeriodicity>(g.Periodicity),
+            ApplicableFrom = CompanyImportService.ParseDateOpt(g.ApplicableFrom),
+        };
+        var map = new Dictionary<Guid, Guid>();
+        foreach (var n in g.NaturesOfPayment)
+        {
+            var nature = new NatureOfPayment(Guid.NewGuid(), n.SectionCode, n.Name, n.RateWithPanBp, n.RateWithoutPanBp,
+                n.FvuSectionCode,
+                singleTransactionThreshold: n.SingleThresholdPaisa is { } s ? MoneyCodec.FromPaisa(s) : null,
+                cumulativeThreshold: n.CumulativeThresholdPaisa is { } c ? MoneyCodec.FromPaisa(c) : null,
+                effectiveFrom: CompanyImportService.ParseDateOpt(n.EffectiveFrom), isPredefined: n.IsPredefined);
+            config.AddNatureOfPayment(nature);
+            map[n.Id] = nature.Id;
+        }
+        return (config, map);
+    }
+
+    /// <summary>Builds a <see cref="TcsConfig"/> from its DTO (Phase 7 slice 1), preserving the exported
+    /// Nature-of-Goods masters with FRESH ids and returning the DTO-id → new-id map.</summary>
+    private static (TcsConfig Config, Dictionary<Guid, Guid> NatureIdMap) BuildTcsConfig(TcsConfigDto g)
+    {
+        var config = new TcsConfig
+        {
+            Enabled = true, Tan = g.Tan, CollectorType = ParseEnum<DeductorType>(g.CollectorType),
+            ResponsiblePersonName = g.ResponsiblePersonName, ResponsiblePersonPan = g.ResponsiblePersonPan,
+            ResponsiblePersonDesignation = g.ResponsiblePersonDesignation, ResponsiblePersonAddress = g.ResponsiblePersonAddress,
+            SurchargeApplicable = g.SurchargeApplicable, CessApplicable = g.CessApplicable,
+            Periodicity = ParseEnum<TdsTcsPeriodicity>(g.Periodicity),
+            ApplicableFrom = CompanyImportService.ParseDateOpt(g.ApplicableFrom),
+        };
+        var map = new Dictionary<Guid, Guid>();
+        foreach (var n in g.NaturesOfGoods)
+        {
+            var nature = new NatureOfGoods(Guid.NewGuid(), n.CollectionCode, n.Name, n.RateWithPanBp, n.RateWithoutPanBp,
+                n.FvuCode,
+                threshold: n.ThresholdPaisa is { } th ? MoneyCodec.FromPaisa(th) : null,
+                baseIncludesGst: n.BaseIncludesGst,
+                effectiveFrom: CompanyImportService.ParseDateOpt(n.EffectiveFrom), isPredefined: n.IsPredefined,
+                isLegacy: n.IsLegacy, legacyCutoff: CompanyImportService.ParseDateOpt(n.LegacyCutoff));
+            config.AddNatureOfGoods(nature);
+            map[n.Id] = nature.Id;
+        }
+        return (config, map);
+    }
+
     // ---- voucher assembly ----
 
     private Voucher BuildVoucher(
@@ -655,6 +799,8 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> costCategoryId,
         Dictionary<Guid, Guid> costCentreId,
         Dictionary<Guid, Guid> currencyId,
+        Dictionary<Guid, Guid> tdsNatureId,
+        Dictionary<Guid, Guid> tcsNatureId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -666,7 +812,9 @@ internal sealed class ImportPlan
                 : l.CostAllocations.Select(a => BuildCostAllocation(a, costCategoryId, costCentreId, t)).ToList(),
             bankAllocation: BuildBankAllocation(l.BankAllocation),
             forex: BuildForex(l.Forex, currencyId, t),
-            gst: BuildGstLineTax(l.Gst)));
+            gst: BuildGstLineTax(l.Gst),
+            tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t),
+            tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t)));
 
         var invLines = v.InventoryLines.Count == 0
             ? null
@@ -720,6 +868,28 @@ internal sealed class ImportPlan
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
         ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa));
+
+    /// <summary>Rebuilds a line's TDS withholding detail (Phase 7 slice 2), re-mapping the source nature id and
+    /// deductee-ledger id into the target company's re-minted ids so the withholding reconciles across companies
+    /// (paisa- and count-exact). Null for a non-TDS line.</summary>
+    private static TdsLineTax? BuildTdsLineTax(
+        TdsLineTaxDto? d, Dictionary<Guid, Guid> tdsNatureId, Dictionary<Guid, Guid> ledgerId, Company t) =>
+        d is null ? null : new TdsLineTax(
+            ResolveTdsNatureId(d.NatureId, tdsNatureId, t), d.SectionCode,
+            MoneyCodec.FromPaisa(d.AssessableValuePaisa), d.RateBasisPoints,
+            MoneyCodec.FromPaisa(d.TdsAmountPaisa),
+            ResolveLedgerId(d.DeducteeLedgerId, ledgerId, t), d.PanApplied);
+
+    /// <summary>Rebuilds a line's TCS collection detail (Phase 7 slice 5; the additive mirror of the TDS carve-out),
+    /// re-mapping the source Nature-of-Goods id and collectee-ledger id into the target company's re-minted ids so
+    /// the collection reconciles across companies (paisa- and count-exact). Null for a non-TCS line.</summary>
+    private static TcsLineTax? BuildTcsLineTax(
+        TcsLineTaxDto? d, Dictionary<Guid, Guid> tcsNatureId, Dictionary<Guid, Guid> ledgerId, Company t) =>
+        d is null ? null : new TcsLineTax(
+            ResolveTcsNatureId(d.NatureId, tcsNatureId, t), d.CollectionCode,
+            MoneyCodec.FromPaisa(d.AssessableValuePaisa), d.RateBasisPoints,
+            MoneyCodec.FromPaisa(d.TcsAmountPaisa),
+            ResolveLedgerId(d.CollecteeLedgerId, ledgerId, t), d.PanApplied);
 
     private static InterestParameters? BuildInterest(InterestParametersDto? i) => i is null ? null : new InterestParameters(
         i.Enabled, i.RatePercent, ParseEnum<InterestPer>(i.Per), ParseEnum<InterestOnBalance>(i.OnBalance),
@@ -903,6 +1073,12 @@ internal sealed class ImportPlan
     private static Guid ResolvePriceLevelId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
         map.TryGetValue(dtoId, out var id) ? id : t.FindPriceLevel(dtoId)?.Id
             ?? throw new InvalidOperationException($"Price level reference {dtoId} could not be resolved.");
+    private static Guid ResolveTdsNatureId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindNatureOfPayment(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Nature-of-Payment reference {dtoId} could not be resolved.");
+    private static Guid ResolveTcsNatureId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindNatureOfGoods(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Nature-of-Goods reference {dtoId} could not be resolved.");
 
     // ---- dependency ordering (parents before children; simple units before compound) ----
 

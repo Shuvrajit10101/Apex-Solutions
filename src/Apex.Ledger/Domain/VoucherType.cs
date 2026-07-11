@@ -126,6 +126,19 @@ public sealed class VoucherType
     public bool IsConsumingMaterialIn =>
         BaseType == VoucherBaseType.MaterialIn && AllowConsumption;
 
+    /// <summary>
+    /// "<b>Use for Statutory Payment (Stat Payment)</b>" (catalog §13; Phase 7 slice 3). A <b>Payment</b> voucher
+    /// type flagged to book a statutory-tax deposit — a TDS/TCS/GST payment against the "TDS Payable" (etc.) liability
+    /// ledger (Dr TDS Payable / Cr Bank), the Tally "Ctrl+F Stat Payment" mode. It reuses the Payment
+    /// <see cref="BaseType"/> unchanged (no new <see cref="VoucherBaseType"/>) — only this flag marks it — so
+    /// <c>GstReportSupport.DirectionOf</c> and every exhaustive base-type switch are untouched. Defaults to
+    /// <c>false</c>, so every existing Payment type is byte-identical (ER-13). Only meaningful on a Payment base.
+    /// </summary>
+    public bool IsStatPayment { get; set; }
+
+    /// <summary>True iff this is a Stat-Payment type — a Payment base type with <see cref="IsStatPayment"/> on.</summary>
+    public bool IsStatPaymentType => BaseType == VoucherBaseType.Payment && IsStatPayment;
+
     public VoucherType(
         Guid id,
         string name,
@@ -143,7 +156,8 @@ public sealed class VoucherType
         bool useForPos = false,
         PosConfig? posConfig = null,
         bool useForJobWork = false,
-        bool allowConsumption = false)
+        bool allowConsumption = false,
+        bool isStatPayment = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -165,5 +179,6 @@ public sealed class VoucherType
         PosConfig = posConfig;
         UseForJobWork = useForJobWork;
         AllowConsumption = allowConsumption;
+        IsStatPayment = isStatPayment;
     }
 }

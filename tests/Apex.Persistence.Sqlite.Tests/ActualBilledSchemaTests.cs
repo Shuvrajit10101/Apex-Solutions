@@ -272,6 +272,8 @@ public sealed class ActualBilledSchemaTests
             name TEXT NOT NULL);
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, group_id TEXT NOT NULL REFERENCES groups(id), method_of_appropriation INTEGER NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
+            name TEXT NOT NULL);
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, base_type INTEGER NOT NULL,
             use_as_manufacturing_journal INTEGER NOT NULL DEFAULT 0, track_additional_costs INTEGER NOT NULL DEFAULT 0);

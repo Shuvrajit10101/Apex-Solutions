@@ -1067,6 +1067,281 @@
 
                         </Grid>
 
+                        <!-- ============ STATUTORY TDS/TCS reports (Phase 7 slice 8): outstandings / not-withheld /
+                             interest / nature summary / ledgers-without-PAN ============
+                             Wide statutory grids: each family is horizontally scrollable (fixed total width) so no
+                             column collapses/clips; header + rows share the SAME explicit column widths so they scroll
+                             together and line up. The TDS and TCS members of a pair share a grid; the header labels
+                             that differ come from the VM (StatCodeHeader / StatWithheldHeader / …). Amounts are whole
+                             rupees. De-branded. -->
+                        <Grid x:Name="StatutoryReportPane" Grid.Row="3" Grid.RowSpan="2"
+                              IsVisible="{Binding IsStatutoryReport}">
+
+                          <!-- == Outstandings (R1/R5): Section/Code | Nature | Deducted/Collected | Deposited | Outstanding | Overdue == -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsStatutoryOutstanding}">
+                          <Grid RowDefinitions="Auto,*" MinWidth="600" Width="{Binding #StatutoryReportPane.Bounds.Width}"
+                                Height="{Binding #StatutoryReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="96,*,98,98,104,84">
+                                <TextBlock Grid.Column="0" Text="{Binding StatCodeHeader}" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Nature" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="{Binding StatWithheldHeader}" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Outstanding" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Overdue Days" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="96,*,98,98,104,84" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="6" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="#777" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                          <!-- == Not Deducted / Not Collected (R2/R6): Date | Party | Section/Nature | Assessable | Cumulative | Threshold | Shortfall == -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsStatutoryNotWithheld}">
+                          <Grid RowDefinitions="Auto,*" MinWidth="624" Width="{Binding #StatutoryReportPane.Bounds.Width}"
+                                Height="{Binding #StatutoryReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="96,*,100,84,92,84,86">
+                                <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Party" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Sec./Nature" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Assessable" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Cumul. (FY)" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Threshold" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="Shortfall" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="96,*,100,84,92,84,86" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="7" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="#777" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                          <!-- == Interest (R3/R7): Party | Section/Code | TDS/TCS | Deduction/Collection Date | Deposit Date |
+                               Due Date | Months | Interest — with the late-deduction-limb footnote below == -->
+                          <Grid RowDefinitions="*,Auto" IsVisible="{Binding IsStatutoryInterest}">
+                            <ScrollViewer Grid.Row="0" x:Name="StatInterestBody"
+                                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                              <Grid RowDefinitions="Auto,*" MinWidth="610" Width="{Binding #StatInterestBody.Bounds.Width}"
+                                    Height="{Binding #StatInterestBody.Bounds.Height}">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,72,64,80,86,82,46,108">
+                                    <TextBlock Grid.Column="0" Text="Party" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding StatCodeHeader}" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding StatTaxHeader}" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding StatEventDateHeader}" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Deposit Date" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="5" Text="Due Date" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="6" Text="Months" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="7" Text="{Binding StatInterestHeader}" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ScrollViewer Grid.Row="1" Background="White">
+                                  <ItemsControl ItemsSource="{Binding Rows}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ReportRow">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="*,72,64,80,86,82,46,108" Height="24">
+                                            <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                       IsVisible="{Binding !IsHeader}"
+                                                       VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                       FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                       VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                       FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                       Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                       FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Col4}" Margin="0,0,8,0"
+                                                       VerticalAlignment="Center" FontSize="12"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding Col5}" Margin="0,0,8,0"
+                                                       VerticalAlignment="Center" FontSize="12"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding Col6}" Margin="0,0,8,0"
+                                                       VerticalAlignment="Center" FontSize="12"/>
+                                            <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                       Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                            <TextBlock Grid.Column="7" Text="{Binding Col8}" TextAlignment="Right"
+                                                       Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                       FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                            <TextBlock Grid.Column="0" Grid.ColumnSpan="8" Text="{Binding Col1}" Margin="8,0"
+                                                       IsVisible="{Binding IsHeader}" VerticalAlignment="Center"
+                                                       FontSize="12" Foreground="#777" TextTrimming="CharacterEllipsis"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </ScrollViewer>
+                              </Grid>
+                            </ScrollViewer>
+                            <Border Grid.Row="1" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="0,1,0,0" Padding="10,6"
+                                    IsVisible="{Binding HasStatutoryFootnote}">
+                              <TextBlock Text="{Binding StatutoryFootnote}" TextWrapping="Wrap"
+                                         FontSize="11" Foreground="#7A5B00"/>
+                            </Border>
+                          </Grid>
+
+                          <!-- == Nature summary (R4/R8): Section/Code | Nature | Assessable | Deducted/Collected | Deposited | Outstanding | Below-thr == -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsStatutoryNatureSummary}">
+                          <Grid RowDefinitions="Auto,*" MinWidth="616" Width="{Binding #StatutoryReportPane.Bounds.Width}"
+                                Height="{Binding #StatutoryReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="96,*,90,88,88,92,66">
+                                <TextBlock Grid.Column="0" Text="{Binding StatCodeHeader}" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Nature" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Assessable" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="{Binding StatWithheldHeader}" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Outstanding" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="6" Text="Below Thr." Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="96,*,90,88,88,92,66" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Col7}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="7" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="#777" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                          <!-- == Ledgers without PAN (R9): Party | Type | PAN? | Sections/Codes | Tax at no-PAN rate == -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsLedgersWithoutPan}">
+                          <Grid RowDefinitions="Auto,*" MinWidth="589" Width="{Binding #StatutoryReportPane.Bounds.Width}"
+                                Height="{Binding #StatutoryReportPane.Bounds.Height}">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,135,76,130,98">
+                                <TextBlock Grid.Column="0" Text="Party" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Deductee/Collectee" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="PAN?" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Sections / Codes" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Tax @ No-PAN" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,135,76,130,98" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="5" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="#777" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                          </ScrollViewer>
+
+                        </Grid>
+
                         <!-- ============ COMPARATIVE / columnar report (RQ-4): Particulars + N value columns ============
                              Shown when one or more comparison columns are added (Alt+C / Alt+N). The label column is
                              fixed; the value columns scroll HORIZONTALLY (reusing the GST-report h-scroll pattern) so
@@ -1910,6 +2185,80 @@
 
                             <!-- Narration + accept row + message -->
                             <StackPanel Grid.Row="6" Spacing="6" Margin="0,4,0,0">
+
+                              <!-- TDS withholding panel (Phase 7 slice 2) — shown only when a deductee party +
+                                   expense line are on a TDS-enabled Payment/Journal/Purchase (ShowTdsPanel). The
+                                   figures come from the SAME engine the posting uses (ER-4); off ⇒ byte-identical. -->
+                              <Border IsVisible="{Binding ShowTdsPanel}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,220,*,Auto">
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="TDS — Nature of Payment"
+                                             FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding TdsNatureOptions}"
+                                            SelectedItem="{Binding SelectedTdsNature, Mode=TwoWay}"
+                                            PlaceholderText="Select TDS section…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:NatureOfPayment">
+                                        <TextBlock>
+                                          <Run Text="{Binding SectionCode}"/><Run Text=" — "/><Run Text="{Binding Name}"/>
+                                        </TextBlock>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <StackPanel Grid.Row="0" Grid.Column="3" Orientation="Horizontal" Spacing="18"
+                                              VerticalAlignment="Center">
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="Rate "/><Run Text="{Binding TdsRateText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="TDS ₹ "/><Run Text="{Binding TdsAmountText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="Net payable ₹ "/><Run Text="{Binding TdsNetPayableText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                  </StackPanel>
+                                  <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="4"
+                                             Text="{Binding TdsSummary}" Margin="0,6,0,0"
+                                             FontSize="11.5" Foreground="{StaticResource BrandNavy}"
+                                             TextWrapping="Wrap"/>
+                                </Grid>
+                              </Border>
+
+                              <!-- TCS collection band (Phase 7 slice 5) — shown only on a TCS-enabled Sales item
+                                   invoice to a collectee party carrying a §206C-applicable stock item / sales ledger
+                                   (ShowTcs). TCS is ADDITIVE (collected on top → the party total already includes it);
+                                   the figures come from the SAME engine the posting uses (ER-4). Off ⇒ byte-identical. -->
+                              <Border IsVisible="{Binding ShowTcs}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="TCS — Nature of Goods (§206C)"
+                                             FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="18"
+                                              VerticalAlignment="Center">
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="Collection code "/><Run Text="{Binding TcsCollectionCodeText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="Rate "/><Run Text="{Binding TcsRateText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5">
+                                      <Run Text="TCS ₹ "/><Run Text="{Binding TcsAmountText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                  </StackPanel>
+                                  <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                             Text="{Binding TcsSummary}" Margin="0,6,0,0"
+                                             FontSize="11.5" Foreground="{StaticResource BrandNavy}"
+                                             TextWrapping="Wrap"/>
+                                </Grid>
+                              </Border>
+
                               <TextBox Text="{Binding Narration, Mode=TwoWay}"
                                        PlaceholderText="Narration…" AcceptsReturn="False"/>
                               <Grid ColumnDefinitions="*,Auto,Auto">
@@ -2798,6 +3147,101 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                     </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- TDS / TCS details (Phase 7 slice 1; catalog §13): shown when TDS/TCS is enabled.
+                                     "Is TDS/TCS Applicable" + default nature apply to expense/sales ledgers; the
+                                     deductee/collectee type + PAN + "deduct in same voucher" apply to a party ledger. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowTdsTcs}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="TDS / TCS Details" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+
+                                    <!-- TDS applicability + default Nature of Payment -->
+                                    <StackPanel Spacing="8" IsVisible="{Binding TdsEnabled}">
+                                      <CheckBox Content="Is TDS Applicable (withhold on payments to this ledger)"
+                                                IsChecked="{Binding TdsApplicable, Mode=TwoWay}" FontSize="12.5"/>
+                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TdsApplicable}">
+                                        <TextBlock Grid.Column="0" Text="Nature of Payment" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding TdsNatureChoices}"
+                                                  SelectedItem="{Binding SelectedTdsNature, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:NatureOfPaymentChoice">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+
+                                    <!-- TCS applicability + default Nature of Goods -->
+                                    <StackPanel Spacing="8" IsVisible="{Binding TcsEnabled}">
+                                      <CheckBox Content="Is TCS Applicable (collect on sales through this ledger)"
+                                                IsChecked="{Binding TcsApplicable, Mode=TwoWay}" FontSize="12.5"/>
+                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TcsApplicable}">
+                                        <TextBlock Grid.Column="0" Text="Nature of Goods" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding TcsNatureChoices}"
+                                                  SelectedItem="{Binding SelectedTcsNature, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:NatureOfGoodsChoice">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+
+                                    <!-- Party deductee/collectee details (party group only) -->
+                                    <StackPanel Spacing="8" IsVisible="{Binding ShowPartyTdsTcs}">
+                                      <Grid ColumnDefinitions="140,*">
+                                        <TextBlock Grid.Column="0" Text="Party PAN" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding PartyPan, Mode=TwoWay}"
+                                                 FontFamily="Consolas,Menlo,monospace"
+                                                 PlaceholderText="10-char PAN (blank ⇒ no-PAN higher rate)"/>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TdsEnabled}">
+                                        <TextBlock Grid.Column="0" Text="Deductee Type" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding DeducteeTypeChoices}"
+                                                  SelectedItem="{Binding SelectedDeducteeType, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:DeducteeTypeChoice">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TcsEnabled}">
+                                        <TextBlock Grid.Column="0" Text="Collectee Type" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding CollecteeTypeChoices}"
+                                                  SelectedItem="{Binding SelectedCollecteeType, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:CollecteeTypeChoice">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                      <CheckBox Content="Deduct TDS in the same voucher"
+                                                IsChecked="{Binding DeductTdsInSameVoucher, Mode=TwoWay}"
+                                                FontSize="12.5" IsVisible="{Binding TdsEnabled}"/>
+                                    </StackPanel>
                                   </StackPanel>
                                 </Border>
 
@@ -4228,6 +4672,31 @@
                                                   SelectedItem="{Binding GstRate, Mode=TwoWay}">
                                           <ComboBox.ItemTemplate>
                                             <DataTemplate x:DataType="vm:GstRateOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                      </Grid>
+                                    </StackPanel>
+                                  </Border>
+
+                                  <!-- TCS Nature of Goods (Phase 7 slice 1; §206C) — shown only when TCS is enabled.
+                                       A sale of this item auto-collects TCS under this nature. -->
+                                  <Border Background="#FBF7EE"
+                                          BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                          Padding="12,10" IsVisible="{Binding TcsEnabled}">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="TCS Details" FontWeight="SemiBold" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <Grid ColumnDefinitions="130,*">
+                                        <TextBlock Grid.Column="0" Text="Nature of Goods" FontWeight="SemiBold"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                  ItemsSource="{Binding TcsNatureChoices}"
+                                                  SelectedItem="{Binding SelectedTcsNature, Mode=TwoWay}">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:NatureOfGoodsChoice">
                                               <TextBlock Text="{Binding Display}"/>
                                             </DataTemplate>
                                           </ComboBox.ItemTemplate>
@@ -5672,13 +6141,15 @@
                                     Content="{Binding GstConfig}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:GstConfigViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="GST — Statutory Configuration"
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Statutory Configuration (F11)"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
+                            <ScrollViewer Grid.Row="1">
+                             <StackPanel Spacing="8">
                             <!-- Enable + config form -->
-                            <Border Grid.Row="1" Background="White"
+                            <Border Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,8">
                               <StackPanel Spacing="12">
@@ -5783,17 +6254,15 @@
                               </StackPanel>
                             </Border>
 
-                            <!-- Created tax-ledgers header -->
-                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}"
-                                    IsVisible="{Binding GstEnabled}">
-                              <Grid ColumnDefinitions="*,200">
-                                <TextBlock Grid.Column="0" Text="GST Tax Ledger" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
-                              </Grid>
-                            </Border>
-
-                            <ScrollViewer Grid.Row="3" Background="White" IsVisible="{Binding GstEnabled}">
-                              <ItemsControl ItemsSource="{Binding TaxLedgers}">
+                            <!-- Created GST tax-ledgers list -->
+                            <StackPanel IsVisible="{Binding GstEnabled}">
+                              <Border Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="*,200">
+                                  <TextBlock Grid.Column="0" Text="GST Tax Ledger" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                </Grid>
+                              </Border>
+                              <ItemsControl Background="White" ItemsSource="{Binding TaxLedgers}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:GstTaxLedgerRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
@@ -5809,7 +6278,1661 @@
                                   </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
+                            </StackPanel>
+
+                            <!-- ================= TDS / TCS (Phase 7 slice 1) ================= -->
+                            <Border Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8">
+                              <StackPanel Spacing="12">
+                                <TextBlock Text="INCOME-TAX WITHHOLDING (TDS / TCS)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
+                                <CheckBox Content="Enable TDS (Tax Deducted at Source) for this company"
+                                          IsChecked="{Binding TdsEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Content="Enable TCS (Tax Collected at Source) for this company"
+                                          IsChecked="{Binding TcsEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Shared deductor / collector details (a company files 26Q + 27EQ under one TAN) -->
+                                <Border Background="#FBF7EE" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowDeductorDetails}">
+                                  <StackPanel Spacing="10">
+                                    <TextBlock Text="Deductor / Collector Details" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="130,*,130,*">
+                                      <TextBlock Grid.Column="0" Text="TAN" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Tan, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"
+                                               PlaceholderText="10-char TAN, e.g. MUMA12345B"/>
+                                      <TextBlock Grid.Column="2" Text="Deductor Type" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding DeductorTypes}"
+                                                SelectedItem="{Binding DeductorType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:DeductorTypeOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="130,*,130,*">
+                                      <TextBlock Grid.Column="0" Text="Responsible Person" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding ResponsiblePersonName, Mode=TwoWay}"
+                                               PlaceholderText="name of the person responsible"/>
+                                      <TextBlock Grid.Column="2" Text="Person PAN" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding ResponsiblePersonPan, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"
+                                               PlaceholderText="10-char PAN (optional)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="130,*,130,*">
+                                      <TextBlock Grid.Column="0" Text="Designation" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding ResponsiblePersonDesignation, Mode=TwoWay}"
+                                               PlaceholderText="e.g. Director"/>
+                                      <TextBlock Grid.Column="2" Text="Address" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding ResponsiblePersonAddress, Mode=TwoWay}"
+                                               PlaceholderText="address (optional)"/>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="24">
+                                      <CheckBox Content="Surcharge applicable"
+                                                IsChecked="{Binding SurchargeApplicable, Mode=TwoWay}" FontSize="12"/>
+                                      <CheckBox Content="Health &amp; Education Cess applicable"
+                                                IsChecked="{Binding CessApplicable, Mode=TwoWay}" FontSize="12"/>
+                                    </StackPanel>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- TDS apply -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding TdsMessage}"
+                                             IsVisible="{Binding TdsMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply TDS" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyTdsClick"/>
+                                </Grid>
+                                <!-- TCS apply -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding TcsMessage}"
+                                             IsVisible="{Binding TcsMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply TCS" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyTcsClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Created TDS/TCS payable-ledgers list -->
+                            <StackPanel IsVisible="{Binding ShowDeductorDetails}">
+                              <Border Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="*,200">
+                                  <TextBlock Grid.Column="0" Text="TDS / TCS Payable Ledger" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                </Grid>
+                              </Border>
+                              <ItemsControl Background="White" ItemsSource="{Binding TdsTcsLedgers}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstTaxLedgerRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </StackPanel>
+                             </StackPanel>
                             </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Nature of Payment (TDS section) master (Phase 7 slice 1) -->
+                    <ContentControl IsVisible="{Binding NatureOfPaymentMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding NatureOfPaymentMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:NatureOfPaymentMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Nature of Payment (TDS)"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Section Code" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding SectionCode, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 194J(b)"/>
+                                  <TextBlock Grid.Column="2" Text="Form-26Q / FVU Code" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding FvuSectionCode, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 94J-B"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Fees for professional services"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Rate % (with PAN)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding RateWithPanText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 10"/>
+                                  <TextBlock Grid.Column="2" Text="Rate % (no PAN, §206AA)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding RateWithoutPanText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 20"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Single-txn Threshold ₹" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding SingleThresholdText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="blank ⇒ none"/>
+                                  <TextBlock Grid.Column="2" Text="Cumulative-FY Threshold ₹" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding CumulativeThresholdText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="blank ⇒ none"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateNatureOfPaymentClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="90,*,80,80,140,70,90">
+                                <TextBlock Grid.Column="0" Text="Section" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Name" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="PAN" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="no-PAN" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Threshold" Classes="colHdr"/>
+                                <TextBlock Grid.Column="5" Text="FVU" Classes="colHdr"/>
+                                <TextBlock Grid.Column="6" Text="Kind" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Natures}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:NatureOfPaymentListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="90,*,80,80,140,70,90" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding SectionCode}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding RateWithPan}"
+                                                   TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding RateWithoutPan}"
+                                                   TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Threshold}"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding FvuCode}"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="6" Text="{Binding Kind}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#777777"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Nature of Goods (§206C TCS) master (Phase 7 slice 1) -->
+                    <ContentControl IsVisible="{Binding NatureOfGoodsMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding NatureOfGoodsMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:NatureOfGoodsMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Nature of Goods (§206C TCS)"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Collection Code" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CollectionCode, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 6CE"/>
+                                  <TextBlock Grid.Column="2" Text="Threshold ₹" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding ThresholdText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="blank ⇒ full value"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Scrap"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Rate % (with PAN)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding RateWithPanText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 1"/>
+                                  <TextBlock Grid.Column="2" Text="Rate % (no PAN, §206CC)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding RateWithoutPanText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 5"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateNatureOfGoodsClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="80,*,80,80,120,140">
+                                <TextBlock Grid.Column="0" Text="Code" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Name" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="PAN" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="no-PAN" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Threshold" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Kind" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Natures}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:NatureOfGoodsListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="80,*,80,80,120,140" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding CollectionCode}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding RateWithPan}"
+                                                   TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding RateWithoutPan}"
+                                                   TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Threshold}"
+                                                   TextAlignment="Right" Margin="0,0,8,0"
+                                                   VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Kind}"
+                                                   Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   Foreground="#777777" TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: TDS Stat Payment deposit (Payment Ctrl+F; Phase 7 slice 3) -->
+                    <ContentControl IsVisible="{Binding TdsStatPayment, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding TdsStatPayment}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:TdsStatPaymentViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="TDS Stat Payment (Deposit)"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,4"/>
+                            <TextBlock Grid.Row="1"
+                                       Text="{Binding OutstandingText, StringFormat='Outstanding TDS Payable: ₹{0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="10" MaxWidth="640">
+                                <Grid ColumnDefinitions="160,*">
+                                  <TextBlock Grid.Column="0" Text="Section (remaining)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding SectionOptions}"
+                                            SelectedItem="{Binding SelectedSection, Mode=TwoWay}"
+                                            PlaceholderText="Nothing outstanding">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:StatPaymentSectionOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="160,*,160,*">
+                                  <TextBlock Grid.Column="0" Text="Deposit Amount ₹" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding AmountText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 5000"/>
+                                  <TextBlock Grid.Column="2" Text="Pay From (Bank/Cash)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding BankOptions}"
+                                            SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
+                                            PlaceholderText="Select ledger…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12" Margin="0,4,0,0">
+                                  <StackPanel Spacing="10">
+                                    <TextBlock Text="Challan (ITNS-281)" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="160,*,160,*">
+                                      <TextBlock Grid.Column="0" Text="Challan (CIN) No." FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding ChallanNo, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 00021"/>
+                                      <TextBlock Grid.Column="2" Text="BSR Code" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding BsrCode, Mode=TwoWay}"
+                                               PlaceholderText="7-digit, e.g. 0510308"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,*,160,*">
+                                      <TextBlock Grid.Column="0" Text="Deposit Date" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBlock Grid.Column="2" Text="Section" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding SectionCode, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 194J(b)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,*">
+                                      <TextBlock Grid.Column="0" Text="Minor Head" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MinorHead, Mode=TwoWay}"
+                                               PlaceholderText="200 (TDS payable) / 400 (regular assessment)"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Deposit (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnDepositTdsStatPaymentClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Challan Reconciliation report (Alt+R; Phase 7 slice 3) -->
+                    <ContentControl IsVisible="{Binding ChallanReconciliation, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ChallanReconciliation}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ChallanReconciliationViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="2" Text="{Binding StatusText}"
+                                       FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                       Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="140,*,140,140,140,110">
+                                <TextBlock Grid.Column="0" Text="Section" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Deducted" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Remaining" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Status" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ListBox Grid.Row="4" Background="White"
+                                     ItemsSource="{Binding Rows}"
+                                     SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ChallanReconRow">
+                                  <Grid ColumnDefinitions="140,*,140,140,140,110" Height="24">
+                                    <TextBlock Grid.Column="0" Text="{Binding Section}"
+                                               Margin="4,0" VerticalAlignment="Center" FontSize="12"
+                                               FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Deducted}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding Deposited}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Remaining}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding Status}"
+                                               Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="{Binding IsMatched, Converter={StaticResource BalancedBrush}}"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Border Grid.Row="5" Background="#F4F4EC"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                              <Grid ColumnDefinitions="140,*,140,140,140,110" Height="28">
+                                <TextBlock Grid.Column="0" Text="Total" Margin="4,0"
+                                           VerticalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Grid.Column="2" Text="{Binding TotalDeducted}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Grid.Column="3" Text="{Binding TotalDeposited}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Grid.Column="4" Text="{Binding TotalRemaining}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                              </Grid>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Form 26Q quarterly TDS return (Ctrl+A export FVU · Alt+B save-return; Phase 7 slice 4) -->
+                    <ContentControl IsVisible="{Binding Form26Q, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Form26Q}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Form26QViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + quarter selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,180,Auto,180,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form26QFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Quarter" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Quarters}"
+                                        SelectedItem="{Binding SelectedQuarter, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form26QQuarterOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Deductor block -->
+                            <Border Grid.Row="3" Background="#F4F4EC"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Deductor (TAN)" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DeductorTan}"
+                                           FontSize="12" FontFamily="Consolas,Menlo,monospace" Margin="0,0,12,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Type" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding DeductorType}"
+                                           FontSize="12" Margin="0,0,0,2"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Responsible" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3"
+                                           Text="{Binding ResponsiblePerson}" FontSize="12" TextWrapping="Wrap"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Control totals (Form-27A style) -->
+                            <Border Grid.Row="4" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*,*,*,*">
+                                  <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Deductee rows" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding DeducteeRecordCount}" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Challans" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding ChallanRecordCount}" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Amount paid ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalAmountPaid}" FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="3">
+                                    <TextBlock Text="TDS deducted ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalTdsDeducted}" FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="4">
+                                    <TextBlock Text="Deposited ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalDeposited}" FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           TextWrapping="Wrap"
+                                           Foreground="{Binding ControlTotalsTally, Converter={StaticResource BalancedBrush}}"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Challan blocks -->
+                            <StackPanel Grid.Row="5" Margin="0,0,0,6"
+                                        IsVisible="{Binding !IsEmpty}">
+                              <TextBlock Text="Challans (ITNS-281)" FontWeight="Bold" FontSize="12"
+                                         Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                              <Border Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="120,120,120,140,90">
+                                  <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="3" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="4" Text="Section" Classes="colHdr"/>
+                                </Grid>
+                              </Border>
+                              <ItemsControl ItemsSource="{Binding Challans}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form26QChallanRowVm">
+                                    <Grid ColumnDefinitions="120,120,120,140,90" Height="22">
+                                      <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 FontFamily="Consolas,Menlo,monospace"/>
+                                      <TextBlock Grid.Column="2" Text="{Binding DepositDate}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding Amount}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="4" Text="{Binding Section}" Margin="6,0,0,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </StackPanel>
+
+                            <!-- Deductee detail grid (selectable) -->
+                            <Grid Grid.Row="6" RowDefinitions="Auto,Auto,*">
+                              <TextBlock Grid.Row="0" Text="Deductee details" FontWeight="Bold" FontSize="12"
+                                         Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                              <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="110,*,80,70,100,110,100,55">
+                                  <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="Deductee" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="2" Text="Section" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="3" Text="FVU" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="4" Text="Date" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="5" Text="Amount Paid" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="6" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="7" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                </Grid>
+                              </Border>
+                              <ListBox Grid.Row="2" Background="White"
+                                       ItemsSource="{Binding Deductees}"
+                                       SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form26QDeducteeRowVm">
+                                    <Grid ColumnDefinitions="110,*,80,70,100,110,100,55" Height="24">
+                                      <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 FontFamily="Consolas,Menlo,monospace"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="2" Text="{Binding Section}" Margin="2,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding FvuCode}" Margin="2,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="4" Text="{Binding Date}" Margin="2,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="5" Text="{Binding AmountPaid}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="6" Text="{Binding Tds}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="7" Text="{Binding Rate}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Grid>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="7" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export FVU (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportFvuForm26QClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnForm26QClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: TCS Stat Payment (deposit; Ctrl+A; Phase 7 slice 6) -->
+                    <ContentControl IsVisible="{Binding TcsStatPayment, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding TcsStatPayment}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:TcsStatPaymentViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="TCS Stat Payment (Deposit)"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,4"/>
+                            <TextBlock Grid.Row="1"
+                                       Text="{Binding OutstandingText, StringFormat='Outstanding TCS Payable: ₹{0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="10" MaxWidth="640">
+                                <Grid ColumnDefinitions="160,*">
+                                  <TextBlock Grid.Column="0" Text="Code (remaining)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding CodeOptions}"
+                                            SelectedItem="{Binding SelectedCode, Mode=TwoWay}"
+                                            PlaceholderText="Nothing outstanding">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:TcsStatPaymentCodeOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="160,*,160,*">
+                                  <TextBlock Grid.Column="0" Text="Deposit Amount ₹" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding AmountText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="e.g. 1180"/>
+                                  <TextBlock Grid.Column="2" Text="Pay From (Bank/Cash)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding BankOptions}"
+                                            SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
+                                            PlaceholderText="Select ledger…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
+                                <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12" Margin="0,4,0,0">
+                                  <StackPanel Spacing="10">
+                                    <TextBlock Text="Challan (ITNS-281)" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="160,*,160,*">
+                                      <TextBlock Grid.Column="0" Text="Challan (CIN) No." FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding ChallanNo, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 00021"/>
+                                      <TextBlock Grid.Column="2" Text="BSR Code" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding BsrCode, Mode=TwoWay}"
+                                               PlaceholderText="7-digit, e.g. 0510308"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,*,160,*">
+                                      <TextBlock Grid.Column="0" Text="Deposit Date" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBlock Grid.Column="2" Text="Collection Code" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding CollectionCode, Mode=TwoWay}"
+                                               PlaceholderText="§206C, e.g. 6CE"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="160,*">
+                                      <TextBlock Grid.Column="0" Text="Minor Head" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" FontSize="12"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MinorHead, Mode=TwoWay}"
+                                               PlaceholderText="200 (TCS payable) / 400 (regular assessment)"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Deposit (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnDepositTcsStatPaymentClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: TCS Challan Reconciliation report (Phase 7 slice 6) -->
+                    <ContentControl IsVisible="{Binding TcsChallanReconciliation, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding TcsChallanReconciliation}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:TcsChallanReconciliationViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                            <TextBlock Grid.Row="2" Text="{Binding StatusText}"
+                                       FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"
+                                       Margin="0,0,0,10" TextWrapping="Wrap"/>
+
+                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="140,*,140,140,140,110">
+                                <TextBlock Grid.Column="0" Text="Code" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Collected" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Remaining" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Status" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ListBox Grid.Row="4" Background="White"
+                                     ItemsSource="{Binding Rows}"
+                                     SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:TcsChallanReconRow">
+                                  <Grid ColumnDefinitions="140,*,140,140,140,110" Height="24">
+                                    <TextBlock Grid.Column="0" Text="{Binding CollectionCode}"
+                                               Margin="4,0" VerticalAlignment="Center" FontSize="12"
+                                               FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Collected}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding Deposited}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Remaining}"
+                                               TextAlignment="Right" VerticalAlignment="Center" FontSize="12"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding Status}"
+                                               Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="{Binding IsMatched, Converter={StaticResource BalancedBrush}}"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Border Grid.Row="5" Background="#F4F4EC"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                              <Grid ColumnDefinitions="140,*,140,140,140,110" Height="28">
+                                <TextBlock Grid.Column="0" Text="Total" Margin="4,0"
+                                           VerticalAlignment="Center" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Grid.Column="2" Text="{Binding TotalCollected}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Grid.Column="3" Text="{Binding TotalDeposited}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Grid.Column="4" Text="{Binding TotalRemaining}"
+                                           TextAlignment="Right" VerticalAlignment="Center"
+                                           FontWeight="Bold" FontSize="12"/>
+                              </Grid>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Form 27EQ quarterly TCS return (Ctrl+A export FVU · Alt+B save-return; Phase 7 slice 6) -->
+                    <ContentControl IsVisible="{Binding Form27EQ, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Form27EQ}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Form27EQViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + quarter selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,180,Auto,180,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form27EQFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Quarter" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Quarters}"
+                                        SelectedItem="{Binding SelectedQuarter, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form27EQQuarterOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Collector block -->
+                            <Border Grid.Row="3" Background="#F4F4EC"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <Grid ColumnDefinitions="Auto,*,Auto,Auto" RowDefinitions="Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Collector (TAN)" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CollectorTan}"
+                                           FontSize="12" FontFamily="Consolas,Menlo,monospace" Margin="0,0,12,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Type" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding CollectorType}"
+                                           FontSize="12" Margin="0,0,0,2"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Responsible" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3"
+                                           Text="{Binding ResponsiblePerson}" FontSize="12" TextWrapping="Wrap"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Control totals (Form-27A style) -->
+                            <Border Grid.Row="4" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*,*,*,*">
+                                  <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Collectee rows" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding CollecteeRecordCount}" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Challans" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding ChallanRecordCount}" FontSize="14" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Amount received ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalAmountReceived}" FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="3">
+                                    <TextBlock Text="TCS collected ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalTcsCollected}" FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="4">
+                                    <TextBlock Text="Deposited ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalDeposited}" FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           TextWrapping="Wrap"
+                                           Foreground="{Binding ControlTotalsTally, Converter={StaticResource BalancedBrush}}"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Challan blocks -->
+                            <StackPanel Grid.Row="5" Margin="0,0,0,6"
+                                        IsVisible="{Binding !IsEmpty}">
+                              <TextBlock Text="Challans (ITNS-281)" FontWeight="Bold" FontSize="12"
+                                         Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                              <Border Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="120,120,120,140,90">
+                                  <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="3" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="4" Text="Code" Classes="colHdr"/>
+                                </Grid>
+                              </Border>
+                              <ItemsControl ItemsSource="{Binding Challans}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form27EQChallanRowVm">
+                                    <Grid ColumnDefinitions="120,120,120,140,90" Height="22">
+                                      <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 FontFamily="Consolas,Menlo,monospace"/>
+                                      <TextBlock Grid.Column="2" Text="{Binding DepositDate}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding Amount}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="4" Text="{Binding CollectionCode}" Margin="6,0,0,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </StackPanel>
+
+                            <!-- Collectee detail grid (selectable) -->
+                            <Grid Grid.Row="6" RowDefinitions="Auto,Auto,*">
+                              <TextBlock Grid.Row="0" Text="Collectee details" FontWeight="Bold" FontSize="12"
+                                         Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                              <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="110,*,80,70,100,110,100,55">
+                                  <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="Collectee" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="2" Text="Code" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="3" Text="FVU" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="4" Text="Date" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="5" Text="Amount Recd" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="6" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="7" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                </Grid>
+                              </Border>
+                              <ListBox Grid.Row="2" Background="White"
+                                       ItemsSource="{Binding Collectees}"
+                                       SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form27EQCollecteeRowVm">
+                                    <Grid ColumnDefinitions="110,*,80,70,100,110,100,55" Height="24">
+                                      <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 FontFamily="Consolas,Menlo,monospace"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="4,0"
+                                                 VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="2" Text="{Binding CollectionCode}" Margin="2,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"
+                                                 TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding FvuCode}" Margin="2,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="4" Text="{Binding Date}" Margin="2,0"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="5" Text="{Binding AmountReceived}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="6" Text="{Binding Tcs}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5"/>
+                                      <TextBlock Grid.Column="7" Text="{Binding Rate}" TextAlignment="Right"
+                                                 VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Grid>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="7" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export FVU (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportFvuForm27EQClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnForm27EQClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Form 16A TDS certificate (pick deductee · Ctrl+A export PDF · Alt+B save-return; Phase 7 slice 7) -->
+                    <ContentControl IsVisible="{Binding Form16A, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Form16A}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Form16AViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + quarter selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,180,Auto,180,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CertificateFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Quarter" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Quarters}"
+                                        SelectedItem="{Binding SelectedQuarter, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CertificateQuarterOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Left: deductee picker · Right: certificate detail -->
+                            <Grid Grid.Row="3" ColumnDefinitions="240,*">
+                              <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,8,0">
+                                <TextBlock Grid.Row="0" Text="Deductees" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                                <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="92,*,68">
+                                    <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Deductee" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ListBox Grid.Row="2" Background="White"
+                                         ItemsSource="{Binding Deductees}"
+                                         SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                                  <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Form16ADeducteeOptionVm">
+                                      <Grid ColumnDefinitions="92,*,68" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   FontFamily="Consolas,Menlo,monospace"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding TdsTotal}" TextAlignment="Right"
+                                                   VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ListBox.ItemTemplate>
+                                </ListBox>
+                              </Grid>
+
+                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="8" MinWidth="384">
+                                  <!-- Deductor block -->
+                                  <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                                      <TextBlock Grid.Row="0" Grid.Column="0" Text="Deductor" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DeductorName}"
+                                                 FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="0" Text="TAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeductorTan}"
+                                                 FontSize="12" FontFamily="Consolas,Menlo,monospace" Margin="0,0,0,2"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="0" Text="PAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DeductorPan}"
+                                                 FontSize="12" FontFamily="Consolas,Menlo,monospace" Margin="0,0,0,2"/>
+                                      <TextBlock Grid.Row="3" Grid.Column="0" Text="Responsible" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ResponsiblePerson}"
+                                                 FontSize="12" TextWrapping="Wrap"/>
+                                    </Grid>
+                                  </Border>
+
+                                  <!-- Deductee block -->
+                                  <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                      <TextBlock Grid.Column="0" Text="Certificate to" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding DeducteeName}"
+                                                 FontSize="12" FontWeight="SemiBold" Margin="0,0,12,0"/>
+                                      <TextBlock Grid.Column="2" Text="PAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding DeducteePan}"
+                                                 FontSize="12" FontFamily="Consolas,Menlo,monospace"/>
+                                    </Grid>
+                                  </Border>
+
+                                  <!-- TDS deduction rows -->
+                                  <TextBlock Text="Summary of TDS deducted" FontWeight="Bold" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="56,42,82,86,70,46">
+                                      <TextBlock Grid.Column="0" Text="Section" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="FVU" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="3" Text="Amount Paid" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="4" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="5" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding Deductions}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:Form16ADeductionRowVm">
+                                        <Grid ColumnDefinitions="56,42,82,86,70,46" Height="22">
+                                          <TextBlock Grid.Column="0" Text="{Binding Section}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding FvuCode}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Date}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding AmountPaid}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Tds}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding Rate}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+
+                                  <!-- Challan rows -->
+                                  <TextBlock Text="Tax deposited (challans)" FontWeight="Bold" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="86,64,90,92">
+                                      <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="3" Text="TDS Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding Challans}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:Form16AChallanRowVm">
+                                        <Grid ColumnDefinitions="86,64,90,92" Height="22">
+                                          <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"
+                                                     FontFamily="Consolas,Menlo,monospace"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding DepositDate}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding TdsDeposited}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+
+                                  <!-- Totals -->
+                                  <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <StackPanel Spacing="4">
+                                      <Grid ColumnDefinitions="*,*,*">
+                                        <StackPanel Grid.Column="0">
+                                          <TextBlock Text="Amount paid ₹" FontSize="10.5" Foreground="#777777"/>
+                                          <TextBlock Text="{Binding TotalAmountPaid}" FontSize="14" FontWeight="Bold"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                          <TextBlock Text="TDS deducted ₹" FontSize="10.5" Foreground="#777777"/>
+                                          <TextBlock Text="{Binding TotalTdsDeducted}" FontSize="14" FontWeight="Bold"
+                                                     Foreground="{StaticResource BrandNavy}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                          <TextBlock Text="TDS deposited ₹" FontSize="10.5" Foreground="#777777"/>
+                                          <TextBlock Text="{Binding TotalTdsDeposited}" FontSize="14" FontWeight="Bold"/>
+                                        </StackPanel>
+                                      </Grid>
+                                      <TextBlock Text="{Binding AmountInWords}" FontSize="11.5" FontStyle="Italic"
+                                                 TextWrapping="Wrap"
+                                                 IsVisible="{Binding AmountInWords, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    </StackPanel>
+                                  </Border>
+                                </StackPanel>
+                              </ScrollViewer>
+                            </Grid>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export PDF (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportPdfForm16AClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnForm16AClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Form 27D TCS certificate (pick collectee · Ctrl+A export PDF · Alt+B save-return; Phase 7 slice 7) -->
+                    <ContentControl IsVisible="{Binding Form27D, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Form27D}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Form27DViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,180,Auto,180,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CertificateFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Quarter" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Quarters}"
+                                        SelectedItem="{Binding SelectedQuarter, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CertificateQuarterOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <Grid Grid.Row="3" ColumnDefinitions="240,*">
+                              <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,8,0">
+                                <TextBlock Grid.Row="0" Text="Collectees" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                                <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="92,*,68">
+                                    <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Collectee" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ListBox Grid.Row="2" Background="White"
+                                         ItemsSource="{Binding Collectees}"
+                                         SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                                  <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Form27DCollecteeOptionVm">
+                                      <Grid ColumnDefinitions="92,*,68" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="11.5"
+                                                   FontFamily="Consolas,Menlo,monospace"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding TcsTotal}" TextAlignment="Right"
+                                                   VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ListBox.ItemTemplate>
+                                </ListBox>
+                              </Grid>
+
+                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="8" MinWidth="384">
+                                  <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                                      <TextBlock Grid.Row="0" Grid.Column="0" Text="Collector" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding CollectorName}"
+                                                 FontSize="12" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="0" Text="TAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CollectorTan}"
+                                                 FontSize="12" FontFamily="Consolas,Menlo,monospace" Margin="0,0,0,2"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="0" Text="PAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
+                                      <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding CollectorPan}"
+                                                 FontSize="12" FontFamily="Consolas,Menlo,monospace" Margin="0,0,0,2"/>
+                                      <TextBlock Grid.Row="3" Grid.Column="0" Text="Responsible" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ResponsiblePerson}"
+                                                 FontSize="12" TextWrapping="Wrap"/>
+                                    </Grid>
+                                  </Border>
+
+                                  <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                      <TextBlock Grid.Column="0" Text="Certificate to" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding CollecteeName}"
+                                                 FontSize="12" FontWeight="SemiBold" Margin="0,0,12,0"/>
+                                      <TextBlock Grid.Column="2" Text="PAN" FontWeight="SemiBold"
+                                                 FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding CollecteePan}"
+                                                 FontSize="12" FontFamily="Consolas,Menlo,monospace"/>
+                                    </Grid>
+                                  </Border>
+
+                                  <TextBlock Text="Summary of TCS collected" FontWeight="Bold" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="56,42,82,86,70,46">
+                                      <TextBlock Grid.Column="0" Text="Code" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="FVU" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="3" Text="Amount Recd" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="4" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="5" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding Collections}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:Form27DCollectionRowVm">
+                                        <Grid ColumnDefinitions="56,42,82,86,70,46" Height="22">
+                                          <TextBlock Grid.Column="0" Text="{Binding CollectionCode}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding FvuCode}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Date}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding AmountReceived}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Tcs}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding Rate}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+
+                                  <TextBlock Text="Tax deposited (challans)" FontWeight="Bold" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="86,64,90,92">
+                                      <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="3" Text="TCS Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding Challans}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:Form27DChallanRowVm">
+                                        <Grid ColumnDefinitions="86,64,90,92" Height="22">
+                                          <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"
+                                                     FontFamily="Consolas,Menlo,monospace"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding DepositDate}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding TcsDeposited}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                        </Grid>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+
+                                  <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="10">
+                                    <StackPanel Spacing="4">
+                                      <Grid ColumnDefinitions="*,*,*">
+                                        <StackPanel Grid.Column="0">
+                                          <TextBlock Text="Amount received ₹" FontSize="10.5" Foreground="#777777"/>
+                                          <TextBlock Text="{Binding TotalAmountReceived}" FontSize="14" FontWeight="Bold"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                          <TextBlock Text="TCS collected ₹" FontSize="10.5" Foreground="#777777"/>
+                                          <TextBlock Text="{Binding TotalTcsCollected}" FontSize="14" FontWeight="Bold"
+                                                     Foreground="{StaticResource BrandNavy}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                          <TextBlock Text="TCS deposited ₹" FontSize="10.5" Foreground="#777777"/>
+                                          <TextBlock Text="{Binding TotalTcsDeposited}" FontSize="14" FontWeight="Bold"/>
+                                        </StackPanel>
+                                      </Grid>
+                                      <TextBlock Text="{Binding AmountInWords}" FontSize="11.5" FontStyle="Italic"
+                                                 TextWrapping="Wrap"
+                                                 IsVisible="{Binding AmountInWords, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                    </StackPanel>
+                                  </Border>
+                                </StackPanel>
+                              </ScrollViewer>
+                            </Grid>
+
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export PDF (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportPdfForm27DClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnForm27DClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Form 27A return control chart (pick return · Ctrl+A export PDF · Alt+B save-return; Phase 7 slice 7) -->
+                    <ContentControl IsVisible="{Binding Form27A, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding Form27A}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Form27AViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- Return + FY + quarter selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,200,Auto,150,Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Return" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Returns}"
+                                        SelectedItem="{Binding SelectedReturn, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Form27AReturnOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="FY" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CertificateFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="4" Text="Quarter" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Quarters}"
+                                        SelectedItem="{Binding SelectedQuarter, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CertificateQuarterOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Header block: form + TAN -->
+                            <Border Grid.Row="3" Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="10" Margin="0,0,0,8">
+                              <Grid ColumnDefinitions="Auto,*,Auto,*">
+                                <TextBlock Grid.Column="0" Text="Return" FontWeight="SemiBold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding ReturnFormName}" FontSize="12"
+                                           FontWeight="SemiBold" Margin="0,0,12,0"/>
+                                <TextBlock Grid.Column="2" Text="TAN" FontWeight="SemiBold" FontSize="12"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="3" Text="{Binding Tan}" FontSize="12"
+                                           FontFamily="Consolas,Menlo,monospace"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Control totals + validation -->
+                            <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
+                              <StackPanel Spacing="8">
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="2">
+                                    <TextBlock Text="Control totals" FontWeight="Bold" FontSize="12"
+                                               Foreground="{StaticResource BrandNavy}" Margin="0,0,0,4"/>
+                                    <ItemsControl ItemsSource="{Binding ControlTotals}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:Form27AControlRowVm">
+                                          <Grid ColumnDefinitions="*,180" Height="24">
+                                            <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                                       VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Value}" TextAlignment="Right"
+                                                       VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource BrandNavy}"/>
+                                          </Grid>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                  </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="{Binding AmountInWords}" FontSize="11.5" FontStyle="Italic"
+                                           TextWrapping="Wrap"
+                                           IsVisible="{Binding AmountInWords, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                                <TextBlock Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold"
+                                           TextWrapping="Wrap"
+                                           Foreground="{Binding Tallies, Converter={StaticResource BalancedBrush}}"/>
+
+                                <ItemsControl ItemsSource="{Binding ValidationMessages}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                      <TextBlock Text="{Binding}" FontSize="11.5" Foreground="#B00020"
+                                                 TextWrapping="Wrap" Margin="0,1"/>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+                            </ScrollViewer>
+
+                            <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export PDF (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportPdfForm27AClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnForm27AClick"/>
+                            </Grid>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

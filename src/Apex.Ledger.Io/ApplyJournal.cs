@@ -36,6 +36,10 @@ internal sealed class ApplyJournal
     private readonly List<PriceLevel> _priceLevels = new();
     private readonly List<PriceList> _priceLists = new();
     private readonly List<ReorderDefinition> _reorderDefinitions = new();
+    private readonly List<TdsChallan> _tdsChallans = new();
+    private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
+    private readonly List<TcsChallan> _tcsChallans = new();
+    private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
 
     // Enable Job Order Processing: whether it was already on before the import stamped the seeded voucher types, so a
     // rollback re-runs JobWorkService.SetEnabled(prior) to restore both the company flag and the seeded type flags.
@@ -47,6 +51,17 @@ internal sealed class ApplyJournal
     private bool _gstWasEnabled;
     private GstConfig? _priorGst;
     private HashSet<Guid> _ledgerIdsBeforeGst = new();
+
+    // TDS/TCS enable (Phase 7 slice 1): mirror the GST enable rollback — snapshot the prior config + ledger set so
+    // the auto-created "TDS Payable"/"TCS Payable" ledger can be pruned and the config restored on rollback.
+    private bool _tdsRecorded;
+    private bool _tdsWasEnabled;
+    private TdsConfig? _priorTds;
+    private HashSet<Guid> _ledgerIdsBeforeTds = new();
+    private bool _tcsRecorded;
+    private bool _tcsWasEnabled;
+    private TcsConfig? _priorTcs;
+    private HashSet<Guid> _ledgerIdsBeforeTcs = new();
 
     // Ledger-opening merges / overlays: the pre-change (magnitude, side, group) so it can be restored.
     private readonly List<(Domain.Ledger Ledger, Money Opening, bool IsDebit, Guid? GroupId)> _openingSnapshots = new();
@@ -78,6 +93,10 @@ internal sealed class ApplyJournal
     public void RecordPriceLevel(PriceLevel l) => _priceLevels.Add(l);
     public void RecordPriceList(PriceList l) => _priceLists.Add(l);
     public void RecordReorderDefinition(ReorderDefinition d) => _reorderDefinitions.Add(d);
+    public void RecordTdsChallan(TdsChallan ch) => _tdsChallans.Add(ch);
+    public void RecordChallanVoucherLink(ChallanVoucherLink l) => _challanVoucherLinks.Add(l);
+    public void RecordTcsChallan(TcsChallan ch) => _tcsChallans.Add(ch);
+    public void RecordTcsChallanVoucherLink(ChallanVoucherLink l) => _tcsChallanVoucherLinks.Add(l);
 
     /// <summary>Snapshots the Enable-Job-Order-Processing flag as it was BEFORE the import toggled it (via
     /// <c>JobWorkService.SetEnabled</c>), so a rollback restores the flag AND the seeded voucher-type flags it
@@ -103,10 +122,36 @@ internal sealed class ApplyJournal
         _ledgerIdsBeforeGst = _company.Ledgers.Select(l => l.Id).ToHashSet();
     }
 
+    /// <summary>Captures the pre-EnableTds state for rollback (mirror of <see cref="RecordGstEnabledBefore"/>).
+    /// Call BEFORE <c>TdsTcsService.EnableTds</c> runs.</summary>
+    public void RecordTdsEnabledBefore()
+    {
+        _tdsRecorded = true;
+        _tdsWasEnabled = _company.Tds is not null;
+        _priorTds = _company.Tds;
+        _ledgerIdsBeforeTds = _company.Ledgers.Select(l => l.Id).ToHashSet();
+    }
+
+    /// <summary>Captures the pre-EnableTcs state for rollback. Call BEFORE <c>TdsTcsService.EnableTcs</c> runs.</summary>
+    public void RecordTcsEnabledBefore()
+    {
+        _tcsRecorded = true;
+        _tcsWasEnabled = _company.Tcs is not null;
+        _priorTcs = _company.Tcs;
+        _ledgerIdsBeforeTcs = _company.Ledgers.Select(l => l.Id).ToHashSet();
+    }
+
     public void RecordCompanyHeader(Company t) => _header = CompanyHeaderSnapshot.Capture(t);
 
     public void Rollback()
     {
+        // 0) TDS + TCS deposit challans + their voucher links (Phase 7 slices 3, 6) — remove the links first, then the
+        //    challans, before the vouchers they point at are removed below.
+        for (var i = _challanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveChallanVoucherLink(_challanVoucherLinks[i]);
+        for (var i = _tdsChallans.Count - 1; i >= 0; i--) _company.RemoveTdsChallan(_tdsChallans[i]);
+        for (var i = _tcsChallanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveTcsChallanVoucherLink(_tcsChallanVoucherLinks[i]);
+        for (var i = _tcsChallans.Count - 1; i >= 0; i--) _company.RemoveTcsChallan(_tcsChallans[i]);
+
         // 1) Vouchers first (reverse posting order): inventory/order vouchers, then accounting vouchers.
         for (var i = _inventoryVouchers.Count - 1; i >= 0; i--) _company.RemoveInventoryVoucher(_inventoryVouchers[i]);
         for (var i = _vouchers.Count - 1; i >= 0; i--) _company.RemoveVoucher(_vouchers[i]);
@@ -172,6 +217,19 @@ internal sealed class ApplyJournal
         }
         if (_gstRecorded)
             _company.Gst = _priorGst; // the ORIGINAL config (null when GST was off before EnableGst ran)
+
+        // 5a) TDS/TCS enable undo (Phase 7 slice 1): mirror the GST undo. Runs AFTER the explicit journal ledger
+        //     removals (step 3) and the GST prune, so pruning "ledgers not in the pre-enable snapshot" catches
+        //     exactly the auto-created "TDS Payable"/"TCS Payable" ledger — never a pre-existing tagged ledger.
+        if (_tdsRecorded && !_tdsWasEnabled)
+            foreach (var l in _company.Ledgers.Where(l => !_ledgerIdsBeforeTds.Contains(l.Id)).ToList())
+                _company.RemoveLedger(l);
+        if (_tdsRecorded) _company.Tds = _priorTds;
+
+        if (_tcsRecorded && !_tcsWasEnabled)
+            foreach (var l in _company.Ledgers.Where(l => !_ledgerIdsBeforeTcs.Contains(l.Id)).ToList())
+                _company.RemoveLedger(l);
+        if (_tcsRecorded) _company.Tcs = _priorTcs;
 
         // 5b) Enable Job Order Processing undo: re-run SetEnabled(prior) so both the company flag and the seeded
         //     Material In/Out + Job Work Order voucher-type flags (IsActive / UseForJobWork / AllowConsumption) are

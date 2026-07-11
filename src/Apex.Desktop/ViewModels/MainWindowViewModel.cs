@@ -59,6 +59,17 @@ public enum Screen
     MaterialMovementEntry,
     PosBilling,
     GstConfig,
+    NatureOfPaymentMaster,
+    NatureOfGoodsMaster,
+    TdsStatPayment,
+    ChallanReconciliation,
+    Form26Q,
+    TcsStatPayment,
+    TcsChallanReconciliation,
+    Form27EQ,
+    Form16A,
+    Form27D,
+    Form27A,
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
@@ -99,6 +110,12 @@ public enum GatewayMenu
     CashBook,
     BankBook,
     LedgerBooks,
+
+    // Reports → Statutory Reports (Phase 7 slice 8): the TDS/TCS exception & outstanding reports, nested under
+    // TDS Reports / TCS Reports sub-groups (+ a common Ledgers-without-PAN report spanning both taxes).
+    StatutoryReports,
+    TdsReports,
+    TcsReports,
 }
 
 /// <summary>
@@ -233,6 +250,39 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
+    /// <summary>The Nature-of-Payment (TDS section) master (Phase 7 slice 1), non-null only while that page is open.</summary>
+    [ObservableProperty] private NatureOfPaymentMasterViewModel? _natureOfPaymentMaster;
+
+    /// <summary>The Nature-of-Goods (§206C TCS) master (Phase 7 slice 1), non-null only while that page is open.</summary>
+    [ObservableProperty] private NatureOfGoodsMasterViewModel? _natureOfGoodsMaster;
+
+    /// <summary>The TDS Stat-Payment (deposit) page (Phase 7 slice 3), non-null only while that page is open.</summary>
+    [ObservableProperty] private TdsStatPaymentViewModel? _tdsStatPayment;
+
+    /// <summary>The Challan Reconciliation (Alt+R) report (Phase 7 slice 3), non-null only while that page is open.</summary>
+    [ObservableProperty] private ChallanReconciliationViewModel? _challanReconciliation;
+
+    /// <summary>The Form 26Q quarterly-TDS-return report (Phase 7 slice 4), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form26QViewModel? _form26Q;
+
+    /// <summary>The TCS Stat-Payment (deposit) page (Phase 7 slice 6), non-null only while that page is open.</summary>
+    [ObservableProperty] private TcsStatPaymentViewModel? _tcsStatPayment;
+
+    /// <summary>The TCS Challan Reconciliation report (Phase 7 slice 6), non-null only while that page is open.</summary>
+    [ObservableProperty] private TcsChallanReconciliationViewModel? _tcsChallanReconciliation;
+
+    /// <summary>The Form 27EQ quarterly-TCS-return report (Phase 7 slice 6), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form27EQViewModel? _form27EQ;
+
+    /// <summary>The Form 16A TDS-certificate report (Phase 7 slice 7), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form16AViewModel? _form16A;
+
+    /// <summary>The Form 27D TCS-certificate report (Phase 7 slice 7), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form27DViewModel? _form27D;
+
+    /// <summary>The Form 27A return-control-chart report (Phase 7 slice 7), non-null only while that page is open.</summary>
+    [ObservableProperty] private Form27AViewModel? _form27A;
+
     /// <summary>The Price Level creation master (slice 5; RQ-26), non-null only while that page is open.</summary>
     [ObservableProperty] private PriceLevelsViewModel? _priceLevels;
 
@@ -303,7 +353,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
-        && GstConfig is null && ReportConfig is null
+        && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
+        && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
+        && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
+        && Form16A is null && Form27D is null && Form27A is null
+        && ReportConfig is null
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
@@ -340,6 +394,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnChallanReconciliationChanged(ChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm26QChanged(Form26QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTcsStatPaymentChanged(TcsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTcsChallanReconciliationChanged(TcsChallanReconciliationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm27EQChanged(Form27EQViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm16AChanged(Form16AViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm27DChanged(Form27DViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm27AChanged(Form27AViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -534,6 +599,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
+        // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports. Surfaced
+        // only when the F11 feature enables at least one of the two taxes (ER-13), so a company using neither is
+        // byte-identical to the pre-slice Reports menu.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+            col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
 
@@ -564,6 +635,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Provisional (off-books) voucher kinds under their own group (Reversing Journal / Memorandum).
         col.Add(MenuItemViewModel.Header("Other Vouchers"));
         col.Add(new MenuItemViewModel("Other Vouchers", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // TDS / TCS Stat Payment (Phase 7 slices 3 & 6; catalog §13) — the Payment "Ctrl+F" deposit of the accrued
+        // TDS/TCS Payable liability. Each entry is surfaced only when its F11 feature is on, so a company that enables
+        // neither is byte-identical (ER-13). The "Statutory" header appears once when either tax is enabled.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Statutory"));
+            if (Company is { TdsEnabled: true })
+                col.Add(new MenuItemViewModel("TDS Stat Payment", () => { }, "Ctrl+F", isSubItem: true, kind: MenuItemKind.Page));
+            // The TCS deposit deposits collected TCS; its in-screen deposit action is Ctrl+A (no global open accelerator
+            // is advertised, so Ctrl+F stays unambiguously the TDS deposit even when both taxes are on — no dead key).
+            if (Company is { TcsEnabled: true })
+                col.Add(new MenuItemViewModel("TCS Stat Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -731,6 +816,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         col.Add(MenuItemViewModel.Header("Multi-Currency"));
         col.Add(new MenuItemViewModel("Currency", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Statutory Masters (Phase 7 slice 1; TDS/TCS) — the Nature-of-Payment (TDS section) master surfaces only
+        // when the F11 feature "Enable TDS" is on; Nature-of-Goods (§206C) only when "Enable TCS" is on. A company
+        // with neither is byte-identical (ER-13), so the whole header hides when both are off.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Statutory Masters"));
+            if (Company is { TdsEnabled: true })
+                col.Add(new MenuItemViewModel("Nature of Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            if (Company is { TcsEnabled: true })
+                col.Add(new MenuItemViewModel("Nature of Goods", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -895,6 +992,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Tax Analysis", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-1", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("GSTR-3B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Challan Reconciliation (Phase 7 slice 3; catalog §13) — deposits vs deductions per section. Surfaced
+        // under its own TDS header only when the F11 feature "Enable TDS" is on (ER-13), reached by Alt+R too.
+        if (Company is { TdsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("TDS"));
+            col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 26Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 16A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27A (TDS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // TCS Challan Reconciliation + Form 27EQ (Phase 7 slice 6; catalog §13) — the collector's mirror of the TDS
+        // pair. Surfaced under their own TCS header only when the F11 feature "Enable TCS" is on (ER-13). No global
+        // open accelerator (Alt+R stays the TDS recon even when both taxes are on — no colliding/dead key).
+        if (Company is { TcsEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("TCS"));
+            col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27EQ", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27D", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 27A (TCS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -1106,6 +1226,83 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("GST Reports");
         OpenSubmenuColumn(BuildGstReportsColumn(), GatewayMenu.GstReports,
             "Gateway of Apex Solutions — GST Reports");
+    }
+
+    // =============================================================== Statutory Reports (Phase 7 slice 8)
+
+    /// <summary>
+    /// Builds the "Statutory Reports" hub submenu column (Reports → Statutory Reports; Phase 7 slice 8): the
+    /// TDS/TCS exception &amp; outstanding reports nested under two <b>Group</b> sub-columns — <b>TDS Reports</b>
+    /// (present only when TDS is enabled) and <b>TCS Reports</b> (present only when TCS is enabled) — plus a common
+    /// <b>Ledgers without PAN</b> page (R9 spans both taxes). Never a flat dump: the nine reports live two levels
+    /// deep under their tax family, matching how Form 26Q / 27EQ / certificates are grouped under GST Reports.
+    /// </summary>
+    private GatewayColumn BuildStatutoryReportsColumn()
+    {
+        var col = new GatewayColumn("Statutory Reports");
+        col.Add(MenuItemViewModel.Header("Statutory Reports"));
+        if (Company is { TdsEnabled: true })
+            col.Add(new MenuItemViewModel("TDS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        if (Company is { TcsEnabled: true })
+            col.Add(new MenuItemViewModel("TCS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level (shown whenever
+        // either tax is on — which is the only way this column is reachable).
+        col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "TDS Reports" submenu column: the four §194x TDS projections (R1–R4).</summary>
+    private GatewayColumn BuildTdsReportsColumn()
+    {
+        var col = new GatewayColumn("TDS Reports");
+        col.Add(MenuItemViewModel.Header("TDS Reports"));
+        col.Add(new MenuItemViewModel("TDS Outstandings", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TDS Not Deducted", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TDS Interest u/s 201(1A)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TDS Nature of Payment Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "TCS Reports" submenu column: the four §206C TCS projections (R5–R8).</summary>
+    private GatewayColumn BuildTcsReportsColumn()
+    {
+        var col = new GatewayColumn("TCS Reports");
+        col.Add(MenuItemViewModel.Header("TCS Reports"));
+        col.Add(new MenuItemViewModel("TCS Outstandings", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TCS Not Collected", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TCS Interest u/s 206C(7)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TCS Nature of Goods Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports" hub submenu column directly (the public entry a hotkey/test
+    /// uses). Rebuilds the cascade to [root → Statutory Reports] and focuses the hub.</summary>
+    public void ShowStatutoryReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statutory Reports");
+        OpenSubmenuColumn(BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
+            "Gateway of Apex Solutions — Statutory Reports");
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → TDS Reports" submenu column directly.</summary>
+    public void ShowTdsReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("TDS Reports");
+        OpenSubmenuColumn(BuildTdsReportsColumn(), GatewayMenu.TdsReports,
+            "Gateway of Apex Solutions — TDS Reports");
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → TCS Reports" submenu column directly.</summary>
+    public void ShowTcsReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("TCS Reports");
+        OpenSubmenuColumn(BuildTcsReportsColumn(), GatewayMenu.TcsReports,
+            "Gateway of Apex Solutions — TCS Reports");
     }
 
     /// <summary>
@@ -2372,6 +2569,244 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "GST — Statutory Configuration", () => GstConfig = page);
     }
 
+    /// <summary>
+    /// Opens the Nature-of-Payment (TDS section) master (Masters → Create → Statutory Masters → Nature of
+    /// Payment; Phase 7 slice 1) as a page column: lists the seeded predefined TDS sections and creates customs.
+    /// A no-op unless TDS is enabled (the menu item is itself gated on <see cref="Company.TdsEnabled"/>).
+    /// </summary>
+    public void ShowNatureOfPaymentMaster()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var master = new NatureOfPaymentMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Nature of Payment", master), Screen.NatureOfPaymentMaster,
+            "Nature of Payment (TDS)", () => NatureOfPaymentMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Nature-of-Goods (§206C TCS) master (Masters → Create → Statutory Masters → Nature of Goods;
+    /// Phase 7 slice 1) as a page column: lists the seeded predefined §206C set and creates customs. A no-op
+    /// unless TCS is enabled (the menu item is itself gated on <see cref="Company.TcsEnabled"/>).
+    /// </summary>
+    public void ShowNatureOfGoodsMaster()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var master = new NatureOfGoodsMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Nature of Goods", master), Screen.NatureOfGoodsMaster,
+            "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the <b>TDS Stat Payment</b> deposit page (Transactions → Vouchers → TDS Stat Payment, the Payment
+    /// "Ctrl+F"; Phase 7 slice 3) as a page column: deposits the accrued TDS Payable into the bank and records the
+    /// ITNS-281 challan. A no-op unless TDS is enabled (the menu item is itself gated on
+    /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void ShowTdsStatPayment()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new TdsStatPaymentViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("TDS Stat Payment", page), Screen.TdsStatPayment,
+            "TDS Stat Payment (Deposit)", () => TdsStatPayment = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>Challan Reconciliation (Alt+R)</b> report page (Reports → GST Reports → TDS → Challan
+    /// Reconciliation; Phase 7 slice 3) as a page column: the per-section deposited-vs-deducted match and remaining
+    /// payable over the financial year. A no-op unless TDS is enabled (the menu item + Alt+R are gated on
+    /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenChallanReconciliation()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new ChallanReconciliationViewModel(Company);
+        OpenPageColumn(new GatewayColumn(page.Title, page), Screen.ChallanReconciliation,
+            "Challan Reconciliation", () => ChallanReconciliation = page);
+    }
+
+    /// <summary>True while the Challan Reconciliation report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsChallanReconciliationScreen =>
+        CurrentScreen == Screen.ChallanReconciliation && ChallanReconciliation is not null;
+
+    /// <summary>
+    /// Opens the <b>Form 26Q</b> quarterly-TDS-return report page (Reports → GST Reports → TDS → Form 26Q; Phase 7
+    /// slice 4) as a page column: the deductor / challan / deductee blocks + control totals for a chosen FY + quarter,
+    /// with a Ctrl+A FVU export and an Alt+B save-return. A no-op unless TDS is enabled (the menu item + the open path
+    /// are gated on <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenForm26Q()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new Form26QViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 26Q", page), Screen.Form26Q,
+            "Form 26Q (Quarterly TDS Return)", () => Form26Q = page);
+    }
+
+    /// <summary>True while the Form 26Q return report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm26QScreen => CurrentScreen == Screen.Form26Q && Form26Q is not null;
+
+    /// <summary>
+    /// Alt+B on the Form 26Q screen — <b>save &amp; return</b>: writes the FVU-compatible flat file for the current
+    /// return to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnForm26Q()
+    {
+        if (!IsForm26QScreen || Form26Q is null) return;
+        Form26Q.ExportFvu();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>TCS Stat Payment</b> deposit page (Transactions → Vouchers → Statutory → TCS Stat Payment, the
+    /// Payment "Ctrl+F" family; Phase 7 slice 6) as a page column: deposits the collected TCS Payable into the bank and
+    /// records the ITNS-281 challan. A no-op unless TCS is enabled (the menu item is itself gated on
+    /// <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    /// </summary>
+    public void ShowTcsStatPayment()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new TcsStatPaymentViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("TCS Stat Payment", page), Screen.TcsStatPayment,
+            "TCS Stat Payment (Deposit)", () => TcsStatPayment = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>TCS Challan Reconciliation</b> report page (Reports → GST Reports → TCS → TCS Challan
+    /// Reconciliation; Phase 7 slice 6) as a page column: the per-code deposited-vs-collected match and remaining
+    /// payable over the financial year. A no-op unless TCS is enabled (the menu item is gated on
+    /// <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenTcsChallanReconciliation()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new TcsChallanReconciliationViewModel(Company);
+        OpenPageColumn(new GatewayColumn(page.Title, page), Screen.TcsChallanReconciliation,
+            "TCS Challan Reconciliation", () => TcsChallanReconciliation = page);
+    }
+
+    /// <summary>True while the TCS Challan Reconciliation report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsTcsChallanReconciliationScreen =>
+        CurrentScreen == Screen.TcsChallanReconciliation && TcsChallanReconciliation is not null;
+
+    /// <summary>
+    /// Opens the <b>Form 27EQ</b> quarterly-TCS-return report page (Reports → GST Reports → TCS → Form 27EQ; Phase 7
+    /// slice 6) as a page column: the collector / challan / collectee blocks + control totals for a chosen FY + quarter,
+    /// with a Ctrl+A FVU export and an Alt+B save-return. A no-op unless TCS is enabled (the menu item + the open path
+    /// are gated on <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenForm27EQ()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new Form27EQViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 27EQ", page), Screen.Form27EQ,
+            "Form 27EQ (Quarterly TCS Return)", () => Form27EQ = page);
+    }
+
+    /// <summary>True while the Form 27EQ return report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm27EQScreen => CurrentScreen == Screen.Form27EQ && Form27EQ is not null;
+
+    /// <summary>
+    /// Alt+B on the Form 27EQ screen — <b>save &amp; return</b>: writes the FVU-compatible flat file for the current
+    /// return to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnForm27EQ()
+    {
+        if (!IsForm27EQScreen || Form27EQ is null) return;
+        Form27EQ.ExportFvu();
+        BackFromPage();
+    }
+
+    // =============================================================== screen: TDS/TCS certificates & control chart (slice 7)
+
+    /// <summary>
+    /// Opens the <b>Form 16A</b> TDS-certificate report page (Reports → GST Reports → TDS → Form 16A; Phase 7 slice 7;
+    /// catalog §13). Pick a deductee + FY/quarter and export the deterministic, de-branded certificate PDF (Ctrl+A) or
+    /// save-and-return (Alt+B). A no-op unless TDS is enabled (the menu item + open path are gated on
+    /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void OpenForm16A()
+    {
+        if (Company is not { TdsEnabled: true }) return;
+
+        var page = new Form16AViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 16A", page), Screen.Form16A,
+            "Form 16A (TDS Certificate)", () => Form16A = page);
+    }
+
+    /// <summary>True while the Form 16A certificate page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm16AScreen => CurrentScreen == Screen.Form16A && Form16A is not null;
+
+    /// <summary>Alt+B on the Form 16A screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
+    public void SaveReturnForm16A()
+    {
+        if (!IsForm16AScreen || Form16A is null) return;
+        Form16A.ExportPdf();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Form 27D</b> TCS-certificate report page (Reports → GST Reports → TCS → Form 27D; Phase 7 slice 7;
+    /// catalog §13) — the collector's mirror of Form 16A. Pick a collectee + FY/quarter and export the certificate PDF
+    /// (Ctrl+A) or save-and-return (Alt+B). A no-op unless TCS is enabled (gated on <see cref="Company.TcsEnabled"/>, ER-13).
+    /// </summary>
+    public void OpenForm27D()
+    {
+        if (Company is not { TcsEnabled: true }) return;
+
+        var page = new Form27DViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 27D", page), Screen.Form27D,
+            "Form 27D (TCS Certificate)", () => Form27D = page);
+    }
+
+    /// <summary>True while the Form 27D certificate page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm27DScreen => CurrentScreen == Screen.Form27D && Form27D is not null;
+
+    /// <summary>Alt+B on the Form 27D screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
+    public void SaveReturnForm27D()
+    {
+        if (!IsForm27DScreen || Form27D is null) return;
+        Form27D.ExportPdf();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Form 27A</b> return-control-chart report page (Reports → GST Reports → TDS/TCS → Form 27A; Phase 7
+    /// slice 7; catalog §13). Pick a return (26Q/27EQ) + FY/quarter and export the deterministic, de-branded control
+    /// chart PDF (Ctrl+A) or save-and-return (Alt+B). <paramref name="initialForm"/> ("26Q"/"27EQ") pre-selects the
+    /// return the menu entry represents. A no-op unless the corresponding tax is enabled (ER-13).
+    /// </summary>
+    public void OpenForm27A(string initialForm)
+    {
+        bool available = initialForm switch
+        {
+            "27EQ" => Company is { TcsEnabled: true },
+            _ => Company is { TdsEnabled: true },
+        };
+        if (!available) return;
+
+        var page = new Form27AViewModel(Company!, initialForm);
+        OpenPageColumn(new GatewayColumn("Form 27A", page), Screen.Form27A,
+            "Form 27A (Return Control Chart)", () => Form27A = page);
+    }
+
+    /// <summary>True while the Form 27A control-chart page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm27AScreen => CurrentScreen == Screen.Form27A && Form27A is not null;
+
+    /// <summary>Alt+B on the Form 27A screen — <b>save &amp; return</b>: writes the control-chart PDF then pops back to the menu.</summary>
+    public void SaveReturnForm27A()
+    {
+        if (!IsForm27AScreen || Form27A is null) return;
+        Form27A.ExportPdf();
+        BackFromPage();
+    }
+
     // =============================================================== screen: cost reports
 
     /// <summary>
@@ -2636,6 +3071,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         MaterialMovementEntry = null;
         PosBilling = null;
         GstConfig = null;
+        NatureOfPaymentMaster = null;
+        NatureOfGoodsMaster = null;
+        TdsStatPayment = null;
+        ChallanReconciliation = null;
+        Form26Q = null;
+        TcsStatPayment = null;
+        TcsChallanReconciliation = null;
+        Form27EQ = null;
+        Form16A = null;
+        Form27D = null;
+        Form27A = null;
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
@@ -2696,7 +3142,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
-                 or Screen.GstConfig)
+                 or Screen.GstConfig
+                 or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
+                 or Screen.TdsStatPayment or Screen.TcsStatPayment)
             BackFromPage();
     }
 
@@ -2874,6 +3322,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the Challan Reconciliation report the arrows move the section-row highlight (keeps a live selection).
+        if (IsChallanReconciliationScreen)
+        {
+            ChallanReconciliation!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Form 26Q return the arrows move the deductee-row highlight (keeps a live selection).
+        if (IsForm26QScreen)
+        {
+            Form26Q!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the TCS Challan Reconciliation report the arrows move the code-row highlight (keeps a live selection).
+        if (IsTcsChallanReconciliationScreen)
+        {
+            TcsChallanReconciliation!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Form 27EQ return the arrows move the collectee-row highlight (keeps a live selection).
+        if (IsForm27EQScreen)
+        {
+            Form27EQ!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -2984,7 +3460,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 CurrencyMaster?.CreateCurrency();
                 return;
             case Screen.GstConfig:
-                GstConfig?.Apply();
+                GstConfig?.AcceptStatutoryConfig();
+                return;
+            case Screen.NatureOfPaymentMaster:
+                NatureOfPaymentMaster?.Create();
+                return;
+            case Screen.NatureOfGoodsMaster:
+                NatureOfGoodsMaster?.Create();
+                return;
+            case Screen.TdsStatPayment:
+                TdsStatPayment?.Deposit();
+                return;
+            case Screen.ChallanReconciliation:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
+            case Screen.Form26Q:
+                Form26Q?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
+                return;
+            case Screen.TcsStatPayment:
+                TcsStatPayment?.Deposit();
+                return;
+            case Screen.TcsChallanReconciliation:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
+            case Screen.Form27EQ:
+                Form27EQ?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
                 return;
             case Screen.BankReconciliation:
                 BankReconciliation?.Reconcile();
@@ -3080,6 +3578,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
+            "Statutory Reports" => (BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
+                "Gateway of Apex Solutions — Statutory Reports"),
+            "TDS Reports" => (BuildTdsReportsColumn(), GatewayMenu.TdsReports,
+                "Gateway of Apex Solutions — TDS Reports"),
+            "TCS Reports" => (BuildTcsReportsColumn(), GatewayMenu.TcsReports,
+                "Gateway of Apex Solutions — TCS Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -3139,6 +3643,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
             case "GST": ShowGstConfig(); break;
+            case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
+            case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
+            case "TDS Stat Payment": ShowTdsStatPayment(); break;
+            case "Challan Reconciliation": OpenChallanReconciliation(); break;
+            case "Form 26Q": OpenForm26Q(); break;
+            case "TCS Stat Payment": ShowTcsStatPayment(); break;
+            case "TCS Challan Reconciliation": OpenTcsChallanReconciliation(); break;
+            case "Form 27EQ": OpenForm27EQ(); break;
+            case "Form 16A": OpenForm16A(); break;
+            case "Form 27D": OpenForm27D(); break;
+            case "Form 27A (TDS)": OpenForm27A("26Q"); break;
+            case "Form 27A (TCS)": OpenForm27A("27EQ"); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
             case "Payables": OpenOutstandings(OutstandingsKind.Payables); break;
             case "Category Summary": OpenCostReport(CostReportKind.CategorySummary); break;
@@ -3166,6 +3682,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
+            case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
+            case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
+            case "TDS Interest u/s 201(1A)": OpenReport(ReportKind.TdsInterest); break;
+            case "TDS Nature of Payment Summary": OpenReport(ReportKind.TdsNatureSummary); break;
+            case "TCS Outstandings": OpenReport(ReportKind.TcsOutstanding); break;
+            case "TCS Not Collected": OpenReport(ReportKind.TcsNotCollected); break;
+            case "TCS Interest u/s 206C(7)": OpenReport(ReportKind.TcsInterest); break;
+            case "TCS Nature of Goods Summary": OpenReport(ReportKind.TcsNatureSummary); break;
+            case "Ledgers without PAN": OpenReport(ReportKind.LedgersWithoutPan); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -3311,6 +3837,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
                     "Exception Reports" => GatewayMenu.ExceptionReports,
+                    "Statutory Reports" => GatewayMenu.StatutoryReports,
+                    "TDS Reports" => GatewayMenu.TdsReports,
+                    "TCS Reports" => GatewayMenu.TcsReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,
                     "Bank Book" => GatewayMenu.BankBook,

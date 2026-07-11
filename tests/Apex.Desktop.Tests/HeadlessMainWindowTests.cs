@@ -516,6 +516,34 @@ public sealed class HeadlessMainWindowTests
         }
     }
 
+    /// <summary>
+    /// Phase 7 slice 3: the "TDS Stat Payment" menu item advertises a "Ctrl+F" accelerator — pressing it as real key
+    /// input on the window must actually open the deposit page (not a dead shortcut). Gated on TDS being enabled.
+    /// </summary>
+    [AvaloniaFact]
+    public void CtrlF_opens_the_tds_stat_payment_page_through_the_real_window()
+    {
+        var (window, vm, tempDir) = NewWindow();
+        try
+        {
+            vm.NewCompanyName = "Headless TDS Co";
+            vm.CreateCompany();
+            new Apex.Ledger.Services.TdsTcsService(vm.Company!)
+                .EnableTds(new Apex.Ledger.Domain.TdsConfig { Tan = "MUMA12345B" });
+            Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+
+            // Ctrl+F — the accelerator the menu item shows — opens the TDS Stat Payment (deposit) page.
+            window.KeyPressQwerty(PhysicalKey.F, RawInputModifiers.Control);
+            Assert.Equal(Screen.TdsStatPayment, vm.CurrentScreen);
+            Assert.NotNull(vm.TdsStatPayment);
+        }
+        finally
+        {
+            window.Close();
+            Cleanup(tempDir);
+        }
+    }
+
     private static DateOnly LastVoucherDate(Apex.Ledger.Domain.Company c)
     {
         DateOnly? last = null;

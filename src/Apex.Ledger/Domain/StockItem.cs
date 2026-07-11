@@ -105,6 +105,13 @@ public sealed class StockItem
     /// </summary>
     public bool SetComponents { get; set; }
 
+    /// <summary>
+    /// The default <b>Nature of Goods</b> (§206C TCS category) for this item (Phase 7 slice 1). When set, a sale of
+    /// this item is TCS-applicable under the referenced nature at compute time (Phase 7 slice 5). <c>null</c> (the
+    /// default for every existing item) ⇒ no TCS nature; byte-identical (ER-13). Plain post-construction property.
+    /// </summary>
+    public Guid? TcsNatureOfGoodsId { get; set; }
+
     public StockItem(
         Guid id,
         string name,

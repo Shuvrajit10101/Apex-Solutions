@@ -253,6 +253,19 @@ public sealed class InventoryVoucherRoundTripTests
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
+        // Drop the v26 TDS withholding-detail table (+ index) so the reopen's v25→v26 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ix_tds_lines_entry_line;");
+        // Drop the v28 TCS collection-detail table (+ index) so the reopen's v27→v28 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ix_tcs_lines_entry_line;");
+        Exec(conn, "DROP TABLE IF EXISTS tcs_lines;");
+        // Drop the v29 TCS challan tables (+ index) so the reopen's v28→v29 CREATE TABLE does not collide.
+        Exec(conn, "DROP INDEX IF EXISTS ix_tcs_challan_voucher_links_challan;");
+        Exec(conn, "DROP TABLE IF EXISTS tcs_challan_voucher_links;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_tcs_challans_company;");
+        Exec(conn, "DROP TABLE IF EXISTS tcs_challans;");
+        Exec(conn, "DROP TABLE IF EXISTS challan_voucher_links;");
+        Exec(conn, "DROP TABLE IF EXISTS tds_challans;");
+        Exec(conn, "DROP TABLE IF EXISTS tds_lines;");
         Exec(conn, "DROP TABLE IF EXISTS inventory_allocations;");
         Exec(conn, "DROP TABLE IF EXISTS order_lines;");
         Exec(conn, "DROP TABLE IF EXISTS physical_stock_lines;");
@@ -301,6 +314,9 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS material_order_links;");
         Exec(conn, "DROP TABLE IF EXISTS job_work_order_lines;");
         Exec(conn, "DROP TABLE IF EXISTS job_work_orders;");
+        // v25 (TDS/TCS) master tables — drop so re-migrating v9→v25 does not hit "table already exists".
+        Exec(conn, "DROP TABLE IF EXISTS nature_of_payment;");
+        Exec(conn, "DROP TABLE IF EXISTS nature_of_goods;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");
         Exec(conn, "DROP INDEX IF EXISTS ux_bom_item_name;");

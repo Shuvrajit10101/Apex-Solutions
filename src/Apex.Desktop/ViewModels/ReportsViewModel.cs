@@ -61,6 +61,19 @@ public enum ReportKind
     JobWorkOutOrderBook,
     MaterialInRegister,
     MaterialOutRegister,
+
+    // ---- Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8; R1–R9) ----
+    // Reports → Statutory Reports → TDS Reports / TCS Reports. Pure read-only projections over the posted
+    // TdsLineTax/TcsLineTax withholdings + recorded challans (no schema); surfaced through the wide statutory grids.
+    TdsOutstanding,
+    TdsNotDeducted,
+    TdsInterest,
+    TdsNatureSummary,
+    TcsOutstanding,
+    TcsNotCollected,
+    TcsInterest,
+    TcsNatureSummary,
+    LedgersWithoutPan,
 }
 
 /// <summary>
@@ -129,9 +142,67 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>True for any of the three Phase-4 GST reports (they use their own wide GST grids, slice 4d).</summary>
     public bool IsGstReport => Kind is ReportKind.TaxAnalysis or ReportKind.Gstr1 or ReportKind.Gstr3b;
 
+    /// <summary>True for any of the nine Phase-7 slice-8 statutory TDS/TCS reports (they use their own wide
+    /// statutory grids: outstandings, not-deducted/collected, interest, nature summary, ledgers-without-PAN).</summary>
+    public bool IsStatutoryReport => Kind is ReportKind.TdsOutstanding or ReportKind.TdsNotDeducted
+        or ReportKind.TdsInterest or ReportKind.TdsNatureSummary
+        or ReportKind.TcsOutstanding or ReportKind.TcsNotCollected
+        or ReportKind.TcsInterest or ReportKind.TcsNatureSummary or ReportKind.LedgersWithoutPan;
+
     /// <summary>True to show the accounting (Particulars/Dr/Cr/Amount) grid — a report that is neither
-    /// inventory nor GST (TB / BS / P&amp;L / Day Book).</summary>
-    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport;
+    /// inventory, GST, nor statutory (TB / BS / P&amp;L / Day Book + the accounting exception reports).</summary>
+    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport && !IsStatutoryReport;
+
+    // ---- statutory-report layout flags (drive which statutory DataTemplate the view shows; Phase 7 slice 8) ----
+    // The TDS and TCS reports mirror each other, so each pair shares a column layout; the header labels that differ
+    // (Section↔Coll. Code, Deducted↔Collected, Deduction↔Collection Date, TDS↔TCS, @1.5%↔@1%) come from the
+    // Stat*Header properties below so one DataTemplate serves both members of a pair.
+
+    /// <summary>True for the TDS/TCS Outstandings reports (R1/R5): Section/Code | Nature | Deducted/Collected |
+    /// Deposited | Outstanding | Overdue days.</summary>
+    public bool IsStatutoryOutstanding => Kind is ReportKind.TdsOutstanding or ReportKind.TcsOutstanding;
+
+    /// <summary>True for the TDS Not-Deducted / TCS Not-Collected reports (R2/R6): the below-threshold
+    /// assessments.</summary>
+    public bool IsStatutoryNotWithheld => Kind is ReportKind.TdsNotDeducted or ReportKind.TcsNotCollected;
+
+    /// <summary>True for the TDS §201(1A) / TCS §206C(7) interest reports (R3/R7).</summary>
+    public bool IsStatutoryInterest => Kind is ReportKind.TdsInterest or ReportKind.TcsInterest;
+
+    /// <summary>True for the TDS Nature-of-Payment / TCS Nature-of-Goods summary reports (R4/R8).</summary>
+    public bool IsStatutoryNatureSummary => Kind is ReportKind.TdsNatureSummary or ReportKind.TcsNatureSummary;
+
+    /// <summary>True for the Ledgers/Parties-without-PAN report (R9) — its own five-column layout.</summary>
+    public bool IsLedgersWithoutPan => Kind == ReportKind.LedgersWithoutPan;
+
+    /// <summary>True for the TCS side of a shared statutory template (drives the Stat*Header label choices).</summary>
+    private bool IsTcsKind => Kind is ReportKind.TcsOutstanding or ReportKind.TcsNotCollected
+        or ReportKind.TcsInterest or ReportKind.TcsNatureSummary;
+
+    /// <summary>The first-column header on a shared statutory grid: "Section" (TDS) or "Coll. Code" (TCS).</summary>
+    public string StatCodeHeader => IsTcsKind ? "Coll. Code" : "Section";
+
+    /// <summary>The withheld-amount header on a shared statutory grid: "Deducted" (TDS) or "Collected" (TCS).</summary>
+    public string StatWithheldHeader => IsTcsKind ? "Collected" : "Deducted";
+
+    /// <summary>The event-date header on the interest grid: "Ded. Date" (TDS) or "Coll. Date" (TCS) — abbreviated
+    /// to fit the narrow date column without clipping.</summary>
+    public string StatEventDateHeader => IsTcsKind ? "Coll. Date" : "Ded. Date";
+
+    /// <summary>The tax-amount header on the interest grid: "TDS" or "TCS".</summary>
+    public string StatTaxHeader => IsTcsKind ? "TCS" : "TDS";
+
+    /// <summary>The interest header on the interest grid: "Interest @1.5%" (TDS §201(1A)(ii)) or "Interest @1%"
+    /// (TCS §206C(7)).</summary>
+    public string StatInterestHeader => IsTcsKind ? "Interest @1%" : "Interest @1.5%";
+
+    /// <summary>The one-line footnote shown beneath the TDS interest report — only the §201(1A)(ii) late-deposit
+    /// limb is computed; the §201(1A)(i) late-deduction limb (1%) is not computable in this model. Empty for every
+    /// other report, including TCS §206C(7) which is a single, fully-computed limb.</summary>
+    public string StatutoryFootnote => Kind == ReportKind.TdsInterest ? TdsInterestReport.Footnote : string.Empty;
+
+    /// <summary>True when <see cref="StatutoryFootnote"/> is non-empty (drives the footnote's visibility).</summary>
+    public bool HasStatutoryFootnote => !string.IsNullOrEmpty(StatutoryFootnote);
 
     // The three single-column grids hide when the comparative (RQ-4) multi-column grid is showing; these
     // composite flags keep the XAML visibility bindings simple (a plain flag rather than an "A && !B" expression).
@@ -419,6 +490,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsGstr3b));
         OnPropertyChanged(nameof(SupportsComparative));
         OnPropertyChanged(nameof(ShowGstGrid));
+        // Phase 7 slice 8 statutory-report flags + the pair-shared header labels + interest footnote.
+        OnPropertyChanged(nameof(IsStatutoryReport));
+        OnPropertyChanged(nameof(IsStatutoryOutstanding));
+        OnPropertyChanged(nameof(IsStatutoryNotWithheld));
+        OnPropertyChanged(nameof(IsStatutoryInterest));
+        OnPropertyChanged(nameof(IsStatutoryNatureSummary));
+        OnPropertyChanged(nameof(IsLedgersWithoutPan));
+        OnPropertyChanged(nameof(StatCodeHeader));
+        OnPropertyChanged(nameof(StatWithheldHeader));
+        OnPropertyChanged(nameof(StatEventDateHeader));
+        OnPropertyChanged(nameof(StatTaxHeader));
+        OnPropertyChanged(nameof(StatInterestHeader));
+        OnPropertyChanged(nameof(StatutoryFootnote));
+        OnPropertyChanged(nameof(HasStatutoryFootnote));
         // A kind change can invalidate the extra columns (e.g. switching to a non-comparative kind); the base
         // report always rebuilds below and, if comparative, the multi-column grid rebuilds after it.
         Rows.Clear();
@@ -463,6 +548,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 BuildMaterialRegister("Material In Register", VoucherBaseType.MaterialIn, StockDirection.Inward); break;
             case ReportKind.MaterialOutRegister:
                 BuildMaterialRegister("Material Out Register", VoucherBaseType.MaterialOut, StockDirection.Outward); break;
+
+            // ---- Phase 7 slice 8 statutory TDS/TCS exception & outstanding reports (R1–R9) ----
+            case ReportKind.TdsOutstanding: BuildTdsOutstanding(); break;
+            case ReportKind.TdsNotDeducted: BuildTdsNotDeducted(); break;
+            case ReportKind.TdsInterest: BuildTdsInterest(); break;
+            case ReportKind.TdsNatureSummary: BuildTdsNatureSummary(); break;
+            case ReportKind.TcsOutstanding: BuildTcsOutstanding(); break;
+            case ReportKind.TcsNotCollected: BuildTcsNotCollected(); break;
+            case ReportKind.TcsInterest: BuildTcsInterest(); break;
+            case ReportKind.TcsNatureSummary: BuildTcsNatureSummary(); break;
+            case ReportKind.LedgersWithoutPan: BuildLedgersWithoutPan(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -677,6 +773,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.JobWorkOutOrderBook] = "JobWorkOutOrderBook",
         [ReportKind.MaterialInRegister] = "MaterialInRegister",
         [ReportKind.MaterialOutRegister] = "MaterialOutRegister",
+        [ReportKind.TdsOutstanding] = "TdsOutstanding",
+        [ReportKind.TdsNotDeducted] = "TdsNotDeducted",
+        [ReportKind.TdsInterest] = "TdsInterest",
+        [ReportKind.TdsNatureSummary] = "TdsNatureSummary",
+        [ReportKind.TcsOutstanding] = "TcsOutstanding",
+        [ReportKind.TcsNotCollected] = "TcsNotCollected",
+        [ReportKind.TcsInterest] = "TcsInterest",
+        [ReportKind.TcsNatureSummary] = "TcsNatureSummary",
+        [ReportKind.LedgersWithoutPan] = "LedgersWithoutPan",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -1892,6 +1997,333 @@ public sealed partial class ReportsViewModel : ViewModelBase
         });
     }
 
+    // =============================================================== statutory TDS/TCS reports (Phase 7 slice 8)
+    //   Pure projections over the S8 Report facades; every amount renders in WHOLE rupees (the returns are filed so).
+    //   The TDS and TCS members of each pair share a DataTemplate, so the Build* methods populate the SAME Col slots
+    //   (only the pair-shared Stat*Header labels differ). Deterministic engine ordering is preserved verbatim.
+
+    /// <summary>Formats an overdue-days count for the outstandings grid: the number when overdue, else "—".</summary>
+    private static string OverdueText(int days) => days > 0 ? days.ToString() : "—";
+
+    // --------------------------------------------------------------- R1 TDS Outstandings
+    //   Section | Nature | Deducted | Deposited | Outstanding | Overdue days
+    private void BuildTdsOutstanding()
+    {
+        var report = Report.BuildTdsOutstanding(_company, _asOf);
+        Title = "TDS Outstandings";
+        Subtitle = $"{CompanyName}  —  deducted, not yet deposited as at {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Section,
+                Col2 = r.Nature,
+                Col3 = IndianFormat.Rupees(r.Deducted),
+                Col4 = IndianFormat.Rupees(r.Deposited),
+                Col5 = IndianFormat.Rupees(r.Outstanding),
+                Col6 = OverdueText(r.OverdueDays),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No TDS deducted in this period.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col3 = FootedRupees(report.Rows, r => r.Deducted),
+            Col4 = FootedRupees(report.Rows, r => r.Deposited),
+            Col5 = FootedRupees(report.Rows, r => r.Outstanding),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R5 TCS Outstandings (mirror of R1)
+    private void BuildTcsOutstanding()
+    {
+        var report = Report.BuildTcsOutstanding(_company, _asOf);
+        Title = "TCS Outstandings";
+        Subtitle = $"{CompanyName}  —  collected, not yet deposited as at {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Code,
+                Col2 = r.Nature,
+                Col3 = IndianFormat.Rupees(r.Collected),
+                Col4 = IndianFormat.Rupees(r.Deposited),
+                Col5 = IndianFormat.Rupees(r.Outstanding),
+                Col6 = OverdueText(r.OverdueDays),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No TCS collected in this period.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col3 = FootedRupees(report.Rows, r => r.Collected),
+            Col4 = FootedRupees(report.Rows, r => r.Deposited),
+            Col5 = FootedRupees(report.Rows, r => r.Outstanding),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R2 TDS Not Deducted
+    //   Date | Party | Section / Nature | Assessable | Cumulative in FY | Threshold | Shortfall
+    private void BuildTdsNotDeducted()
+    {
+        var report = Report.BuildTdsNotDeducted(_company, _asOf);
+        Title = "TDS Not Deducted";
+        Subtitle = $"{CompanyName}  —  applicable but below threshold, up to {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = FormatDate(r.Date),
+                Col2 = r.Party,
+                Col3 = StatSectionNature(r.Section, r.Nature),
+                Col4 = IndianFormat.Rupees(r.Assessable),
+                Col5 = IndianFormat.Rupees(r.CumulativeInFy),
+                Col6 = IndianFormat.Rupees(r.Threshold),
+                Col7 = IndianFormat.Rupees(r.Shortfall),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No below-threshold TDS assessments.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col2 = "Grand Total",
+            Col4 = FootedRupees(report.Rows, r => r.Assessable),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R6 TCS Not Collected (mirror of R2)
+    private void BuildTcsNotCollected()
+    {
+        var report = Report.BuildTcsNotCollected(_company, _asOf);
+        Title = "TCS Not Collected";
+        Subtitle = $"{CompanyName}  —  applicable but below threshold, up to {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = FormatDate(r.Date),
+                Col2 = r.Party,
+                Col3 = StatSectionNature(r.Code, r.Nature),
+                Col4 = IndianFormat.Rupees(r.Assessable),
+                Col5 = IndianFormat.Rupees(r.CumulativeInFy),
+                Col6 = IndianFormat.Rupees(r.Threshold),
+                Col7 = IndianFormat.Rupees(r.Shortfall),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No below-threshold TCS collections.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col2 = "Grand Total",
+            Col4 = FootedRupees(report.Rows, r => r.Assessable),
+            IsTotal = true,
+        });
+    }
+
+    /// <summary>Combines a section/collection code with its nature name for the middle column of the
+    /// not-withheld grid, folding a duplicate (code == nature) down to just the code.</summary>
+    private static string StatSectionNature(string code, string nature)
+        => string.Equals(code, nature, StringComparison.OrdinalIgnoreCase) ? code : $"{code} — {nature}";
+
+    /// <summary>The whole-rupee grand total that FOOTS to the displayed (per-row rounded) amounts (F5): the round-
+    /// half-up rupee value of each row is summed, so the total never differs by ₹1 from the visible column (rows can
+    /// carry paisa, e.g. a GST-inclusive TCS base), unlike <c>RupeesAlways</c> of the paisa-exact Σ.</summary>
+    private static string FootedRupees<T>(IEnumerable<T> rows, Func<T, Money> amount)
+        => IndianFormat.RupeesAlways(rows.Sum(r => IndianFormat.WholeRupees(amount(r))));
+
+    // --------------------------------------------------------------- R3 TDS Interest u/s 201(1A)
+    //   Party | Section | TDS | Deduction Date | Deposit Date | Due Date | Months | Interest @1.5%
+    private void BuildTdsInterest()
+    {
+        var report = Report.BuildTdsInterest201(_company, _asOf);
+        Title = "TDS Interest u/s 201(1A)";
+        Subtitle = $"{CompanyName}  —  late-deposit interest up to {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Party,
+                Col2 = r.Section,
+                Col3 = IndianFormat.Rupees(r.Tds),
+                Col4 = FormatDate(r.DeductionDate),
+                Col5 = r.DepositDate is { } d ? FormatDate(d) : "Undeposited",
+                Col6 = FormatDate(r.DueDate),
+                Col7 = r.Months.ToString(),
+                Col8 = IndianFormat.Rupees(r.Interest),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No late-deposited TDS — no interest accrues.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col3 = FootedRupees(report.Rows, r => r.Tds),
+            Col8 = FootedRupees(report.Rows, r => r.Interest),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R7 TCS Interest u/s 206C(7) (mirror of R3)
+    private void BuildTcsInterest()
+    {
+        var report = Report.BuildTcsInterest206C7(_company, _asOf);
+        Title = "TCS Interest u/s 206C(7)";
+        Subtitle = $"{CompanyName}  —  late-deposit interest up to {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Party,
+                Col2 = r.Code,
+                Col3 = IndianFormat.Rupees(r.Tcs),
+                Col4 = FormatDate(r.CollectionDate),
+                Col5 = r.DepositDate is { } d ? FormatDate(d) : "Undeposited",
+                Col6 = FormatDate(r.DueDate),
+                Col7 = r.Months.ToString(),
+                Col8 = IndianFormat.Rupees(r.Interest),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No late-deposited TCS — no interest accrues.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col3 = FootedRupees(report.Rows, r => r.Tcs),
+            Col8 = FootedRupees(report.Rows, r => r.Interest),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R4 TDS Nature-of-Payment summary
+    //   Section | Nature | Assessable | Deducted | Deposited | Outstanding | Below-threshold count
+    private void BuildTdsNatureSummary()
+    {
+        var report = Report.BuildTdsNatureSummary(_company, _asOf);
+        Title = "TDS Nature of Payment Summary";
+        Subtitle = $"{CompanyName}  —  section-wise activity as at {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Section,
+                Col2 = r.Nature,
+                Col3 = IndianFormat.Rupees(r.Assessable),
+                Col4 = IndianFormat.Rupees(r.Deducted),
+                Col5 = IndianFormat.Rupees(r.Deposited),
+                Col6 = IndianFormat.Rupees(r.Outstanding),
+                Col7 = r.BelowThresholdCount.ToString(),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No TDS activity in this period.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col4 = FootedRupees(report.Rows, r => r.Deducted),
+            Col6 = FootedRupees(report.Rows, r => r.Outstanding),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R8 TCS Nature-of-Goods summary (mirror of R4)
+    private void BuildTcsNatureSummary()
+    {
+        var report = Report.BuildTcsNatureSummary(_company, _asOf);
+        Title = "TCS Nature of Goods Summary";
+        Subtitle = $"{CompanyName}  —  code-wise activity as at {FormatDate(_asOf)}";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Code,
+                Col2 = r.Nature,
+                Col3 = IndianFormat.Rupees(r.Assessable),
+                Col4 = IndianFormat.Rupees(r.Collected),
+                Col5 = IndianFormat.Rupees(r.Deposited),
+                Col6 = IndianFormat.Rupees(r.Outstanding),
+                Col7 = r.BelowThresholdCount.ToString(),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "No TCS activity in this period.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col4 = FootedRupees(report.Rows, r => r.Collected),
+            Col6 = FootedRupees(report.Rows, r => r.Outstanding),
+            IsTotal = true,
+        });
+    }
+
+    // --------------------------------------------------------------- R9 Ledgers / Parties without PAN
+    //   Party | Deductee/Collectee type | PAN present? | Sections / Codes | Tax at no-PAN rate (this FY)
+    private void BuildLedgersWithoutPan()
+    {
+        var report = Report.BuildLedgersWithoutPan(_company, _asOf);
+        Title = "Ledgers without PAN";
+        Subtitle = $"{CompanyName}  —  deductee / collectee parties missing a PAN (FY of {FormatDate(_asOf)})";
+
+        foreach (var r in report.Rows)
+            Rows.Add(new ReportRow
+            {
+                Col1 = r.Party,
+                Col2 = r.PartyType,
+                Col3 = r.PanPresent ? "Yes" : "No",
+                Col4 = r.Codes,
+                Col5 = IndianFormat.Rupees(r.TaxAtNoPanRate),
+            });
+
+        if (report.Rows.Count == 0)
+        {
+            Rows.Add(new ReportRow { Col1 = "Every deductee / collectee party has a PAN.", IsHeader = true });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Col1 = "Grand Total",
+            Col5 = FootedRupees(report.Rows, r => r.TaxAtNoPanRate),
+            IsTotal = true,
+        });
+    }
+
     // =============================================================== statements reports (RQ-5 part 1)
 
     /// <summary>The period window driving a statement report: the chosen [From,To] (Alt+F2), else
@@ -2193,7 +2625,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         return last ?? company.FinancialYearStart.AddYears(1).AddDays(-1);
     }
 
-    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy");
+    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>

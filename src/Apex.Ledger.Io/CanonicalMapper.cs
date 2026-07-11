@@ -16,8 +16,8 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v24).</summary>
-    public const int SchemaVersion = 24;
+    /// <summary>The persistence schema version this export targets (SQLite schema v29).</summary>
+    public const int SchemaVersion = 29;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -66,6 +66,8 @@ public static class CanonicalMapper
         DecimalPlaces = c.DecimalPlaces,
         DecimalUnitName = c.DecimalUnitName,
         Gst = c.Gst is { } g ? MapGstConfig(g) : null,
+        Tds = c.Tds is { } td ? MapTdsConfig(td) : null,
+        Tcs = c.Tcs is { } tc ? MapTcsConfig(tc) : null,
         UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity,
         EnableMultiplePriceLevels = c.EnableMultiplePriceLevels,
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
@@ -120,6 +122,43 @@ public static class CanonicalMapper
         InventoryVouchers = c.InventoryVouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
             .Select(MapInventoryVoucher).ToList(),
+        // TDS deposit challans — ordered by (deposit date, challan no, id) so the stream is stable and human-legible.
+        TdsChallans = c.TdsChallans
+            .OrderBy(ch => ch.DepositDate).ThenBy(ch => ch.ChallanNo, StringComparer.Ordinal).ThenBy(ch => ch.Id)
+            .Select(MapTdsChallan).ToList(),
+        // Challan-voucher links — ordered by (challan id, voucher id) so the stream is deterministic.
+        ChallanVoucherLinks = c.ChallanVoucherLinks
+            .OrderBy(l => l.ChallanId).ThenBy(l => l.VoucherId)
+            .Select(l => new ChallanVoucherLinkDto { ChallanId = l.ChallanId, VoucherId = l.VoucherId }).ToList(),
+        // TCS deposit challans — same deterministic ordering as the TDS ones (Phase 7 slice 6).
+        TcsChallans = c.TcsChallans
+            .OrderBy(ch => ch.DepositDate).ThenBy(ch => ch.ChallanNo, StringComparer.Ordinal).ThenBy(ch => ch.Id)
+            .Select(MapTcsChallan).ToList(),
+        TcsChallanVoucherLinks = c.TcsChallanVoucherLinks
+            .OrderBy(l => l.ChallanId).ThenBy(l => l.VoucherId)
+            .Select(l => new ChallanVoucherLinkDto { ChallanId = l.ChallanId, VoucherId = l.VoucherId }).ToList(),
+    };
+
+    private static TdsChallanDto MapTdsChallan(TdsChallan ch) => new()
+    {
+        Id = ch.Id,
+        ChallanNo = ch.ChallanNo,
+        BsrCode = ch.BsrCode,
+        DepositDate = Iso(ch.DepositDate),
+        AmountPaisa = MoneyCodec.ToPaisa(ch.Amount),
+        Section = ch.Section,
+        MinorHead = ch.MinorHead,
+    };
+
+    private static TcsChallanDto MapTcsChallan(TcsChallan ch) => new()
+    {
+        Id = ch.Id,
+        ChallanNo = ch.ChallanNo,
+        BsrCode = ch.BsrCode,
+        DepositDate = Iso(ch.DepositDate),
+        AmountPaisa = MoneyCodec.ToPaisa(ch.Amount),
+        CollectionCode = ch.CollectionCode,
+        MinorHead = ch.MinorHead,
     };
 
     private static IEnumerable<T> OrderById<T>(IEnumerable<T> src, Func<T, string> name, Func<T, Guid> id) =>
@@ -150,6 +189,15 @@ public static class CanonicalMapper
         GstClassification = l.GstClassification is { } gc ? MapGstClassification(gc) : null,
         MethodOfAppropriation = l.MethodOfAppropriation is { } m ? m.ToString() : null,
         DefaultPriceLevelId = l.DefaultPriceLevelId,
+        TdsApplicable = l.TdsApplicable,
+        TdsNatureOfPaymentId = l.TdsNatureOfPaymentId,
+        DeducteeType = l.DeducteeType is { } dt ? dt.ToString() : null,
+        PartyPan = l.PartyPan,
+        DeductTdsInSameVoucher = l.DeductTdsInSameVoucher,
+        TcsApplicable = l.TcsApplicable,
+        TcsNatureOfGoodsId = l.TcsNatureOfGoodsId,
+        CollecteeType = l.CollecteeType is { } ct ? ct.ToString() : null,
+        TdsTcsClassification = l.TdsTcsClassification is { } k ? k.ToString() : null,
     };
 
     private static InterestParametersDto MapInterest(InterestParameters i) => new()
@@ -216,6 +264,7 @@ public static class CanonicalMapper
         UseForPos = t.UseForPos,
         UseForJobWork = t.UseForJobWork,
         AllowConsumption = t.AllowConsumption,
+        IsStatPayment = t.IsStatPayment,
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
 
@@ -295,6 +344,7 @@ public static class CanonicalMapper
         TrackManufacturingDate = i.TrackManufacturingDate,
         UseExpiryDates = i.UseExpiryDates,
         SetComponents = i.SetComponents,
+        TcsNatureOfGoodsId = i.TcsNatureOfGoodsId,
     };
 
     private static BatchMasterDto MapBatchMaster(BatchMaster b) => new()
@@ -357,6 +407,51 @@ public static class CanonicalMapper
         TaxHead = c.TaxHead.ToString(), Direction = c.Direction.ToString(),
     };
 
+    // ------------------------------------------------------------- tds / tcs value objects (Phase 7 slice 1)
+
+    private static TdsConfigDto MapTdsConfig(TdsConfig t) => new()
+    {
+        Enabled = t.Enabled, Tan = t.Tan, DeductorType = t.DeductorType.ToString(),
+        ResponsiblePersonName = t.ResponsiblePersonName, ResponsiblePersonPan = t.ResponsiblePersonPan,
+        ResponsiblePersonDesignation = t.ResponsiblePersonDesignation, ResponsiblePersonAddress = t.ResponsiblePersonAddress,
+        SurchargeApplicable = t.SurchargeApplicable, CessApplicable = t.CessApplicable,
+        Periodicity = t.Periodicity.ToString(), ApplicableFrom = Iso(t.ApplicableFrom),
+        // Ordered by section code then id so the byte stream is stable regardless of insertion order.
+        NaturesOfPayment = t.NaturesOfPayment
+            .OrderBy(n => n.SectionCode, StringComparer.Ordinal).ThenBy(n => n.Id)
+            .Select(MapNatureOfPayment).ToList(),
+    };
+
+    private static TcsConfigDto MapTcsConfig(TcsConfig t) => new()
+    {
+        Enabled = t.Enabled, Tan = t.Tan, CollectorType = t.CollectorType.ToString(),
+        ResponsiblePersonName = t.ResponsiblePersonName, ResponsiblePersonPan = t.ResponsiblePersonPan,
+        ResponsiblePersonDesignation = t.ResponsiblePersonDesignation, ResponsiblePersonAddress = t.ResponsiblePersonAddress,
+        SurchargeApplicable = t.SurchargeApplicable, CessApplicable = t.CessApplicable,
+        Periodicity = t.Periodicity.ToString(), ApplicableFrom = Iso(t.ApplicableFrom),
+        NaturesOfGoods = t.NaturesOfGoods
+            .OrderBy(n => n.CollectionCode, StringComparer.Ordinal).ThenBy(n => n.Id)
+            .Select(MapNatureOfGoods).ToList(),
+    };
+
+    private static NatureOfPaymentDto MapNatureOfPayment(NatureOfPayment n) => new()
+    {
+        Id = n.Id, SectionCode = n.SectionCode, Name = n.Name,
+        RateWithPanBp = n.RateWithPanBp, RateWithoutPanBp = n.RateWithoutPanBp,
+        SingleThresholdPaisa = n.SingleTransactionThreshold is { } s ? MoneyCodec.ToPaisa(s) : null,
+        CumulativeThresholdPaisa = n.CumulativeThreshold is { } c ? MoneyCodec.ToPaisa(c) : null,
+        FvuSectionCode = n.FvuSectionCode, EffectiveFrom = Iso(n.EffectiveFrom), IsPredefined = n.IsPredefined,
+    };
+
+    private static NatureOfGoodsDto MapNatureOfGoods(NatureOfGoods n) => new()
+    {
+        Id = n.Id, CollectionCode = n.CollectionCode, Name = n.Name,
+        RateWithPanBp = n.RateWithPanBp, RateWithoutPanBp = n.RateWithoutPanBp,
+        ThresholdPaisa = n.Threshold is { } th ? MoneyCodec.ToPaisa(th) : null,
+        BaseIncludesGst = n.BaseIncludesGst, FvuCode = n.FvuCode, EffectiveFrom = Iso(n.EffectiveFrom),
+        IsPredefined = n.IsPredefined, IsLegacy = n.IsLegacy, LegacyCutoff = Iso(n.LegacyCutoff),
+    };
+
     // ------------------------------------------------------------- vouchers
 
     private static VoucherDto MapVoucher(Voucher v) => new()
@@ -387,6 +482,24 @@ public static class CanonicalMapper
         BankAllocation = l.BankAllocation is { } b ? MapBankAllocation(b) : null,
         Forex = l.Forex is { } f ? MapForex(f) : null,
         Gst = l.Gst is { } g ? MapGstLineTax(g) : null,
+        Tds = l.Tds is { } t ? MapTdsLineTax(t) : null,
+        Tcs = l.Tcs is { } tc ? MapTcsLineTax(tc) : null,
+    };
+
+    private static TdsLineTaxDto MapTdsLineTax(TdsLineTax t) => new()
+    {
+        NatureId = t.NatureId, SectionCode = t.SectionCode,
+        AssessableValuePaisa = MoneyCodec.ToPaisa(t.AssessableValue), RateBasisPoints = t.RateBasisPoints,
+        TdsAmountPaisa = MoneyCodec.ToPaisa(t.TdsAmount), DeducteeLedgerId = t.DeducteeLedgerId,
+        PanApplied = t.PanApplied,
+    };
+
+    private static TcsLineTaxDto MapTcsLineTax(TcsLineTax t) => new()
+    {
+        NatureId = t.NatureId, CollectionCode = t.CollectionCode,
+        AssessableValuePaisa = MoneyCodec.ToPaisa(t.AssessableValue), RateBasisPoints = t.RateBasisPoints,
+        TcsAmountPaisa = MoneyCodec.ToPaisa(t.TcsAmount), CollecteeLedgerId = t.CollecteeLedgerId,
+        PanApplied = t.PanApplied,
     };
 
     private static BillAllocationDto MapBillAllocation(BillAllocation a) => new()

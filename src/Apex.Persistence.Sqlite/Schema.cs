@@ -53,15 +53,24 @@ namespace Apex.Persistence.Sqlite;
 /// <see cref="MigrateV11ToV12"/> (one pure CREATE TABLE/INDEX — no ALTER, no row rewrites — so an existing v11
 /// database keeps all its data and simply gains an empty table). Run inside a transaction that bumps
 /// <c>schema_version</c> to 12; a fresh DB is stamped straight to v12 via <see cref="CreateV1"/>.
+///
+/// <b>v13–v29</b> continue the same additive pattern (each documented on its own <c>MigrateVNToVN+1</c>
+/// constant): core GST (v13), saved report views (v14), SMTP profile (v15), batch masters (v16), Bill of
+/// Materials (v17) and the Manufacturing-Journal flags (v18), additional cost of purchase (v19), zero-valued
+/// &amp; separate actual-vs-billed quantity (v20), price levels/lists (v21), reorder levels (v22), POS (v23),
+/// job work (v24), and the Phase-7 TDS/TCS masters, per-line compute and deposit/challan tables (v25-v29).
+/// <b><see cref="CurrentVersion"/> = 29</b>; a fresh DB is always stamped straight to the current version via
+/// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v18 = the two Manufacturing-Journal
-    /// master flags: <c>voucher_types.use_as_manufacturing_journal</c> (RQ-11) and <c>stock_items.set_components</c>
-    /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
-    /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
-    /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
-    public const int CurrentVersion = 24;
+    /// <summary>The current schema version this adapter reads and writes. <b>v29</b> is the latest bump (Phase 7
+    /// slice 6 — TCS deposit challans + the TCS challan↔voucher links). The full v1→v29 history is documented on
+    /// each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight
+    /// to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
+    /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must
+    /// also appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
+    public const int CurrentVersion = 29;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -115,8 +124,57 @@ public static class Schema
             enable_multiple_price_levels INTEGER NOT NULL DEFAULT 0,    -- 0/1
             -- v24 (Phase 6 slice 8; RQ-45): F11 "Enable Job Order Processing" — a pure persisted toggle (cannot be
             -- inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
-            enable_job_order_processing INTEGER NOT NULL DEFAULT 0      -- 0/1
+            enable_job_order_processing INTEGER NOT NULL DEFAULT 0,     -- 0/1
+            -- v25 (Phase 7 slice 1): TDS/TCS deductor/collector config (F11 Enable TDS/TCS). All default 0/NULL for
+            -- every existing company, so a non-TDS/TCS company is byte-identical (ER-13). The deductor identity
+            -- (TAN/type/responsible person/surcharge/cess/periodicity) is SHARED by TDS and TCS (one TAN files both
+            -- 26Q and 27EQ) and stored once here.
+            tds_enabled                    INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            tcs_enabled                    INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            tan                            TEXT        NULL,            -- 10-char TAN, NULL when unset
+            deductor_type                  INTEGER     NULL,            -- DeductorType enum ordinal
+            responsible_person_name        TEXT        NULL,
+            responsible_person_pan         TEXT        NULL,            -- 10-char PAN, NULL when unset
+            responsible_person_designation TEXT        NULL,
+            responsible_person_address     TEXT        NULL,
+            surcharge_applicable           INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            cess_applicable                INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            tds_periodicity                INTEGER     NULL,            -- TdsTcsPeriodicity enum ordinal
+            tds_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
+            tcs_applicable_from            TEXT        NULL             -- ISO yyyy-MM-dd, or NULL
         );
+
+        CREATE TABLE nature_of_payment (
+            id                         TEXT    NOT NULL PRIMARY KEY,
+            company_id                 TEXT    NOT NULL REFERENCES companies(id),
+            section_code               TEXT    NOT NULL,   -- income-tax section (e.g. 194J(b))
+            name                       TEXT    NOT NULL,
+            rate_with_pan_bp           INTEGER NOT NULL,   -- basis points (1000 = 10%)
+            rate_without_pan_bp        INTEGER NOT NULL,   -- §206AA no-PAN rate in basis points
+            single_threshold_micro     INTEGER     NULL,   -- single-transaction threshold, rupees × 1,000,000
+            cumulative_threshold_micro INTEGER     NULL,   -- cumulative-FY threshold, rupees × 1,000,000
+            fvu_code                   TEXT    NOT NULL,   -- Form 26Q / FVU section code (e.g. 94J-B)
+            effective_from             TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL
+            is_predefined              INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_nature_of_payment_company ON nature_of_payment(company_id);
+
+        CREATE TABLE nature_of_goods (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            collection_code     TEXT    NOT NULL,   -- §206C Form-27EQ collection code (e.g. 6CE)
+            name                TEXT    NOT NULL,
+            rate_with_pan_bp    INTEGER NOT NULL,
+            rate_without_pan_bp INTEGER NOT NULL,   -- §206CC no-PAN rate in basis points
+            threshold_micro     INTEGER     NULL,   -- value threshold, rupees × 1,000,000
+            base_includes_gst   INTEGER NOT NULL DEFAULT 1,  -- 0/1
+            fvu_code            TEXT    NOT NULL,
+            effective_from      TEXT        NULL,
+            is_predefined       INTEGER NOT NULL DEFAULT 0,
+            is_legacy           INTEGER NOT NULL DEFAULT 0,  -- 0/1 (206C(1H) year-gated)
+            legacy_cutoff       TEXT        NULL             -- ISO yyyy-MM-dd cut-off, or NULL
+        );
+        CREATE INDEX ix_nature_of_goods_company ON nature_of_goods(company_id);
 
         CREATE TABLE gst_rate_slabs (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -125,6 +183,7 @@ public static class Schema
             label         TEXT    NOT NULL,
             is_predefined INTEGER NOT NULL DEFAULT 0
         );
+        CREATE INDEX ix_gst_rate_slabs_company ON gst_rate_slabs(company_id);
 
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -186,7 +245,19 @@ public static class Schema
             method_of_appropriation INTEGER  NULL,             -- MethodOfAppropriation enum ordinal, or NULL
             -- v21 (Phase 6 slice 5; RQ-30): a party ledger's default Price Level. Nullable FK; NULL (the default for
             -- every existing ledger) = no default level. Only meaningful while enable_multiple_price_levels is on.
-            default_price_level_id  TEXT     NULL REFERENCES price_levels(id)
+            default_price_level_id  TEXT     NULL REFERENCES price_levels(id),
+            -- v25 (Phase 7 slice 1): TDS/TCS ledger applicability flags + party PAN + the auto-created payable
+            -- classification. All default 0/NULL so every existing ledger is byte-identical (ER-13). The nature ids
+            -- are bare ids (resolved against nature_of_payment / nature_of_goods; no FK, like reorder target_id).
+            tds_applicable         INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Is TDS Applicable")
+            tds_nature_id          TEXT        NULL,             -- default Nature-of-Payment id, or NULL
+            deductee_type          INTEGER     NULL,             -- DeducteeType enum ordinal, or NULL
+            party_pan              TEXT        NULL,             -- 10-char PAN, or NULL
+            deduct_in_same_voucher INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Deduct TDS in same voucher")
+            tcs_applicable         INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Is TCS Applicable")
+            tcs_nature_id          TEXT        NULL,             -- default Nature-of-Goods id, or NULL
+            collectee_type         INTEGER     NULL,             -- CollecteeType enum ordinal, or NULL
+            tds_tcs_class_kind     INTEGER     NULL              -- TdsTcsLedgerKind ordinal (payable ledger tag), or NULL
         );
 
         CREATE TABLE currencies (
@@ -238,7 +309,11 @@ public static class Schema
             -- (Material In). Both 0/1, default 0 so an existing type is byte-identical (ER-13); driven on by the F11
             -- "Enable Job Order Processing" toggle.
             use_for_job_work  INTEGER NOT NULL DEFAULT 0,            -- 0/1
-            allow_consumption INTEGER NOT NULL DEFAULT 0             -- 0/1
+            allow_consumption INTEGER NOT NULL DEFAULT 0,            -- 0/1
+            -- v27 (Phase 7 slice 3; catalog §13): "Use for Statutory Payment (Stat Payment)" — a Payment voucher-type
+            -- flag marking the Ctrl+F stat-payment deposit (Dr TDS Payable / Cr Bank). 0/1, default 0 so an existing
+            -- Payment type is byte-identical (ER-13). Reuses the Payment base type — no new VoucherBaseType.
+            is_stat_payment   INTEGER NOT NULL DEFAULT 0             -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -272,6 +347,87 @@ public static class Schema
             gst_rate_bp           INTEGER NULL,   -- applied head rate in basis points (900 = 9% CGST half)
             gst_taxable_value_paisa INTEGER NULL  -- the taxable value the tax was computed on, in paisa
         );
+
+        -- v26 TDS withholding detail (catalog §13; Phase 7 slice 2): one row per TDS-assessed line — the TDS
+        -- Payable credit line when withheld, or the party leg when below threshold (tds_amount_micro = 0). Empty
+        -- for a company that never withholds TDS (ER-13). Money is stored as rupees × 1,000,000 ("micros").
+        CREATE TABLE tds_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,   -- NatureOfPayment id (§194x section master)
+            section_code           TEXT    NOT NULL,  -- denormalised section code (e.g. 194J(b))
+            assessable_value_micro INTEGER NOT NULL,  -- GST-exclusive assessable base, rupees × 1,000,000
+            rate_bp                INTEGER NOT NULL,  -- applied rate in basis points (1000 = 10%)
+            tds_amount_micro       INTEGER NOT NULL,  -- TDS withheld (nearest rupee), rupees × 1,000,000; 0 below threshold
+            deductee_ledger_id     TEXT    NOT NULL,  -- the party ledger id
+            pan_applied            INTEGER NOT NULL   -- 0/1: was the with-PAN rate applied
+        );
+        CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
+
+        -- v28 TCS collection detail (catalog §13; Phase 7 slice 5): one row per TCS-assessed sale line — the TCS
+        -- Payable credit line when collected, or the party leg when below threshold (tcs_amount_micro = 0). TCS is
+        -- ADDITIVE (collected on top, the mirror of GST), unlike the tds_lines carve-out. Empty for a company that
+        -- never collects TCS (ER-13). Money is stored as rupees × 1,000,000 ("micros").
+        CREATE TABLE tcs_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,   -- NatureOfGoods id (§206C nature master)
+            collection_code        TEXT    NOT NULL,  -- denormalised Form-27EQ collection code (e.g. 6CE)
+            assessable_value_micro INTEGER NOT NULL,  -- assessable base (GST-inclusive per the nature flag), rupees × 1,000,000
+            rate_bp                INTEGER NOT NULL,  -- applied rate in basis points (100 = 1%)
+            tcs_amount_micro       INTEGER NOT NULL,  -- TCS collected (nearest rupee), rupees × 1,000,000; 0 below threshold
+            collectee_ledger_id    TEXT    NOT NULL,  -- the buyer party ledger id
+            pan_applied            INTEGER NOT NULL   -- 0/1: was the with-PAN rate applied
+        );
+        CREATE INDEX ix_tcs_lines_entry_line ON tcs_lines(entry_line_id);
+
+        -- v27 TDS deposit challans (catalog §13; Phase 7 slice 3): one row per ITNS-281 challan (a TDS payment into
+        -- the bank). Empty for a company that never deposits TDS (ER-13). amount_micro is rupees × 1,000,000.
+        CREATE TABLE tds_challans (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            challan_no    TEXT    NOT NULL,   -- challan serial / CIN tender number
+            bsr_code      TEXT    NOT NULL,   -- 7-digit BSR code of the collecting branch
+            deposit_date  TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            amount_micro  INTEGER NOT NULL,   -- amount deposited, rupees × 1,000,000
+            section       TEXT    NOT NULL,   -- income-tax section / major head (e.g. 194J(b))
+            minor_head    TEXT    NOT NULL    -- ITNS-281 minor head (200 = payable by taxpayer, 400 = regular assessment)
+        );
+        CREATE INDEX ix_tds_challans_company ON tds_challans(company_id);
+
+        -- v27 challan ↔ stat-payment-voucher links (Phase 7 slice 3): a many-to-many seam pairing a challan to the
+        -- Payment voucher that booked its deposit. Empty when no TDS deposit exists (ER-13).
+        CREATE TABLE challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tds_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_challan_voucher_links_challan ON challan_voucher_links(challan_id);
+
+        -- v29 TCS deposit challans (catalog §13; Phase 7 slice 6): one row per ITNS-281 challan (a TCS payment into
+        -- the bank). The exact sibling of tds_challans, but keyed on the §206C collection code. Empty for a company
+        -- that never deposits TCS (ER-13). amount_micro is rupees × 1,000,000.
+        CREATE TABLE tcs_challans (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            challan_no      TEXT    NOT NULL,   -- challan serial / CIN tender number
+            bsr_code        TEXT    NOT NULL,   -- 7-digit BSR code of the collecting branch
+            deposit_date    TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            amount_micro    INTEGER NOT NULL,   -- amount deposited, rupees × 1,000,000
+            collection_code TEXT    NOT NULL,   -- §206C Form-27EQ collection code (e.g. 6CE)
+            minor_head      TEXT    NOT NULL    -- ITNS-281 minor head (200 = payable by taxpayer, 400 = regular assessment)
+        );
+        CREATE INDEX ix_tcs_challans_company ON tcs_challans(company_id);
+
+        -- v29 TCS challan ↔ stat-payment-voucher links (Phase 7 slice 6): a many-to-many seam pairing a TCS challan
+        -- to the Payment voucher that booked its deposit. A TCS-specific sibling of challan_voucher_links (its
+        -- challan_id FK targets tcs_challans). Empty when no TCS deposit exists (ER-13).
+        CREATE TABLE tcs_challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tcs_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_tcs_challan_voucher_links_challan ON tcs_challan_voucher_links(challan_id);
 
         CREATE TABLE bill_allocations (
             id             INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -420,7 +576,10 @@ public static class Schema
             use_expiry_dates         INTEGER NOT NULL DEFAULT 0,   -- "Use Expiry dates" 0/1
             -- v18 (RQ-10): "Set Components (BOM)" — the item is a manufactured finished good with ≥1 BOM. 0/1,
             -- default 0 so an existing item is unchanged (ER-13); a plain model flag read/written verbatim.
-            set_components           INTEGER NOT NULL DEFAULT 0    -- 0/1
+            set_components           INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS category). NULL (the default for
+            -- every existing item) = no TCS nature; byte-identical (ER-13). Bare id (no FK, resolved at compute).
+            tcs_nature_id            TEXT        NULL
         );
 
         CREATE TABLE stock_opening_balances (
@@ -1626,5 +1785,180 @@ public static class Schema
         CREATE INDEX ix_job_work_order_lines_order      ON job_work_order_lines(job_work_order_id);
         CREATE INDEX ix_material_order_links_voucher    ON material_order_links(material_voucher_id);
         CREATE INDEX ix_material_order_links_order      ON material_order_links(job_work_order_id);
+        """;
+
+    /// <summary>
+    /// v24 → v25: <b>TDS / TCS masters + config + duty-ledger flags</b> (Phase 7 slice 1; ER-1, ER-13). Purely
+    /// additive — thirteen <c>ALTER TABLE companies ADD COLUMN</c> (the shared TDS/TCS deductor config + the two
+    /// enable flags), nine <c>ALTER TABLE ledgers ADD COLUMN</c> (the per-ledger TDS/TCS applicability flags + party
+    /// PAN + the payable-ledger classification tag), one <c>ALTER TABLE stock_items ADD COLUMN tcs_nature_id</c>,
+    /// and two new tables (<c>nature_of_payment</c>, <c>nature_of_goods</c>) with their company indexes. No
+    /// <c>ALTER</c> that rewrites rows, no data backfill: an existing v24 database keeps every row untouched, the
+    /// flags default 0, the columns default NULL, and the two tables start empty — so a company that never enables
+    /// TDS/TCS serialises byte-identically to a v24 company (ER-13). No §206AB/§206CCA columns (omitted, FA2025).
+    /// Run inside a transaction that also bumps <c>schema_version</c> to 25. A fresh DB is stamped straight to v25
+    /// via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV24ToV25 = """
+        ALTER TABLE companies ADD COLUMN tds_enabled                    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN tcs_enabled                    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN tan                            TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN deductor_type                  INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_name        TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_pan         TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_designation TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN responsible_person_address     TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN surcharge_applicable           INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN cess_applicable                INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN tds_periodicity                INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN tds_applicable_from            TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN tcs_applicable_from            TEXT        NULL;
+
+        ALTER TABLE ledgers ADD COLUMN tds_applicable         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN tds_nature_id          TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN deductee_type          INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN party_pan              TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN deduct_in_same_voucher INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN tcs_applicable         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN tcs_nature_id          TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN collectee_type         INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN tds_tcs_class_kind     INTEGER     NULL;
+
+        ALTER TABLE stock_items ADD COLUMN tcs_nature_id TEXT NULL;
+
+        CREATE TABLE nature_of_payment (
+            id                         TEXT    NOT NULL PRIMARY KEY,
+            company_id                 TEXT    NOT NULL REFERENCES companies(id),
+            section_code               TEXT    NOT NULL,
+            name                       TEXT    NOT NULL,
+            rate_with_pan_bp           INTEGER NOT NULL,
+            rate_without_pan_bp        INTEGER NOT NULL,
+            single_threshold_micro     INTEGER     NULL,
+            cumulative_threshold_micro INTEGER     NULL,
+            fvu_code                   TEXT    NOT NULL,
+            effective_from             TEXT        NULL,
+            is_predefined              INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_nature_of_payment_company ON nature_of_payment(company_id);
+
+        CREATE TABLE nature_of_goods (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            collection_code     TEXT    NOT NULL,
+            name                TEXT    NOT NULL,
+            rate_with_pan_bp    INTEGER NOT NULL,
+            rate_without_pan_bp INTEGER NOT NULL,
+            threshold_micro     INTEGER     NULL,
+            base_includes_gst   INTEGER NOT NULL DEFAULT 1,
+            fvu_code            TEXT    NOT NULL,
+            effective_from      TEXT        NULL,
+            is_predefined       INTEGER NOT NULL DEFAULT 0,
+            is_legacy           INTEGER NOT NULL DEFAULT 0,
+            legacy_cutoff       TEXT        NULL
+        );
+        CREATE INDEX ix_nature_of_goods_company ON nature_of_goods(company_id);
+        """;
+
+    /// <summary>
+    /// v25 → v26 (Phase 7 slice 2; TDS compute + auto-deduct): one additive <c>CREATE TABLE tds_lines</c> child of
+    /// <c>entry_lines</c> + its index, run inside a transaction that bumps <c>schema_version</c> to 26. No ALTER, no
+    /// row rewrites — an existing v25 database keeps every row and the new table starts empty (ER-13 byte-identical
+    /// when TDS is never withheld). A fresh DB is stamped straight to v26 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV25ToV26 = """
+        CREATE TABLE tds_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,
+            section_code           TEXT    NOT NULL,
+            assessable_value_micro INTEGER NOT NULL,
+            rate_bp                INTEGER NOT NULL,
+            tds_amount_micro       INTEGER NOT NULL,
+            deductee_ledger_id     TEXT    NOT NULL,
+            pan_applied            INTEGER NOT NULL
+        );
+        CREATE INDEX ix_tds_lines_entry_line ON tds_lines(entry_line_id);
+        """;
+
+    /// <summary>
+    /// v26 → v27 (Phase 7 slice 3; TDS deposit + challan reconciliation): additive only — one
+    /// <c>ALTER TABLE voucher_types ADD COLUMN is_stat_payment … DEFAULT 0</c> flag plus two new tables
+    /// (<c>tds_challans</c>, <c>challan_voucher_links</c>) and their indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 27. No row rewrites — an existing v26 database keeps every row (the new column
+    /// defaults 0, the new tables start empty), so a company that never deposits TDS is byte-identical (ER-13). A
+    /// fresh DB is stamped straight to v27 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV26ToV27 = """
+        ALTER TABLE voucher_types ADD COLUMN is_stat_payment INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE tds_challans (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            challan_no    TEXT    NOT NULL,
+            bsr_code      TEXT    NOT NULL,
+            deposit_date  TEXT    NOT NULL,
+            amount_micro  INTEGER NOT NULL,
+            section       TEXT    NOT NULL,
+            minor_head    TEXT    NOT NULL
+        );
+        CREATE INDEX ix_tds_challans_company ON tds_challans(company_id);
+
+        CREATE TABLE challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tds_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_challan_voucher_links_challan ON challan_voucher_links(challan_id);
+        """;
+
+    /// <summary>
+    /// v27 → v28 (Phase 7 slice 5; TCS compute + auto-collect): one additive <c>CREATE TABLE tcs_lines</c> child of
+    /// <c>entry_lines</c> + its index, run inside a transaction that bumps <c>schema_version</c> to 28. No ALTER, no
+    /// row rewrites — an existing v27 database keeps every row and the new table starts empty (ER-13 byte-identical
+    /// when TCS is never collected). TCS is ADDITIVE (the mirror of GST), so this is a straight sibling of the v26
+    /// tds_lines table. A fresh DB is stamped straight to v28 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV27ToV28 = """
+        CREATE TABLE tcs_lines (
+            id                     INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id          INTEGER NOT NULL REFERENCES entry_lines(id),
+            nature_id              TEXT    NOT NULL,
+            collection_code        TEXT    NOT NULL,
+            assessable_value_micro INTEGER NOT NULL,
+            rate_bp                INTEGER NOT NULL,
+            tcs_amount_micro       INTEGER NOT NULL,
+            collectee_ledger_id    TEXT    NOT NULL,
+            pan_applied            INTEGER NOT NULL
+        );
+        CREATE INDEX ix_tcs_lines_entry_line ON tcs_lines(entry_line_id);
+        """;
+
+    /// <summary>
+    /// v28 → v29 (Phase 7 slice 6; TCS deposit + challan reconciliation): additive only — two new tables
+    /// (<c>tcs_challans</c>, <c>tcs_challan_voucher_links</c>) and their indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 29. No ALTER (the <c>is_stat_payment</c> voucher-type flag from v27 is reused for the
+    /// TCS Stat Payment), no row rewrites — an existing v28 database keeps every row and the new tables start empty,
+    /// so a company that never deposits TCS is byte-identical (ER-13). The exact sibling of the v26→v27 TDS challan
+    /// migration. A fresh DB is stamped straight to v29 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV28ToV29 = """
+        CREATE TABLE tcs_challans (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            challan_no      TEXT    NOT NULL,
+            bsr_code        TEXT    NOT NULL,
+            deposit_date    TEXT    NOT NULL,
+            amount_micro    INTEGER NOT NULL,
+            collection_code TEXT    NOT NULL,
+            minor_head      TEXT    NOT NULL
+        );
+        CREATE INDEX ix_tcs_challans_company ON tcs_challans(company_id);
+
+        CREATE TABLE tcs_challan_voucher_links (
+            id          INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            challan_id  TEXT    NOT NULL REFERENCES tcs_challans(id),
+            voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_tcs_challan_voucher_links_challan ON tcs_challan_voucher_links(challan_id);
         """;
 }

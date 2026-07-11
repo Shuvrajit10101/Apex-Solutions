@@ -99,6 +99,14 @@ public partial class MainWindow : Window
                 SaveEmailToDocuments(vm);
             else if (vm.CurrentScreen == Screen.SmtpSettings)
                 vm.SaveSmtpSettings();
+            // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
+            // de-branded PDF (the accelerator every one of those pages advertises) — no dead shortcut.
+            else if (vm.CurrentScreen == Screen.Form16A)
+                vm.Form16A?.ExportPdf();
+            else if (vm.CurrentScreen == Screen.Form27D)
+                vm.Form27D?.ExportPdf();
+            else if (vm.CurrentScreen == Screen.Form27A)
+                vm.Form27A?.ExportPdf();
             else
                 vm.ActivateSelected();
             e.Handled = true;
@@ -148,6 +156,69 @@ public partial class MainWindow : Window
         if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             vm.SettleBills();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
+        // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
+        // Not while typing in a field, and not with Ctrl held.
+        if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
+        {
+            vm.OpenChallanReconciliation();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+F opens the TDS Stat Payment (deposit) page (the Payment "Ctrl+F"; Phase 7 slice 3) — the accelerator
+        // the menu item advertises. Gated internally on TDS being enabled (a no-op otherwise), and not while typing in
+        // a field, so a non-TDS company is unaffected (ER-13).
+        if (e.Key == Key.F && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
+        {
+            vm.ShowTdsStatPayment();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on the Form 26Q return (Phase 7 slice 4) SAVES the FVU flat file and RETURNS to the menu. Scoped to
+        // the Form 26Q screen so it never collides with the inventory-voucher Alt+B (batch allocation) below; not
+        // while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.Form26Q && !IsTyping(e))
+        {
+            vm.SaveReturnForm26Q();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on the Form 27EQ return (Phase 7 slice 6) SAVES the FVU flat file and RETURNS to the menu — the TCS
+        // mirror of the Form 26Q Alt+B above. Scoped to the Form 27EQ screen so it never collides with the
+        // inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.Form27EQ && !IsTyping(e))
+        {
+            vm.SaveReturnForm27EQ();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on a TDS/TCS certificate / control-chart page (Phase 7 slice 7) SAVES the PDF and RETURNS to the
+        // menu — the mirror of the Form 26Q / 27EQ Alt+B above. Scoped to each certificate screen so it never
+        // collides with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e)
+            && vm.CurrentScreen is Screen.Form16A or Screen.Form27D or Screen.Form27A)
+        {
+            switch (vm.CurrentScreen)
+            {
+                case Screen.Form16A: vm.SaveReturnForm16A(); break;
+                case Screen.Form27D: vm.SaveReturnForm27D(); break;
+                case Screen.Form27A: vm.SaveReturnForm27A(); break;
+            }
             e.Handled = true;
             return;
         }
@@ -631,6 +702,56 @@ public partial class MainWindow : Window
 
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.Apply();
+
+    // TDS/TCS (Phase 7 slice 1) — F11 Enable TDS / Enable TCS + the two Statutory-master Create actions.
+    private void OnApplyTdsClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyTds();
+
+    private void OnApplyTcsClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyTcs();
+
+    private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
+        => Vm?.NatureOfPaymentMaster?.Create();
+
+    private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
+        => Vm?.NatureOfGoodsMaster?.Create();
+
+    private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
+        => Vm?.TdsStatPayment?.Deposit();
+
+    private void OnExportFvuForm26QClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form26Q?.ExportFvu();
+
+    private void OnSaveReturnForm26QClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm26Q();
+
+    private void OnDepositTcsStatPaymentClick(object? sender, RoutedEventArgs e)
+        => Vm?.TcsStatPayment?.Deposit();
+
+    private void OnExportFvuForm27EQClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form27EQ?.ExportFvu();
+
+    private void OnSaveReturnForm27EQClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm27EQ();
+
+    // Phase 7 slice 7 — TDS/TCS certificates + control chart: Export PDF (Ctrl+A) / Save & Return (Alt+B).
+    private void OnExportPdfForm16AClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form16A?.ExportPdf();
+
+    private void OnSaveReturnForm16AClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm16A();
+
+    private void OnExportPdfForm27DClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form27D?.ExportPdf();
+
+    private void OnSaveReturnForm27DClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm27D();
+
+    private void OnExportPdfForm27AClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form27A?.ExportPdf();
+
+    private void OnSaveReturnForm27AClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm27A();
 
     private void OnApplyReportConfigClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportConfig();

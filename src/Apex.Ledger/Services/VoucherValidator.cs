@@ -192,7 +192,11 @@ public static class VoucherValidator
         }
 
         // Σ of the accounting stock leg: Purchase = debit lines to Purchase Accounts / Stock-in-Hand ledgers;
-        // Sales = credit lines to Sales Accounts ledgers.
+        // Sales = credit lines to Sales Accounts ledgers. NOTE (Phase 7 slice 2 — TDS carve-out): a withholding
+        // purchase books Dr Purchases GROSS / Cr Party NET / Cr TDS Payable — the stock leg (Purchases) is still
+        // the GROSS debit, so it equals the item-lines value; the reduced party leg and the TDS Payable (Duties &
+        // Taxes) credit are BOTH outside this stock-leg sum (TDS Payable via IsDutiesAndTaxesLedger, exactly like
+        // GST), so the pairing foots unchanged and the balance invariant (Σ Dr == Σ Cr) guards net + withheld == gross.
         var wantSide = isPurchase ? DrCr.Debit : DrCr.Credit;
         var accountingStockAmount = 0m;
         foreach (var line in v.Lines)
