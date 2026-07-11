@@ -1233,6 +1233,49 @@ carry-forwards incl. §206C(1F) ex-vs-incl-GST trigger via A14 and the recon-rep
 question for the user) → then A12 opens/updates a PR and merges branch→main once all 3 OS CI checks are green → PAUSE
 for Phase 7→8 go-ahead.**
 
+## Phase 7 Slice 9 — EXIT GATE (2026-07-11) — NO schema change (v29)
+Ninth and final Phase-7 slice: the **exit gate** — no new feature, purely verification, hardening and merge-readiness.
+No schema change (`Schema.cs` stays `CurrentVersion = 29`); the only production edits are hardening/de-brand fixes.
+Delivered:
+- **Golden worked examples** (`tests/Apex.Ledger.Tests/Phase7GoldenExamplesTests.cs`) — two hand-derived end-to-end
+  oracles that lock the *whole* chain (S2–S7 already lock each stage individually): **TDS 194J** ₹1,00,000 professional
+  fee → ₹10,000 withheld → the figure ties across Form 26Q, the FVU flat-file control totals, and the Form 16A
+  certificate; **TCS scrap (6CE)** ₹1,00,000 → ₹1,000 collected **additive** (on top) → ties across Form 27EQ, FVU and
+  Form 27D. Both were **adversarially verified genuine** (numbers derived by hand, not read back from the engine); no
+  engine bug surfaced — the goldens confirm the stage-locks compose correctly.
+- **Migration v1→v29 equivalence** (`tests/Apex.Persistence.Sqlite.Tests/SchemaMigrationEquivalenceTests.cs`) — asserts a
+  DB migrated all the way from **v1→v29** is structurally identical to a **fresh v29** (order-independent set-compare of
+  tables + columns + indexes). Migration v24→v29 (the Phase-7 span) is **SOUND and now COVERED**. The test **CAUGHT a
+  real create-vs-migrate divergence**: `ix_gst_rate_slabs_company` was created by `MigrateV12ToV13` but **missing from
+  `CreateV1`** → a freshly-created DB lacked an index that a migrated DB had. **FIXED** by adding the index to `CreateV1`
+  (proven non-tautological — the test fails on the pre-fix tree). No data-shape change to any Phase-7 table.
+- **De-brand sweep CLEAN** — 0 must-fix; no "Tally" in app UI or code.
+- **3-OS CI hardening** — the Phase-6 path-separator / byte-stability fix re-confirmed clean. Found a **latent culture
+  bug**: `dd-MMM-yyyy` date formatting was culture-sensitive (dormant on en-US CI, would drift on other locales) →
+  **hardened the shared `FormatDate` with `InvariantCulture`** (`ReportsViewModel.cs`). `Bank*`/`CsvCanonicalBridge`
+  culture-sensitivity is **deferred to Phase 11** (documented, non-blocking, not on the TDS/TCS path).
+- **§206C(1F) ₹10L trigger RESOLVED** — carry-forward from S5. **A14 web-verified** the trigger base = **GST-inclusive**
+  (dominant/conservative reading of the motor-vehicle >₹10L limb). The code was **already correct** — `TcsService` gates
+  on the GST-inclusive assessable value — so **no code change**; only the misleading comment gloss on `TcsService.cs`
+  was corrected.
+- **RAN THE REAL APP** — launched the Release exe clean (PID alive, no crash), headless-rendered **11 TDS/TCS screens**
+  (`s9-*.png`) — all de-branded, no clipping/overlap **except** a genuine **Form 16A/27D certificate-preview overlap**,
+  which was **caught + fixed** (`MainWindow.axaml`). Orchestrator visually confirmed the statutory-interest report
+  (450 / 600 / 300 = **1,350** ties) and the fixed 16A certificate.
+- Doc-comment staleness fixed (`Schema.cs` CreateV1 index doc + `TdsTcsSchemaTests.cs` count).
+Gate fully green in Release: **Ledger 693 · Io 181 · Sqlite 112 · Desktop 582 = 1568 total, 0 failures**, de-branded,
+no scratch/probe files, **Schema.cs UNCHANGED at v29**.
+**Carry-forwards deferred (all documented, non-blocking):** (a) recon reports use **cash-in-window** not
+period-attributed — the returns (26Q/27EQ) **and** the S8 outstanding reports **ARE** period-correct; the recon-report
+semantics are a **user design call** (surface at Phase-7→8 review). (b) `OutstandingPayable` section-awareness (S3-guard
+blast-radius). (c) FIFO backdating mis-attributes per-row interest months (inherited from Form 26Q/27EQ; section totals
+unaffected). (d) migration-equivalence could be extended to FKs/CHECK constraints. (e) `Bank*`/`CsvCanonicalBridge`
+culture (Phase 11). (f) S5 multi-below-threshold-TCS only first nature persisted. (g) S7 no-PAN placeholder rendered
+3 ways + rate-format screen-vs-PDF.
+**Merge PENDING:** A12 opened a PR (base `main` ← head `claude/recursing-swirles-3138c6`), **awaiting all 3 OS CI checks
+green + user go-ahead to merge**; `main` NOT touched. After merge → **PAUSE for Phase 7→8 go-ahead.** **PHASE 7 COMPLETE
+(pending merge).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
