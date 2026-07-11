@@ -742,6 +742,32 @@ public partial class MainWindow : Window
     private void OnCreateAttendanceTypeClick(object? sender, RoutedEventArgs e)
         => Vm?.AttendanceTypeMaster?.Create();
 
+    // Pay Head master (Phase 8 slice 2) — the Create action + the computation basis/slab editor add/remove.
+    private void OnCreatePayHeadClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayHeadMaster?.Create();
+
+    private void OnAddBasisComponentClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayHeadMaster?.AddBasisComponent();
+
+    private void OnRemoveBasisComponentClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayHeadMaster is { } m && (sender as Control)?.DataContext is PayHeadBasisRow row)
+            m.RemoveBasisComponent(row);
+    }
+
+    private void OnAddSlabClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayHeadMaster?.AddSlab();
+
+    private void OnRemoveSlabClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayHeadMaster is { } m && (sender as Control)?.DataContext is PayHeadSlabRow row)
+            m.RemoveSlab(row);
+    }
+
+    // Salary Details / structure master (Phase 8 slice 2) — the Save action.
+    private void OnSaveSalaryStructureClick(object? sender, RoutedEventArgs e)
+        => Vm?.SalaryDetails?.Save();
+
     private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.TdsStatPayment?.Deposit();
 

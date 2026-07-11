@@ -38,6 +38,8 @@ public sealed class Company
     private readonly List<Employee> _employees = new();
     private readonly List<PayrollUnit> _payrollUnits = new();
     private readonly List<AttendanceType> _attendanceTypes = new();
+    private readonly List<PayHead> _payHeads = new();
+    private readonly List<SalaryStructure> _salaryStructures = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -362,6 +364,13 @@ public sealed class Company
     /// types, hierarchical.</summary>
     public IReadOnlyList<AttendanceType> AttendanceTypes => _attendanceTypes;
 
+    /// <summary>Pay heads (Phase 8 slice 2; RQ-4): the salary-structure building blocks (earnings/deductions/
+    /// contributions) with their calculation type + computation formula. Empty unless Payroll is used.</summary>
+    public IReadOnlyList<PayHead> PayHeads => _payHeads;
+
+    /// <summary>Salary structures (Phase 8 slice 2; RQ-5): the dated per-employee / per-group pay-head assignments.</summary>
+    public IReadOnlyList<SalaryStructure> SalaryStructures => _salaryStructures;
+
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
 
@@ -557,6 +566,25 @@ public sealed class Company
     /// <summary>Finds an attendance type by its name (case-insensitive), or <c>null</c>.</summary>
     public AttendanceType? FindAttendanceTypeByName(string name) =>
         _attendanceTypes.FirstOrDefault(a => string.Equals(a.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // ---- Pay heads + salary structures (Phase 8 slice 2; guards live in PayHeadService / SalaryStructureService) ----
+
+    /// <summary>Adds a pay head (uniqueness/reference/cycle guards live in <c>PayHeadService</c>).</summary>
+    public void AddPayHead(PayHead payHead) => _payHeads.Add(payHead ?? throw new ArgumentNullException(nameof(payHead)));
+    /// <summary>Removes a pay head (delete-guards live in <c>PayHeadService</c>; also used by import roll-back).</summary>
+    public bool RemovePayHead(PayHead payHead) => _payHeads.Remove(payHead);
+    /// <summary>Finds a pay head by its id, or <c>null</c>.</summary>
+    public PayHead? FindPayHead(Guid id) => _payHeads.FirstOrDefault(p => p.Id == id);
+    /// <summary>Finds a pay head by its name (case-insensitive), or <c>null</c>.</summary>
+    public PayHead? FindPayHeadByName(string name) =>
+        _payHeads.FirstOrDefault(p => string.Equals(p.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Adds a salary structure (validity/uniqueness guards live in <c>SalaryStructureService</c>).</summary>
+    public void AddSalaryStructure(SalaryStructure structure) => _salaryStructures.Add(structure ?? throw new ArgumentNullException(nameof(structure)));
+    /// <summary>Removes a salary structure (delete-guards live in <c>SalaryStructureService</c>; also used by import roll-back).</summary>
+    public bool RemoveSalaryStructure(SalaryStructure structure) => _salaryStructures.Remove(structure);
+    /// <summary>Finds a salary structure by its id, or <c>null</c>.</summary>
+    public SalaryStructure? FindSalaryStructure(Guid id) => _salaryStructures.FirstOrDefault(s => s.Id == id);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);

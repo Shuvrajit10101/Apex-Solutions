@@ -279,6 +279,12 @@ public sealed class ItemInvoiceRoundTripTests
         // v25 (TDS/TCS) master tables — drop so re-migrating v11→v25 does not hit "table already exists".
         Exec(conn, "DROP TABLE IF EXISTS nature_of_payment;");
         Exec(conn, "DROP TABLE IF EXISTS nature_of_goods;");
+        // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
+        Exec(conn, "DROP TABLE IF EXISTS salary_structure_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS salary_structures;");
+        Exec(conn, "DROP TABLE IF EXISTS pay_head_computation_slabs;");
+        Exec(conn, "DROP TABLE IF EXISTS pay_head_computation;");
+        Exec(conn, "DROP TABLE IF EXISTS pay_heads;");
         // v30 Payroll master tables — drop so the reopen's v29→v30 CREATE TABLE does not collide (the companies
         // rebuild below strips the v30 payroll_enabled/payroll_statutory_enabled columns back to the v12 shape).
         Exec(conn, "DROP TABLE IF EXISTS employees;");

@@ -45,6 +45,8 @@ internal sealed class ApplyJournal
     private readonly List<Employee> _employees = new();
     private readonly List<PayrollUnit> _payrollUnits = new();
     private readonly List<AttendanceType> _attendanceTypes = new();
+    private readonly List<PayHead> _payHeads = new();
+    private readonly List<SalaryStructure> _salaryStructures = new();
 
     // Enable Job Order Processing: whether it was already on before the import stamped the seeded voucher types, so a
     // rollback re-runs JobWorkService.SetEnabled(prior) to restore both the company flag and the seeded type flags.
@@ -107,6 +109,8 @@ internal sealed class ApplyJournal
     public void RecordEmployee(Employee x) => _employees.Add(x);
     public void RecordPayrollUnit(PayrollUnit x) => _payrollUnits.Add(x);
     public void RecordAttendanceType(AttendanceType x) => _attendanceTypes.Add(x);
+    public void RecordPayHead(PayHead x) => _payHeads.Add(x);
+    public void RecordSalaryStructure(SalaryStructure x) => _salaryStructures.Add(x);
 
     /// <summary>Snapshots the Enable-Job-Order-Processing flag as it was BEFORE the import toggled it (via
     /// <c>JobWorkService.SetEnabled</c>), so a rollback restores the flag AND the seeded voucher-type flags it
@@ -155,6 +159,12 @@ internal sealed class ApplyJournal
 
     public void Rollback()
     {
+        // 0a2) Pay heads + salary structures (Phase 8 slice 2) — remove structures first (their lines FK pay heads),
+        //      then pay heads (a computed-on head FKs another pay head; RemovePayHead is a plain list removal so the
+        //      order among pay heads is immaterial). Both must go before the payroll masters they reference.
+        for (var i = _salaryStructures.Count - 1; i >= 0; i--) _company.RemoveSalaryStructure(_salaryStructures[i]);
+        for (var i = _payHeads.Count - 1; i >= 0; i--) _company.RemovePayHead(_payHeads[i]);
+
         // 0a) Payroll masters (Phase 8 slice 1) — remove child-first: employees (reference groups + categories),
         //     then attendance types (reference payroll units), then payroll units, then employee groups, then
         //     employee categories. None reference a voucher, so ordering relative to the voucher undo is free.

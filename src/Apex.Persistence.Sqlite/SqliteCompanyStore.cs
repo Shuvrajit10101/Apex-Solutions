@@ -730,6 +730,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 30;
         }
 
+        // v30 → v31: apply the Pay Heads + dated Salary Structures schema (five new tables + indexes), then bump the
+        // marker. Existing v30 data survives untouched (CREATE TABLE/INDEX only; no ALTER, no companies column, no row
+        // rewrites — Phase 8 slice 2). ER-13 byte-identical when Payroll is never used (the new tables stay empty).
+        if (version == 30)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV30ToV31;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 31);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 31;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -961,6 +984,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var e in ReadEmployees(companyId))
             company.AddEmployee(e);
 
+        // Pay heads (Phase 8 slice 2): the master rows first, then their computed-on basis + slab child rows are
+        // folded in by ReadPayHeads. Then dated salary structures (+ their lines), which FK pay heads.
+        foreach (var ph in ReadPayHeads(companyId))
+            company.AddPayHead(ph);
+        foreach (var s in ReadSalaryStructures(companyId))
+            company.AddSalaryStructure(s);
+
         return company;
     }
 
@@ -1112,6 +1142,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertPayrollUnits(tx, company);
         InsertAttendanceTypes(tx, company);
         InsertEmployees(tx, company);
+        // Pay heads (Phase 8 slice 2): all master rows first (they FK groups/ledgers/attendance_types, inserted
+        // above), then the computed-on basis + slab child rows (which FK pay_heads on both ends), then dated salary
+        // structures + their lines (FK pay_heads). Inserting every pay-head row before any computation row means a
+        // computed-on reference to another pay head is always already present.
+        InsertPayHeads(tx, company);
+        InsertSalaryStructures(tx, company);
 
         tx.Commit();
     }
@@ -1742,6 +1778,143 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 ApplicableTaxRegime = (TaxRegime)(int)r.GetInt64(20),
             });
         return list;
+    }
+
+    private IEnumerable<PayHead> ReadPayHeads(Guid companyId)
+    {
+        // 1) the computed-on basis components + slab bands, grouped by pay head, so we can attach a Computation.
+        var components = new Dictionary<Guid, List<PayHeadComputationComponent>>();
+        using (var cc = _connection.CreateCommand())
+        {
+            cc.CommandText = """
+                SELECT c.pay_head_id, c.component_pay_head_id, c.is_subtraction
+                FROM pay_head_computation c
+                JOIN pay_heads p ON p.id = c.pay_head_id
+                WHERE p.company_id = $cid
+                ORDER BY c.pay_head_id, c.ord, c.id;
+                """;
+            cc.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cc.ExecuteReader();
+            while (r.Read())
+            {
+                var owner = Guid.Parse(r.GetString(0));
+                if (!components.TryGetValue(owner, out var list)) components[owner] = list = new();
+                list.Add(new PayHeadComputationComponent(Guid.Parse(r.GetString(1)), isSubtraction: r.GetInt64(2) != 0));
+            }
+        }
+
+        var slabs = new Dictionary<Guid, List<PayHeadComputationSlab>>();
+        using (var cs = _connection.CreateCommand())
+        {
+            cs.CommandText = """
+                SELECT s.pay_head_id, s.from_amount_paisa, s.to_amount_paisa, s.slab_type, s.rate_basis_points, s.value_paisa
+                FROM pay_head_computation_slabs s
+                JOIN pay_heads p ON p.id = s.pay_head_id
+                WHERE p.company_id = $cid
+                ORDER BY s.pay_head_id, s.ord, s.id;
+                """;
+            cs.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cs.ExecuteReader();
+            while (r.Read())
+            {
+                var owner = Guid.Parse(r.GetString(0));
+                if (!slabs.TryGetValue(owner, out var list)) slabs[owner] = list = new();
+                list.Add(new PayHeadComputationSlab(
+                    (PayHeadComputationSlabType)(int)r.GetInt64(3),
+                    rateBasisPoints: (int)r.GetInt64(4),
+                    value: Paisa.ToMoney(r.GetInt64(5)),
+                    fromAmount: r.IsDBNull(1) ? (Money?)null : Paisa.ToMoney(r.GetInt64(1)),
+                    toAmount: r.IsDBNull(2) ? (Money?)null : Paisa.ToMoney(r.GetInt64(2))));
+            }
+        }
+
+        // 2) the pay-head master rows.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
+                   under_group_id, ledger_id, income_tax_component, use_for_gratuity,
+                   rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis
+            FROM pay_heads WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var pr = cmd.ExecuteReader();
+        var list2 = new List<PayHead>();
+        while (pr.Read())
+        {
+            var id = Guid.Parse(pr.GetString(0));
+            var payHead = new PayHead(
+                id, pr.GetString(1),
+                (PayHeadType)(int)pr.GetInt64(3),
+                (PayHeadCalculationType)(int)pr.GetInt64(4))
+            {
+                DisplayName = pr.IsDBNull(2) ? null : pr.GetString(2),
+                AffectsNetSalary = pr.GetInt64(5) != 0,
+                UnderGroupId = pr.IsDBNull(6) ? (Guid?)null : Guid.Parse(pr.GetString(6)),
+                LedgerId = pr.IsDBNull(7) ? (Guid?)null : Guid.Parse(pr.GetString(7)),
+                IncomeTaxComponent = (IncomeTaxComponent)(int)pr.GetInt64(8),
+                UseForGratuity = pr.GetInt64(9) != 0,
+                RoundingMethod = (PayHeadRoundingMethod)(int)pr.GetInt64(10),
+                RoundingLimit = Paisa.ToMoney(pr.GetInt64(11)),
+                CalculationPeriod = (PayHeadCalculationPeriod)(int)pr.GetInt64(12),
+                AttendanceTypeId = pr.IsDBNull(13) ? (Guid?)null : Guid.Parse(pr.GetString(13)),
+                PerDayCalculationBasisDays = pr.IsDBNull(14) ? (int?)null : (int)pr.GetInt64(14),
+            };
+            var hasComponents = components.TryGetValue(id, out var comps);
+            var hasSlabs = slabs.TryGetValue(id, out var slabList);
+            if (hasComponents || hasSlabs)
+                payHead.Computation = new PayHeadComputation(
+                    comps ?? Enumerable.Empty<PayHeadComputationComponent>(),
+                    slabList ?? Enumerable.Empty<PayHeadComputationSlab>());
+            list2.Add(payHead);
+        }
+        return list2;
+    }
+
+    private IEnumerable<SalaryStructure> ReadSalaryStructures(Guid companyId)
+    {
+        var lines = new Dictionary<Guid, List<SalaryStructureLine>>();
+        using (var lc = _connection.CreateCommand())
+        {
+            lc.CommandText = """
+                SELECT l.salary_structure_id, l.pay_head_id, l.ord, l.amount_paisa
+                FROM salary_structure_lines l
+                JOIN salary_structures s ON s.id = l.salary_structure_id
+                WHERE s.company_id = $cid
+                ORDER BY l.salary_structure_id, l.ord, l.id;
+                """;
+            lc.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = lc.ExecuteReader();
+            while (r.Read())
+            {
+                var owner = Guid.Parse(r.GetString(0));
+                if (!lines.TryGetValue(owner, out var list)) lines[owner] = list = new();
+                list.Add(new SalaryStructureLine(
+                    Guid.Parse(r.GetString(1)), (int)r.GetInt64(2),
+                    amount: r.IsDBNull(3) ? (Money?)null : Paisa.ToMoney(r.GetInt64(3))));
+            }
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, scope, scope_id, effective_from, start_type
+            FROM salary_structures WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var sr = cmd.ExecuteReader();
+        var result = new List<SalaryStructure>();
+        while (sr.Read())
+        {
+            var id = Guid.Parse(sr.GetString(0));
+            var structLines = lines.TryGetValue(id, out var l) ? l : new List<SalaryStructureLine>();
+            result.Add(new SalaryStructure(
+                id,
+                (SalaryStructureScope)(int)sr.GetInt64(1),
+                Guid.Parse(sr.GetString(2)),
+                ParseDate(sr.GetString(3)),
+                (SalaryStructureStartType)(int)sr.GetInt64(4),
+                structLines));
+        }
+        return result;
     }
 
     private IEnumerable<StockGroup> ReadStockGroups(Guid companyId)
@@ -2764,6 +2937,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id FROM price_lists WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM price_lists WHERE company_id = $cid;", ("$cid", cid));
+        // v31 Payroll pay heads + salary structures (Phase 8 slice 2): child rows first, then pay_heads — all before
+        // ledgers/groups/attendance_types (which pay_heads FK) are dropped below. salary_structure_lines FK
+        // pay_heads + salary_structures; pay_head_computation(_slabs) FK pay_heads.
+        ExecTx(tx, """
+            DELETE FROM salary_structure_lines WHERE salary_structure_id IN (
+                SELECT id FROM salary_structures WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM salary_structures WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM pay_head_computation_slabs WHERE pay_head_id IN (
+                SELECT id FROM pay_heads WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM pay_head_computation WHERE pay_head_id IN (
+                SELECT id FROM pay_heads WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM pay_heads WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
         ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));
@@ -3496,6 +3686,119 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$ifsc", (object?)e.BankIfsc ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$regime", (int)e.ApplicableTaxRegime);
             cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertPayHeads(SqliteTransaction tx, Company c)
+    {
+        // All master rows first (no pay-head→pay-head row-level FK), then the computed-on + slab child rows.
+        foreach (var p in c.PayHeads)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO pay_heads
+                    (id, company_id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
+                     under_group_id, ledger_id, income_tax_component, use_for_gratuity,
+                     rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis)
+                VALUES ($id, $cid, $name, $disp, $type, $calc, $anet,
+                        $grp, $led, $itc, $grat,
+                        $rm, $rl, $cp, $atid, $pdb);
+                """;
+            cmd.Parameters.AddWithValue("$id", p.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", p.Name);
+            cmd.Parameters.AddWithValue("$disp", (object?)p.DisplayName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$type", (int)p.Type);
+            cmd.Parameters.AddWithValue("$calc", (int)p.CalculationType);
+            cmd.Parameters.AddWithValue("$anet", p.AffectsNetSalary ? 1 : 0);
+            cmd.Parameters.AddWithValue("$grp", (object?)p.UnderGroupId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$led", (object?)p.LedgerId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$itc", (int)p.IncomeTaxComponent);
+            cmd.Parameters.AddWithValue("$grat", p.UseForGratuity ? 1 : 0);
+            cmd.Parameters.AddWithValue("$rm", (int)p.RoundingMethod);
+            cmd.Parameters.AddWithValue("$rl", Paisa.FromMoney(p.RoundingLimit));
+            cmd.Parameters.AddWithValue("$cp", (int)p.CalculationPeriod);
+            cmd.Parameters.AddWithValue("$atid", (object?)p.AttendanceTypeId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pdb", (object?)p.PerDayCalculationBasisDays ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var p in c.PayHeads)
+        {
+            if (p.Computation is not { } comp) continue;
+            var ord = 0;
+            foreach (var component in comp.BasisComponents)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO pay_head_computation (pay_head_id, component_pay_head_id, is_subtraction, ord)
+                    VALUES ($ph, $comp, $sub, $ord);
+                    """;
+                cmd.Parameters.AddWithValue("$ph", p.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$comp", component.PayHeadId.ToString("D"));
+                cmd.Parameters.AddWithValue("$sub", component.IsSubtraction ? 1 : 0);
+                cmd.Parameters.AddWithValue("$ord", ord++);
+                cmd.ExecuteNonQuery();
+            }
+
+            ord = 0;
+            foreach (var slab in comp.Slabs)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO pay_head_computation_slabs
+                        (pay_head_id, from_amount_paisa, to_amount_paisa, slab_type, rate_basis_points, value_paisa, ord)
+                    VALUES ($ph, $from, $to, $st, $rate, $val, $ord);
+                    """;
+                cmd.Parameters.AddWithValue("$ph", p.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$from", slab.FromAmount is { } f ? Paisa.FromMoney(f) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$to", slab.ToAmount is { } t ? Paisa.FromMoney(t) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$st", (int)slab.SlabType);
+                cmd.Parameters.AddWithValue("$rate", slab.RateBasisPoints);
+                cmd.Parameters.AddWithValue("$val", Paisa.FromMoney(slab.Value));
+                cmd.Parameters.AddWithValue("$ord", ord++);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private void InsertSalaryStructures(SqliteTransaction tx, Company c)
+    {
+        foreach (var s in c.SalaryStructures)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO salary_structures (id, company_id, scope, scope_id, effective_from, start_type)
+                    VALUES ($id, $cid, $scope, $sid, $eff, $start);
+                    """;
+                cmd.Parameters.AddWithValue("$id", s.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$scope", (int)s.Scope);
+                cmd.Parameters.AddWithValue("$sid", s.ScopeId.ToString("D"));
+                cmd.Parameters.AddWithValue("$eff", FormatDate(s.EffectiveFrom));
+                cmd.Parameters.AddWithValue("$start", (int)s.StartType);
+                cmd.ExecuteNonQuery();
+            }
+
+            foreach (var line in s.Lines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO salary_structure_lines (salary_structure_id, pay_head_id, ord, amount_paisa)
+                    VALUES ($sid, $ph, $ord, $amt);
+                    """;
+                cmd.Parameters.AddWithValue("$sid", s.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ph", line.PayHeadId.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", line.Order);
+                cmd.Parameters.AddWithValue("$amt", line.Amount is { } m ? Paisa.FromMoney(m) : (object)DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
         }
     }
 

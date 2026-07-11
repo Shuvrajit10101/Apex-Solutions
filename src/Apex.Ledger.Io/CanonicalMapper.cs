@@ -16,8 +16,8 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v30).</summary>
-    public const int SchemaVersion = 30;
+    /// <summary>The persistence schema version this export targets (SQLite schema v31).</summary>
+    public const int SchemaVersion = 31;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -123,6 +123,11 @@ public static class CanonicalMapper
         PayrollUnits = OrderById(c.PayrollUnits, x => x.Symbol, x => x.Id).Select(MapPayrollUnit).ToList(),
         AttendanceTypes = OrderById(c.AttendanceTypes, x => x.Name, x => x.Id).Select(MapAttendanceType).ToList(),
         Employees = OrderById(c.Employees, x => x.Name, x => x.Id).Select(MapEmployee).ToList(),
+        // Pay heads ordered by name (byte-stable); salary structures (no name) by scope/scopeId/effective-from/id.
+        PayHeads = OrderById(c.PayHeads, x => x.Name, x => x.Id).Select(MapPayHead).ToList(),
+        SalaryStructures = c.SalaryStructures
+            .OrderBy(x => (int)x.Scope).ThenBy(x => x.ScopeId).ThenBy(x => x.EffectiveFrom).ThenBy(x => x.Id)
+            .Select(MapSalaryStructure).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
@@ -260,6 +265,39 @@ public static class CanonicalMapper
         DateOfBirth = Iso(e.DateOfBirth), Pan = e.Pan, Aadhaar = e.Aadhaar, Uan = e.Uan,
         PfAccountNumber = e.PfAccountNumber, EsiNumber = e.EsiNumber, BankAccountNumber = e.BankAccountNumber,
         BankName = e.BankName, BankIfsc = e.BankIfsc, ApplicableTaxRegime = e.ApplicableTaxRegime.ToString(),
+    };
+
+    private static PayHeadDto MapPayHead(PayHead p) => new()
+    {
+        Id = p.Id, Name = p.Name, DisplayName = p.DisplayName, PayHeadType = p.Type.ToString(),
+        CalculationType = p.CalculationType.ToString(), AffectsNetSalary = p.AffectsNetSalary,
+        UnderGroupId = p.UnderGroupId, LedgerId = p.LedgerId, IncomeTaxComponent = p.IncomeTaxComponent.ToString(),
+        UseForGratuity = p.UseForGratuity, RoundingMethod = p.RoundingMethod.ToString(),
+        RoundingLimitPaisa = MoneyCodec.ToPaisa(p.RoundingLimit), CalculationPeriod = p.CalculationPeriod.ToString(),
+        AttendanceTypeId = p.AttendanceTypeId, PerDayCalculationBasisDays = p.PerDayCalculationBasisDays,
+        ComputationComponents = p.Computation is { } c1
+            ? c1.BasisComponents.Select(x => new PayHeadComputationComponentDto { PayHeadId = x.PayHeadId, IsSubtraction = x.IsSubtraction }).ToList()
+            : [],
+        ComputationSlabs = p.Computation is { } c2
+            ? c2.Slabs.Select(MapPayHeadSlab).ToList()
+            : [],
+    };
+
+    private static PayHeadComputationSlabDto MapPayHeadSlab(PayHeadComputationSlab s) => new()
+    {
+        SlabType = s.SlabType.ToString(), RateBasisPoints = s.RateBasisPoints,
+        ValuePaisa = MoneyCodec.ToPaisa(s.Value),
+        FromAmountPaisa = MoneyCodec.ToPaisa(s.FromAmount), ToAmountPaisa = MoneyCodec.ToPaisa(s.ToAmount),
+    };
+
+    private static SalaryStructureDto MapSalaryStructure(SalaryStructure s) => new()
+    {
+        Id = s.Id, Scope = s.Scope.ToString(), ScopeId = s.ScopeId, EffectiveFrom = Iso(s.EffectiveFrom),
+        StartType = s.StartType.ToString(),
+        Lines = s.Lines.Select(l => new SalaryStructureLineDto
+        {
+            PayHeadId = l.PayHeadId, Order = l.Order, AmountPaisa = MoneyCodec.ToPaisa(l.Amount),
+        }).ToList(),
     };
 
     private static CurrencyDto MapCurrency(Currency x) => new()

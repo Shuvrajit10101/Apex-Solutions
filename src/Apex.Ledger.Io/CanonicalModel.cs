@@ -133,6 +133,11 @@ public sealed record PayloadDto
     public IReadOnlyList<AttendanceTypeDto> AttendanceTypes { get; init; } = [];
     public IReadOnlyList<EmployeeDto> Employees { get; init; } = [];
 
+    // Pay heads + dated salary structures (Phase 8 slice 2; catalog §14). Pay heads precede structures (lines FK
+    // pay heads); a pay head's computed-on components reference other pay heads (resolved on import).
+    public IReadOnlyList<PayHeadDto> PayHeads { get; init; } = [];
+    public IReadOnlyList<SalaryStructureDto> SalaryStructures { get; init; } = [];
+
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
 
     /// <summary>Stock/order vouchers (catalog §10): GRN/Delivery/Rejection/Stock-Journal/Physical/PO/SO.</summary>
@@ -612,6 +617,69 @@ public sealed record EmployeeDto
     public string? BankName { get; init; }
     public string? BankIfsc { get; init; }
     public required string ApplicableTaxRegime { get; init; }   // TaxRegime name
+}
+
+// ----------------------------------------------------------------- pay heads + salary structures (Phase 8 slice 2)
+
+/// <summary>A Pay Head master. Enums are member names; money is integer paisa. The computed-on formula of an
+/// As-Computed-Value head is carried as <see cref="ComputationComponents"/> (the basis) +
+/// <see cref="ComputationSlabs"/> (the bands) — both empty for a non-computed head.</summary>
+public sealed record PayHeadDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public string? DisplayName { get; init; }
+    public required string PayHeadType { get; init; }           // PayHeadType name
+    public required string CalculationType { get; init; }       // PayHeadCalculationType name
+    public bool AffectsNetSalary { get; init; }
+    public Guid? UnderGroupId { get; init; }
+    public Guid? LedgerId { get; init; }
+    public required string IncomeTaxComponent { get; init; }    // IncomeTaxComponent name
+    public bool UseForGratuity { get; init; }
+    public required string RoundingMethod { get; init; }        // PayHeadRoundingMethod name
+    public long RoundingLimitPaisa { get; init; }
+    public required string CalculationPeriod { get; init; }     // PayHeadCalculationPeriod name
+    public Guid? AttendanceTypeId { get; init; }
+    public int? PerDayCalculationBasisDays { get; init; }
+    public IReadOnlyList<PayHeadComputationComponentDto> ComputationComponents { get; init; } = [];
+    public IReadOnlyList<PayHeadComputationSlabDto> ComputationSlabs { get; init; } = [];
+}
+
+/// <summary>One computed-on basis term (a pay-head reference, added or subtracted).</summary>
+public sealed record PayHeadComputationComponentDto
+{
+    public required Guid PayHeadId { get; init; }
+    public bool IsSubtraction { get; init; }
+}
+
+/// <summary>One computation slab band. Money is integer paisa; a null bound = open-ended.</summary>
+public sealed record PayHeadComputationSlabDto
+{
+    public required string SlabType { get; init; }              // PayHeadComputationSlabType name
+    public int RateBasisPoints { get; init; }
+    public long ValuePaisa { get; init; }
+    public long? FromAmountPaisa { get; init; }
+    public long? ToAmountPaisa { get; init; }
+}
+
+/// <summary>A dated Salary Structure ("Salary Details") for an employee or employee group, with ordered lines.</summary>
+public sealed record SalaryStructureDto
+{
+    public required Guid Id { get; init; }
+    public required string Scope { get; init; }                 // SalaryStructureScope name
+    public required Guid ScopeId { get; init; }
+    public required string EffectiveFrom { get; init; }         // ISO yyyy-MM-dd
+    public required string StartType { get; init; }             // SalaryStructureStartType name
+    public IReadOnlyList<SalaryStructureLineDto> Lines { get; init; } = [];
+}
+
+/// <summary>One salary-structure line: a pay head + its ordered per-employee amount (integer paisa; null when the
+/// pay head is computed / user-defined).</summary>
+public sealed record SalaryStructureLineDto
+{
+    public required Guid PayHeadId { get; init; }
+    public int Order { get; init; }
+    public long? AmountPaisa { get; init; }
 }
 
 // ----------------------------------------------------------------- multi-currency (catalog §2/§20)

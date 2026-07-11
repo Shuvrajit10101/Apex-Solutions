@@ -81,6 +81,10 @@ public enum Screen
     PayrollUnitMaster,
     AttendanceTypeMaster,
 
+    // Payroll masters (Phase 8 slice 2; RQ-4/RQ-5) — Pay Head + Salary Details, same F11 gate.
+    PayHeadMaster,
+    SalaryStructureMaster,
+
     LedgerVouchers,
     VoucherDetail,
 }
@@ -322,6 +326,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Attendance/Production-Type master (Phase 8 slice 1; RQ-3), non-null only while that page is open.</summary>
     [ObservableProperty] private AttendanceTypeMasterViewModel? _attendanceTypeMaster;
 
+    /// <summary>The Pay Head master (Phase 8 slice 2; RQ-4), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PayHeadMasterViewModel? _payHeadMaster;
+
+    /// <summary>The Salary Details / structure master (Phase 8 slice 2; RQ-5), non-null only while that page is open.</summary>
+    [ObservableProperty] private SalaryStructureMasterViewModel? _salaryDetails;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -385,6 +395,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
         && PayrollUnitMaster is null && AttendanceTypeMaster is null
+        && PayHeadMaster is null && SalaryDetails is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -445,6 +456,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnEmployeeMasterChanged(EmployeeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPayrollUnitMasterChanged(PayrollUnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAttendanceTypeMasterChanged(AttendanceTypeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPayHeadMasterChanged(PayHeadMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSalaryDetailsChanged(SalaryStructureMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -878,6 +891,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(new MenuItemViewModel("Employee", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Payroll Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Attendance / Production Type", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Phase 8 slice 2 (RQ-4/RQ-5): Pay Head + Salary Details, the heart of the salary structure.
+            col.Add(new MenuItemViewModel("Pay Head", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Salary Details", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2717,6 +2733,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the Pay Head master (Masters → Create → Payroll Masters → Pay Head; Phase 8 slice 2; RQ-4) as a page
+    /// column. A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowPayHeadMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new PayHeadMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Pay Head Creation", master), Screen.PayHeadMaster,
+            "Pay Head Creation", () => PayHeadMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Salary Details / structure master (Masters → Create → Payroll Masters → Salary Details; Phase 8
+    /// slice 2; RQ-5) as a page column. A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowSalaryStructureMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new SalaryStructureMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Salary Details", master), Screen.SalaryStructureMaster,
+            "Salary Details", () => SalaryDetails = master);
+    }
+
+    /// <summary>
     /// Opens the <b>TDS Stat Payment</b> deposit page (Transactions → Vouchers → TDS Stat Payment, the Payment
     /// "Ctrl+F"; Phase 7 slice 3) as a page column: deposits the accrued TDS Payable into the bank and records the
     /// ITNS-281 challan. A no-op unless TDS is enabled (the menu item is itself gated on
@@ -3209,6 +3251,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         EmployeeMaster = null;
         PayrollUnitMaster = null;
         AttendanceTypeMaster = null;
+        PayHeadMaster = null;
+        SalaryDetails = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3270,7 +3314,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
                  or Screen.TdsStatPayment or Screen.TcsStatPayment
                  or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
-                 or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster)
+                 or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
+                 or Screen.PayHeadMaster or Screen.SalaryStructureMaster)
             BackFromPage();
     }
 
@@ -3579,6 +3624,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.AttendanceTypeMaster:
                 AttendanceTypeMaster?.Create();
                 return;
+            case Screen.PayHeadMaster:
+                PayHeadMaster?.Create();
+                return;
+            case Screen.SalaryStructureMaster:
+                SalaryDetails?.Save();
+                return;
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
@@ -3792,6 +3843,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Employee": ShowEmployeeMaster(); break;
             case "Payroll Unit": ShowPayrollUnitMaster(); break;
             case "Attendance / Production Type": ShowAttendanceTypeMaster(); break;
+            case "Pay Head": ShowPayHeadMaster(); break;
+            case "Salary Details": ShowSalaryStructureMaster(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
             case "Form 26Q": OpenForm26Q(); break;

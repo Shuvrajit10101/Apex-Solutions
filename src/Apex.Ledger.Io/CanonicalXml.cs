@@ -93,6 +93,8 @@ public static class CanonicalXml
             List("payrollUnits", "payrollUnit", p.PayrollUnits, BuildPayrollUnit),
             List("attendanceTypes", "attendanceType", p.AttendanceTypes, BuildAttendanceType),
             List("employees", "employee", p.Employees, BuildEmployee),
+            List("payHeads", "payHead", p.PayHeads, BuildPayHead),
+            List("salaryStructures", "salaryStructure", p.SalaryStructures, BuildSalaryStructure),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
@@ -222,6 +224,42 @@ public static class CanonicalXml
         Opt("uan", e.Uan), Opt("pfAccountNumber", e.PfAccountNumber), Opt("esiNumber", e.EsiNumber),
         Opt("bankAccountNumber", e.BankAccountNumber), Opt("bankName", e.BankName), Opt("bankIfsc", e.BankIfsc),
         Attr("applicableTaxRegime", e.ApplicableTaxRegime));
+
+    private static XElement BuildPayHead(PayHeadDto p)
+    {
+        var el = new XElement("payHead",
+            Attr("id", p.Id), Attr("name", p.Name), Opt("displayName", p.DisplayName),
+            Attr("payHeadType", p.PayHeadType), Attr("calculationType", p.CalculationType),
+            Attr("affectsNetSalary", p.AffectsNetSalary), OptId("underGroupId", p.UnderGroupId),
+            OptId("ledgerId", p.LedgerId), Attr("incomeTaxComponent", p.IncomeTaxComponent),
+            Attr("useForGratuity", p.UseForGratuity), Attr("roundingMethod", p.RoundingMethod),
+            Attr("roundingLimitPaisa", p.RoundingLimitPaisa), Attr("calculationPeriod", p.CalculationPeriod),
+            OptId("attendanceTypeId", p.AttendanceTypeId),
+            OptInt("perDayCalculationBasisDays", p.PerDayCalculationBasisDays));
+        var comps = new XElement("computationComponents");
+        foreach (var c in p.ComputationComponents)
+            comps.Add(new XElement("component", Attr("payHeadId", c.PayHeadId), Attr("isSubtraction", c.IsSubtraction)));
+        var slabs = new XElement("computationSlabs");
+        foreach (var s in p.ComputationSlabs)
+            slabs.Add(new XElement("slab", Attr("slabType", s.SlabType), Attr("rateBasisPoints", s.RateBasisPoints),
+                Attr("valuePaisa", s.ValuePaisa), OptLong("fromAmountPaisa", s.FromAmountPaisa),
+                OptLong("toAmountPaisa", s.ToAmountPaisa)));
+        el.Add(comps, slabs);
+        return el;
+    }
+
+    private static XElement BuildSalaryStructure(SalaryStructureDto s)
+    {
+        var el = new XElement("salaryStructure",
+            Attr("id", s.Id), Attr("scope", s.Scope), Attr("scopeId", s.ScopeId),
+            Attr("effectiveFrom", s.EffectiveFrom), Attr("startType", s.StartType));
+        var lines = new XElement("lines");
+        foreach (var l in s.Lines)
+            lines.Add(new XElement("line", Attr("payHeadId", l.PayHeadId), Attr("order", l.Order),
+                OptLong("amountPaisa", l.AmountPaisa)));
+        el.Add(lines);
+        return el;
+    }
 
     private static XElement BuildCurrency(CurrencyDto x) => new("currency",
         Attr("id", x.Id), Attr("symbol", x.Symbol), Attr("formalName", x.FormalName),
@@ -702,6 +740,8 @@ public static class CanonicalXml
                 PayrollUnits = ReadList(root, "payrollUnits", "payrollUnit", ReadPayrollUnit),
                 AttendanceTypes = ReadList(root, "attendanceTypes", "attendanceType", ReadAttendanceType),
                 Employees = ReadList(root, "employees", "employee", ReadEmployee),
+                PayHeads = ReadList(root, "payHeads", "payHead", ReadPayHead),
+                SalaryStructures = ReadList(root, "salaryStructures", "salaryStructure", ReadSalaryStructure),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
                 TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
@@ -843,6 +883,41 @@ public static class CanonicalXml
         Uan = Str(e, "uan"), PfAccountNumber = Str(e, "pfAccountNumber"), EsiNumber = Str(e, "esiNumber"),
         BankAccountNumber = Str(e, "bankAccountNumber"), BankName = Str(e, "bankName"), BankIfsc = Str(e, "bankIfsc"),
         ApplicableTaxRegime = Str(e, "applicableTaxRegime") ?? nameof(Apex.Ledger.Domain.TaxRegime.New),
+    };
+
+    private static PayHeadDto ReadPayHead(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, DisplayName = Str(e, "displayName"),
+        PayHeadType = Str(e, "payHeadType")!, CalculationType = Str(e, "calculationType")!,
+        AffectsNetSalary = Bool(e, "affectsNetSalary"), UnderGroupId = OptGuid(e, "underGroupId"),
+        LedgerId = OptGuid(e, "ledgerId"), IncomeTaxComponent = Str(e, "incomeTaxComponent")!,
+        UseForGratuity = Bool(e, "useForGratuity"), RoundingMethod = Str(e, "roundingMethod")!,
+        RoundingLimitPaisa = Long(e, "roundingLimitPaisa"), CalculationPeriod = Str(e, "calculationPeriod")!,
+        AttendanceTypeId = OptGuid(e, "attendanceTypeId"),
+        PerDayCalculationBasisDays = OptInt(e, "perDayCalculationBasisDays"),
+        ComputationComponents = (e.Element("computationComponents")?.Elements("component") ?? Enumerable.Empty<XElement>())
+            .Select(c => new PayHeadComputationComponentDto
+            {
+                PayHeadId = Guid(c, "payHeadId"), IsSubtraction = Bool(c, "isSubtraction"),
+            }).ToList(),
+        ComputationSlabs = (e.Element("computationSlabs")?.Elements("slab") ?? Enumerable.Empty<XElement>())
+            .Select(s => new PayHeadComputationSlabDto
+            {
+                SlabType = Str(s, "slabType")!, RateBasisPoints = Int(s, "rateBasisPoints"),
+                ValuePaisa = Long(s, "valuePaisa"),
+                FromAmountPaisa = OptLong(s, "fromAmountPaisa"), ToAmountPaisa = OptLong(s, "toAmountPaisa"),
+            }).ToList(),
+    };
+
+    private static SalaryStructureDto ReadSalaryStructure(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Scope = Str(e, "scope")!, ScopeId = Guid(e, "scopeId"),
+        EffectiveFrom = Str(e, "effectiveFrom") ?? string.Empty, StartType = Str(e, "startType")!,
+        Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>())
+            .Select(l => new SalaryStructureLineDto
+            {
+                PayHeadId = Guid(l, "payHeadId"), Order = Int(l, "order"), AmountPaisa = OptLong(l, "amountPaisa"),
+            }).ToList(),
     };
 
     private static CurrencyDto ReadCurrency(XElement e) => new()

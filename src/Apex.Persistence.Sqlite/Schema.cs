@@ -70,7 +70,7 @@ public static class Schema
     /// to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must
     /// also appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 30;
+    public const int CurrentVersion = 31;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1048,6 +1048,67 @@ public static class Schema
             tax_regime           INTEGER NOT NULL DEFAULT 0   -- TaxRegime enum ordinal (0 = New)
         );
         CREATE INDEX ix_employees_company ON employees(company_id);
+
+        -- v31 (Phase 8 slice 2): Pay Heads + dated Salary Structures. Empty when Payroll is unused (ER-13).
+        CREATE TABLE pay_heads (
+            id                        TEXT    NOT NULL PRIMARY KEY,
+            company_id                TEXT    NOT NULL REFERENCES companies(id),
+            name                      TEXT    NOT NULL,
+            display_name              TEXT        NULL,
+            pay_head_type             INTEGER NOT NULL,              -- PayHeadType ordinal
+            calculation_type          INTEGER NOT NULL,              -- PayHeadCalculationType ordinal
+            affects_net_salary        INTEGER NOT NULL DEFAULT 1,
+            under_group_id            TEXT        NULL REFERENCES groups(id),
+            ledger_id                 TEXT        NULL REFERENCES ledgers(id),
+            income_tax_component      INTEGER NOT NULL DEFAULT 0,    -- IncomeTaxComponent ordinal
+            use_for_gratuity          INTEGER NOT NULL DEFAULT 0,
+            rounding_method           INTEGER NOT NULL DEFAULT 0,    -- PayHeadRoundingMethod ordinal
+            rounding_limit_paisa      INTEGER NOT NULL DEFAULT 0,
+            calculation_period        INTEGER NOT NULL DEFAULT 0,    -- PayHeadCalculationPeriod ordinal
+            attendance_type_id        TEXT        NULL REFERENCES attendance_types(id),
+            per_day_calculation_basis INTEGER     NULL
+        );
+        CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
+
+        CREATE TABLE pay_head_computation (
+            id                    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id           TEXT    NOT NULL REFERENCES pay_heads(id),
+            component_pay_head_id TEXT    NOT NULL REFERENCES pay_heads(id),
+            is_subtraction        INTEGER NOT NULL DEFAULT 0,
+            ord                   INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_payhead ON pay_head_computation(pay_head_id);
+
+        CREATE TABLE pay_head_computation_slabs (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id       TEXT    NOT NULL REFERENCES pay_heads(id),
+            from_amount_paisa INTEGER     NULL,
+            to_amount_paisa   INTEGER     NULL,
+            slab_type         INTEGER NOT NULL,                     -- PayHeadComputationSlabType ordinal
+            rate_basis_points INTEGER NOT NULL DEFAULT 0,
+            value_paisa       INTEGER NOT NULL DEFAULT 0,
+            ord               INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_slabs_payhead ON pay_head_computation_slabs(pay_head_id);
+
+        CREATE TABLE salary_structures (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            scope          INTEGER NOT NULL,                        -- SalaryStructureScope ordinal
+            scope_id       TEXT    NOT NULL,                        -- employee or employee_group id (polymorphic; no FK)
+            effective_from TEXT    NOT NULL,                        -- ISO yyyy-MM-dd
+            start_type     INTEGER NOT NULL DEFAULT 0               -- SalaryStructureStartType ordinal
+        );
+        CREATE INDEX ix_salary_structures_company ON salary_structures(company_id);
+
+        CREATE TABLE salary_structure_lines (
+            id                  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            salary_structure_id TEXT    NOT NULL REFERENCES salary_structures(id),
+            pay_head_id         TEXT    NOT NULL REFERENCES pay_heads(id),
+            ord                 INTEGER NOT NULL,
+            amount_paisa        INTEGER     NULL
+        );
+        CREATE INDEX ix_salary_structure_lines_structure ON salary_structure_lines(salary_structure_id);
         """;
 
     /// <summary>
@@ -2122,5 +2183,80 @@ public static class Schema
             tax_regime           INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX ix_employees_company ON employees(company_id);
+        """;
+
+    /// <summary>
+    /// v30 → v31 (Phase 8 slice 2; Pay Heads + dated Salary Structures): purely additive — five new tables
+    /// (<c>pay_heads</c>, <c>pay_head_computation</c> [the computed-on basis], <c>pay_head_computation_slabs</c>
+    /// [the slab bands], <c>salary_structures</c>, <c>salary_structure_lines</c>) with their indexes, run inside a
+    /// transaction that bumps <c>schema_version</c> to 31. <b>No ALTER, no companies column, no row rewrites</b> —
+    /// an existing v30 database keeps every row untouched and the five tables start empty, so a company that never
+    /// uses Payroll serialises byte-identically to a v30 company (ER-13). The two <c>pay_head_computation*</c> child
+    /// tables and <c>salary_structure_lines</c> FK <c>pay_heads(id)</c>; a pay head references only
+    /// <c>groups</c>/<c>ledgers</c>/<c>attendance_types</c> (never another pay head at the row level — computed-on
+    /// links live in the child table), so no self-FK ordering is needed. The DDL is byte-identical to the
+    /// corresponding block in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is
+    /// stamped straight to v31 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV30ToV31 = """
+        CREATE TABLE pay_heads (
+            id                        TEXT    NOT NULL PRIMARY KEY,
+            company_id                TEXT    NOT NULL REFERENCES companies(id),
+            name                      TEXT    NOT NULL,
+            display_name              TEXT        NULL,
+            pay_head_type             INTEGER NOT NULL,              -- PayHeadType ordinal
+            calculation_type          INTEGER NOT NULL,              -- PayHeadCalculationType ordinal
+            affects_net_salary        INTEGER NOT NULL DEFAULT 1,
+            under_group_id            TEXT        NULL REFERENCES groups(id),
+            ledger_id                 TEXT        NULL REFERENCES ledgers(id),
+            income_tax_component      INTEGER NOT NULL DEFAULT 0,    -- IncomeTaxComponent ordinal
+            use_for_gratuity          INTEGER NOT NULL DEFAULT 0,
+            rounding_method           INTEGER NOT NULL DEFAULT 0,    -- PayHeadRoundingMethod ordinal
+            rounding_limit_paisa      INTEGER NOT NULL DEFAULT 0,
+            calculation_period        INTEGER NOT NULL DEFAULT 0,    -- PayHeadCalculationPeriod ordinal
+            attendance_type_id        TEXT        NULL REFERENCES attendance_types(id),
+            per_day_calculation_basis INTEGER     NULL
+        );
+        CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
+
+        CREATE TABLE pay_head_computation (
+            id                    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id           TEXT    NOT NULL REFERENCES pay_heads(id),
+            component_pay_head_id TEXT    NOT NULL REFERENCES pay_heads(id),
+            is_subtraction        INTEGER NOT NULL DEFAULT 0,
+            ord                   INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_payhead ON pay_head_computation(pay_head_id);
+
+        CREATE TABLE pay_head_computation_slabs (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id       TEXT    NOT NULL REFERENCES pay_heads(id),
+            from_amount_paisa INTEGER     NULL,
+            to_amount_paisa   INTEGER     NULL,
+            slab_type         INTEGER NOT NULL,                     -- PayHeadComputationSlabType ordinal
+            rate_basis_points INTEGER NOT NULL DEFAULT 0,
+            value_paisa       INTEGER NOT NULL DEFAULT 0,
+            ord               INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_slabs_payhead ON pay_head_computation_slabs(pay_head_id);
+
+        CREATE TABLE salary_structures (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            scope          INTEGER NOT NULL,                        -- SalaryStructureScope ordinal
+            scope_id       TEXT    NOT NULL,                        -- employee or employee_group id (polymorphic; no FK)
+            effective_from TEXT    NOT NULL,                        -- ISO yyyy-MM-dd
+            start_type     INTEGER NOT NULL DEFAULT 0               -- SalaryStructureStartType ordinal
+        );
+        CREATE INDEX ix_salary_structures_company ON salary_structures(company_id);
+
+        CREATE TABLE salary_structure_lines (
+            id                  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            salary_structure_id TEXT    NOT NULL REFERENCES salary_structures(id),
+            pay_head_id         TEXT    NOT NULL REFERENCES pay_heads(id),
+            ord                 INTEGER NOT NULL,
+            amount_paisa        INTEGER     NULL
+        );
+        CREATE INDEX ix_salary_structure_lines_structure ON salary_structure_lines(salary_structure_id);
         """;
 }

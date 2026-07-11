@@ -189,6 +189,9 @@ public sealed class CompanyImportService
             plan.AttendanceTypeTargets, policy, errors, "attendance type");
         MapMasters(model.Payload.Employees, x => x.Name, name => _target.FindEmployeeByName(name) is not null,
             plan.EmployeeTargets, policy, errors, "employee");
+        // Pay heads (Phase 8 slice 2): name-deduped. Salary structures have no name key → always re-created (no map).
+        MapMasters(model.Payload.PayHeads, x => x.Name, name => _target.FindPayHeadByName(name) is not null,
+            plan.PayHeadTargets, policy, errors, "pay head");
 
         if (errors.Count > 0) return plan; // don't attempt reference/voucher checks on an already-broken batch
 
@@ -265,6 +268,7 @@ public sealed class CompanyImportService
         PayrollUnitDto pu => pu.Id,
         AttendanceTypeDto at => at.Id,
         EmployeeDto emp => emp.Id,
+        PayHeadDto ph => ph.Id,
         _ => throw new InvalidOperationException($"Unsupported master DTO {typeof(TDto).Name}."),
     };
 
@@ -371,6 +375,68 @@ public sealed class CompanyImportService
                 errors.Add($"Employee '{em.Name}' references an employee category that is neither imported nor present.");
         }
 
+        // Pay heads (Phase 8 slice 2): under-group + ledger + attendance-type + computed-on component references.
+        foreach (var ph in model.Payload.PayHeads)
+        {
+            if (ph.UnderGroupId is { } gid && !plan.CanResolveGroup(gid, _target))
+                errors.Add($"Pay head '{ph.Name}' references an under-group that is neither imported nor present.");
+            if (ph.LedgerId is { } lid && !plan.CanResolveLedger(lid, _target))
+                errors.Add($"Pay head '{ph.Name}' references a ledger that is neither imported nor present.");
+            if (ph.AttendanceTypeId is { } aid && !plan.CanResolveAttendanceType(aid, _target))
+                errors.Add($"Pay head '{ph.Name}' references an attendance type that is neither imported nor present.");
+            foreach (var comp in ph.ComputationComponents)
+                if (!plan.CanResolvePayHead(comp.PayHeadId, _target))
+                    errors.Add($"Pay head '{ph.Name}' computes on a pay head that is neither imported nor present.");
+        }
+
+        // Pay-head computed-on integrity (the direct-construction import path bypasses PayHeadService, so re-run
+        // its guards here or reject the batch — otherwise a hand-edited export could load a graph slice 3 cannot
+        // compute: a cycle, a self-reference, a slab-less computed head, or a non-computed head with a formula).
+        ValidatePayHeadComputationIntegrity(model, plan, errors);
+
+        // Salary structures (Phase 8 slice 2): scope target (employee or group) + each line's pay head, plus the
+        // SalaryStructureService.ValidateLines integrity guards the direct-construction import path bypasses
+        // (≥1 line; dense ordering from 0; no duplicate pay head; each line's value matches its pay head's
+        // calculation type). A valid export always satisfies these; only a hand-edited file can violate them.
+        foreach (var ss in model.Payload.SalaryStructures)
+        {
+            var scopeOk = ss.Scope == nameof(Apex.Ledger.Domain.SalaryStructureScope.Employee)
+                ? plan.CanResolveEmployee(ss.ScopeId, _target)
+                : plan.CanResolveEmployeeGroup(ss.ScopeId, _target);
+            if (!scopeOk)
+                errors.Add($"A salary structure references a {ss.Scope.ToLowerInvariant()} scope that is neither imported nor present.");
+
+            if (ss.Lines.Count == 0)
+                errors.Add("A salary structure must carry at least one pay-head line.");
+
+            var seenLinePayHeads = new HashSet<Guid>();
+            for (var i = 0; i < ss.Lines.Count; i++)
+            {
+                var line = ss.Lines[i];
+                if (!plan.CanResolvePayHead(line.PayHeadId, _target))
+                {
+                    errors.Add("A salary structure line references a pay head that is neither imported nor present.");
+                    continue;
+                }
+                if (line.Order != i)
+                    errors.Add($"A salary structure has non-dense line ordering (line {i} carries order {line.Order}).");
+                if (!seenLinePayHeads.Add(line.PayHeadId))
+                    errors.Add("A salary structure references the same pay head on more than one line.");
+
+                if (ResolvePayHeadCalcType(line.PayHeadId, model, plan) is { } calc)
+                {
+                    var needsAmount = calc is PayHeadCalculationType.FlatRate
+                        or PayHeadCalculationType.OnAttendance or PayHeadCalculationType.OnProduction;
+                    if (needsAmount && line.AmountPaisa is null)
+                        errors.Add($"A salary structure line for a {calc} pay head needs a per-employee amount.");
+                    else if (needsAmount && line.AmountPaisa is < 0)
+                        errors.Add("A salary structure line has a negative amount.");
+                    else if (!needsAmount && line.AmountPaisa is not null)
+                        errors.Add($"A salary structure line for a {calc} pay head must not carry an amount (it is computed / entered at the voucher).");
+                }
+            }
+        }
+
         // Budget → under-group + each line's group/ledger.
         foreach (var bd in model.Payload.Budgets)
         {
@@ -439,6 +505,100 @@ public sealed class CompanyImportService
                     errors.Add("A physical-stock line references a godown that is neither imported nor present.");
             }
         }
+    }
+
+    /// <summary>
+    /// Re-runs the <see cref="PayHeadService"/> computed-on integrity guards that the direct-construction import
+    /// path (which news up pay heads and assigns <c>Computation</c> without the service) would otherwise bypass:
+    /// calc-type ↔ computation consistency, no self-reference, no duplicate basis component, a slab-backed
+    /// computed head, and — the key adversarial rule — no computed-on cycle. Only pay heads that will actually be
+    /// CREATED are checked (a duplicate-name head resolves to an existing, already-validated head whose incoming
+    /// computation the import discards). A cycle that touches an imported head is necessarily confined to the
+    /// to-be-created heads: an existing target head predates the import and cannot reference a brand-new head, so
+    /// following an edge into a duplicate/existing head is terminal.
+    /// </summary>
+    private static void ValidatePayHeadComputationIntegrity(CanonicalModel model, ImportPlan plan, List<string> errors)
+    {
+        var byId = model.Payload.PayHeads.ToDictionary(p => p.Id);
+        var toCreate = model.Payload.PayHeads
+            .Where(p => plan.PayHeadTargets.TryGetValue(p.Id, out var t) && !t.IsDuplicate)
+            .Select(p => p.Id)
+            .ToHashSet();
+
+        foreach (var ph in model.Payload.PayHeads)
+        {
+            if (!toCreate.Contains(ph.Id)) continue;   // duplicate ⇒ its incoming computation is discarded on apply
+
+            var isComputed = ph.CalculationType == nameof(PayHeadCalculationType.AsComputedValue);
+            var hasFormula = ph.ComputationComponents.Count > 0 || ph.ComputationSlabs.Count > 0;
+
+            if (isComputed)
+            {
+                if (ph.ComputationComponents.Count == 0)
+                    errors.Add($"As-Computed-Value pay head '{ph.Name}' must compute on at least one pay head.");
+                if (ph.ComputationSlabs.Count == 0)
+                    errors.Add($"As-Computed-Value pay head '{ph.Name}' must carry at least one slab (a percentage or a value) to turn its basis into an amount.");
+            }
+            else if (hasFormula)
+            {
+                errors.Add($"Pay head '{ph.Name}' is not As-Computed-Value and must not carry a computation formula.");
+            }
+
+            var selfRef = false;
+            var seen = new HashSet<Guid>();
+            foreach (var comp in ph.ComputationComponents)
+            {
+                if (comp.PayHeadId == ph.Id)
+                {
+                    errors.Add($"Pay head '{ph.Name}' cannot compute on itself.");
+                    selfRef = true;
+                }
+                else if (!seen.Add(comp.PayHeadId))
+                {
+                    errors.Add($"Pay head '{ph.Name}' references the same computation component more than once.");
+                }
+            }
+
+            if (isComputed && !selfRef && ph.ComputationComponents.Count > 0 &&
+                ClosesComputedOnCycle(ph.Id, byId, toCreate))
+                errors.Add($"Pay head '{ph.Name}' would form a computed-on cycle (a pay head cannot, directly or transitively, be computed on itself).");
+        }
+    }
+
+    /// <summary>Resolves the effective calculation type of the pay head a salary-structure line references (by its
+    /// source DTO id): the DTO's own type when the head is being created, the existing target head's type when the
+    /// DTO name-resolves to a duplicate, or the existing target's type when the id is a pre-existing head; null when
+    /// it cannot be resolved (a dangling reference already flagged elsewhere).</summary>
+    private PayHeadCalculationType? ResolvePayHeadCalcType(Guid payHeadDtoId, CanonicalModel model, ImportPlan plan)
+    {
+        var dto = model.Payload.PayHeads.FirstOrDefault(p => p.Id == payHeadDtoId);
+        if (dto is not null)
+        {
+            if (plan.PayHeadTargets.TryGetValue(dto.Id, out var t) && t.IsDuplicate)
+                return _target.FindPayHeadByName(t.Name)?.CalculationType;
+            return Enum.TryParse<PayHeadCalculationType>(dto.CalculationType, out var ct) ? ct : null;
+        }
+        return _target.FindPayHead(payHeadDtoId)?.CalculationType;
+    }
+
+    /// <summary>Walks the computed-on graph from <paramref name="start"/>'s basis, following edges only into other
+    /// to-be-created heads (an existing/duplicate head is terminal); returns true iff the walk returns to
+    /// <paramref name="start"/>. Mirrors <c>PayHeadService.EnsureNoCycle</c>.</summary>
+    private static bool ClosesComputedOnCycle(Guid start, IReadOnlyDictionary<Guid, PayHeadDto> byId, HashSet<Guid> toCreate)
+    {
+        var visited = new HashSet<Guid>();
+        var stack = new Stack<Guid>();
+        foreach (var comp in byId[start].ComputationComponents) stack.Push(comp.PayHeadId);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (current == start) return true;
+            if (!visited.Add(current)) continue;
+            if (toCreate.Contains(current) && byId.TryGetValue(current, out var dto))
+                foreach (var comp in dto.ComputationComponents) stack.Push(comp.PayHeadId);
+        }
+        return false;
     }
 
     private void ValidateVoucher(VoucherDto v, ImportPlan plan, List<string> errors)
