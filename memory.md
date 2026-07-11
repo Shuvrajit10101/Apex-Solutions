@@ -1175,6 +1175,64 @@ Working tree clean (only Slice-4 files: Form26Q projection + FvuWriter + Form26Q
 + tests; no Schema.cs / migration change). Committed on branch `claude/wonderful-hellman-59520a` (code+tests, then
 this docs note); pushed to origin, main untouched. **Next = S5 (TCS compute — additive collect-at-source engine).**
 
+## Phase 7 Slice 8 — TDS/TCS Exception & Outstanding Reports (2026-07-11) — NO schema change (v29)
+Eighth (report-side) TDS/TCS slice: the **exception & outstanding reports** — nine **pure report projections** off
+already-posted TDS/TCS data, mirroring the existing Outstandings / Negative-Stock exception-report pattern and surfaced
+through a façade on `Reports.cs`. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); nothing new is
+persisted — every figure is computed live from the `Company` aggregate. Delivered:
+- **Statutory interest math** (`src/Apex.Ledger/Reports/StatutoryInterest.cs`) — shared `StatutoryDueDate` (7th of the
+  next month, 30-Apr for a March deduction/collection), `CalendarMonthsSpanned` / `LateMonths`
+  (months = (toY*12+toM) − (fromY*12+fromM) + 1, floored at 1; **part-month = full month**), and `LateInterest`
+  (interest accrues **from the deduction/collection date** to the deposit/asOf date). The statutory due date **only
+  gates whether a deposit is late**; it is not the interest start.
+- **Shared FIFO challan coverage** (`src/Apex.Ledger/Reports/TdsCoverage.cs` / `TcsCoverage.cs`) — `CollectUnits` walks
+  posted deductions/collections and applies challan deposits **FIFO, period-attributed** (reusing the corrected S4/S6
+  Form 26Q/27EQ coverage logic — **NOT** the S3 cash-in-window recon), capping each unit's coverage on
+  `DepositDate ≤ asOf`; a **cancelled Stat-Payment voucher drops its challan** (the S3/S6 fix carried in). Feeds both
+  the outstanding and the interest reports.
+- **TDS exception reports** (`src/Apex.Ledger/Reports/TdsExceptionReports.cs`) — R1 **TDS Outstandings**
+  (deducted-not-yet-deposited, per party/section), R2 **TDS Not Deducted** (expense parties that crossed the per-nature
+  threshold with no TDS line — gate matches `TdsService.ThresholdCrossed`), R3 **TDS Interest u/s 201(1A)**
+  (1.5%/month late-deposit), R4 **TDS Nature-of-Payment summary**.
+- **TCS exception reports** (`src/Apex.Ledger/Reports/TcsExceptionReports.cs`) — R5 **TCS Outstandings**, R6 **TCS Not
+  Collected** (gate matches `TcsService.ThresholdCrossed`), R7 **TCS Interest u/s 206C(7)** (1%/month), R8 **TCS
+  Nature-of-Goods summary** — exact mirrors of R1–R4.
+- **Ledgers without PAN** (`src/Apex.Ledger/Reports/LedgersWithoutPan.cs`) — R9 lists deductee/collectee party ledgers
+  that still lack a PAN (excludes parties who have **since** added one).
+- **UI** — `ReportsViewModel` + `MainWindowViewModel` + `MainWindow.axaml` + `IndianFormat.cs`: 9 new `ReportKind`s
+  nested under **Statutory Reports → TDS/TCS Reports** (feature-gated on the tax feature), per-family `DataTemplate`s,
+  headless-render verified. `StatutoryReportsViewModelTests` (Desktop) + `TdsTcsExceptionReportsTests` (Ledger).
+Web-verified law (R7): **§201(1A)** 1.5%/month for TDS deducted-not-deposited; **§206C(7)** 1%/month for TCS
+collected-not-deposited; **part-month = full month**; month count = (toY*12+toM) − (fromY*12+fromM) + 1 floored at 1;
+interest runs from the deduction/collection date; the statutory due date (7th of next month, 30-Apr for March) only
+gates lateness. **LIMITATION:** the **§201(1A)(i) 1% late-DEDUCTION limb is NOT computable** — the model has no
+deductible-date distinct from the voucher date — so it is **omitted with an on-report footnote** (recommended default;
+to confirm with user at the gate). The month-counting convention is likewise flagged to confirm with the user.
+Adversarial review — **3 lenses**: interest-math (**NO FINDINGS**), coverage-invariant (**1 MED + 2 LOW**),
+fidelity-edge (**1 MED + 3 LOW**). Fixes, all regression-locked: **F1 (MED)** R2/R6 threshold/shortfall now match
+`TcsService`/`TdsService.ThresholdCrossed` (single-transaction vs cumulative; §206C(1F)/6CL applied per-line **not**
+FY-cumulative; §194C both limbs surfaced); **F2 (MED)** test-honesty — Σ R1/R5 ≥ `OutstandingPayable`, added
+multi-section over-deposit regressions proving R1/R5 correct while the netted `OutstandingPayable` under-reports;
+**F3 (LOW)** stable intrinsic tie-break for report ordering; **F4 (LOW)** R9 excludes parties who since added a PAN;
+**F5 (LOW)** grand totals foot to the displayed rounded rows.
+**NEW CARRY-FORWARDS (for S9 / user):** (a) the Gateway `OutstandingPayable` "TDS/TCS Payable" balance **nets across
+sections to a zero-floor** and **under-reports under multi-section over-deposit** — the per-section R1/R5 outstanding
+reports are the correct figures; making the deposit service section-aware is S3-guard blast-radius, **deferred**
+(documented in R1/R5 XML-docs). (b) FIFO coverage assumes `company.Vouchers` insertion order == chronological; a
+**backdated same-section deduction mis-attributes per-row interest months** (section totals unaffected) — inherited
+verbatim from Form 26Q/27EQ; fixing risks FVU byte-drift, documented on `TdsCoverage`/`TcsCoverage.CollectUnits`.
+(c) R1/R5 cap coverage on the challan `DepositDate` (legally-correct basis; equals the Stat-Payment voucher date in the
+normal flow) — documented, intentional.
+Gate fully green in Release: **Ledger 691 (incl. Robert/Bright + GST golden) · Io 181 · Sqlite 111 · Desktop 582 =
+1565 total, 0 failures**, 0 warnings, de-branded, no scratch/probe files; **Schema.cs UNCHANGED at v29**. Form 26Q/27EQ
+left byte-identical (shared coverage helpers only; no return-path edits). Known-flaky SQLite isolation test passes on
+isolated re-run. Committed on branch `claude/recursing-swirles-3138c6` (code+tests, then this docs note); pushed to
+origin, main untouched. **Next = S9 (Phase 7 exit gate — golden 194J/TCS worked examples; migration v24→v29; de-brand
+sweep; RUN THE APP + headless-render the TDS/TCS screens; audit Windows-only-passing tests for 3-OS CI; resolve
+carry-forwards incl. §206C(1F) ex-vs-incl-GST trigger via A14 and the recon-report cash-in-window-vs-period-attributed
+question for the user) → then A12 opens/updates a PR and merges branch→main once all 3 OS CI checks are green → PAUSE
+for Phase 7→8 go-ahead.**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
