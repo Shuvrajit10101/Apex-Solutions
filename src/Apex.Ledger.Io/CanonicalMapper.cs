@@ -16,8 +16,8 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v29).</summary>
-    public const int SchemaVersion = 29;
+    /// <summary>The persistence schema version this export targets (SQLite schema v30).</summary>
+    public const int SchemaVersion = 30;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -71,6 +71,8 @@ public static class CanonicalMapper
         UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity,
         EnableMultiplePriceLevels = c.EnableMultiplePriceLevels,
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
+        PayrollEnabled = c.PayrollEnabled,
+        PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
     };
 
     private static PayloadDto MapPayload(Company c) => new()
@@ -115,6 +117,12 @@ public static class CanonicalMapper
         ReorderDefinitions = c.ReorderDefinitions
             .OrderBy(d => d.Scope).ThenBy(d => d.TargetId).ThenBy(d => d.Id)
             .Select(MapReorderDefinition).ToList(),
+        // Payroll masters (Phase 8 slice 1) — each ordered by name/symbol then id so the byte stream is stable.
+        EmployeeCategories = OrderById(c.EmployeeCategories, x => x.Name, x => x.Id).Select(MapEmployeeCategory).ToList(),
+        EmployeeGroups = OrderById(c.EmployeeGroups, x => x.Name, x => x.Id).Select(MapEmployeeGroup).ToList(),
+        PayrollUnits = OrderById(c.PayrollUnits, x => x.Symbol, x => x.Id).Select(MapPayrollUnit).ToList(),
+        AttendanceTypes = OrderById(c.AttendanceTypes, x => x.Name, x => x.Id).Select(MapAttendanceType).ToList(),
+        Employees = OrderById(c.Employees, x => x.Name, x => x.Id).Select(MapEmployee).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
@@ -217,6 +225,41 @@ public static class CanonicalMapper
     private static CostCentreDto MapCostCentre(CostCentre x) => new()
     {
         Id = x.Id, Name = x.Name, CategoryId = x.CategoryId, ParentId = x.ParentId, Alias = x.Alias,
+    };
+
+    // ------------------------------------------------------------- payroll masters (Phase 8 slice 1)
+
+    private static EmployeeCategoryDto MapEmployeeCategory(EmployeeCategory x) => new()
+    {
+        Id = x.Id, Name = x.Name, AllocateRevenueItems = x.AllocateRevenueItems,
+        AllocateNonRevenueItems = x.AllocateNonRevenueItems, IsPredefined = x.IsPredefined,
+    };
+
+    private static EmployeeGroupDto MapEmployeeGroup(EmployeeGroup x) => new()
+    {
+        Id = x.Id, Name = x.Name, ParentId = x.ParentId, Alias = x.Alias, DefineSalaryDetails = x.DefineSalaryDetails,
+    };
+
+    private static PayrollUnitDto MapPayrollUnit(PayrollUnit u) => new()
+    {
+        Id = u.Id, Symbol = u.Symbol, FormalName = u.FormalName, IsCompound = u.IsCompound,
+        DecimalPlaces = u.DecimalPlaces, FirstUnitId = u.FirstUnitId, TailUnitId = u.TailUnitId,
+        ConversionNumerator = u.ConversionNumerator, ConversionDenominator = u.ConversionDenominator,
+    };
+
+    private static AttendanceTypeDto MapAttendanceType(AttendanceType a) => new()
+    {
+        Id = a.Id, Name = a.Name, ParentId = a.ParentId, Kind = a.Kind.ToString(), PayrollUnitId = a.PayrollUnitId,
+    };
+
+    private static EmployeeDto MapEmployee(Employee e) => new()
+    {
+        Id = e.Id, Name = e.Name, EmployeeGroupId = e.EmployeeGroupId, EmployeeCategoryId = e.EmployeeCategoryId,
+        EmployeeNumber = e.EmployeeNumber, DateOfJoining = Iso(e.DateOfJoining), DateOfLeaving = Iso(e.DateOfLeaving),
+        Designation = e.Designation, Function = e.Function, Location = e.Location, Gender = e.Gender,
+        DateOfBirth = Iso(e.DateOfBirth), Pan = e.Pan, Aadhaar = e.Aadhaar, Uan = e.Uan,
+        PfAccountNumber = e.PfAccountNumber, EsiNumber = e.EsiNumber, BankAccountNumber = e.BankAccountNumber,
+        BankName = e.BankName, BankIfsc = e.BankIfsc, ApplicableTaxRegime = e.ApplicableTaxRegime.ToString(),
     };
 
     private static CurrencyDto MapCurrency(Currency x) => new()

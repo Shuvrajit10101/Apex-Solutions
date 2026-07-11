@@ -33,6 +33,11 @@ public sealed class Company
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
+    private readonly List<EmployeeCategory> _employeeCategories = new();
+    private readonly List<EmployeeGroup> _employeeGroups = new();
+    private readonly List<Employee> _employees = new();
+    private readonly List<PayrollUnit> _payrollUnits = new();
+    private readonly List<AttendanceType> _attendanceTypes = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -225,6 +230,27 @@ public sealed class Company
     /// </summary>
     public bool EnableJobOrderProcessing { get; set; }
 
+    /// <summary>
+    /// Company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). Master gate
+    /// for the whole Payroll module: the employee/pay-head masters, the Attendance/Payroll voucher types and the
+    /// payroll reports are all hidden/inert when it is off.
+    /// <para>
+    /// Like <see cref="EnableJobOrderProcessing"/> (a pure persisted user toggle that cannot be inferred — a
+    /// company may enable it before defining any employee), it is a plain persisted <c>get; set;</c> backed by a
+    /// real <c>companies</c> column (v30). Defaults to <c>false</c>, so every existing company is byte-identical
+    /// and carries no payroll masters (ER-13).
+    /// </para>
+    /// </summary>
+    public bool PayrollEnabled { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Enable Payroll Statutory"</b> (F11 Company Features; Phase 8 slice 1; RQ-1) —
+    /// surfaces the Company Payroll Statutory Details screen (PF/ESI/NPS/IT codes) in the later statutory slices.
+    /// A pure persisted toggle backed by a real <c>companies</c> column (v30); defaults to <c>false</c> (ER-13).
+    /// Only meaningful while <see cref="PayrollEnabled"/> is on.
+    /// </summary>
+    public bool PayrollStatutoryEnabled { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 
@@ -318,6 +344,23 @@ public sealed class Company
     /// <summary>Links between a <see cref="TcsChallan"/> and the Stat-Payment voucher that booked its deposit
     /// (Phase 7 slice 6; the <c>tcs_challan_voucher_links</c> set — a TCS-specific sibling of the TDS one).</summary>
     public IReadOnlyList<ChallanVoucherLink> TcsChallanVoucherLinks => _tcsChallanVoucherLinks;
+
+    /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
+    /// unless Payroll is used.</summary>
+    public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
+
+    /// <summary>Employee groups (Phase 8 slice 1; RQ-2): the hierarchical department/division tree.</summary>
+    public IReadOnlyList<EmployeeGroup> EmployeeGroups => _employeeGroups;
+
+    /// <summary>Employees (Phase 8 slice 1; RQ-2): the workforce masters, under a group + optional category.</summary>
+    public IReadOnlyList<Employee> Employees => _employees;
+
+    /// <summary>Payroll units (Phase 8 slice 1; RQ-3): simple + compound units for attendance/production.</summary>
+    public IReadOnlyList<PayrollUnit> PayrollUnits => _payrollUnits;
+
+    /// <summary>Attendance/Production types (Phase 8 slice 1; RQ-3): the attendance/leave/production calendar
+    /// types, hierarchical.</summary>
+    public IReadOnlyList<AttendanceType> AttendanceTypes => _attendanceTypes;
 
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
@@ -453,6 +496,67 @@ public sealed class Company
     /// <summary>The TCS challan ids linked to a given voucher (Phase 7 slice 6).</summary>
     public IEnumerable<Guid> TcsChallansLinkedToVoucher(Guid voucherId) =>
         _tcsChallanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
+
+    // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
+
+    /// <summary>Adds an employee category (uniqueness guard lives in <c>PayrollService</c>).</summary>
+    public void AddEmployeeCategory(EmployeeCategory category) => _employeeCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
+    /// <summary>Removes an employee category (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveEmployeeCategory(EmployeeCategory category) => _employeeCategories.Remove(category);
+
+    /// <summary>Adds an employee group (uniqueness/parent guards live in <c>PayrollService</c>).</summary>
+    public void AddEmployeeGroup(EmployeeGroup group) => _employeeGroups.Add(group ?? throw new ArgumentNullException(nameof(group)));
+    /// <summary>Removes an employee group (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveEmployeeGroup(EmployeeGroup group) => _employeeGroups.Remove(group);
+
+    /// <summary>Adds an employee (uniqueness/reference guards live in <c>PayrollService</c>).</summary>
+    public void AddEmployee(Employee employee) => _employees.Add(employee ?? throw new ArgumentNullException(nameof(employee)));
+    /// <summary>Removes an employee (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveEmployee(Employee employee) => _employees.Remove(employee);
+
+    /// <summary>Adds a payroll unit (uniqueness guard lives in <c>PayrollService</c>).</summary>
+    public void AddPayrollUnit(PayrollUnit unit) => _payrollUnits.Add(unit ?? throw new ArgumentNullException(nameof(unit)));
+    /// <summary>Removes a payroll unit (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemovePayrollUnit(PayrollUnit unit) => _payrollUnits.Remove(unit);
+
+    /// <summary>Adds an attendance/production type (uniqueness/parent guards live in <c>PayrollService</c>).</summary>
+    public void AddAttendanceType(AttendanceType type) => _attendanceTypes.Add(type ?? throw new ArgumentNullException(nameof(type)));
+    /// <summary>Removes an attendance/production type (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveAttendanceType(AttendanceType type) => _attendanceTypes.Remove(type);
+
+    /// <summary>Finds an employee category by its id, or <c>null</c>.</summary>
+    public EmployeeCategory? FindEmployeeCategory(Guid id) => _employeeCategories.FirstOrDefault(c => c.Id == id);
+    /// <summary>Finds an employee category by its name (case-insensitive), or <c>null</c>.</summary>
+    public EmployeeCategory? FindEmployeeCategoryByName(string name) =>
+        _employeeCategories.FirstOrDefault(c => string.Equals(c.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds an employee group by its id, or <c>null</c>.</summary>
+    public EmployeeGroup? FindEmployeeGroup(Guid id) => _employeeGroups.FirstOrDefault(g => g.Id == id);
+    /// <summary>Finds an employee group by its name or alias (case-insensitive), or <c>null</c>.</summary>
+    public EmployeeGroup? FindEmployeeGroupByName(string name) =>
+        _employeeGroups.FirstOrDefault(g =>
+            string.Equals(g.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            (g.Alias is not null && string.Equals(g.Alias, name?.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Finds an employee by its id, or <c>null</c>.</summary>
+    public Employee? FindEmployee(Guid id) => _employees.FirstOrDefault(e => e.Id == id);
+    /// <summary>Finds an employee by its name (case-insensitive), or <c>null</c>.</summary>
+    public Employee? FindEmployeeByName(string name) =>
+        _employees.FirstOrDefault(e => string.Equals(e.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a payroll unit by its id, or <c>null</c>.</summary>
+    public PayrollUnit? FindPayrollUnit(Guid id) => _payrollUnits.FirstOrDefault(u => u.Id == id);
+    /// <summary>Finds a payroll unit by its symbol or formal name (case-insensitive), or <c>null</c>.</summary>
+    public PayrollUnit? FindPayrollUnitByName(string name) =>
+        _payrollUnits.FirstOrDefault(u =>
+            string.Equals(u.Symbol, name?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(u.FormalName, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds an attendance type by its id, or <c>null</c>.</summary>
+    public AttendanceType? FindAttendanceType(Guid id) => _attendanceTypes.FirstOrDefault(a => a.Id == id);
+    /// <summary>Finds an attendance type by its name (case-insensitive), or <c>null</c>.</summary>
+    public AttendanceType? FindAttendanceTypeByName(string name) =>
+        _attendanceTypes.FirstOrDefault(a => string.Equals(a.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);

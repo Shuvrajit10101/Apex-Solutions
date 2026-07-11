@@ -58,7 +58,9 @@ public static class CanonicalXml
             Attr("decimalPlaces", c.DecimalPlaces), Opt("decimalUnitName", c.DecimalUnitName),
             Attr("useSeparateActualBilledQuantity", c.UseSeparateActualBilledQuantity),
             Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
-            Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing));
+            Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing),
+            Attr("payrollEnabled", c.PayrollEnabled),
+            Attr("payrollStatutoryEnabled", c.PayrollStatutoryEnabled));
         if (c.Gst is { } gst) company.Add(BuildGstConfig(gst));
         if (c.Tds is { } tds) company.Add(BuildTdsConfig(tds));
         if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
@@ -86,6 +88,11 @@ public static class CanonicalXml
             List("priceLevels", "priceLevel", p.PriceLevels, BuildPriceLevel),
             List("priceLists", "priceList", p.PriceLists, BuildPriceList),
             List("reorderDefinitions", "reorderDefinition", p.ReorderDefinitions, BuildReorderDefinition),
+            List("employeeCategories", "employeeCategory", p.EmployeeCategories, BuildEmployeeCategory),
+            List("employeeGroups", "employeeGroup", p.EmployeeGroups, BuildEmployeeGroup),
+            List("payrollUnits", "payrollUnit", p.PayrollUnits, BuildPayrollUnit),
+            List("attendanceTypes", "attendanceType", p.AttendanceTypes, BuildAttendanceType),
+            List("employees", "employee", p.Employees, BuildEmployee),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
@@ -185,6 +192,36 @@ public static class CanonicalXml
     private static XElement BuildCostCentre(CostCentreDto x) => new("costCentre",
         Attr("id", x.Id), Attr("name", x.Name), Attr("categoryId", x.CategoryId),
         OptId("parentId", x.ParentId), Opt("alias", x.Alias));
+
+    // ---- payroll masters (Phase 8 slice 1) ----
+
+    private static XElement BuildEmployeeCategory(EmployeeCategoryDto x) => new("employeeCategory",
+        Attr("id", x.Id), Attr("name", x.Name), Attr("allocateRevenueItems", x.AllocateRevenueItems),
+        Attr("allocateNonRevenueItems", x.AllocateNonRevenueItems), Attr("isPredefined", x.IsPredefined));
+
+    private static XElement BuildEmployeeGroup(EmployeeGroupDto x) => new("employeeGroup",
+        Attr("id", x.Id), Attr("name", x.Name), OptId("parentId", x.ParentId), Opt("alias", x.Alias),
+        Attr("defineSalaryDetails", x.DefineSalaryDetails));
+
+    private static XElement BuildPayrollUnit(PayrollUnitDto u) => new("payrollUnit",
+        Attr("id", u.Id), Attr("symbol", u.Symbol), Attr("formalName", u.FormalName),
+        Attr("isCompound", u.IsCompound), Attr("decimalPlaces", u.DecimalPlaces),
+        OptId("firstUnitId", u.FirstUnitId), OptId("tailUnitId", u.TailUnitId),
+        OptInt("conversionNumerator", u.ConversionNumerator), OptInt("conversionDenominator", u.ConversionDenominator));
+
+    private static XElement BuildAttendanceType(AttendanceTypeDto a) => new("attendanceType",
+        Attr("id", a.Id), Attr("name", a.Name), OptId("parentId", a.ParentId), Attr("kind", a.Kind),
+        OptId("payrollUnitId", a.PayrollUnitId));
+
+    private static XElement BuildEmployee(EmployeeDto e) => new("employee",
+        Attr("id", e.Id), Attr("name", e.Name), Attr("employeeGroupId", e.EmployeeGroupId),
+        OptId("employeeCategoryId", e.EmployeeCategoryId), Opt("employeeNumber", e.EmployeeNumber),
+        Opt("dateOfJoining", e.DateOfJoining), Opt("dateOfLeaving", e.DateOfLeaving),
+        Opt("designation", e.Designation), Opt("function", e.Function), Opt("location", e.Location),
+        Opt("gender", e.Gender), Opt("dateOfBirth", e.DateOfBirth), Opt("pan", e.Pan), Opt("aadhaar", e.Aadhaar),
+        Opt("uan", e.Uan), Opt("pfAccountNumber", e.PfAccountNumber), Opt("esiNumber", e.EsiNumber),
+        Opt("bankAccountNumber", e.BankAccountNumber), Opt("bankName", e.BankName), Opt("bankIfsc", e.BankIfsc),
+        Attr("applicableTaxRegime", e.ApplicableTaxRegime));
 
     private static XElement BuildCurrency(CurrencyDto x) => new("currency",
         Attr("id", x.Id), Attr("symbol", x.Symbol), Attr("formalName", x.FormalName),
@@ -629,6 +666,8 @@ public static class CanonicalXml
             UseSeparateActualBilledQuantity = Bool(e, "useSeparateActualBilledQuantity"),
             EnableMultiplePriceLevels = Bool(e, "enableMultiplePriceLevels"),
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
+            PayrollEnabled = Bool(e, "payrollEnabled"),
+            PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
         };
     }
 
@@ -658,6 +697,11 @@ public static class CanonicalXml
                 PriceLevels = ReadList(root, "priceLevels", "priceLevel", ReadPriceLevel),
                 PriceLists = ReadList(root, "priceLists", "priceList", ReadPriceList),
                 ReorderDefinitions = ReadList(root, "reorderDefinitions", "reorderDefinition", ReadReorderDefinition),
+                EmployeeCategories = ReadList(root, "employeeCategories", "employeeCategory", ReadEmployeeCategory),
+                EmployeeGroups = ReadList(root, "employeeGroups", "employeeGroup", ReadEmployeeGroup),
+                PayrollUnits = ReadList(root, "payrollUnits", "payrollUnit", ReadPayrollUnit),
+                AttendanceTypes = ReadList(root, "attendanceTypes", "attendanceType", ReadAttendanceType),
+                Employees = ReadList(root, "employees", "employee", ReadEmployee),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
                 TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
@@ -758,6 +802,47 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), Name = Str(e, "name")!, CategoryId = Guid(e, "categoryId"),
         ParentId = OptGuid(e, "parentId"), Alias = Str(e, "alias"),
+    };
+
+    // ---- payroll masters (Phase 8 slice 1) ----
+
+    private static EmployeeCategoryDto ReadEmployeeCategory(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!,
+        AllocateRevenueItems = Bool(e, "allocateRevenueItems"),
+        AllocateNonRevenueItems = Bool(e, "allocateNonRevenueItems"), IsPredefined = Bool(e, "isPredefined"),
+    };
+
+    private static EmployeeGroupDto ReadEmployeeGroup(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, ParentId = OptGuid(e, "parentId"),
+        Alias = Str(e, "alias"), DefineSalaryDetails = Bool(e, "defineSalaryDetails"),
+    };
+
+    private static PayrollUnitDto ReadPayrollUnit(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Symbol = Str(e, "symbol")!, FormalName = Str(e, "formalName")!,
+        IsCompound = Bool(e, "isCompound"), DecimalPlaces = Int(e, "decimalPlaces"),
+        FirstUnitId = OptGuid(e, "firstUnitId"), TailUnitId = OptGuid(e, "tailUnitId"),
+        ConversionNumerator = OptInt(e, "conversionNumerator"), ConversionDenominator = OptInt(e, "conversionDenominator"),
+    };
+
+    private static AttendanceTypeDto ReadAttendanceType(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, ParentId = OptGuid(e, "parentId"),
+        Kind = Str(e, "kind")!, PayrollUnitId = OptGuid(e, "payrollUnitId"),
+    };
+
+    private static EmployeeDto ReadEmployee(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, EmployeeGroupId = Guid(e, "employeeGroupId"),
+        EmployeeCategoryId = OptGuid(e, "employeeCategoryId"), EmployeeNumber = Str(e, "employeeNumber"),
+        DateOfJoining = Str(e, "dateOfJoining"), DateOfLeaving = Str(e, "dateOfLeaving"),
+        Designation = Str(e, "designation"), Function = Str(e, "function"), Location = Str(e, "location"),
+        Gender = Str(e, "gender"), DateOfBirth = Str(e, "dateOfBirth"), Pan = Str(e, "pan"), Aadhaar = Str(e, "aadhaar"),
+        Uan = Str(e, "uan"), PfAccountNumber = Str(e, "pfAccountNumber"), EsiNumber = Str(e, "esiNumber"),
+        BankAccountNumber = Str(e, "bankAccountNumber"), BankName = Str(e, "bankName"), BankIfsc = Str(e, "bankIfsc"),
+        ApplicableTaxRegime = Str(e, "applicableTaxRegime") ?? nameof(Apex.Ledger.Domain.TaxRegime.New),
     };
 
     private static CurrencyDto ReadCurrency(XElement e) => new()

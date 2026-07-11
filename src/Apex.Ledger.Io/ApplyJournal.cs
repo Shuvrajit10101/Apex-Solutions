@@ -40,6 +40,11 @@ internal sealed class ApplyJournal
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
+    private readonly List<EmployeeCategory> _employeeCategories = new();
+    private readonly List<EmployeeGroup> _employeeGroups = new();
+    private readonly List<Employee> _employees = new();
+    private readonly List<PayrollUnit> _payrollUnits = new();
+    private readonly List<AttendanceType> _attendanceTypes = new();
 
     // Enable Job Order Processing: whether it was already on before the import stamped the seeded voucher types, so a
     // rollback re-runs JobWorkService.SetEnabled(prior) to restore both the company flag and the seeded type flags.
@@ -97,6 +102,11 @@ internal sealed class ApplyJournal
     public void RecordChallanVoucherLink(ChallanVoucherLink l) => _challanVoucherLinks.Add(l);
     public void RecordTcsChallan(TcsChallan ch) => _tcsChallans.Add(ch);
     public void RecordTcsChallanVoucherLink(ChallanVoucherLink l) => _tcsChallanVoucherLinks.Add(l);
+    public void RecordEmployeeCategory(EmployeeCategory x) => _employeeCategories.Add(x);
+    public void RecordEmployeeGroup(EmployeeGroup x) => _employeeGroups.Add(x);
+    public void RecordEmployee(Employee x) => _employees.Add(x);
+    public void RecordPayrollUnit(PayrollUnit x) => _payrollUnits.Add(x);
+    public void RecordAttendanceType(AttendanceType x) => _attendanceTypes.Add(x);
 
     /// <summary>Snapshots the Enable-Job-Order-Processing flag as it was BEFORE the import toggled it (via
     /// <c>JobWorkService.SetEnabled</c>), so a rollback restores the flag AND the seeded voucher-type flags it
@@ -145,6 +155,15 @@ internal sealed class ApplyJournal
 
     public void Rollback()
     {
+        // 0a) Payroll masters (Phase 8 slice 1) — remove child-first: employees (reference groups + categories),
+        //     then attendance types (reference payroll units), then payroll units, then employee groups, then
+        //     employee categories. None reference a voucher, so ordering relative to the voucher undo is free.
+        for (var i = _employees.Count - 1; i >= 0; i--) _company.RemoveEmployee(_employees[i]);
+        for (var i = _attendanceTypes.Count - 1; i >= 0; i--) _company.RemoveAttendanceType(_attendanceTypes[i]);
+        for (var i = _payrollUnits.Count - 1; i >= 0; i--) _company.RemovePayrollUnit(_payrollUnits[i]);
+        for (var i = _employeeGroups.Count - 1; i >= 0; i--) _company.RemoveEmployeeGroup(_employeeGroups[i]);
+        for (var i = _employeeCategories.Count - 1; i >= 0; i--) _company.RemoveEmployeeCategory(_employeeCategories[i]);
+
         // 0) TDS + TCS deposit challans + their voucher links (Phase 7 slices 3, 6) — remove the links first, then the
         //    challans, before the vouchers they point at are removed below.
         for (var i = _challanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveChallanVoucherLink(_challanVoucherLinks[i]);
@@ -245,13 +264,15 @@ internal sealed class ApplyJournal
         string Name, string MailingName, string? Address, string Country, string? State, string? Pin,
         DateOnly FinancialYearStart, DateOnly BooksBeginFrom, string BaseCurrencySymbol, string BaseCurrencyName,
         int DecimalPlaces, string DecimalUnitName,
-        bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels)
+        bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels,
+        bool PayrollEnabled, bool PayrollStatutoryEnabled)
     {
         public static CompanyHeaderSnapshot Capture(Company t) => new(
             t.Name, t.MailingName, t.Address, t.Country, t.State, t.Pin,
             t.FinancialYearStart, t.BooksBeginFrom, t.BaseCurrencySymbol, t.BaseCurrencyName,
             t.DecimalPlaces, t.DecimalUnitName,
-            t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels);
+            t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels,
+            t.PayrollEnabled, t.PayrollStatutoryEnabled);
 
         public void RestoreTo(Company t)
         {
@@ -269,6 +290,8 @@ internal sealed class ApplyJournal
             t.DecimalUnitName = DecimalUnitName;
             t.UseSeparateActualBilledQuantity = UseSeparateActualBilledQuantity;
             t.EnableMultiplePriceLevels = EnableMultiplePriceLevels;
+            t.PayrollEnabled = PayrollEnabled;
+            t.PayrollStatutoryEnabled = PayrollStatutoryEnabled;
         }
     }
 }

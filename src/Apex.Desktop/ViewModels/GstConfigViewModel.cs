@@ -112,6 +112,25 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _enableJobOrderProcessing;
 
+    /// <summary>
+    /// The company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). The
+    /// master gate for the whole Payroll module — the Payroll Masters section (Employee Category / Group /
+    /// Employee, Payroll Unit, Attendance type) and, in later slices, the Attendance/Payroll voucher types and
+    /// payroll reports are all hidden/inert when it is off. Applied to the live company by
+    /// <see cref="OnPayrollEnabledChanged"/> through <see cref="PayrollService.EnablePayroll"/> /
+    /// <see cref="PayrollService.DisablePayroll"/> and persisted; a company that never enables it is byte-identical
+    /// and carries no payroll masters (ER-13). Turning it off never deletes payroll data — the UI simply hides.
+    /// </summary>
+    [ObservableProperty] private bool _payrollEnabled;
+
+    /// <summary>
+    /// The company feature flag <b>"Enable Payroll Statutory"</b> (F11 Company Features; Phase 8 slice 1; RQ-1) —
+    /// surfaces the Company Payroll Statutory Details (PF/ESI/NPS/IT codes) captured in the later statutory slices.
+    /// Only meaningful (and only shown) while <see cref="PayrollEnabled"/> is on; applied by
+    /// <see cref="OnPayrollStatutoryEnabledChanged"/> and persisted. Defaults to <c>false</c> (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _payrollStatutoryEnabled;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -224,6 +243,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         DefineBomComponentType = _company.DefineBomComponentType;
         EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
         EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
+        PayrollEnabled = _company.PayrollEnabled;
+        PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -366,6 +387,58 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             Message = ex.Message;
             if (EnableJobOrderProcessing != _company.EnableJobOrderProcessing)
                 EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Maintain Payroll" F11 toggle to the live company the moment it changes (Phase 8 slice 1; RQ-1),
+    /// through the engine's idempotent <see cref="PayrollService.EnablePayroll"/> /
+    /// <see cref="PayrollService.DisablePayroll"/>, so the Payroll Masters section surfaces (or hides) immediately,
+    /// and persists the company. Enabling preserves the current statutory sub-toggle; disabling also clears
+    /// statutory (it is meaningless without Payroll) and reflects that in the UI. Errors are surfaced without
+    /// crashing and the toggle reverts to the company's real state. Independent of GST.
+    /// </summary>
+    partial void OnPayrollEnabledChanged(bool value)
+    {
+        try
+        {
+            var service = new PayrollService(_company);
+            if (value) service.EnablePayroll(enableStatutory: PayrollStatutoryEnabled);
+            else service.DisablePayroll();
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (PayrollEnabled != _company.PayrollEnabled)
+                PayrollEnabled = _company.PayrollEnabled;
+            return;
+        }
+        // DisablePayroll turns statutory off too — keep the sub-toggle in sync with the persisted state.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Payroll Statutory" F11 sub-toggle to the live company (Phase 8 slice 1; RQ-1) and
+    /// persists. Only shown while <see cref="PayrollEnabled"/> is on; surfaces the Company Payroll Statutory
+    /// Details in the later statutory slices. Errors are surfaced without crashing and the toggle reverts.
+    /// </summary>
+    partial void OnPayrollStatutoryEnabledChanged(bool value)
+    {
+        _company.PayrollStatutoryEnabled = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+                PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
             return;
         }
         _onChanged();

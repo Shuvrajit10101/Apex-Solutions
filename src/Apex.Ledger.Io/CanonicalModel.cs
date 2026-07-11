@@ -77,6 +77,12 @@ public sealed record CompanyDto
 
     /// <summary>F11 "Enable Job Order Processing" (Phase 6 slice 8; RQ-45). Default false.</summary>
     public bool EnableJobOrderProcessing { get; init; }
+
+    /// <summary>F11 "Maintain Payroll" (Phase 8 slice 1; RQ-1). Default false.</summary>
+    public bool PayrollEnabled { get; init; }
+
+    /// <summary>F11 "Enable Payroll Statutory" (Phase 8 slice 1; RQ-1). Default false.</summary>
+    public bool PayrollStatutoryEnabled { get; init; }
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>
@@ -118,6 +124,14 @@ public sealed record PayloadDto
 
     // Reorder-Level definitions (Phase 6 slice 6; catalog §11): per item / group / category.
     public IReadOnlyList<ReorderDefinitionDto> ReorderDefinitions { get; init; } = [];
+
+    // Payroll masters (Phase 8 slice 1; catalog §14): employee classification, hierarchy, units, attendance types
+    // and the workforce. Categories/groups/units precede attendance types (unit refs) + employees (group/category refs).
+    public IReadOnlyList<EmployeeCategoryDto> EmployeeCategories { get; init; } = [];
+    public IReadOnlyList<EmployeeGroupDto> EmployeeGroups { get; init; } = [];
+    public IReadOnlyList<PayrollUnitDto> PayrollUnits { get; init; } = [];
+    public IReadOnlyList<AttendanceTypeDto> AttendanceTypes { get; init; } = [];
+    public IReadOnlyList<EmployeeDto> Employees { get; init; } = [];
 
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
 
@@ -531,6 +545,73 @@ public sealed record CostCentreDto
     public required Guid CategoryId { get; init; }
     public Guid? ParentId { get; init; }
     public string? Alias { get; init; }
+}
+
+// ----------------------------------------------------------------- payroll masters (Phase 8 slice 1; catalog §14)
+
+public sealed record EmployeeCategoryDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public bool AllocateRevenueItems { get; init; }
+    public bool AllocateNonRevenueItems { get; init; }
+    public bool IsPredefined { get; init; }
+}
+
+public sealed record EmployeeGroupDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public Guid? ParentId { get; init; }
+    public string? Alias { get; init; }
+    public bool DefineSalaryDetails { get; init; }
+}
+
+public sealed record PayrollUnitDto
+{
+    public required Guid Id { get; init; }
+    public required string Symbol { get; init; }
+    public required string FormalName { get; init; }
+    public bool IsCompound { get; init; }
+    public int DecimalPlaces { get; init; }
+    public Guid? FirstUnitId { get; init; }
+    public Guid? TailUnitId { get; init; }
+    public int? ConversionNumerator { get; init; }
+    public int? ConversionDenominator { get; init; }
+}
+
+public sealed record AttendanceTypeDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public Guid? ParentId { get; init; }
+    public required string Kind { get; init; }             // AttendanceTypeKind name
+    public Guid? PayrollUnitId { get; init; }
+}
+
+public sealed record EmployeeDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public required Guid EmployeeGroupId { get; init; }
+    public Guid? EmployeeCategoryId { get; init; }
+    public string? EmployeeNumber { get; init; }
+    public string? DateOfJoining { get; init; }            // ISO or null
+    public string? DateOfLeaving { get; init; }            // ISO or null
+    public string? Designation { get; init; }
+    public string? Function { get; init; }
+    public string? Location { get; init; }
+    public string? Gender { get; init; }
+    public string? DateOfBirth { get; init; }              // ISO or null
+    public string? Pan { get; init; }
+    public string? Aadhaar { get; init; }
+    public string? Uan { get; init; }
+    public string? PfAccountNumber { get; init; }
+    public string? EsiNumber { get; init; }
+    public string? BankAccountNumber { get; init; }
+    public string? BankName { get; init; }
+    public string? BankIfsc { get; init; }
+    public required string ApplicableTaxRegime { get; init; }   // TaxRegime name
 }
 
 // ----------------------------------------------------------------- multi-currency (catalog §2/§20)

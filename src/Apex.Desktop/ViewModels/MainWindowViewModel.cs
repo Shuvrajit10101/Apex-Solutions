@@ -73,6 +73,14 @@ public enum Screen
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
+
+    // Payroll masters (Phase 8 slice 1; RQ-1/RQ-2/RQ-3) — surfaced only when F11 "Maintain Payroll" is on.
+    EmployeeCategoryMaster,
+    EmployeeGroupMaster,
+    EmployeeMaster,
+    PayrollUnitMaster,
+    AttendanceTypeMaster,
+
     LedgerVouchers,
     VoucherDetail,
 }
@@ -292,6 +300,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Reorder Levels master (slice 6; RQ-32), non-null only while that page is open.</summary>
     [ObservableProperty] private ReorderLevelsViewModel? _reorderLevels;
 
+    // Payroll master page VMs (Phase 8 slice 1). Bound from the cascade page column via an EXPLICIT
+    // {Binding #Root.((vm:MainWindowViewModel)DataContext).XMaster} path in MainWindow.axaml, not the implicit
+    // x:DataType fallback the other master ContentControls use: the Avalonia 12 XamlIl compiled-binding
+    // transformer intermittently fails to resolve these (session-new) members through the GatewayColumn→Window
+    // fallback on a clean build (AVLN2000), which breaks the CI build and leaves the ContentControls mis-visible
+    // → a layout storm that hangs the headless window tests. The explicit #Root path resolves deterministically.
+
+    /// <summary>The Employee-Category master (Phase 8 slice 1; RQ-2), non-null only while that page column is open.</summary>
+    [ObservableProperty] private EmployeeCategoryMasterViewModel? _employeeCategoryMaster;
+
+    /// <summary>The Employee-Group master (Phase 8 slice 1; RQ-2), non-null only while that page column is open.</summary>
+    [ObservableProperty] private EmployeeGroupMasterViewModel? _employeeGroupMaster;
+
+    /// <summary>The Employee master (Phase 8 slice 1; RQ-2), non-null only while that page column is open.</summary>
+    [ObservableProperty] private EmployeeMasterViewModel? _employeeMaster;
+
+    /// <summary>The Payroll-Unit master (Phase 8 slice 1; RQ-3), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PayrollUnitMasterViewModel? _payrollUnitMaster;
+
+    /// <summary>The Attendance/Production-Type master (Phase 8 slice 1; RQ-3), non-null only while that page is open.</summary>
+    [ObservableProperty] private AttendanceTypeMasterViewModel? _attendanceTypeMaster;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -353,6 +383,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
+        && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
+        && PayrollUnitMaster is null && AttendanceTypeMaster is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -408,6 +440,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmployeeCategoryMasterChanged(EmployeeCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmployeeGroupMasterChanged(EmployeeGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmployeeMasterChanged(EmployeeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPayrollUnitMasterChanged(PayrollUnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAttendanceTypeMasterChanged(AttendanceTypeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -827,6 +864,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 col.Add(new MenuItemViewModel("Nature of Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             if (Company is { TcsEnabled: true })
                 col.Add(new MenuItemViewModel("Nature of Goods", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // Payroll Masters (Phase 8 slice 1; RQ-2/RQ-3) — the employee / payroll-unit / attendance-type masters,
+        // surfaced under their own nested section only when the F11 feature "Maintain Payroll" is on. A company
+        // that never enables Payroll carries no payroll masters and is byte-identical (ER-13), so the whole header
+        // hides when the flag is off.
+        if (Company is { PayrollEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Payroll Masters"));
+            col.Add(new MenuItemViewModel("Employee Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Employee Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Employee", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Payroll Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Attendance / Production Type", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2597,6 +2648,74 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
     }
 
+    // =============================================================== screen: payroll masters (Phase 8 slice 1)
+
+    /// <summary>
+    /// Opens the Employee-Category master (Masters → Create → Payroll Masters → Employee Category; Phase 8 slice 1)
+    /// as a page column. A no-op unless Payroll is enabled (the menu item is itself gated on
+    /// <see cref="Company.PayrollEnabled"/>), so a non-payroll company never reaches it (ER-13).
+    /// </summary>
+    public void ShowEmployeeCategoryMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new EmployeeCategoryMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Employee Category Creation", master), Screen.EmployeeCategoryMaster,
+            "Employee Category Creation", () => EmployeeCategoryMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Employee-Group master (Masters → Create → Payroll Masters → Employee Group; Phase 8 slice 1) as a
+    /// page column. A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowEmployeeGroupMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new EmployeeGroupMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Employee Group Creation", master), Screen.EmployeeGroupMaster,
+            "Employee Group Creation", () => EmployeeGroupMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Employee master (Masters → Create → Payroll Masters → Employee; Phase 8 slice 1) as a page column.
+    /// A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowEmployeeMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new EmployeeMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Employee Creation", master), Screen.EmployeeMaster,
+            "Employee Creation", () => EmployeeMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Payroll-Unit master (Masters → Create → Payroll Masters → Payroll Unit; Phase 8 slice 1) as a page
+    /// column. A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowPayrollUnitMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new PayrollUnitMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Payroll Unit Creation", master), Screen.PayrollUnitMaster,
+            "Payroll Unit Creation", () => PayrollUnitMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Attendance/Production-Type master (Masters → Create → Payroll Masters → Attendance / Production
+    /// Type; Phase 8 slice 1) as a page column. A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowAttendanceTypeMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new AttendanceTypeMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Attendance Type Creation", master), Screen.AttendanceTypeMaster,
+            "Attendance / Production Type Creation", () => AttendanceTypeMaster = master);
+    }
+
     /// <summary>
     /// Opens the <b>TDS Stat Payment</b> deposit page (Transactions → Vouchers → TDS Stat Payment, the Payment
     /// "Ctrl+F"; Phase 7 slice 3) as a page column: deposits the accrued TDS Payable into the bank and records the
@@ -3085,6 +3204,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
+        EmployeeCategoryMaster = null;
+        EmployeeGroupMaster = null;
+        EmployeeMaster = null;
+        PayrollUnitMaster = null;
+        AttendanceTypeMaster = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3144,7 +3268,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
-                 or Screen.TdsStatPayment or Screen.TcsStatPayment)
+                 or Screen.TdsStatPayment or Screen.TcsStatPayment
+                 or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
+                 or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster)
             BackFromPage();
     }
 
@@ -3438,6 +3564,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ReorderLevelsMaster:
                 ReorderLevels?.Create();
                 return;
+            case Screen.EmployeeCategoryMaster:
+                EmployeeCategoryMaster?.Create();
+                return;
+            case Screen.EmployeeGroupMaster:
+                EmployeeGroupMaster?.Create();
+                return;
+            case Screen.EmployeeMaster:
+                EmployeeMaster?.Create();
+                return;
+            case Screen.PayrollUnitMaster:
+                PayrollUnitMaster?.Create();
+                return;
+            case Screen.AttendanceTypeMaster:
+                AttendanceTypeMaster?.Create();
+                return;
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
@@ -3645,6 +3786,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "GST": ShowGstConfig(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
+            // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.
+            case "Employee Category": ShowEmployeeCategoryMaster(); break;
+            case "Employee Group": ShowEmployeeGroupMaster(); break;
+            case "Employee": ShowEmployeeMaster(); break;
+            case "Payroll Unit": ShowPayrollUnitMaster(); break;
+            case "Attendance / Production Type": ShowAttendanceTypeMaster(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
             case "Form 26Q": OpenForm26Q(); break;

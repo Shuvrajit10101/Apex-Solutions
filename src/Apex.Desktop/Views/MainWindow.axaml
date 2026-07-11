@@ -6136,6 +6136,625 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- ================= PAYROLL MASTERS (Phase 8 slice 1) ================= -->
+
+                    <!-- PAGE: Employee Category master (create + list) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).EmployeeCategoryMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).EmployeeCategoryMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:EmployeeCategoryMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Employee Category Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="140,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. On-Roll / Contract"/>
+                                </Grid>
+                                <CheckBox Content="Allocate Revenue Items"
+                                          IsChecked="{Binding AllocateRevenueItems, Mode=TwoWay}" FontSize="13"/>
+                                <CheckBox Content="Allocate Non-Revenue Items"
+                                          IsChecked="{Binding AllocateNonRevenueItems, Mode=TwoWay}" FontSize="13"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateEmployeeCategoryClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,170,90,90">
+                                <TextBlock Grid.Column="0" Text="Employee Category" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Allocates" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Employees" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:EmployeeCategoryListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,170,90,90" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Allocates}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Employees}"
+                                                   TextAlignment="Right" VerticalAlignment="Center"
+                                                   FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Kind}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Employee Group master (hierarchical; create + list) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).EmployeeGroupMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).EmployeeGroupMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:EmployeeGroupMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Employee Group Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="100,*,80,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Marketing"/>
+                                  <TextBlock Grid.Column="2" Text="Alias" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="100,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Primary…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ParentEmployeeGroupOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <CheckBox Content="Define salary details?"
+                                          IsChecked="{Binding DefineSalaryDetails, Mode=TwoWay}" FontSize="13"/>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateEmployeeGroupClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,200,120">
+                                <TextBlock Grid.Column="0" Text="Employee Group" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Salary" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:EmployeeGroupListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Salary}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Employee master (identity + statutory ids + regime; create + list) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).EmployeeMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).EmployeeMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:EmployeeMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Employee Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <TextBlock IsVisible="{Binding !CanCreate}"
+                                           Text="Create an Employee Group first (Payroll Masters → Employee Group) — an employee must belong to a group."
+                                           FontSize="11" Foreground="#B00020" TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Rajkumar Sharma"/>
+                                  <TextBlock Grid.Column="2" Text="Employee No." FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding EmployeeNumber, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Employee Group" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding GroupOptions}"
+                                            SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
+                                            PlaceholderText="group…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:EmployeeGroupOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Category" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding CategoryOptions}"
+                                            SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
+                                            PlaceholderText="None…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:EmployeeCategoryOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Date of Joining" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DateOfJoiningText, Mode=TwoWay}"
+                                           PlaceholderText="yyyy-MM-dd (optional)"/>
+                                  <TextBlock Grid.Column="2" Text="Designation" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Designation, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Manager"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="Gender" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding GenderOptions}"
+                                            SelectedItem="{Binding SelectedGender, Mode=TwoWay}"/>
+                                  <TextBlock Grid.Column="2" Text="Tax Regime" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Regimes}"
+                                            SelectedItem="{Binding SelectedRegime, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:TaxRegimeOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="PAN" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Pan, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="e.g. AAPFU0939F (optional)"/>
+                                  <TextBlock Grid.Column="2" Text="UAN" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Uan, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="12 digits (optional)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="120,*,120,*">
+                                  <TextBlock Grid.Column="0" Text="ESI No." FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding EsiNumber, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="17 digits (optional)"/>
+                                  <TextBlock Grid.Column="2" Text="Date of Birth" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding DateOfBirthText, Mode=TwoWay}"
+                                           PlaceholderText="yyyy-MM-dd (optional)"/>
+                                </Grid>
+
+                                <!-- Additional statutory / location / bank details (RQ-2): captured here so an
+                                     interactively-created employee is complete for the PF/ESI/salary-payment slices. -->
+                                <Expander Header="Location, bank &amp; statutory details">
+                                  <StackPanel Spacing="10" Margin="0,8,0,0">
+                                    <Grid ColumnDefinitions="120,*,120,*">
+                                      <TextBlock Grid.Column="0" Text="Location" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Location, Mode=TwoWay}"
+                                               PlaceholderText="e.g. Mumbai (optional)"/>
+                                      <TextBlock Grid.Column="2" Text="Function" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding Function, Mode=TwoWay}"
+                                               PlaceholderText="e.g. Sales (optional)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*,120,*">
+                                      <TextBlock Grid.Column="0" Text="Aadhaar" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Aadhaar, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"
+                                               PlaceholderText="12 digits (optional)"/>
+                                      <TextBlock Grid.Column="2" Text="PF A/c No." FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding PfAccountNumber, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"
+                                               PlaceholderText="PF account no. (optional)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*,120,*">
+                                      <TextBlock Grid.Column="0" Text="Bank A/c No." FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding BankAccountNumber, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"
+                                               PlaceholderText="account no. (optional)"/>
+                                      <TextBlock Grid.Column="2" Text="Bank Name" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding BankName, Mode=TwoWay}"
+                                               PlaceholderText="e.g. State Bank (optional)"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*,120,*">
+                                      <TextBlock Grid.Column="0" Text="Bank IFSC" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding BankIfsc, Mode=TwoWay}"
+                                               FontFamily="Consolas,Menlo,monospace"
+                                               PlaceholderText="e.g. SBIN0001234 (optional)"/>
+                                      <TextBlock Grid.Column="2" Text="" />
+                                      <TextBlock Grid.Column="3" Text="" />
+                                    </Grid>
+                                  </StackPanel>
+                                </Expander>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateEmployeeClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,180,160,90">
+                                <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Group" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Designation" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Regime" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:EmployeeListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,180,160,90" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Group}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Designation}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Regime}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Payroll Unit master (Simple/Compound toggle; create + list) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).PayrollUnitMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).PayrollUnitMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PayrollUnitMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Payroll Unit Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="16">
+                                  <RadioButton Content="Simple" GroupName="PayrollUnitType"
+                                               IsChecked="{Binding !IsCompound, Mode=OneWay}"
+                                               Click="OnPayrollUnitSimpleClick" FontSize="13"/>
+                                  <RadioButton Content="Compound" GroupName="PayrollUnitType"
+                                               IsChecked="{Binding IsCompound, Mode=OneWay}"
+                                               Click="OnPayrollUnitCompoundClick" FontSize="13"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="100,*,110,*">
+                                  <TextBlock Grid.Column="0" Text="Symbol" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Symbol, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Days / Hrs"/>
+                                  <TextBlock Grid.Column="2" Text="Formal Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding FormalName, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Days"/>
+                                </Grid>
+
+                                <!-- Simple-only field -->
+                                <Grid ColumnDefinitions="100,110,*" IsVisible="{Binding ShowSimpleForm}">
+                                  <TextBlock Grid.Column="0" Text="Decimals" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DecimalPlacesText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="0"/>
+                                  <TextBlock Grid.Column="2" Text="(0–4 decimal places)"
+                                             VerticalAlignment="Center" Margin="12,0,0,0"
+                                             FontSize="11" Foreground="#6A6A6A"/>
+                                </Grid>
+
+                                <!-- Compound-only fields -->
+                                <StackPanel Spacing="10" IsVisible="{Binding IsCompound}">
+                                  <TextBlock IsVisible="{Binding !CanBuildCompound}"
+                                             Text="A compound payroll unit needs two existing simple units — create at least two simple units first."
+                                             FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                  <Grid ColumnDefinitions="100,*,90,80,80,*" IsVisible="{Binding CanBuildCompound}">
+                                    <TextBlock Grid.Column="0" Text="First unit" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding SimpleUnits}"
+                                              SelectedItem="{Binding FirstUnit, Mode=TwoWay}"
+                                              PlaceholderText="base unit…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:PayrollUnit">
+                                          <TextBlock Text="{Binding Symbol}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="× Factor" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding ConversionFactorText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="26"/>
+                                    <TextBlock Grid.Column="4" Text="Tail" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding SimpleUnits}"
+                                              SelectedItem="{Binding TailUnit, Mode=TwoWay}"
+                                              PlaceholderText="tail unit…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="ledger:PayrollUnit">
+                                          <TextBlock Text="{Binding Symbol}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreatePayrollUnitClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="120,*,90,*">
+                                <TextBlock Grid.Column="0" Text="Symbol" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Formal Name" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Kind" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Detail" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PayrollUnitListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="120,*,90,*" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Symbol}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding FormalName}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Detail}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Attendance / Production Type master (create + list) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).AttendanceTypeMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).AttendanceTypeMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AttendanceTypeMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Attendance / Production Type Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="110,*,90,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Present / Overtime"/>
+                                  <TextBlock Grid.Column="2" Text="Type" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Kinds}"
+                                            SelectedItem="{Binding SelectedKind, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:AttendanceTypeKindOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="110,*,90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Primary…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ParentAttendanceTypeOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Unit" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding UnitOptions}"
+                                            SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                                            PlaceholderText="None…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:AttendanceUnitOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateAttendanceTypeClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,150,150,80">
+                                <TextBlock Grid.Column="0" Text="Attendance / Production Type" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Type" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Unit" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:AttendanceTypeListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,150,150,80" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Unit}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GST — Statutory configuration (F11 Features → GST) -->
                     <ContentControl IsVisible="{Binding GstConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding GstConfig}">
@@ -6186,6 +6805,19 @@
                                 <CheckBox Content="Enable Job Order Processing"
                                           IsChecked="{Binding EnableJobOrderProcessing, Mode=TwoWay}"
                                           FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <!-- Payroll F11 feature (Phase 8 slice 1; RQ-1): the master gate for the whole
+                                     Payroll module. When on, the Payroll Masters section (Employee Category /
+                                     Group / Employee, Payroll Unit, Attendance type) surfaces under Masters →
+                                     Create. The statutory sub-toggle surfaces the PF/ESI/PT/Income-Tax codes in
+                                     the later statutory slices. When off every non-payroll screen is byte-identical
+                                     (ER-13). -->
+                                <CheckBox Content="Maintain Payroll"
+                                          IsChecked="{Binding PayrollEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Content="Enable Payroll Statutory (PF / ESI / PT / Income-Tax)"
+                                          IsChecked="{Binding PayrollStatutoryEnabled, Mode=TwoWay}"
+                                          Margin="20,0,0,0" FontSize="12"
+                                          IsVisible="{Binding PayrollEnabled}"/>
                                 <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"/>
                                 <TextBlock Text="STATUTORY" FontSize="11" FontWeight="Bold"
                                            Foreground="#9098A8" LetterSpacing="1.5"/>

@@ -178,6 +178,18 @@ public sealed class CompanyImportService
         MapMasters(model.Payload.StockItems, i => i.Name, name => _target.FindStockItemByName(name) is not null,
             plan.StockItemTargets, policy, errors, "stock item");
 
+        // ---- Payroll masters (Phase 8 slice 1) ----
+        MapMasters(model.Payload.EmployeeCategories, x => x.Name, name => _target.FindEmployeeCategoryByName(name) is not null,
+            plan.EmployeeCategoryTargets, policy, errors, "employee category");
+        MapMasters(model.Payload.EmployeeGroups, x => x.Name, name => _target.FindEmployeeGroupByName(name) is not null,
+            plan.EmployeeGroupTargets, policy, errors, "employee group");
+        MapMasters(model.Payload.PayrollUnits, x => x.Symbol, name => _target.FindPayrollUnitByName(name) is not null,
+            plan.PayrollUnitTargets, policy, errors, "payroll unit");
+        MapMasters(model.Payload.AttendanceTypes, x => x.Name, name => _target.FindAttendanceTypeByName(name) is not null,
+            plan.AttendanceTypeTargets, policy, errors, "attendance type");
+        MapMasters(model.Payload.Employees, x => x.Name, name => _target.FindEmployeeByName(name) is not null,
+            plan.EmployeeTargets, policy, errors, "employee");
+
         if (errors.Count > 0) return plan; // don't attempt reference/voucher checks on an already-broken batch
 
         // ---- Cross-reference resolvability (every FK must resolve to a mapped or existing master) ----
@@ -248,6 +260,11 @@ public sealed class CompanyImportService
         CurrencyDto cur => cur.Id,
         BudgetDto bd => bd.Id,
         ScenarioDto scn => scn.Id,
+        EmployeeCategoryDto eca => eca.Id,
+        EmployeeGroupDto egr => egr.Id,
+        PayrollUnitDto pu => pu.Id,
+        AttendanceTypeDto at => at.Id,
+        EmployeeDto emp => emp.Id,
         _ => throw new InvalidOperationException($"Unsupported master DTO {typeof(TDto).Name}."),
     };
 
@@ -326,6 +343,33 @@ public sealed class CompanyImportService
         foreach (var r in model.Payload.ExchangeRates)
             if (!plan.CanResolveCurrency(r.CurrencyId, _target))
                 errors.Add("An exchange rate references a currency that is neither imported nor present.");
+
+        // Payroll masters (Phase 8 slice 1): employee group → parent; attendance type → parent + payroll unit;
+        // payroll unit → first/tail components; employee → group + optional category.
+        foreach (var eg in model.Payload.EmployeeGroups)
+            if (eg.ParentId is { } pid && !plan.CanResolveEmployeeGroup(pid, _target))
+                errors.Add($"Employee group '{eg.Name}' references a parent group that is neither imported nor present.");
+        foreach (var pu in model.Payload.PayrollUnits.Where(u => u.IsCompound))
+        {
+            if (pu.FirstUnitId is not { } fid || !plan.CanResolvePayrollUnit(fid, _target))
+                errors.Add($"Compound payroll unit '{pu.Symbol}' references a first unit that is neither imported nor present.");
+            if (pu.TailUnitId is not { } tid || !plan.CanResolvePayrollUnit(tid, _target))
+                errors.Add($"Compound payroll unit '{pu.Symbol}' references a tail unit that is neither imported nor present.");
+        }
+        foreach (var at in model.Payload.AttendanceTypes)
+        {
+            if (at.ParentId is { } pid && !plan.CanResolveAttendanceType(pid, _target))
+                errors.Add($"Attendance type '{at.Name}' references a parent type that is neither imported nor present.");
+            if (at.PayrollUnitId is { } uid && !plan.CanResolvePayrollUnit(uid, _target))
+                errors.Add($"Attendance type '{at.Name}' references a payroll unit that is neither imported nor present.");
+        }
+        foreach (var em in model.Payload.Employees)
+        {
+            if (!plan.CanResolveEmployeeGroup(em.EmployeeGroupId, _target))
+                errors.Add($"Employee '{em.Name}' references an employee group that is neither imported nor present.");
+            if (em.EmployeeCategoryId is { } cid && !plan.CanResolveEmployeeCategory(cid, _target))
+                errors.Add($"Employee '{em.Name}' references an employee category that is neither imported nor present.");
+        }
 
         // Budget → under-group + each line's group/ledger.
         foreach (var bd in model.Payload.Budgets)

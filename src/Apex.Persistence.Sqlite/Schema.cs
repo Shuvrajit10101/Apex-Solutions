@@ -70,7 +70,7 @@ public static class Schema
     /// to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must
     /// also appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 29;
+    public const int CurrentVersion = 30;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -141,7 +141,11 @@ public static class Schema
             cess_applicable                INTEGER NOT NULL DEFAULT 0,  -- 0/1
             tds_periodicity                INTEGER     NULL,            -- TdsTcsPeriodicity enum ordinal
             tds_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
-            tcs_applicable_from            TEXT        NULL             -- ISO yyyy-MM-dd, or NULL
+            tcs_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
+            -- v30 (Phase 8 slice 1): Payroll F11 toggles. Both default 0 for every existing company, so a company
+            -- that never enables Payroll is byte-identical and carries no payroll masters (ER-13).
+            payroll_enabled                INTEGER NOT NULL DEFAULT 0,  -- 0/1 (F11 "Maintain Payroll")
+            payroll_statutory_enabled      INTEGER NOT NULL DEFAULT 0   -- 0/1 (F11 "Enable Payroll Statutory")
         );
 
         CREATE TABLE nature_of_payment (
@@ -973,6 +977,77 @@ public static class Schema
         CREATE INDEX ix_material_order_links_order      ON material_order_links(job_work_order_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
+
+        -- v30 (Phase 8 slice 1): Payroll masters. All FK companies(id); parents self-FK; empty when Payroll off (ER-13).
+        CREATE TABLE employee_categories (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            allocate_revenue     INTEGER NOT NULL DEFAULT 1,   -- mirror cost_categories (RQ-2)
+            allocate_non_revenue INTEGER NOT NULL DEFAULT 0,
+            is_predefined        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_categories_company ON employee_categories(company_id);
+
+        CREATE TABLE employee_groups (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            company_id            TEXT    NOT NULL REFERENCES companies(id),
+            name                  TEXT    NOT NULL,
+            parent_id             TEXT        NULL REFERENCES employee_groups(id),
+            alias                 TEXT        NULL,
+            define_salary_details INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_groups_company ON employee_groups(company_id);
+
+        CREATE TABLE payroll_units (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            symbol                 TEXT    NOT NULL,
+            formal_name            TEXT    NOT NULL,
+            is_compound            INTEGER NOT NULL DEFAULT 0,
+            decimal_places         INTEGER NOT NULL DEFAULT 0,
+            first_unit_id          TEXT        NULL REFERENCES payroll_units(id),
+            tail_unit_id           TEXT        NULL REFERENCES payroll_units(id),
+            conversion_numerator   INTEGER     NULL,
+            conversion_denominator INTEGER     NULL
+        );
+        CREATE INDEX ix_payroll_units_company ON payroll_units(company_id);
+
+        CREATE TABLE attendance_types (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            name            TEXT    NOT NULL,
+            parent_id       TEXT        NULL REFERENCES attendance_types(id),
+            kind            INTEGER NOT NULL,   -- AttendanceTypeKind enum ordinal
+            payroll_unit_id TEXT        NULL REFERENCES payroll_units(id)
+        );
+        CREATE INDEX ix_attendance_types_company ON attendance_types(company_id);
+
+        CREATE TABLE employees (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            employee_group_id    TEXT    NOT NULL REFERENCES employee_groups(id),
+            employee_category_id TEXT        NULL REFERENCES employee_categories(id),
+            employee_number      TEXT        NULL,
+            date_of_joining      TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL
+            date_of_leaving      TEXT        NULL,
+            designation          TEXT        NULL,
+            function             TEXT        NULL,
+            location             TEXT        NULL,
+            gender               TEXT        NULL,
+            date_of_birth        TEXT        NULL,
+            pan                  TEXT        NULL,   -- 10-char PAN, NULL when unset
+            aadhaar              TEXT        NULL,
+            uan                  TEXT        NULL,   -- 12-digit UAN, NULL when unset
+            pf_account_number    TEXT        NULL,
+            esi_number           TEXT        NULL,   -- 17-digit ESI number, NULL when unset
+            bank_account_number  TEXT        NULL,
+            bank_name            TEXT        NULL,
+            bank_ifsc            TEXT        NULL,
+            tax_regime           INTEGER NOT NULL DEFAULT 0   -- TaxRegime enum ordinal (0 = New)
+        );
+        CREATE INDEX ix_employees_company ON employees(company_id);
         """;
 
     /// <summary>
@@ -1960,5 +2035,92 @@ public static class Schema
             voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
         );
         CREATE INDEX ix_tcs_challan_voucher_links_challan ON tcs_challan_voucher_links(challan_id);
+        """;
+
+    /// <summary>
+    /// v29 → v30 (Phase 8 slice 1; Payroll masters + F11 config): additive only — two
+    /// <c>ALTER TABLE companies ADD COLUMN … DEFAULT 0</c> (the Payroll + Payroll-Statutory F11 toggles) plus five
+    /// new master tables (<c>employee_categories</c>, <c>employee_groups</c>, <c>payroll_units</c>,
+    /// <c>attendance_types</c>, <c>employees</c>) with their company indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 30. No ALTER that rewrites rows, no data backfill — an existing v29 database keeps
+    /// every row untouched, the two flags default 0 and the five tables start empty, so a company that never
+    /// enables Payroll serialises byte-identically to a v29 company (ER-13). The <c>employee_groups</c>,
+    /// <c>payroll_units</c> and <c>attendance_types</c> tables carry a self-referential <c>parent_id</c>/component
+    /// FK (hierarchical / compound), matching <see cref="CreateV1"/> exactly. A fresh DB is stamped straight to
+    /// v30 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV29ToV30 = """
+        ALTER TABLE companies ADD COLUMN payroll_enabled           INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN payroll_statutory_enabled INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE employee_categories (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            allocate_revenue     INTEGER NOT NULL DEFAULT 1,
+            allocate_non_revenue INTEGER NOT NULL DEFAULT 0,
+            is_predefined        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_categories_company ON employee_categories(company_id);
+
+        CREATE TABLE employee_groups (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            company_id            TEXT    NOT NULL REFERENCES companies(id),
+            name                  TEXT    NOT NULL,
+            parent_id             TEXT        NULL REFERENCES employee_groups(id),
+            alias                 TEXT        NULL,
+            define_salary_details INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_groups_company ON employee_groups(company_id);
+
+        CREATE TABLE payroll_units (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            symbol                 TEXT    NOT NULL,
+            formal_name            TEXT    NOT NULL,
+            is_compound            INTEGER NOT NULL DEFAULT 0,
+            decimal_places         INTEGER NOT NULL DEFAULT 0,
+            first_unit_id          TEXT        NULL REFERENCES payroll_units(id),
+            tail_unit_id           TEXT        NULL REFERENCES payroll_units(id),
+            conversion_numerator   INTEGER     NULL,
+            conversion_denominator INTEGER     NULL
+        );
+        CREATE INDEX ix_payroll_units_company ON payroll_units(company_id);
+
+        CREATE TABLE attendance_types (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            name            TEXT    NOT NULL,
+            parent_id       TEXT        NULL REFERENCES attendance_types(id),
+            kind            INTEGER NOT NULL,
+            payroll_unit_id TEXT        NULL REFERENCES payroll_units(id)
+        );
+        CREATE INDEX ix_attendance_types_company ON attendance_types(company_id);
+
+        CREATE TABLE employees (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            employee_group_id    TEXT    NOT NULL REFERENCES employee_groups(id),
+            employee_category_id TEXT        NULL REFERENCES employee_categories(id),
+            employee_number      TEXT        NULL,
+            date_of_joining      TEXT        NULL,
+            date_of_leaving      TEXT        NULL,
+            designation          TEXT        NULL,
+            function             TEXT        NULL,
+            location             TEXT        NULL,
+            gender               TEXT        NULL,
+            date_of_birth        TEXT        NULL,
+            pan                  TEXT        NULL,
+            aadhaar              TEXT        NULL,
+            uan                  TEXT        NULL,
+            pf_account_number    TEXT        NULL,
+            esi_number           TEXT        NULL,
+            bank_account_number  TEXT        NULL,
+            bank_name            TEXT        NULL,
+            bank_ifsc            TEXT        NULL,
+            tax_regime           INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employees_company ON employees(company_id);
         """;
 }

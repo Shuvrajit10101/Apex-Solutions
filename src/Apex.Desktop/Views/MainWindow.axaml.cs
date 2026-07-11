@@ -716,6 +716,32 @@ public partial class MainWindow : Window
     private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfGoodsMaster?.Create();
 
+    // Payroll masters (Phase 8 slice 1) — the five Create actions + the Payroll-Unit Simple/Compound toggle.
+    private void OnCreateEmployeeCategoryClick(object? sender, RoutedEventArgs e)
+        => Vm?.EmployeeCategoryMaster?.Create();
+
+    private void OnCreateEmployeeGroupClick(object? sender, RoutedEventArgs e)
+        => Vm?.EmployeeGroupMaster?.Create();
+
+    private void OnCreateEmployeeClick(object? sender, RoutedEventArgs e)
+        => Vm?.EmployeeMaster?.Create();
+
+    private void OnCreatePayrollUnitClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayrollUnitMaster?.Create();
+
+    private void OnPayrollUnitSimpleClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = false;
+    }
+
+    private void OnPayrollUnitCompoundClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = true;
+    }
+
+    private void OnCreateAttendanceTypeClick(object? sender, RoutedEventArgs e)
+        => Vm?.AttendanceTypeMaster?.Create();
+
     private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.TdsStatPayment?.Deposit();
 
