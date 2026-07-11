@@ -1276,6 +1276,42 @@ culture (Phase 11). (f) S5 multi-below-threshold-TCS only first nature persisted
 green + user go-ahead to merge**; `main` NOT touched. After merge → **PAUSE for Phase 7→8 go-ahead.** **PHASE 7 COMPLETE
 (pending merge).**
 
+### Phase 8 slice 1 — Payroll masters + F11 config (2026-07-11) — schema v30
+First Phase-8 (Payroll) slice: the **masters foundation** — the employee/organisation master set plus the F11 gate,
+mirroring how each prior module opened (GST/TDS S1). No vouchers or pay computation yet. Delivered:
+- **Masters domain** (`src/Apex.Ledger/Domain/`) — **EmployeeGroup** (hierarchical, **parent-cycle-guarded**),
+  **EmployeeCategory** (parallel/independent axis), **Employee** (identity + statutory + bank + DOB / PAN / UAN / ESI /
+  Aadhaar / PF-a/c + `TaxRegime`), **PayrollUnit** (simple + compound), **AttendanceType** (`AttendanceTypeKind` =
+  Attendance / Leave-with-pay / Production / user-defined).
+- **`PayrollService`** (`src/Apex.Ledger/Services/PayrollService.cs`) — enable/disable **idempotent**; name
+  **uniqueness**; parent-cycle prevention via the shared **HierarchyOrdering**; **delete-if-referenced** guards; PAN / UAN /
+  ESI **structural validation**.
+- **F11 flags on `Company`** — **Maintain Payroll** + **Enable Payroll Statutory** (`Company.cs`), the master gate for the
+  whole module (module hidden/inert when off; turning off never deletes payroll data).
+- **Schema v29→v30 — additive** (`Schema.cs` `CurrentVersion = 30`): **5 new tables** (`employee_categories`,
+  `employee_groups`, `payroll_units`, `attendance_types`, `employees`) + indexes + **2 company columns**
+  (`payroll_enabled`, `payroll_statutory_enabled`), added to **BOTH `CreateV1` AND `MigrateV29ToV30`** (no create-vs-migrate
+  drift). **`SchemaMigrationEquivalenceTests` green at v30** (v1→v30 == fresh-v30). `SqliteCompanyStore` persists all five
+  masters (`PayrollSchemaTests`, `PayrollRoundTripTests`).
+- **Io canonical fold-in** — all masters folded into the `Apex.Ledger.Io` model (`CanonicalModel`/`CanonicalMapper`/
+  `CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa- and count-exact JSON+XML lossless
+  round-trip**; a payroll-off company **drops nothing** and stays byte-identical (**ER-13**). `CanonicalPayrollRoundTripTests`.
+- **UI** — **Payroll Masters** nav (nested, **gated** on Maintain Payroll) + **5 keyboard-first create screens** (Employee
+  Category / Group / Employee / Payroll Unit / Attendance Type VMs) + the two **F11 toggles** on the Company Features screen
+  (`GstConfigViewModel`/`MainWindowViewModel`/`MainWindow.axaml`/`.axaml.cs`).
+- **A10 adversarial review** — 2 lenses **clean**; the 3rd found **3 findings, all fixed** — notably a **MED**: the Employee
+  create screen was not capturing all the statutory/bank/DOB/Aadhaar fields the model persists (now complete). The engine
+  gate additionally caught + fixed a **downgrade-helper regression**.
+Gate fully green in Release: **Ledger 716 · Io 186 · Sqlite 116 · Desktop 600 = 1618 total, 0 failures**, de-branded,
+working tree clean (only P8-S1 files: masters domain + `PayrollService` + `Company` F11 flags + Schema/SqliteCompanyStore
+v30 + Io canonical + 5 master VMs + Gateway/MainWindow wiring + tests).
+**Carry-forwards (documented, non-blocking):** (a) **auto-create payroll payable ledgers** (Salary / PF / ESI / PT / NPS)
+on enable is **DEFERRED to P8-S3**, where they are first posted; (b) **UAN(12) / ESI(17)** digit-lengths are
+**structural-only** validation — **A14 to web-confirm** the exact statutory formats at a statutory slice.
+Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 1 — payroll masters … schema v30` + `docs(memory): Phase 8
+slice 1 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR
+at the phase boundary). **Next = P8-S2 (Pay Heads + dated Salary Structures, schema v31).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
