@@ -101,4 +101,42 @@ public static class Report
     /// <summary>GSTR-3B (summary return) over a period (catalog §12; RQ-22; DP-9): outward tax, ITC, net payable.</summary>
     public static Gstr3b BuildGstr3b(Company c, DateOnly from, DateOnly to)
         => Gstr3b.Build(c, from, to);
+
+    // ------------------------------------------------------------------ TDS/TCS exception reports (slice 8)
+
+    /// <summary>R1 — TDS Outstandings as of a date (Phase 7 slice 8): deducted-but-not-deposited per section.</summary>
+    public static TdsOutstandingReport BuildTdsOutstanding(Company c, DateOnly asOf)
+        => TdsOutstandingReport.Build(c, asOf);
+
+    /// <summary>R2 — TDS Not Deducted as of a date (Phase 7 slice 8): applicable-but-below-threshold assessments.</summary>
+    public static TdsNotDeductedReport BuildTdsNotDeducted(Company c, DateOnly asOf)
+        => TdsNotDeductedReport.Build(c, asOf);
+
+    /// <summary>R3 — TDS Interest u/s 201(1A) as of a date (Phase 7 slice 8): 1.5%/month late-deposit interest.</summary>
+    public static TdsInterestReport BuildTdsInterest201(Company c, DateOnly asOf)
+        => TdsInterestReport.Build(c, asOf);
+
+    /// <summary>R4 — TDS Nature-of-Payment-wise summary as of a date (Phase 7 slice 8).</summary>
+    public static TdsNatureSummaryReport BuildTdsNatureSummary(Company c, DateOnly asOf)
+        => TdsNatureSummaryReport.Build(c, asOf);
+
+    /// <summary>R5 — TCS Outstandings as of a date (Phase 7 slice 8): collected-but-not-deposited per code.</summary>
+    public static TcsOutstandingReport BuildTcsOutstanding(Company c, DateOnly asOf)
+        => TcsOutstandingReport.Build(c, asOf);
+
+    /// <summary>R6 — TCS Not Collected as of a date (Phase 7 slice 8): applicable-but-below-threshold sales.</summary>
+    public static TcsNotCollectedReport BuildTcsNotCollected(Company c, DateOnly asOf)
+        => TcsNotCollectedReport.Build(c, asOf);
+
+    /// <summary>R7 — TCS Interest u/s 206C(7) as of a date (Phase 7 slice 8): 1%/month late-deposit interest.</summary>
+    public static TcsInterestReport BuildTcsInterest206C7(Company c, DateOnly asOf)
+        => TcsInterestReport.Build(c, asOf);
+
+    /// <summary>R8 — TCS Nature-of-Goods-wise summary as of a date (Phase 7 slice 8).</summary>
+    public static TcsNatureSummaryReport BuildTcsNatureSummary(Company c, DateOnly asOf)
+        => TcsNatureSummaryReport.Build(c, asOf);
+
+    /// <summary>R9 — Ledgers / parties without PAN as of a date (Phase 7 slice 8).</summary>
+    public static LedgersWithoutPanReport BuildLedgersWithoutPan(Company c, DateOnly asOf)
+        => LedgersWithoutPanReport.Build(c, asOf);
 }

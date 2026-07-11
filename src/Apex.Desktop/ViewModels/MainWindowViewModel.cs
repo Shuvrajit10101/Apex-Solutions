@@ -110,6 +110,12 @@ public enum GatewayMenu
     CashBook,
     BankBook,
     LedgerBooks,
+
+    // Reports → Statutory Reports (Phase 7 slice 8): the TDS/TCS exception & outstanding reports, nested under
+    // TDS Reports / TCS Reports sub-groups (+ a common Ledgers-without-PAN report spanning both taxes).
+    StatutoryReports,
+    TdsReports,
+    TcsReports,
 }
 
 /// <summary>
@@ -592,6 +598,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports. Surfaced
+        // only when the F11 feature enables at least one of the two taxes (ER-13), so a company using neither is
+        // byte-identical to the pre-slice Reports menu.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+            col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
@@ -1214,6 +1226,83 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectRootItem("GST Reports");
         OpenSubmenuColumn(BuildGstReportsColumn(), GatewayMenu.GstReports,
             "Gateway of Apex Solutions — GST Reports");
+    }
+
+    // =============================================================== Statutory Reports (Phase 7 slice 8)
+
+    /// <summary>
+    /// Builds the "Statutory Reports" hub submenu column (Reports → Statutory Reports; Phase 7 slice 8): the
+    /// TDS/TCS exception &amp; outstanding reports nested under two <b>Group</b> sub-columns — <b>TDS Reports</b>
+    /// (present only when TDS is enabled) and <b>TCS Reports</b> (present only when TCS is enabled) — plus a common
+    /// <b>Ledgers without PAN</b> page (R9 spans both taxes). Never a flat dump: the nine reports live two levels
+    /// deep under their tax family, matching how Form 26Q / 27EQ / certificates are grouped under GST Reports.
+    /// </summary>
+    private GatewayColumn BuildStatutoryReportsColumn()
+    {
+        var col = new GatewayColumn("Statutory Reports");
+        col.Add(MenuItemViewModel.Header("Statutory Reports"));
+        if (Company is { TdsEnabled: true })
+            col.Add(new MenuItemViewModel("TDS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        if (Company is { TcsEnabled: true })
+            col.Add(new MenuItemViewModel("TCS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level (shown whenever
+        // either tax is on — which is the only way this column is reachable).
+        col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "TDS Reports" submenu column: the four §194x TDS projections (R1–R4).</summary>
+    private GatewayColumn BuildTdsReportsColumn()
+    {
+        var col = new GatewayColumn("TDS Reports");
+        col.Add(MenuItemViewModel.Header("TDS Reports"));
+        col.Add(new MenuItemViewModel("TDS Outstandings", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TDS Not Deducted", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TDS Interest u/s 201(1A)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TDS Nature of Payment Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "TCS Reports" submenu column: the four §206C TCS projections (R5–R8).</summary>
+    private GatewayColumn BuildTcsReportsColumn()
+    {
+        var col = new GatewayColumn("TCS Reports");
+        col.Add(MenuItemViewModel.Header("TCS Reports"));
+        col.Add(new MenuItemViewModel("TCS Outstandings", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TCS Not Collected", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TCS Interest u/s 206C(7)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("TCS Nature of Goods Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports" hub submenu column directly (the public entry a hotkey/test
+    /// uses). Rebuilds the cascade to [root → Statutory Reports] and focuses the hub.</summary>
+    public void ShowStatutoryReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Statutory Reports");
+        OpenSubmenuColumn(BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
+            "Gateway of Apex Solutions — Statutory Reports");
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → TDS Reports" submenu column directly.</summary>
+    public void ShowTdsReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("TDS Reports");
+        OpenSubmenuColumn(BuildTdsReportsColumn(), GatewayMenu.TdsReports,
+            "Gateway of Apex Solutions — TDS Reports");
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → TCS Reports" submenu column directly.</summary>
+    public void ShowTcsReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("TCS Reports");
+        OpenSubmenuColumn(BuildTcsReportsColumn(), GatewayMenu.TcsReports,
+            "Gateway of Apex Solutions — TCS Reports");
     }
 
     /// <summary>
@@ -3489,6 +3578,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 GatewayMenu.LedgerBooks, "Gateway of Apex Solutions — Ledger"),
             "Exception Reports" => (BuildExceptionReportsColumn(), GatewayMenu.ExceptionReports,
                 "Gateway of Apex Solutions — Exception Reports"),
+            "Statutory Reports" => (BuildStatutoryReportsColumn(), GatewayMenu.StatutoryReports,
+                "Gateway of Apex Solutions — Statutory Reports"),
+            "TDS Reports" => (BuildTdsReportsColumn(), GatewayMenu.TdsReports,
+                "Gateway of Apex Solutions — TDS Reports"),
+            "TCS Reports" => (BuildTcsReportsColumn(), GatewayMenu.TcsReports,
+                "Gateway of Apex Solutions — TCS Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -3587,6 +3682,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
+            case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
+            case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
+            case "TDS Interest u/s 201(1A)": OpenReport(ReportKind.TdsInterest); break;
+            case "TDS Nature of Payment Summary": OpenReport(ReportKind.TdsNatureSummary); break;
+            case "TCS Outstandings": OpenReport(ReportKind.TcsOutstanding); break;
+            case "TCS Not Collected": OpenReport(ReportKind.TcsNotCollected); break;
+            case "TCS Interest u/s 206C(7)": OpenReport(ReportKind.TcsInterest); break;
+            case "TCS Nature of Goods Summary": OpenReport(ReportKind.TcsNatureSummary); break;
+            case "Ledgers without PAN": OpenReport(ReportKind.LedgersWithoutPan); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -3732,6 +3837,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "GST Reports" => GatewayMenu.GstReports,
                     "Statements" => GatewayMenu.Statements,
                     "Exception Reports" => GatewayMenu.ExceptionReports,
+                    "Statutory Reports" => GatewayMenu.StatutoryReports,
+                    "TDS Reports" => GatewayMenu.TdsReports,
+                    "TCS Reports" => GatewayMenu.TcsReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,
                     "Bank Book" => GatewayMenu.BankBook,
