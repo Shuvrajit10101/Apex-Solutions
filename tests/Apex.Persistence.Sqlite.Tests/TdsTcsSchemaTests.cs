@@ -5,7 +5,7 @@ namespace Apex.Persistence.Sqlite.Tests;
 
 /// <summary>
 /// The Phase-7 slice-1 <b>TDS/TCS masters + config</b> schema contract (ER-1, ER-13). The v24→v25 bump is purely
-/// additive: eleven <c>ALTER TABLE companies</c> + nine <c>ALTER TABLE ledgers</c> + one
+/// additive: thirteen <c>ALTER TABLE companies</c> + nine <c>ALTER TABLE ledgers</c> + one
 /// <c>ALTER TABLE stock_items</c> (all <c>DEFAULT 0</c>/NULL) plus two new tables (<c>nature_of_payment</c>,
 /// <c>nature_of_goods</c>) with their indexes, leaving every existing table/row intact. Covers: a fresh DB stamps
 /// to <see cref="Schema.CurrentVersion"/> with the new tables/columns; a legacy v24 DB auto-migrates forward

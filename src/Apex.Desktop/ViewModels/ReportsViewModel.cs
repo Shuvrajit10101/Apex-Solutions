@@ -2625,7 +2625,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         return last ?? company.FinancialYearStart.AddYears(1).AddDays(-1);
     }
 
-    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy");
+    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>

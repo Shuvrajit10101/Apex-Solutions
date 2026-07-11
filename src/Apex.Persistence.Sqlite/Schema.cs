@@ -53,14 +53,23 @@ namespace Apex.Persistence.Sqlite;
 /// <see cref="MigrateV11ToV12"/> (one pure CREATE TABLE/INDEX — no ALTER, no row rewrites — so an existing v11
 /// database keeps all its data and simply gains an empty table). Run inside a transaction that bumps
 /// <c>schema_version</c> to 12; a fresh DB is stamped straight to v12 via <see cref="CreateV1"/>.
+///
+/// <b>v13–v29</b> continue the same additive pattern (each documented on its own <c>MigrateVNToVN+1</c>
+/// constant): core GST (v13), saved report views (v14), SMTP profile (v15), batch masters (v16), Bill of
+/// Materials (v17) and the Manufacturing-Journal flags (v18), additional cost of purchase (v19), zero-valued
+/// &amp; separate actual-vs-billed quantity (v20), price levels/lists (v21), reorder levels (v22), POS (v23),
+/// job work (v24), and the Phase-7 TDS/TCS masters, per-line compute and deposit/challan tables (v25-v29).
+/// <b><see cref="CurrentVersion"/> = 29</b>; a fresh DB is always stamped straight to the current version via
+/// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes (v18 = the two Manufacturing-Journal
-    /// master flags: <c>voucher_types.use_as_manufacturing_journal</c> (RQ-11) and <c>stock_items.set_components</c>
-    /// (RQ-10) — both 0/1 defaulting to 0, so an existing DB is byte-identical (ER-13). v17 = Bill of Materials
-    /// masters: <c>bill_of_materials</c> header + <c>bom_lines</c> child — multiple BOMs per finished good, with
-    /// Component/By-Product/Co-Product/Scrap line types and a per-block qty/rate/percent carve-out — Phase 6 slice 2).</summary>
+    /// <summary>The current schema version this adapter reads and writes. <b>v29</b> is the latest bump (Phase 7
+    /// slice 6 — TCS deposit challans + the TCS challan↔voucher links). The full v1→v29 history is documented on
+    /// each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight
+    /// to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
+    /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must
+    /// also appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
     public const int CurrentVersion = 29;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
@@ -174,6 +183,7 @@ public static class Schema
             label         TEXT    NOT NULL,
             is_predefined INTEGER NOT NULL DEFAULT 0
         );
+        CREATE INDEX ix_gst_rate_slabs_company ON gst_rate_slabs(company_id);
 
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -1779,7 +1789,7 @@ public static class Schema
 
     /// <summary>
     /// v24 → v25: <b>TDS / TCS masters + config + duty-ledger flags</b> (Phase 7 slice 1; ER-1, ER-13). Purely
-    /// additive — eleven <c>ALTER TABLE companies ADD COLUMN</c> (the shared TDS/TCS deductor config + the two
+    /// additive — thirteen <c>ALTER TABLE companies ADD COLUMN</c> (the shared TDS/TCS deductor config + the two
     /// enable flags), nine <c>ALTER TABLE ledgers ADD COLUMN</c> (the per-ledger TDS/TCS applicability flags + party
     /// PAN + the payable-ledger classification tag), one <c>ALTER TABLE stock_items ADD COLUMN tcs_nature_id</c>,
     /// and two new tables (<c>nature_of_payment</c>, <c>nature_of_goods</c>) with their company indexes. No

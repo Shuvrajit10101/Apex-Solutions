@@ -106,7 +106,7 @@ public sealed class TcsService
         // The base the TCS is actually CHARGED on. §206C(1H) (the legacy/cumulative nature, mirror of §194Q) collects
         // only on receipts EXCEEDING the ₹50-lakh FY threshold — "a sum equal to 0.1% of the sale consideration
         // exceeding fifty lakh rupees" — so on a straddling transaction only the part of this sale above the threshold
-        // is charged. Every other nature (scrap §206C(1F) etc.) charges the FULL base once its gate is crossed. Note
+        // is charged. Every other nature (motor vehicle §206C(1F), scrap §206C(1), etc.) charges the FULL base once its gate is crossed. Note
         // AssessableValue (returned + recorded for the FY projection) stays the FULL receipts — only the charged base
         // is carved, so subsequent-year cumulative arithmetic remains exact.
         var chargeableBase = ChargeableBase(nature, assessable, prior);
@@ -133,8 +133,8 @@ public sealed class TcsService
     /// The portion of <paramref name="current"/> the TCS is actually charged on. For the legacy §206C(1H)
     /// cumulative nature only the receipts <b>exceeding</b> the ₹50-lakh FY threshold are charged (bare-section
     /// "sale consideration exceeding fifty lakh rupees", mirror of §194Q): the excess is
-    /// <c>(prior + current) − threshold</c>, clamped to <c>[0, current]</c>. Every other nature (scrap, the §206C(1F)
-    /// single-transaction gate, …) charges the full base. Callers reach here only after the gate is crossed.
+    /// <c>(prior + current) − threshold</c>, clamped to <c>[0, current]</c>. Every other nature (scrap §206C(1), the
+    /// §206C(1F) motor-vehicle single-transaction gate, …) charges the full base. Callers reach here only after the gate is crossed.
     /// </summary>
     private static Money ChargeableBase(NatureOfGoods nature, Money current, Money prior)
     {

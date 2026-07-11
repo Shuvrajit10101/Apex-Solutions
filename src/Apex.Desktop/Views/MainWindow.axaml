@@ -7415,12 +7415,12 @@
                             </Grid>
 
                             <!-- Left: deductee picker · Right: certificate detail -->
-                            <Grid Grid.Row="3" ColumnDefinitions="300,*">
+                            <Grid Grid.Row="3" ColumnDefinitions="240,*">
                               <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,8,0">
                                 <TextBlock Grid.Row="0" Text="Deductees" FontWeight="Bold" FontSize="12"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                                 <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="110,*,90">
+                                  <Grid ColumnDefinitions="92,*,68">
                                     <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Deductee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
@@ -7431,7 +7431,7 @@
                                          SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
                                   <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:Form16ADeducteeOptionVm">
-                                      <Grid ColumnDefinitions="110,*,90" Height="24">
+                                      <Grid ColumnDefinitions="92,*,68" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontFamily="Consolas,Menlo,monospace"
@@ -7447,8 +7447,9 @@
                                 </ListBox>
                               </Grid>
 
-                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-                                <StackPanel Spacing="8">
+                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="8" MinWidth="384">
                                   <!-- Deductor block -->
                                   <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
                                           BorderThickness="1" Padding="10">
@@ -7491,7 +7492,7 @@
                                   <TextBlock Text="Summary of TDS deducted" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="80,70,110,*,*,60">
+                                    <Grid ColumnDefinitions="56,42,82,86,70,46">
                                       <TextBlock Grid.Column="0" Text="Section" Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="FVU" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
@@ -7503,7 +7504,7 @@
                                   <ItemsControl ItemsSource="{Binding Deductions}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form16ADeductionRowVm">
-                                        <Grid ColumnDefinitions="80,70,110,*,*,60" Height="22">
+                                        <Grid ColumnDefinitions="56,42,82,86,70,46" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding Section}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FvuCode}" Margin="4,0"
@@ -7525,7 +7526,7 @@
                                   <TextBlock Text="Tax deposited (challans)" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="130,130,130,*">
+                                    <Grid ColumnDefinitions="86,64,90,92">
                                       <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
@@ -7535,7 +7536,7 @@
                                   <ItemsControl ItemsSource="{Binding Challans}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form16AChallanRowVm">
-                                        <Grid ColumnDefinitions="130,130,130,*" Height="22">
+                                        <Grid ColumnDefinitions="86,64,90,92" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
@@ -7635,12 +7636,12 @@
                               </ComboBox>
                             </Grid>
 
-                            <Grid Grid.Row="3" ColumnDefinitions="300,*">
+                            <Grid Grid.Row="3" ColumnDefinitions="240,*">
                               <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,8,0">
                                 <TextBlock Grid.Row="0" Text="Collectees" FontWeight="Bold" FontSize="12"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                                 <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="110,*,90">
+                                  <Grid ColumnDefinitions="92,*,68">
                                     <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Collectee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
@@ -7651,7 +7652,7 @@
                                          SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
                                   <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:Form27DCollecteeOptionVm">
-                                      <Grid ColumnDefinitions="110,*,90" Height="24">
+                                      <Grid ColumnDefinitions="92,*,68" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontFamily="Consolas,Menlo,monospace"
@@ -7667,8 +7668,9 @@
                                 </ListBox>
                               </Grid>
 
-                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-                                <StackPanel Spacing="8">
+                              <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="8" MinWidth="384">
                                   <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
                                           BorderThickness="1" Padding="10">
                                     <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
@@ -7708,7 +7710,7 @@
                                   <TextBlock Text="Summary of TCS collected" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="80,70,110,*,*,60">
+                                    <Grid ColumnDefinitions="56,42,82,86,70,46">
                                       <TextBlock Grid.Column="0" Text="Code" Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="FVU" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
@@ -7720,7 +7722,7 @@
                                   <ItemsControl ItemsSource="{Binding Collections}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form27DCollectionRowVm">
-                                        <Grid ColumnDefinitions="80,70,110,*,*,60" Height="22">
+                                        <Grid ColumnDefinitions="56,42,82,86,70,46" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding CollectionCode}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FvuCode}" Margin="4,0"
@@ -7741,7 +7743,7 @@
                                   <TextBlock Text="Tax deposited (challans)" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="130,130,130,*">
+                                    <Grid ColumnDefinitions="86,64,90,92">
                                       <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
@@ -7751,7 +7753,7 @@
                                   <ItemsControl ItemsSource="{Binding Challans}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form27DChallanRowVm">
-                                        <Grid ColumnDefinitions="130,130,130,*" Height="22">
+                                        <Grid ColumnDefinitions="86,64,90,92" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
