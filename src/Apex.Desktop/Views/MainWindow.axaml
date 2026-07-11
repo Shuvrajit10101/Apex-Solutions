@@ -6731,7 +6731,7 @@
                                     Content="{Binding ChallanReconciliation}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ChallanReconciliationViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -6793,6 +6793,16 @@
                                            TextAlignment="Right" VerticalAlignment="Center"
                                            FontWeight="Bold" FontSize="12"/>
                               </Grid>
+                            </Border>
+
+                            <!-- Cash-basis clarifying note: this recon windows deposits by challan deposit date, so a
+                                 legally-compliant cross-FY deposit can read as outstanding here. Point the reader at the
+                                 period-attributed views (Form 26Q + TDS Outstandings). Amber band mirrors the S8 footnote. -->
+                            <Border Grid.Row="6" Background="#FFF7E6"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                    Padding="10,6" Margin="0,6,0,0">
+                              <TextBlock Text="{Binding BasisNote}" TextWrapping="Wrap"
+                                         FontSize="11" Foreground="#7A5B00"/>
                             </Border>
                           </Grid>
                         </DataTemplate>
@@ -7108,7 +7118,7 @@
                                     Content="{Binding TcsChallanReconciliation}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:TcsChallanReconciliationViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -7170,6 +7180,16 @@
                                            TextAlignment="Right" VerticalAlignment="Center"
                                            FontWeight="Bold" FontSize="12"/>
                               </Grid>
+                            </Border>
+
+                            <!-- Cash-basis clarifying note: this recon windows deposits by challan deposit date, so a
+                                 legally-compliant cross-FY deposit can read as outstanding here. Point the reader at the
+                                 period-attributed views (Form 27EQ + TCS Outstandings). Amber band mirrors the S8 footnote. -->
+                            <Border Grid.Row="6" Background="#FFF7E6"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                    Padding="10,6" Margin="0,6,0,0">
+                              <TextBlock Text="{Binding BasisNote}" TextWrapping="Wrap"
+                                         FontSize="11" Foreground="#7A5B00"/>
                             </Border>
                           </Grid>
                         </DataTemplate>

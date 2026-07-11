@@ -56,6 +56,18 @@ public sealed partial class ChallanReconciliationViewModel : ViewModelBase
     /// <summary>The per-section reconciliation rows (matched + unmatched), ordered by section.</summary>
     public ObservableCollection<ChallanReconRow> Rows { get; } = new();
 
+    /// <summary>
+    /// Clarifying footnote: this report windows <b>deposits by challan deposit date</b> (a cash basis). A
+    /// deduction deposited in a later period (deducted in March, deposited in April) is fully compliant yet can
+    /// read here as outstanding for the earlier window. The period-attributed (compliance) position lives in
+    /// Form 26Q and the TDS Outstandings report. Constant text, surfaced as a band under the totals.
+    /// </summary>
+    public string BasisNote =>
+        "Deposits are shown on a cash basis, by challan deposit date. A deduction deposited in a later " +
+        "period (e.g. deducted in March, deposited in April) may appear here as outstanding for the earlier " +
+        "window even though it is compliant — see Form 26Q and the TDS Outstandings report for the " +
+        "period-attributed position.";
+
     public ChallanReconciliationViewModel(Company company)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
