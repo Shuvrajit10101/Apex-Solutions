@@ -1312,6 +1312,47 @@ Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 1 — payroll mast
 slice 1 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR
 at the phase boundary). **Next = P8-S2 (Pay Heads + dated Salary Structures, schema v31).**
 
+### Phase 8 slice 2 — Pay Heads + dated Salary Structures (2026-07-11) — schema v31
+Second Phase-8 (Payroll) slice: the **Pay Head masters** plus the **dated Salary Structure** (Salary Details) that binds
+pay heads to an employee/group. **Still pure model — no pay computation** (that is P8-S3). Delivered:
+- **PayHead domain** (`src/Apex.Ledger/Domain/`) — **5 calculation types** (`PayHeadCalculationType` = **OnAttendance /
+  FlatRate / AsComputedValue / OnProduction / AsUserDefinedValue**) + **10 Tally pay-head types** (`PayHeadType`:
+  Earnings / Deductions / EmployeesStatutoryDeductions / EmployerStatutoryContributions / Gratuity/ Bonus / LoansAndAdvances /
+  ReimbursementToEmployees / NotApplicable etc.). **`AsComputedValue` computation model** = a **basis** (the computed-on
+  components) × **slabs** (`PayHeadComputationSlabType` = **percentage-bp** or **flat value**), which expresses e.g.
+  40%-of-Basic. **`UnderGroupId`** gives the accounting classification + a **forward-compat nullable `LedgerId`** reserved
+  for S3 posting; **rounding method/limit** (`PayHeadRoundingMethod`), **income-tax component** (`IncomeTaxComponent`),
+  **use-for-gratuity** flag, **calculation period** (`PayHeadCalculationPeriod`). No computation logic yet (deferred S3).
+- **Dated SalaryStructure** (`SalaryStructure.cs`, "Salary Details") per **employee or group** (`SalaryStructureScope`)
+  with an **`EffectiveFrom` revision** model: **`InForceOn(date)` = the latest structure ≤ date**. Line-level guards match
+  each line's **value vs the pay head's calc type** (a FlatRate line needs a value; an AsComputedValue line must not carry a
+  literal, etc.). `SalaryStructureStartType`.
+- **`PayHeadService` / `SalaryStructureService`** guards — name uniqueness, delete-if-referenced, and critically the
+  **computed-on integrity**: reject **self-reference**, **cycles**, and **dangling references** in the AsComputedValue
+  basis graph.
+- **Schema v30→v31 — additive** (`Schema.cs` `CurrentVersion = 31`): **5 new tables** (pay heads + their computation
+  components + slabs, salary structures + their lines) + indexes, added to **BOTH `CreateV1` AND `MigrateV30ToV31`** (no
+  create-vs-migrate drift). **`SchemaMigrationEquivalenceTests` green at v31** (v1→v31 == fresh-v31). `SqliteCompanyStore`
+  persists all of it (`PayHeadSchemaTests`, `PayHeadRoundTripTests`).
+- **Io canonical fold-in** — pay heads + salary structures folded into the `Apex.Ledger.Io` model (`CanonicalModel`/
+  `CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa- and count-exact JSON+XML
+  lossless round-trip (ER-13)**. `CanonicalPayHeadRoundTripTests`.
+- **UI** — **Pay Head** + **Salary Structure** create screens (`PayHeadMasterViewModel` / `SalaryStructureMasterViewModel`
+  + Gateway/MainWindow wiring), keyboard-first, gated on Maintain Payroll.
+- **A10 adversarial review — caught + fixed a MED**: the **Io import path bypassed** the engine's computed-on
+  **cycle / self-reference** and **line-vs-calc-type** guards (import could inject a corrupt pay-head graph the engine would
+  never accept). Fix **mirrors those guards into `CompanyImportService`**, **all-or-nothing** (a bad graph rejects the whole
+  import, nothing partially applied), **regression-locked** (`CanonicalPayHeadIntegrityImportTests`).
+Gate fully green in Release: **Ledger 733 · Io 199 · Sqlite 120 · Desktop 614 = 1666 total, 0 failures**, de-branded,
+TestAppBuilder clean, no stray files, working tree exclusively P8-S2. Release build sanity check: **0 warnings, 0 errors**.
+**Minor R6 deviation (recorded):** the plan implied one computation table; I **split it into components + slabs** (a pay
+head's computed-on basis is a set of components, each carrying an ordered set of slabs) — cleaner normal form, same
+behavior.
+Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 2 — Pay Heads … schema v31` + `docs(memory): Phase 8 slice 2
+log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR at the
+phase boundary). **Next = P8-S3 (attendance + payroll voucher + salary-computation engine + integrated ledger posting +
+auto-create payroll payable ledgers [the S1/S2 carry-forward], schema v32).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
