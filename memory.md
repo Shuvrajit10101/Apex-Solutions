@@ -1353,6 +1353,66 @@ log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (r
 phase boundary). **Next = P8-S3 (attendance + payroll voucher + salary-computation engine + integrated ledger posting +
 auto-create payroll payable ledgers [the S1/S2 carry-forward], schema v32).**
 
+### Phase 8 slice 3 — Payroll voucher + salary computation + posting (2026-07-11) — schema v32
+Third Phase-8 (Payroll) slice — the one that **makes payroll real money**: the **salary-computation engine**, the
+**attendance + payroll vouchers**, and the **integrated balanced accounting posting** that lands payroll on the Balance
+Sheet / P&L (BALANCE-SHEET-CRITICAL). **S3 was paused (user request) then REBUILT FRESH from the clean `dcb9623`
+checkpoint** — the earlier aborted WIP in the stash was never trusted (it never passed a gate). Delivered:
+- **`PayrollComputationService`** (`src/Apex.Ledger/Services/`) — pure, framework/DB/clock-free evaluation of a payslip
+  over the **`InForceOn(date)` dated salary structure** (S2) + the **period attendance** (this slice). Handles **all 5
+  calc types**: **FlatRate** (structure value); **AsComputedValue** (basis → **marginal-% (bp) / value slabs**, evaluated
+  in **dependency order** over the computed-on graph so a head can be computed on already-computed heads); **OnAttendance**
+  (**pro-rated by the clipped attendance overlap** — present days ÷ period days, clipped to the payroll period);
+  **OnProduction** (production units × rate); **AsUserDefinedValue** (per-voucher entered value). **Per-head rounding**
+  (S2 `PayHeadRoundingMethod`). **Critically RESPECTS `AffectsNetSalary`** — a head with `AffectsNetSalary = false` is
+  **computed and shown on the payslip but EXCLUDED from net salary and from the posting** (informational heads don't move
+  cash). `PayrollComputationTests` incl. the golden payslip.
+- **Attendance / production voucher** — `PayrollAttendanceService` + `AttendanceEntry` domain (stored rows: employee,
+  attendance/production type, value, period) persisted as data (no ledger effect); the input the OnAttendance / OnProduction
+  calc types read.
+- **Payroll voucher = integrated BALANCED accounting voucher** — `PayrollVoucherService` posts **Dr earnings** /
+  **Cr net Salary-Payable + Cr each deduction payable**; **employer contributions** post a **Dr expense / Cr payable**
+  pair (the `employer_expense_ledger_id`). Posting is **atomic** — **pre-validate the whole voucher, then a rollback
+  scope** so a mid-post failure leaves nothing partially applied — and **auto-creates the payroll ledgers
+  non-destructively** under the pay head's `UnderGroupId` (an existing ledger is reused, never overwritten) — this
+  **resolves the S1/S2 auto-payroll-ledger carry-forward**. `PayrollVoucherPostingTests`.
+- **New `Payroll` voucher base type** — audited across **all exhaustive switches** in `VoucherEffects` and the reports:
+  it **hits P&L + Balance Sheet** and is **correctly skipped by GST / TDS / TCS / stock** (no double-count). The payload
+  rides `EntryLine` (`PayrollLineDetail` per posted line) + `PayrollLineCategory`.
+- **Schema v31→v32 — additive** (`Schema.cs` `CurrentVersion = 32`): **`employer_expense_ledger_id` column** on the pay
+  head + **`attendance_entries`** + **`payroll_lines`** tables, added to **BOTH `CreateV1` AND `MigrateV31ToV32`** (no
+  create-vs-migrate drift); **`SchemaMigrationEquivalenceTests` green at v32**; the **downgrade helpers**
+  (`InventoryVoucherRoundTripTests` / `ItemInvoiceRoundTripTests` DowngradeTo* DROP the new tables) updated.
+  `SqliteCompanyStore` persists it all (`AttendancePayrollSchemaTests`, `PayrollVoucherRoundTripTests`).
+- **Io canonical fold-in** — attendance + payroll lines folded into `Apex.Ledger.Io` (`CanonicalModel`/`CanonicalMapper`/
+  `CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa- and count-exact JSON+XML lossless
+  round-trip** (`CanonicalPayrollVoucherRoundTripTests`), with **import pre-flight reference validation** — a payroll
+  voucher referencing a missing employee / pay head / ledger **rejects the whole import, all-or-nothing**
+  (`CanonicalPayrollVoucherIntegrityImportTests`).
+- **GOLDEN payslip** (hand-derived, regression-locked): **Basic 30k (flat) + HRA 40%-of-Basic = 12k (AsComputedValue) +
+  Advance 2k (flat deduction) → gross 42k / net 40k**, posted **Dr 42k == Cr 42k paisa-exact**, plus an **employer PF
+  3,600 Dr-expense/Cr-payable pair**. (Statutory-specific PF split / ESI / PT / §192 are S4–S7, so this S3 golden uses
+  non-statutory heads.)
+- **UI** — `AttendanceVoucherEntryViewModel` + `PayrollVoucherEntryViewModel` + Gateway/MainWindow wiring
+  (`MainWindow.axaml`/`.axaml.cs`/`MainWindowViewModel`), keyboard-first, gated on Maintain Payroll.
+  `PayrollVoucherViewModelTests`.
+- **A10 adversarial review — 3 lenses, posting-balance-weighted** (run **separately after the workflow's review agents hit
+  a session limit**): caught + fixed **HIGH — `AffectsNetSalary` was ignored** (non-affecting heads were leaking into net
+  + posting); **3 MED** — **non-atomic post** (partial legs on failure → now pre-validate + rollback scope),
+  **attendance straddling-entry drop** (an attendance row straddling the period boundary was dropped instead of clipped),
+  **import pre-flight gaps** (missing-reference payroll import wasn't rejected); **+ 4 LOW**. All **regression-locked**.
+  **Mid-period salary revision** (a structure revision inside a payroll period) is **documented** as computed off the
+  single `InForceOn(period-end)` structure (no intra-period proration of the revision) — an accepted, recorded limitation.
+Gate fully green in Release: **Ledger 767 · Io 208 · Sqlite 123 · Desktop 627 = 1725 total, 0 failures**, de-branded,
+TestAppBuilder clean, no stray files, working tree exclusively P8-S3. Release build sanity check: **0 warnings, 0 errors**.
+**Minor R6 deviation (recorded):** `PayrollLineCategory` is a **5-value** enum (earnings / employee-deduction /
+employer-contribution / net-payable / informational) — a cleaner split than the plan implied, so the posting side can
+route each line to the right Dr/Cr leg; same behavior.
+Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 3 — Payroll voucher … schema v32` + `docs(memory): Phase 8
+slice 3 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR
+at the phase boundary). The superseded P8-S3 WIP stash was dropped. **Next = P8-S4 (PF — computed EPS/EPF split + EDLI +
+admin charges + ECR, schema v33; A14 must web-verify PF admin/EDLI exact figures + the ₹15k ceiling).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
