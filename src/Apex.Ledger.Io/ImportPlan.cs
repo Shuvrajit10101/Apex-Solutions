@@ -390,6 +390,7 @@ internal sealed class ImportPlan
                 BankIfsc = em.BankIfsc, ApplicableTaxRegime = ParseEnum<TaxRegime>(em.ApplicableTaxRegime),
                 PfApplicable = em.PfApplicable, PfContributeOnHigherWages = em.PfContributeOnHigherWages,
                 PfJoinDate = CompanyImportService.ParseDateOpt(em.PfJoinDate),
+                EsiApplicable = em.EsiApplicable, IsPersonWithDisability = em.IsPersonWithDisability,
             };
             t.AddEmployee(domain);
             journal.RecordEmployee(domain);
@@ -427,6 +428,9 @@ internal sealed class ImportPlan
                 PerDayCalculationBasisDays = ph.PerDayCalculationBasisDays,
                 PfComponent = ParseEnum<PfStatutoryComponent>(ph.PfComponent),
                 PartOfPfWages = ph.PartOfPfWages,
+                EsiComponent = ParseEnum<EsiStatutoryComponent>(ph.EsiComponent),
+                PartOfEsiWages = ph.PartOfEsiWages,
+                IsOvertime = ph.IsOvertime,
             };
             t.AddPayHead(domain);
             journal.RecordPayHead(domain);
@@ -944,6 +948,11 @@ internal sealed class ImportPlan
         // Phase 8 slice 4 Provident-Fund config — plain data holder, captured by the header snapshot for rollback.
         t.PfConfig = c.Pf is { } pf
             ? new PfConfig(pf.EpfRateBasisPoints, pf.EstablishmentCode, pf.CapWagesAtCeiling)
+            : null;
+
+        // Phase 8 slice 5 Employees'-State-Insurance config — plain data holder, captured by the header snapshot.
+        t.EsiConfig = c.Esi is { } esi
+            ? new EsiConfig(esi.EmployeeRateBasisPoints, esi.EmployerRateBasisPoints, esi.EmployerCode)
             : null;
 
         // Enable Job Order Processing through the engine (slice 8; RQ-45) so the seeded Material In/Out + Job Work

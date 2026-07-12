@@ -65,6 +65,7 @@ public static class CanonicalXml
         if (c.Tds is { } tds) company.Add(BuildTdsConfig(tds));
         if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
         if (c.Pf is { } pf) company.Add(BuildPfConfig(pf));
+        if (c.Esi is { } esi) company.Add(BuildEsiConfig(esi));
         root.Add(company);
 
         var p = m.Payload;
@@ -227,7 +228,8 @@ public static class CanonicalXml
         Opt("bankAccountNumber", e.BankAccountNumber), Opt("bankName", e.BankName), Opt("bankIfsc", e.BankIfsc),
         Attr("applicableTaxRegime", e.ApplicableTaxRegime),
         Attr("pfApplicable", e.PfApplicable), Attr("pfContributeOnHigherWages", e.PfContributeOnHigherWages),
-        Opt("pfJoinDate", e.PfJoinDate));
+        Opt("pfJoinDate", e.PfJoinDate), Attr("esiApplicable", e.EsiApplicable),
+        Attr("isPersonWithDisability", e.IsPersonWithDisability));
 
     private static XElement BuildPayHead(PayHeadDto p)
     {
@@ -241,7 +243,9 @@ public static class CanonicalXml
             Attr("roundingLimitPaisa", p.RoundingLimitPaisa), Attr("calculationPeriod", p.CalculationPeriod),
             OptId("attendanceTypeId", p.AttendanceTypeId),
             OptInt("perDayCalculationBasisDays", p.PerDayCalculationBasisDays),
-            Attr("pfComponent", p.PfComponent), Attr("partOfPfWages", p.PartOfPfWages));
+            Attr("pfComponent", p.PfComponent), Attr("partOfPfWages", p.PartOfPfWages),
+            Attr("esiComponent", p.EsiComponent), Attr("partOfEsiWages", p.PartOfEsiWages),
+            Attr("isOvertime", p.IsOvertime));
         var comps = new XElement("computationComponents");
         foreach (var c in p.ComputationComponents)
             comps.Add(new XElement("component", Attr("payHeadId", c.PayHeadId), Attr("isSubtraction", c.IsSubtraction)));
@@ -413,6 +417,10 @@ public static class CanonicalXml
     private static XElement BuildPfConfig(PfConfigDto pf) => new("pf",
         Attr("epfRateBasisPoints", pf.EpfRateBasisPoints), Opt("establishmentCode", pf.EstablishmentCode),
         Attr("capWagesAtCeiling", pf.CapWagesAtCeiling));
+
+    private static XElement BuildEsiConfig(EsiConfigDto esi) => new("esi",
+        Attr("employeeRateBasisPoints", esi.EmployeeRateBasisPoints),
+        Attr("employerRateBasisPoints", esi.EmployerRateBasisPoints), Opt("employerCode", esi.EmployerCode));
 
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
         Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
@@ -701,6 +709,7 @@ public static class CanonicalXml
         var tdsEl = e.Element("tds");
         var tcsEl = e.Element("tcs");
         var pfEl = e.Element("pf");
+        var esiEl = e.Element("esi");
         return new CompanyDto
         {
             Id = id,
@@ -725,6 +734,7 @@ public static class CanonicalXml
             PayrollEnabled = Bool(e, "payrollEnabled"),
             PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
             Pf = pfEl is null ? null : ReadPfConfig(pfEl),
+            Esi = esiEl is null ? null : ReadEsiConfig(esiEl),
         };
     }
 
@@ -733,6 +743,13 @@ public static class CanonicalXml
         EpfRateBasisPoints = Int(e, "epfRateBasisPoints"),
         EstablishmentCode = Str(e, "establishmentCode"),
         CapWagesAtCeiling = Bool(e, "capWagesAtCeiling"),
+    };
+
+    private static EsiConfigDto ReadEsiConfig(XElement e) => new()
+    {
+        EmployeeRateBasisPoints = Int(e, "employeeRateBasisPoints"),
+        EmployerRateBasisPoints = Int(e, "employerRateBasisPoints"),
+        EmployerCode = Str(e, "employerCode"),
     };
 
     private static PayloadDto? ReadPayload(XElement root, List<string> errors)
@@ -911,7 +928,8 @@ public static class CanonicalXml
         BankAccountNumber = Str(e, "bankAccountNumber"), BankName = Str(e, "bankName"), BankIfsc = Str(e, "bankIfsc"),
         ApplicableTaxRegime = Str(e, "applicableTaxRegime") ?? nameof(Apex.Ledger.Domain.TaxRegime.New),
         PfApplicable = Bool(e, "pfApplicable"), PfContributeOnHigherWages = Bool(e, "pfContributeOnHigherWages"),
-        PfJoinDate = Str(e, "pfJoinDate"),
+        PfJoinDate = Str(e, "pfJoinDate"), EsiApplicable = Bool(e, "esiApplicable"),
+        IsPersonWithDisability = Bool(e, "isPersonWithDisability"),
     };
 
     private static PayHeadDto ReadPayHead(XElement e) => new()
@@ -927,6 +945,8 @@ public static class CanonicalXml
         PerDayCalculationBasisDays = OptInt(e, "perDayCalculationBasisDays"),
         PfComponent = Str(e, "pfComponent") ?? nameof(Apex.Ledger.Domain.PfStatutoryComponent.None),
         PartOfPfWages = Bool(e, "partOfPfWages"),
+        EsiComponent = Str(e, "esiComponent") ?? nameof(Apex.Ledger.Domain.EsiStatutoryComponent.None),
+        PartOfEsiWages = Bool(e, "partOfEsiWages"), IsOvertime = Bool(e, "isOvertime"),
         ComputationComponents = (e.Element("computationComponents")?.Elements("component") ?? Enumerable.Empty<XElement>())
             .Select(c => new PayHeadComputationComponentDto
             {

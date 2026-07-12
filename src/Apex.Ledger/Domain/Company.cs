@@ -263,6 +263,15 @@ public sealed class Company
     /// </summary>
     public PfConfig? PfConfig { get; set; }
 
+    /// <summary>
+    /// The establishment's <b>Employees'-State-Insurance configuration</b> (Phase 8 slice 5; catalog §14) — EE/ER
+    /// rate defaults + the 17-digit employer code. Non-<c>null</c> once the establishment is enrolled for ESI; the
+    /// dedicated <c>EsiContribution</c> engine reads the rates from here, and the payroll voucher posts the ESI legs
+    /// only when it is present. Defaults <c>null</c>, so a company that never enrols for ESI serialises
+    /// byte-identically to a pre-v34 company (ER-13).
+    /// </summary>
+    public EsiConfig? EsiConfig { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

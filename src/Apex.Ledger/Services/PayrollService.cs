@@ -96,6 +96,58 @@ public sealed class PayrollService
         employee.PfJoinDate = pfJoinDate;
     }
 
+    // ------------------------------------------------------------------ Employees' State Insurance config (Phase 8 slice 5)
+
+    /// <summary>
+    /// Enrols the establishment for <b>Employees' State Insurance</b> (Phase 8 slice 5; RQ-9), setting
+    /// <see cref="Company.EsiConfig"/>, <b>idempotently</b>. Turns on Payroll Statutory (ESI lives under it). The EE
+    /// rate is 0.75% and the ER rate 3.25% by default; a supplied <paramref name="employerCode"/> is validated as a
+    /// 17-digit ESIC establishment code. Once enrolled, a payroll run posts the ESI legs for covered members; before
+    /// enrolment no ESI is computed and the company is byte-identical (ER-13).
+    /// </summary>
+    public EsiConfig EnableEsi(
+        int employeeRateBasisPoints = EsiConfig.DefaultEmployeeRateBasisPoints,
+        int employerRateBasisPoints = EsiConfig.DefaultEmployerRateBasisPoints,
+        string? employerCode = null)
+    {
+        if (employeeRateBasisPoints < 0 || employerRateBasisPoints < 0)
+            throw new InvalidOperationException("ESI contribution rates cannot be negative.");
+        ValidateEsiEmployerCode(employerCode);
+        _company.PayrollStatutoryEnabled = true;
+        var config = new EsiConfig(employeeRateBasisPoints, employerRateBasisPoints, employerCode);
+        _company.EsiConfig = config;
+        return config;
+    }
+
+    /// <summary>
+    /// Sets an employee's <b>ESI details</b> (Phase 8 slice 5): ESI-applicable and whether the member is a
+    /// <b>person with disability</b> (who enjoys the higher ₹25,000 coverage ceiling). When marking a member
+    /// <b>ESI-applicable</b> the employee must carry a valid 10-digit IP / Insurance Number (<c>^\d{10}$</c> in
+    /// <see cref="Employee.EsiNumber"/>) — the monthly contribution file keys the member on it — otherwise the change
+    /// is rejected and the employee is left unchanged.
+    /// </summary>
+    public void SetEmployeeEsiDetails(Guid employeeId, bool applicable, bool personWithDisability = false)
+    {
+        var employee = _company.FindEmployee(employeeId)
+            ?? throw new InvalidOperationException($"Employee {employeeId} not found.");
+        if (applicable)
+        {
+            if (string.IsNullOrWhiteSpace(employee.EsiNumber) || !IsAllDigits(employee.EsiNumber.Trim(), 10))
+                throw new InvalidOperationException(
+                    $"Employee '{employee.Name}' needs a valid 10-digit ESI IP number before ESI can apply.");
+        }
+        employee.EsiApplicable = applicable;
+        employee.IsPersonWithDisability = personWithDisability;
+    }
+
+    private static void ValidateEsiEmployerCode(string? employerCode)
+    {
+        if (string.IsNullOrWhiteSpace(employerCode)) return;
+        if (!IsAllDigits(employerCode.Trim(), 17))
+            throw new InvalidOperationException(
+                $"'{employerCode}' is not a valid ESIC establishment employer code (expected 17 digits).");
+    }
+
     // ------------------------------------------------------------------ Employee categories
 
     /// <summary>Creates an employee category; name unique within the company, allocating revenue and/or
@@ -381,9 +433,12 @@ public sealed class PayrollService
 
     private static void ValidateEsi(string? esi)
     {
+        // Phase 8 slice 5 correction: the per-employee ESI field is the 10-digit IP / Insurance Number
+        // (^\d{10}$), NOT the 17-digit establishment employer code (which lives on the company ESI config). S1
+        // wrongly validated 17 digits here — that conflated the two identifiers.
         if (string.IsNullOrWhiteSpace(esi)) return;
-        if (!IsAllDigits(esi.Trim(), 17))
-            throw new InvalidOperationException($"'{esi}' is not a valid ESI number (expected 17 digits).");
+        if (!IsAllDigits(esi.Trim(), 10))
+            throw new InvalidOperationException($"'{esi}' is not a valid ESI IP number (expected 10 digits).");
     }
 
     private static bool IsAllDigits(string value, int length)

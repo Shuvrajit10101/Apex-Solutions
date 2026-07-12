@@ -87,6 +87,10 @@ public sealed record CompanyDto
     /// <summary>The establishment Provident-Fund config (Phase 8 slice 4); null when the establishment is not
     /// enrolled for PF (a PF-off company is byte-identical — ER-13).</summary>
     public PfConfigDto? Pf { get; init; }
+
+    /// <summary>The establishment Employees'-State-Insurance config (Phase 8 slice 5); null when the establishment is
+    /// not enrolled for ESI (an ESI-off company is byte-identical — ER-13).</summary>
+    public EsiConfigDto? Esi { get; init; }
 }
 
 /// <summary>The company Provident-Fund config (Phase 8 slice 4), mirroring the domain <c>PfConfig</c>.</summary>
@@ -95,6 +99,14 @@ public sealed record PfConfigDto
     public int EpfRateBasisPoints { get; init; } = 1200;
     public string? EstablishmentCode { get; init; }
     public bool CapWagesAtCeiling { get; init; } = true;
+}
+
+/// <summary>The company Employees'-State-Insurance config (Phase 8 slice 5), mirroring the domain <c>EsiConfig</c>.</summary>
+public sealed record EsiConfigDto
+{
+    public int EmployeeRateBasisPoints { get; init; } = 75;
+    public int EmployerRateBasisPoints { get; init; } = 325;
+    public string? EmployerCode { get; init; }
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>
@@ -638,6 +650,14 @@ public sealed record EmployeeDto
     public bool PfApplicable { get; init; }
     public bool PfContributeOnHigherWages { get; init; }
     public string? PfJoinDate { get; init; }                    // ISO yyyy-MM-dd or null
+
+    /// <summary>ESI applicability (Phase 8 slice 5). Default off, so a pre-v34 employee is byte-identical. The
+    /// 10-digit IP number is carried by <see cref="EsiNumber"/> above.</summary>
+    public bool EsiApplicable { get; init; }
+
+    /// <summary>Person-with-disability flag (Phase 8 slice 5) — the higher ₹25,000 ESI coverage ceiling. Default off,
+    /// so a pre-v34 employee is byte-identical.</summary>
+    public bool IsPersonWithDisability { get; init; }
 }
 
 // ----------------------------------------------------------------- pay heads + salary structures (Phase 8 slice 2)
@@ -674,6 +694,17 @@ public sealed record PayHeadDto
 
     /// <summary>Whether this earning counts toward PF (EPF/EPS/EDLI) wages (Phase 8 slice 4). Default false.</summary>
     public bool PartOfPfWages { get; init; }
+
+    /// <summary>The ESI statutory role (Phase 8 slice 5), a <see cref="Apex.Ledger.Domain.EsiStatutoryComponent"/>
+    /// name; "None" for a non-ESI head.</summary>
+    public string EsiComponent { get; init; } = nameof(Apex.Ledger.Domain.EsiStatutoryComponent.None);
+
+    /// <summary>Whether this earning counts toward ESI wages — HRA included (Phase 8 slice 5). Default false.</summary>
+    public bool PartOfEsiWages { get; init; }
+
+    /// <summary>Whether this earning is overtime — in the ESI contribution base but out of the coverage test
+    /// (Phase 8 slice 5). Default false.</summary>
+    public bool IsOvertime { get; init; }
 
     public IReadOnlyList<PayHeadComputationComponentDto> ComputationComponents { get; init; } = [];
     public IReadOnlyList<PayHeadComputationSlabDto> ComputationSlabs { get; init; } = [];

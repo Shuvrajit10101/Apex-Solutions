@@ -15,7 +15,7 @@ public sealed class PayrollServiceTests
 {
     private const string ValidPan = "AAPFU0939F";
     private const string ValidUan = "100200300400";               // 12 digits
-    private const string ValidEsi = "31001234560000101";          // 17 digits
+    private const string ValidEsi = "3100123456";                 // 10-digit IP number (v5 correction)
 
     private static Company NewCompany() =>
         CompanyFactory.CreateSeeded("Payroll Masters Co", new DateOnly(2025, 4, 1), new DateOnly(2025, 4, 1));
@@ -201,8 +201,60 @@ public sealed class PayrollServiceTests
         var svc = new PayrollService(c);
         var grp = svc.CreateEmployeeGroup("Marketing");
         Assert.Throws<InvalidOperationException>(() => svc.CreateEmployee("Y", grp.Id, uan: "12345"));          // not 12 digits
-        Assert.Throws<InvalidOperationException>(() => svc.CreateEmployee("Z", grp.Id, esiNumber: "12AB"));     // not 17 digits
+        Assert.Throws<InvalidOperationException>(() => svc.CreateEmployee("Z", grp.Id, esiNumber: "12AB"));     // not 10 digits
         Assert.Empty(c.Employees);
+    }
+
+    [Fact]
+    public void Employee_esi_number_validates_as_a_10_digit_ip_not_the_17_digit_employer_code()
+    {
+        // Phase 8 slice 5 correction: the per-employee ESI field is the 10-digit IP / Insurance Number, NOT the
+        // 17-digit establishment employer code (which S1 wrongly required, and which now belongs on the ESI config).
+        var c = NewCompany();
+        var svc = new PayrollService(c);
+        var grp = svc.CreateEmployeeGroup("Marketing");
+
+        // A valid 10-digit IP is accepted.
+        var ok = svc.CreateEmployee("Ten Digit IP", grp.Id, esiNumber: "3100123456");
+        Assert.Equal("3100123456", ok.EsiNumber);
+
+        // The old-style 17-digit value is now REJECTED (it is the establishment code, not the employee IP).
+        Assert.Throws<InvalidOperationException>(() =>
+            svc.CreateEmployee("Seventeen Digit", grp.Id, esiNumber: "31001234560000101"));
+        Assert.Null(c.FindEmployeeByName("Seventeen Digit"));
+    }
+
+    [Fact]
+    public void Enable_esi_sets_the_config_and_validates_the_17_digit_employer_code()
+    {
+        var c = NewCompany();
+        var svc = new PayrollService(c);
+
+        var cfg = svc.EnableEsi(employerCode: "12345678901234567"); // 17 digits — the establishment employer code
+        Assert.Same(cfg, c.EsiConfig);
+        Assert.Equal(EsiConfig.DefaultEmployeeRateBasisPoints, cfg.EmployeeRateBasisPoints);
+        Assert.Equal(EsiConfig.DefaultEmployerRateBasisPoints, cfg.EmployerRateBasisPoints);
+        Assert.Equal("12345678901234567", cfg.EmployerCode);
+        Assert.True(c.PayrollStatutoryEnabled);
+
+        // A wrong-length employer code is rejected.
+        Assert.Throws<InvalidOperationException>(() => svc.EnableEsi(employerCode: "12345"));
+    }
+
+    [Fact]
+    public void Set_employee_esi_details_requires_a_valid_10_digit_ip()
+    {
+        var c = NewCompany();
+        var svc = new PayrollService(c);
+        var grp = svc.CreateEmployeeGroup("Ops");
+
+        var noIp = svc.CreateEmployee("No IP", grp.Id);
+        Assert.Throws<InvalidOperationException>(() => svc.SetEmployeeEsiDetails(noIp.Id, applicable: true));
+        Assert.False(noIp.EsiApplicable);
+
+        var withIp = svc.CreateEmployee("Has IP", grp.Id, esiNumber: "3100123456");
+        svc.SetEmployeeEsiDetails(withIp.Id, applicable: true);
+        Assert.True(withIp.EsiApplicable);
     }
 
     [Fact]

@@ -17,7 +17,7 @@ public sealed class PayrollRoundTripTests
 {
     private const string ValidPan = "AAPFU0939F";
     private const string ValidUan = "100200300400";
-    private const string ValidEsi = "31001234560000101";
+    private const string ValidEsi = "3100123456";
 
     private static Company SeedWithPayroll()
     {

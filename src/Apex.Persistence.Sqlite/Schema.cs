@@ -63,20 +63,23 @@ namespace Apex.Persistence.Sqlite;
 /// attendance types — plus the F11 payroll toggles (v30); pay heads and dated salary structures (v31); and
 /// attendance entries + the Payroll-voucher per-line payroll detail together with the pay head's
 /// employer-expense ledger link (v32); and the Provident-Fund config (establishment PF config on companies,
-/// per-employee PF details, and the pay-head PF statutory role + PF-wage flag) (v33).
-/// <b><see cref="CurrentVersion"/> = 33</b>; a fresh DB is always stamped straight to the current version via
+/// per-employee PF details, and the pay-head PF statutory role + PF-wage flag) (v33); and the Employees'-State-
+/// Insurance config (establishment ESI config on companies, per-employee ESI applicability, and the pay-head ESI
+/// statutory role + ESI-wage flag + overtime marker) (v34).
+/// <b><see cref="CurrentVersion"/> = 34</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v33</b> is the latest bump (Phase 8
-    /// slice 4 — Provident Fund: establishment PF config columns on companies, per-employee PF detail columns and
-    /// the pay-head PF statutory role + PF-wage flag). The full v1→v33 history is documented on each
-    /// <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight to
-    /// this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time.
-    /// Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
-    /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 33;
+    /// <summary>The current schema version this adapter reads and writes. <b>v34</b> is the latest bump (Phase 8
+    /// slice 5 — Employees' State Insurance: establishment ESI config columns on companies, a per-employee ESI
+    /// applicability column, and the pay-head ESI statutory role + ESI-wage flag + overtime marker). The full
+    /// v1→v34 history is documented on each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a
+    /// fresh database is stamped straight to this version via <see cref="CreateV1"/>, while an older database is
+    /// migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>: any
+    /// table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the
+    /// migration-equivalence test enforces this).</summary>
+    public const int CurrentVersion = 34;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -157,7 +160,14 @@ public static class Schema
             pf_config_enabled              INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PF establishment enrolled)
             pf_epf_rate_bp                 INTEGER NOT NULL DEFAULT 1200, -- EPF rate basis points (1200=12% / 1000=10%)
             pf_establishment_code          TEXT        NULL,            -- EPFO establishment/PF code, or NULL
-            pf_cap_at_ceiling              INTEGER NOT NULL DEFAULT 1    -- 0/1 (default cap EPF wages at ceiling)
+            pf_cap_at_ceiling              INTEGER NOT NULL DEFAULT 1,   -- 0/1 (default cap EPF wages at ceiling)
+            -- v34 (Phase 8 slice 5): establishment Employees'-State-Insurance config. esi_config_enabled = 0 for every
+            -- existing company, so a company not enrolled for ESI is byte-identical (ER-13); the other columns carry
+            -- defaults. The employer_code is the 17-digit ESIC establishment code (NOT the per-employee 10-digit IP).
+            esi_config_enabled             INTEGER NOT NULL DEFAULT 0,  -- 0/1 (ESI establishment enrolled)
+            esi_ee_rate_bp                 INTEGER NOT NULL DEFAULT 75,  -- employee ESI rate basis points (75=0.75%)
+            esi_er_rate_bp                 INTEGER NOT NULL DEFAULT 325, -- employer ESI rate basis points (325=3.25%)
+            esi_employer_code              TEXT        NULL             -- 17-digit ESIC establishment employer code, or NULL
         );
 
         CREATE TABLE nature_of_payment (
@@ -1053,7 +1063,7 @@ public static class Schema
             aadhaar              TEXT        NULL,
             uan                  TEXT        NULL,   -- 12-digit UAN, NULL when unset
             pf_account_number    TEXT        NULL,
-            esi_number           TEXT        NULL,   -- 17-digit ESI number, NULL when unset
+            esi_number           TEXT        NULL,   -- 10-digit ESI IP number, NULL when unset
             bank_account_number  TEXT        NULL,
             bank_name            TEXT        NULL,
             bank_ifsc            TEXT        NULL,
@@ -1062,7 +1072,12 @@ public static class Schema
             -- byte-identical (ER-13). UAN already lives in the uan column above.
             pf_applicable        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PF applies to this member)
             pf_higher_wages      INTEGER NOT NULL DEFAULT 0,  -- 0/1 (opted to contribute on wages above the ceiling)
-            pf_join_date         TEXT        NULL             -- ISO yyyy-MM-dd, or NULL
+            pf_join_date         TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
+            -- v34 (Phase 8 slice 5): per-employee ESI applicability. Default off, so a pre-v34 employee is
+            -- byte-identical (ER-13). The 10-digit IP number lives in the esi_number column above (corrected in v34
+            -- from a wrongly-validated 17-digit value to the 10-digit IP number).
+            esi_applicable       INTEGER NOT NULL DEFAULT 0,  -- 0/1 (ESI applies to this member)
+            esi_person_with_disability INTEGER NOT NULL DEFAULT 0   -- 0/1 (higher ₹25,000 coverage ceiling applies)
         );
         CREATE INDEX ix_employees_company ON employees(company_id);
 
@@ -1088,7 +1103,12 @@ public static class Schema
             -- v33 (Phase 8 slice 4): PF statutory role + PF-wage flag. Default 0 (None / not a PF-wage), so a pre-v33
             -- pay head is byte-identical (ER-13).
             pf_component              INTEGER NOT NULL DEFAULT 0,  -- PfStatutoryComponent ordinal (0 = None)
-            part_of_pf_wages          INTEGER NOT NULL DEFAULT 0   -- 0/1 (counts toward EPF/EPS/EDLI wages)
+            part_of_pf_wages          INTEGER NOT NULL DEFAULT 0,  -- 0/1 (counts toward EPF/EPS/EDLI wages)
+            -- v34 (Phase 8 slice 5): ESI statutory role + ESI-wage flag + overtime marker. Default 0 (None / not an
+            -- ESI-wage / not overtime), so a pre-v34 pay head is byte-identical (ER-13).
+            esi_component             INTEGER NOT NULL DEFAULT 0,  -- EsiStatutoryComponent ordinal (0 = None)
+            part_of_esi_wages         INTEGER NOT NULL DEFAULT 0,  -- 0/1 (counts toward ESI wages; HRA included)
+            is_overtime               INTEGER NOT NULL DEFAULT 0   -- 0/1 (in ESI contribution base, out of coverage test)
         );
         CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
 
@@ -2369,5 +2389,32 @@ public static class Schema
 
         ALTER TABLE pay_heads ADD COLUMN pf_component     INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE pay_heads ADD COLUMN part_of_pf_wages INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v33 → v34 (Phase 8 slice 5; Employees' State Insurance): purely additive — four <c>ALTER TABLE companies ADD
+    /// COLUMN</c> for the establishment ESI config (enrolled flag, EE/ER rate defaults, 17-digit employer code), two
+    /// <c>ALTER TABLE employees ADD COLUMN</c> for per-employee ESI applicability + the person-with-disability flag
+    /// (the 10-digit IP number already lives in <c>esi_number</c> from v30) and three <c>ALTER TABLE pay_heads ADD
+    /// COLUMN</c> for the ESI statutory
+    /// role + ESI-wage flag + overtime marker, run inside a transaction that bumps <c>schema_version</c> to 34.
+    /// <b>No new tables, no row rewrites, no data backfill</b> — an existing v33 database keeps every row untouched,
+    /// the flags default off (0) and the rates carry their statutory defaults, so a company not enrolled for ESI
+    /// serialises byte-identically to a v33 company (ER-13). Each added column is byte-identical to its counterpart
+    /// in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped straight to
+    /// v34 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV33ToV34 = """
+        ALTER TABLE companies ADD COLUMN esi_config_enabled INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN esi_ee_rate_bp     INTEGER NOT NULL DEFAULT 75;
+        ALTER TABLE companies ADD COLUMN esi_er_rate_bp     INTEGER NOT NULL DEFAULT 325;
+        ALTER TABLE companies ADD COLUMN esi_employer_code  TEXT        NULL;
+
+        ALTER TABLE employees ADD COLUMN esi_applicable INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE employees ADD COLUMN esi_person_with_disability INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE pay_heads ADD COLUMN esi_component     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pay_heads ADD COLUMN part_of_esi_wages INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pay_heads ADD COLUMN is_overtime       INTEGER NOT NULL DEFAULT 0;
         """;
 }

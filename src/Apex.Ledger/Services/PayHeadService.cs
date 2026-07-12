@@ -50,7 +50,10 @@ public sealed class PayHeadService
         PayHeadComputation? computation = null,
         string? displayName = null,
         PfStatutoryComponent pfComponent = PfStatutoryComponent.None,
-        bool partOfPfWages = false)
+        bool partOfPfWages = false,
+        EsiStatutoryComponent esiComponent = EsiStatutoryComponent.None,
+        bool partOfEsiWages = false,
+        bool isOvertime = false)
     {
         var trimmed = RequireName(name);
         if (_company.FindPayHeadByName(trimmed) is not null)
@@ -71,6 +74,9 @@ public sealed class PayHeadService
             Computation = computation,
             PfComponent = pfComponent,
             PartOfPfWages = partOfPfWages,
+            EsiComponent = esiComponent,
+            PartOfEsiWages = partOfEsiWages,
+            IsOvertime = isOvertime,
         };
         if (affectsNetSalary is { } a) payHead.AffectsNetSalary = a;
 

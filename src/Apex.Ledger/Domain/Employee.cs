@@ -67,8 +67,22 @@ public sealed class Employee
     /// (<see cref="Uan"/>) already carries the member's universal account number from slice 1.</summary>
     public DateOnly? PfJoinDate { get; set; }
 
-    /// <summary>ESIC Insurance Number (17 digits; validated at the service boundary when set); optional.</summary>
+    /// <summary>ESIC <b>Insurance Number / IP Number</b> (10 digits; validated at the service boundary when set;
+    /// Phase 8 slice 5 correction — this is the per-employee IP number, <b>not</b> the 17-digit establishment
+    /// employer code, which lives on <see cref="Company.EsiConfig"/>); optional.</summary>
     public string? EsiNumber { get; set; }
+
+    /// <summary>Whether Employees' State Insurance applies to this employee (Phase 8 slice 5). When <c>false</c> the
+    /// payroll engine computes no ESI for the member even if ESI pay heads sit in the structure. Additive, defaults
+    /// <c>false</c> so an existing employee is byte-identical (ER-13); set <c>true</c> when the employee is enrolled
+    /// for ESI (which requires a valid 10-digit IP number in <see cref="EsiNumber"/>).</summary>
+    public bool EsiApplicable { get; set; }
+
+    /// <summary>Whether this employee is a <b>person with disability</b> for ESI coverage (Phase 8 slice 5). A person
+    /// with disability enjoys the higher ₹25,000 coverage ceiling (against the ordinary ₹21,000) when the once-per-CP
+    /// coverage decision is taken, so a disabled member with coverage-test wages in ₹21,001–25,000 is still covered.
+    /// Additive, defaults <c>false</c> so an existing employee is byte-identical (ER-13).</summary>
+    public bool IsPersonWithDisability { get; set; }
 
     public string? BankAccountNumber { get; set; }
     public string? BankName { get; set; }

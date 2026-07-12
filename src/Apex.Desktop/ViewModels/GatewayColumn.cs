@@ -168,6 +168,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted PF ECR / Challan report (non-null only for that column; Phase 8 slice 4; RQ-9).</summary>
     public PfEcrReportViewModel? PfEcrReport => Page as PfEcrReportViewModel;
 
+    /// <summary>The hosted ESI Monthly Contribution report (non-null only for that column; Phase 8 slice 5; RQ-10).</summary>
+    public EsiContributionReportViewModel? EsiContributionReport => Page as EsiContributionReportViewModel;
+
     /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
     public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
 

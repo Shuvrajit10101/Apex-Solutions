@@ -89,8 +89,10 @@ public enum Screen
     AttendanceVoucherEntry,
     PayrollVoucherEntry,
 
-    // Payroll statutory report (Phase 8 slice 4; RQ-9) — PF ECR / Challan, gated on Payroll Statutory.
+    // Payroll statutory reports — PF ECR / Challan (Phase 8 slice 4; RQ-9) and ESI Monthly Contribution
+    // (Phase 8 slice 5; RQ-10), both gated on Payroll Statutory.
     PfEcrReport,
+    EsiContributionReport,
 
     LedgerVouchers,
     VoucherDetail,
@@ -352,6 +354,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The PF ECR / Challan report (Phase 8 slice 4; RQ-9), non-null only while that page column is open.</summary>
     [ObservableProperty] private PfEcrReportViewModel? _pfEcrReport;
 
+    /// <summary>The ESI Monthly Contribution report (Phase 8 slice 5; RQ-10), non-null only while that page column is
+    /// open.</summary>
+    [ObservableProperty] private EsiContributionReportViewModel? _esiContributionReport;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -417,6 +423,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && PayrollUnitMaster is null && AttendanceTypeMaster is null
         && PayHeadMaster is null && SalaryDetails is null
         && AttendanceVoucher is null && PayrollVoucher is null && PfEcrReport is null
+        && EsiContributionReport is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -482,6 +489,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnAttendanceVoucherChanged(AttendanceVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPayrollVoucherChanged(PayrollVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPfEcrReportChanged(PfEcrReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEsiContributionReportChanged(EsiContributionReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1347,10 +1355,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(new MenuItemViewModel("TDS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         if (Company is { TcsEnabled: true })
             col.Add(new MenuItemViewModel("TCS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        // Payroll (PF) statutory reports (Phase 8 slice 4; RQ-9) nest under their own Payroll sub-group, surfaced
+        // Payroll statutory reports (Phase 8 slice 4/5; RQ-9/RQ-10) nest under their own Payroll sub-group, surfaced
         // only when the F11 feature "Enable Payroll Statutory" is on (ER-13).
         if (Company is { PayrollStatutoryEnabled: true })
-            col.Add(new MenuItemViewModel("Payroll (PF)", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+            col.Add(new MenuItemViewModel("Payroll", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
         if (Company is { TdsEnabled: true } or { TcsEnabled: true })
@@ -1358,13 +1366,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return col;
     }
 
-    /// <summary>Builds the "Payroll (PF)" submenu column (Reports → Statutory Reports → Payroll (PF); Phase 8 slice
-    /// 4; RQ-9): the PF ECR / Challan report page (member-wise ECR 2.0 + the A/c 1/2/10/21/22 challan totals).</summary>
+    /// <summary>Builds the "Payroll" submenu column (Reports → Statutory Reports → Payroll; Phase 8 slice 4/5;
+    /// RQ-9/RQ-10): the PF ECR / Challan report page (member-wise ECR 2.0 + the A/c 1/2/10/21/22 challan totals) and
+    /// the ESI Monthly Contribution report page (per-IP EE 0.75% / ER 3.25% + the offline monthly file).</summary>
     private GatewayColumn BuildPayrollStatutoryReportsColumn()
     {
-        var col = new GatewayColumn("Payroll (PF)");
-        col.Add(MenuItemViewModel.Header("Provident Fund"));
+        var col = new GatewayColumn("Payroll");
+        col.Add(MenuItemViewModel.Header("Payroll Statutory"));
         col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -1422,14 +1432,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Gateway of Apex Solutions — TCS Reports");
     }
 
-    /// <summary>Opens the "Reports → Statutory Reports → Payroll (PF)" submenu column directly (Phase 8 slice 4).</summary>
+    /// <summary>Opens the "Reports → Statutory Reports → Payroll" submenu column directly (Phase 8 slice 4/5).</summary>
     public void ShowPayrollStatutoryReportsMenu()
     {
         if (Company is null) { ShowCompanySelect(); return; }
         ShowStatutoryReportsMenu();
-        SelectSubmenuItem("Payroll (PF)");
+        SelectSubmenuItem("Payroll");
         OpenSubmenuColumn(BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
-            "Gateway of Apex Solutions — Payroll (PF)");
+            "Gateway of Apex Solutions — Payroll");
     }
 
     /// <summary>
@@ -2940,6 +2950,39 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the <b>ESI Monthly Contribution</b> report page (Reports → Statutory Reports → Payroll → ESI Monthly
+    /// Contribution; Phase 8 slice 5; RQ-10) as a page column: the per-IP rows (IP number, name, days, ESI wages,
+    /// EE 0.75% / ER 3.25% contributions) + the EE / ER / total footings for a chosen FY + wage month, with a Ctrl+A
+    /// contribution-file export and an Alt+B save-return. A no-op unless Payroll Statutory is enabled (the menu item
+    /// + the open path are gated on <see cref="Company.PayrollStatutoryEnabled"/>), so a non-payroll company never
+    /// reaches it (ER-13).
+    /// </summary>
+    public void OpenEsiContributionReport()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+
+        var page = new EsiContributionReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("ESI Monthly Contribution", page), Screen.EsiContributionReport,
+            "ESI Monthly Contribution (ESIC)", () => EsiContributionReport = page);
+    }
+
+    /// <summary>True while the ESI Monthly Contribution report page is the active screen (drives its keyboard
+    /// actions).</summary>
+    public bool IsEsiContributionReportScreen => CurrentScreen == Screen.EsiContributionReport && EsiContributionReport is not null;
+
+    /// <summary>
+    /// Alt+B on the ESI Monthly Contribution screen — <b>save &amp; return</b>: writes the ESIC monthly-contribution
+    /// offline file for the current return to the export folder (the "save") then pops back to the menu (the
+    /// "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnEsiContribution()
+    {
+        if (!IsEsiContributionReportScreen || EsiContributionReport is null) return;
+        EsiContributionReport.ExportReturn();
+        BackFromPage();
+    }
+
+    /// <summary>
     /// Opens the <b>TCS Stat Payment</b> deposit page (Transactions → Vouchers → Statutory → TCS Stat Payment, the
     /// Payment "Ctrl+F" family; Phase 7 slice 6) as a page column: deposits the collected TCS Payable into the bank and
     /// records the ITNS-281 challan. A no-op unless TCS is enabled (the menu item is itself gated on
@@ -3374,6 +3417,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AttendanceVoucher = null;
         PayrollVoucher = null;
         PfEcrReport = null;
+        EsiContributionReport = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3798,6 +3842,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.PfEcrReport:
                 PfEcrReport?.ExportEcr(); // Ctrl+A exports the ECR 2.0 flat file (the return's primary action)
                 return;
+            case Screen.EsiContributionReport:
+                EsiContributionReport?.ExportReturn(); // Ctrl+A exports the ESIC monthly-contribution offline file
+                return;
             case Screen.TcsStatPayment:
                 TcsStatPayment?.Deposit();
                 return;
@@ -3906,8 +3953,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — TDS Reports"),
             "TCS Reports" => (BuildTcsReportsColumn(), GatewayMenu.TcsReports,
                 "Gateway of Apex Solutions — TCS Reports"),
-            "Payroll (PF)" => (BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
-                "Gateway of Apex Solutions — Payroll (PF)"),
+            "Payroll" => (BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
+                "Gateway of Apex Solutions — Payroll"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -4027,8 +4074,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "TCS Interest u/s 206C(7)": OpenReport(ReportKind.TcsInterest); break;
             case "TCS Nature of Goods Summary": OpenReport(ReportKind.TcsNatureSummary); break;
             case "Ledgers without PAN": OpenReport(ReportKind.LedgersWithoutPan); break;
-            // PF statutory report (Phase 8 slice 4) — under Reports → Statutory Reports → Payroll (PF).
+            // Payroll statutory reports (Phase 8 slice 4/5) — under Reports → Statutory Reports → Payroll.
             case "PF ECR / Challan": OpenPfEcrReport(); break;
+            case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -4177,7 +4225,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Statutory Reports" => GatewayMenu.StatutoryReports,
                     "TDS Reports" => GatewayMenu.TdsReports,
                     "TCS Reports" => GatewayMenu.TcsReports,
-                    "Payroll (PF)" => GatewayMenu.PayrollStatutoryReports,
+                    "Payroll" => GatewayMenu.PayrollStatutoryReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,
                     "Bank Book" => GatewayMenu.BankBook,

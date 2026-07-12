@@ -159,6 +159,26 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// under it). A payroll-off / statutory-off company never sees the PF fields (ER-13).</summary>
     public bool ShowPfConfig => PayrollStatutoryEnabled;
 
+    // ---- Employees' State Insurance (Phase 8 slice 5; F11 Payroll Statutory → ESI; RQ-10) -------------------
+    // The establishment's ESIC enrolment facts the ESI computation reads. Only meaningful (and only shown) while
+    // PayrollStatutoryEnabled is on; enrolling sets Company.EsiConfig via the engine, disabling clears it. Every
+    // field is gated: a company that never enrols for ESI is byte-identical to a pre-v34 company (ER-13).
+
+    /// <summary>Whether the establishment is enrolled for Employees' State Insurance (the "Enable ESI" toggle;
+    /// applied via <see cref="ApplyEsi"/>). Non-<c>null</c> <see cref="Company.EsiConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _esiEnabled;
+
+    /// <summary>The ESIC <b>establishment / employer code</b> (17 digits) printed on the challan and monthly file;
+    /// optional (may be captured later). Distinct from the per-employee 10-digit IP number.</summary>
+    [ObservableProperty] private string _esiEmployerCode = string.Empty;
+
+    /// <summary>The ESI Enable/disable result message (kept separate from the GST/TDS/TCS/PF messages).</summary>
+    [ObservableProperty] private string? _esiMessage;
+
+    /// <summary>True iff the ESI configuration block should render — only while Payroll Statutory is on (ESI lives
+    /// under it). A payroll-off / statutory-off company never sees the ESI fields (ER-13).</summary>
+    public bool ShowEsiConfig => PayrollStatutoryEnabled;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -274,6 +294,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         PayrollEnabled = _company.PayrollEnabled;
         PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         LoadPfFromCompany();
+        LoadEsiFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -449,6 +470,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
             PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         OnPropertyChanged(nameof(ShowPfConfig));
+        OnPropertyChanged(nameof(ShowEsiConfig));
         _onChanged();
     }
 
@@ -472,6 +494,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             return;
         }
         OnPropertyChanged(nameof(ShowPfConfig)); // the PF block appears/hides with the statutory sub-toggle
+        OnPropertyChanged(nameof(ShowEsiConfig)); // the ESI block appears/hides with the statutory sub-toggle
         _onChanged();
     }
 
@@ -535,6 +558,65 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         var real = _company.PfConfig is not null;
         if (PfEnabled != real) PfEnabled = real;
+    }
+
+    /// <summary>Seeds the ESI form from the company's current <see cref="Company.EsiConfig"/> (defaults for a
+    /// never-enrolled company: 0.75%/3.25% rates, no employer code).</summary>
+    private void LoadEsiFromCompany()
+    {
+        var esi = _company.EsiConfig;
+        EsiEnabled = esi is not null;
+        EsiEmployerCode = esi?.EmployerCode ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Applies the "Enable ESI" toggle (F11 → Payroll Statutory; Phase 8 slice 5; RQ-10), mirroring
+    /// <see cref="ApplyPf"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableEsi"/> (EE 0.75% / ER 3.25% defaults + the optional 17-digit ESIC employer
+    /// code, structurally validated) — which also turns Payroll Statutory on — and persist. On disable: clear
+    /// <see cref="Company.EsiConfig"/> and persist (per-employee ESI details are retained, inert). Any domain error
+    /// is surfaced to <see cref="EsiMessage"/> without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyEsi()
+    {
+        EsiMessage = null;
+
+        if (!EsiEnabled)
+        {
+            _company.EsiConfig = null; // enrolment cleared; per-employee ESI details retained (harmless, inert)
+            if (!TrySave(m => EsiMessage = m)) { RevertEsiToggle(); return false; }
+            EsiMessage = "Employees' State Insurance is now OFF for this company. Employee ESI details are unchanged.";
+            _onChanged();
+            return true;
+        }
+
+        var code = BlankToNull(EsiEmployerCode);
+        try
+        {
+            new PayrollService(_company).EnableEsi(employerCode: code);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            EsiMessage = ex.Message;
+            RevertEsiToggle();
+            return false;
+        }
+
+        // EnableEsi flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        EsiMessage = $"Employees' State Insurance enabled for {_company.Name} (employee 0.75% / employer 3.25%; "
+                     + "coverage ceiling ₹21,000 gross, ₹25,000 for a person with disability).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="EsiEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertEsiToggle()
+    {
+        var real = _company.EsiConfig is not null;
+        if (EsiEnabled != real) EsiEnabled = real;
     }
 
     /// <summary>
@@ -823,6 +905,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // edited rate/code/cap), mirroring the auto-applying sibling feature toggles on the same panel.
         if (ShowPfConfig && (PfEnabled != (_company.PfConfig is not null) || PfEnabled))
             ApplyPf();
+        // Commit the ESI enrolment on the same rule (toggle changed, or ESI on to persist an edited employer code).
+        if (ShowEsiConfig && (EsiEnabled != (_company.EsiConfig is not null) || EsiEnabled))
+            ApplyEsi();
     }
 
     /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>

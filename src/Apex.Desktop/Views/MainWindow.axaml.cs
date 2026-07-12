@@ -743,6 +743,16 @@ public partial class MainWindow : Window
     private void OnSaveReturnPfEcrClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnPfEcr();
 
+    // Employees' State Insurance (Phase 8 slice 5) — F11 Enable ESI + the ESI contribution export / save-return.
+    private void OnApplyEsiClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyEsi();
+
+    private void OnExportEsiContributionClick(object? sender, RoutedEventArgs e)
+        => Vm?.EsiContributionReport?.ExportReturn();
+
+    private void OnSaveReturnEsiContributionClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnEsiContribution();
+
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfPaymentMaster?.Create();
 

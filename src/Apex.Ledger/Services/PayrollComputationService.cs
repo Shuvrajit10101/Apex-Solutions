@@ -57,7 +57,16 @@ public sealed class PayrollComputationService
         foreach (var line in structure.Lines)
             linesByHead[line.PayHeadId] = line;
 
-        var evaluator = new Evaluator(_company, employee, structure, linesByHead, periodFrom, periodTo, userDefinedAmounts);
+        // ESI coverage is decided ONCE at the contribution-period start and frozen for the whole period (Phase 8
+        // slice 5): a member covered at the CP start stays covered even if wages rise above ₹21,000 mid-period, and
+        // a member above the ceiling at the CP start is out for the whole period. The decision is re-derivable (pure)
+        // from the dated salary structure in force on the CP's first day, so it needs no persisted state.
+        var esiCovered = _company.EsiConfig is not null && employee.EsiApplicable
+            && DecideEsiCoverage(employee, periodTo);
+
+        var evaluator = new Evaluator(
+            _company, employee, structure, linesByHead, periodFrom, periodTo, userDefinedAmounts,
+            _company.EsiConfig, esiCovered);
 
         var computed = new List<PayrollComputedLine>(structure.Lines.Count);
         foreach (var line in structure.Lines)
@@ -81,6 +90,94 @@ public sealed class PayrollComputationService
         var svc = new SalaryStructureService(_company);
         return svc.InForceOn(SalaryStructureScope.Employee, employee.Id, date)
             ?? svc.InForceOn(SalaryStructureScope.EmployeeGroup, employee.EmployeeGroupId, date);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="employeeId"/> is <b>ESI-covered</b> for the contribution period containing
+    /// <paramref name="periodTo"/> (Phase 8 slice 5). False when the establishment is not enrolled for ESI, the
+    /// member is not ESI-applicable, or the member's coverage-test wages (excluding overtime) at the coverage anchor
+    /// exceed the ₹21,000 ceiling (₹25,000 for a person with disability). Exposed so the monthly-contribution report
+    /// reconciles to the same decision the payroll voucher posts.
+    /// </summary>
+    public bool IsEsiCovered(Guid employeeId, DateOnly periodTo)
+    {
+        var employee = _company.FindEmployee(employeeId)
+            ?? throw new InvalidOperationException($"Employee {employeeId} not found.");
+        return _company.EsiConfig is not null && employee.EsiApplicable && DecideEsiCoverage(employee, periodTo);
+    }
+
+    /// <summary>
+    /// Decides ESI coverage for the contribution period containing <paramref name="periodTo"/> (Phase 8 slice 5):
+    /// resolves the salary structure at the member's <b>coverage anchor</b> — the point at which coverage is frozen
+    /// for the whole CP (see <see cref="EsiCoverageAnchor"/>) — sums its <b>coverage-test</b> wages (ESI-wage earnings
+    /// <b>excluding overtime</b>) and tests them against the ₹21,000 ceiling (₹25,000 for a person with disability).
+    /// The anchor is the CP's first day for an established member and the member's <b>first payroll date within the
+    /// CP</b> for a mid-period joinee — never the current month's period end, so coverage is decided <b>once</b> per
+    /// CP and not re-derived as the wage changes mid-period (the continuation rule; F2).
+    /// </summary>
+    private bool DecideEsiCoverage(Employee employee, DateOnly periodTo)
+    {
+        var cpStart = EsiContribution.ContributionPeriodStart(periodTo);
+        if (EsiCoverageAnchor(employee, cpStart, periodTo) is not { } anchor) return false;
+        var structure = ResolveStructureInForce(employee, anchor);
+        if (structure is null) return false;
+        return EsiContribution.IsCovered(
+            SumEsiCoverageTestWages(employee, structure, anchor), employee.IsPersonWithDisability);
+    }
+
+    /// <summary>
+    /// The date at which ESI coverage is <b>frozen</b> for the contribution period <c>[cpStart, …]</c> that the
+    /// payroll falls in (Phase 8 slice 5; F2): the <b>CP start</b> when a salary structure is already in force there
+    /// (an established member), else the member's <b>earliest structure-effective date within the CP</b> (on/after
+    /// <paramref name="cpStart"/> and on/before <paramref name="periodTo"/>) — a mid-period joinee's first payroll in
+    /// the CP. Returns <c>null</c> when the member has no applicable structure in the period at all. Anchoring on the
+    /// first-in-CP point (rather than the current month's <paramref name="periodTo"/>) keeps a joinee covered for the
+    /// whole CP even after a mid-CP raise above the ceiling, matching the once-per-CP continuation rule.
+    /// </summary>
+    private DateOnly? EsiCoverageAnchor(Employee employee, DateOnly cpStart, DateOnly periodTo)
+    {
+        if (ResolveStructureInForce(employee, cpStart) is not null) return cpStart;
+
+        DateOnly? earliest = null;
+        foreach (var s in _company.SalaryStructures)
+        {
+            if (s.EffectiveFrom < cpStart || s.EffectiveFrom > periodTo) continue;
+            if (!StructureAppliesTo(employee, s)) continue;
+            if (earliest is null || s.EffectiveFrom < earliest) earliest = s.EffectiveFrom;
+        }
+        return earliest;
+    }
+
+    /// <summary>Whether <paramref name="structure"/> is one of <paramref name="employee"/>'s applicable structures —
+    /// employee-scoped for this employee, or group-scoped for the employee's group (the same two scopes
+    /// <see cref="ResolveStructureInForce"/> consults, ER-4).</summary>
+    private static bool StructureAppliesTo(Employee employee, SalaryStructure structure) =>
+        (structure.Scope == SalaryStructureScope.Employee && structure.ScopeId == employee.Id) ||
+        (structure.Scope == SalaryStructureScope.EmployeeGroup && structure.ScopeId == employee.EmployeeGroupId);
+
+    /// <summary>Σ of the structure's ESI coverage-test earnings — earning heads flagged
+    /// <see cref="PayHead.PartOfEsiWages"/> that are <b>not</b> overtime (<see cref="PayHead.IsOvertime"/>) —
+    /// evaluated over the wage month anchored at <paramref name="anchor"/>. The engine passes a null ESI config to
+    /// the sub-evaluator so a stray ESI head cannot recurse; overtime is excluded here (it never affects
+    /// eligibility) though it is included in the contribution base.</summary>
+    private decimal SumEsiCoverageTestWages(Employee employee, SalaryStructure structure, DateOnly anchor)
+    {
+        var monthEnd = new DateOnly(anchor.Year, anchor.Month, DateTime.DaysInMonth(anchor.Year, anchor.Month));
+        var linesByHead = new Dictionary<Guid, SalaryStructureLine>();
+        foreach (var line in structure.Lines) linesByHead[line.PayHeadId] = line;
+        var evaluator = new Evaluator(
+            _company, employee, structure, linesByHead, anchor, monthEnd, userDefined: null,
+            esiConfig: null, esiCovered: false);
+
+        decimal sum = 0m;
+        foreach (var line in structure.Lines)
+        {
+            var ph = _company.FindPayHead(line.PayHeadId);
+            if (ph is null || !ph.PartOfEsiWages || ph.IsOvertime) continue;
+            if (RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
+            sum += evaluator.Evaluate(ph.Id).Amount;
+        }
+        return sum;
     }
 
     /// <summary>The accounting posting role of a pay-head type (ER-1): earnings/reimbursements/bonus are
@@ -116,13 +213,16 @@ public sealed class PayrollComputationService
         private readonly DateOnly _from;
         private readonly DateOnly _to;
         private readonly IReadOnlyDictionary<Guid, Money>? _userDefined;
+        private readonly EsiConfig? _esiConfig;
+        private readonly bool _esiCovered;
         private readonly Dictionary<Guid, Money> _cache = new();
         private readonly HashSet<Guid> _visiting = new();
 
         public Evaluator(
             Company company, Employee employee, SalaryStructure structure,
             IReadOnlyDictionary<Guid, SalaryStructureLine> linesByHead,
-            DateOnly from, DateOnly to, IReadOnlyDictionary<Guid, Money>? userDefined)
+            DateOnly from, DateOnly to, IReadOnlyDictionary<Guid, Money>? userDefined,
+            EsiConfig? esiConfig, bool esiCovered)
         {
             _company = company;
             _employee = employee;
@@ -131,6 +231,8 @@ public sealed class PayrollComputationService
             _from = from;
             _to = to;
             _userDefined = userDefined;
+            _esiConfig = esiConfig;
+            _esiCovered = esiCovered;
         }
 
         public Money Evaluate(Guid payHeadId)
@@ -145,10 +247,14 @@ public sealed class PayrollComputationService
                 ?? throw new InvalidOperationException($"Salary structure references a pay head ({payHeadId}) that no longer exists.");
 
             // A PF statutory head is computed by the dedicated EPF/EPS/EDLI engine (the EPS cap + employer-EPF
-            // residual + admin floor cannot be expressed as ordinary slabs), not its generic calculation type.
+            // residual + admin floor cannot be expressed as ordinary slabs); an ESI statutory head by the dedicated
+            // ESI engine (independent round-up + ≤ ₹176 waiver + frozen coverage); everything else by its generic
+            // calculation type.
             var amount = payHead.PfComponent != PfStatutoryComponent.None
                 ? EvaluatePf(payHead)
-                : ApplyRounding(payHead, EvaluateRaw(payHead));
+                : payHead.EsiComponent != EsiStatutoryComponent.None
+                    ? EvaluateEsi(payHead)
+                    : ApplyRounding(payHead, EvaluateRaw(payHead));
 
             _visiting.Remove(payHeadId);
             _cache[payHeadId] = amount;
@@ -202,6 +308,75 @@ public sealed class PayrollComputationService
             {
                 var ph = _company.FindPayHead(line.PayHeadId);
                 if (ph is null || !ph.PartOfPfWages) continue;
+                if (PayrollComputationService.RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
+                sum += Evaluate(ph.Id).Amount;
+            }
+            return sum;
+        }
+
+        /// <summary>
+        /// Evaluates an ESI statutory head for this member (Phase 8 slice 5) via <see cref="EsiContribution"/>:
+        /// contribution wages are the Σ of the structure's ESI-wage earnings (basic + DA + HRA + overtime; the
+        /// <b>actual</b> wages with no ₹21,000 cap on the base), each side rounded UP independently; the employee
+        /// share is waived when the average daily wage ≤ ₹176. Coverage was decided once at the contribution-period
+        /// start (frozen for the period) — a not-covered or not-applicable member, or a not-enrolled establishment,
+        /// contributes nothing (ER-13, symmetric with PF's not-enrolled gate).
+        /// </summary>
+        private Money EvaluateEsi(PayHead payHead)
+        {
+            if (_esiConfig is not { } cfg) return Money.Zero;   // establishment not enrolled for ESI (ER-13)
+            if (!_employee.EsiApplicable) return Money.Zero;    // member not enrolled for ESI
+            if (!_esiCovered) return Money.Zero;                // above the ceiling at the CP start ⇒ out for the period
+
+            var contributionWages = EsiContributionWagesRaw();
+            // The ≤ ₹176 employee-share waiver tests the AVERAGE DAILY WAGE = wages ÷ days for which wages are payable
+            // (ESIC). We take the numerator as the coverage-test wages (overtime EXCLUDED, like the eligibility test)
+            // and the denominator as the period's days — the same day count the monthly contribution file reports when
+            // no explicit paid-days are supplied. Using contribution wages (which include a one-off overtime) here
+            // would wrongly flip a genuinely low-paid worker above ₹176 for that month (F3). The contribution itself is
+            // still charged on the full ₹8,000-style base; only the exemption test excludes overtime.
+            var coverageTestWages = EsiCoverageTestWagesRaw();
+            var days = _to.DayNumber - _from.DayNumber + 1;
+            var averageDailyWage = days > 0 ? coverageTestWages / days : coverageTestWages;
+            var c = EsiContribution.ComputeMember(
+                contributionWages, averageDailyWage, cfg.EmployeeRateBasisPoints, cfg.EmployerRateBasisPoints);
+
+            return payHead.EsiComponent switch
+            {
+                EsiStatutoryComponent.EmployeeStateInsurance => c.EmployeeContribution,
+                EsiStatutoryComponent.EmployerStateInsurance => c.EmployerContribution,
+                _ => Money.Zero,
+            };
+        }
+
+        /// <summary>The member's ESI <b>contribution</b> wage basis: the Σ of the structure's earning heads flagged
+        /// <see cref="PayHead.PartOfEsiWages"/> — basic + DA + HRA + overtime — each evaluated + memoised. Overtime
+        /// IS included here (it is part of the amount ESI is charged on); it is excluded only from the coverage
+        /// test. No ESI-wage earning references an ESI head, so this closes no cycle.</summary>
+        private decimal EsiContributionWagesRaw()
+        {
+            decimal sum = 0m;
+            foreach (var line in _structure.Lines)
+            {
+                var ph = _company.FindPayHead(line.PayHeadId);
+                if (ph is null || !ph.PartOfEsiWages) continue;
+                if (PayrollComputationService.RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
+                sum += Evaluate(ph.Id).Amount;
+            }
+            return sum;
+        }
+
+        /// <summary>The member's ESI <b>coverage-test</b> wage basis: the Σ of the structure's ESI-wage earning heads
+        /// that are <b>not</b> overtime (<see cref="PayHead.IsOvertime"/>) — the same figure the once-per-CP
+        /// eligibility test uses. Used as the numerator of the ≤ ₹176 average-daily-wage employee-share waiver (F3),
+        /// so a one-off overtime month does not strip a low-paid worker of the exemption.</summary>
+        private decimal EsiCoverageTestWagesRaw()
+        {
+            decimal sum = 0m;
+            foreach (var line in _structure.Lines)
+            {
+                var ph = _company.FindPayHead(line.PayHeadId);
+                if (ph is null || !ph.PartOfEsiWages || ph.IsOvertime) continue;
                 if (PayrollComputationService.RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
                 sum += Evaluate(ph.Id).Amount;
             }
@@ -466,6 +641,21 @@ public sealed class PayrollComputationResult
             var sum = 0m;
             foreach (var l in Lines)
                 if (l.Role == PayHeadPostingRole.Earning && l.PayHead.PartOfPfWages) sum += l.Amount.Amount;
+            return new Money(sum);
+        }
+    }
+
+    /// <summary>The member's <b>ESI contribution wage basis</b> (Phase 8 slice 5): the Σ of the evaluated earning
+    /// lines flagged <see cref="PayHead.PartOfEsiWages"/> (basic + DA + HRA + overtime) — the actual, uncapped ESI
+    /// base the ESI engine charges on, exposed so the monthly contribution report reads the same figure the payroll
+    /// voucher posted. Overtime is included (it is part of the base; only the coverage test excludes it).</summary>
+    public Money EsiContributionWages
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines)
+                if (l.Role == PayHeadPostingRole.Earning && l.PayHead.PartOfEsiWages) sum += l.Amount.Amount;
             return new Money(sum);
         }
     }

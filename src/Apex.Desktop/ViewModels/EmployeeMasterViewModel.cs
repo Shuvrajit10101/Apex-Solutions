@@ -116,12 +116,23 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
     [ObservableProperty] private bool _pfContributeOnHigherWages;
     [ObservableProperty] private string _pfJoinDateText = string.Empty;
 
+    // Employees'-State-Insurance details (Phase 8 slice 5; RQ-10) — only meaningful (and only shown) while Payroll
+    // Statutory is on. Marking a member ESI-applicable requires a valid 10-digit IP / Insurance Number (^\d{10}$);
+    // the monthly contribution file keys the member on it (NOT the 17-digit establishment employer code). A
+    // person-with-disability enjoys the higher ₹25,000 coverage ceiling (against the ordinary ₹21,000).
+    [ObservableProperty] private bool _esiApplicable;
+    [ObservableProperty] private bool _esiPersonWithDisability;
+
     [ObservableProperty] private string? _message;
 
     /// <summary>True iff the per-employee PF details block should render — only while Payroll Statutory is on. A
     /// non-statutory company never sees the PF fields (ER-13). Fixed for the page's lifetime (the company's
     /// statutory flag does not change while an Employee-master page column is open).</summary>
     public bool ShowPfDetails => _company.PayrollStatutoryEnabled;
+
+    /// <summary>True iff the per-employee ESI details block should render — only while Payroll Statutory is on. A
+    /// non-statutory company never sees the ESI fields (ER-13).</summary>
+    public bool ShowEsiDetails => _company.PayrollStatutoryEnabled;
 
     public EmployeeMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
@@ -174,6 +185,14 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             return false;
         }
 
+        // An ESI-applicable member is keyed on its 10-digit IP / Insurance Number — pre-validate the same way.
+        var wantsEsi = EsiApplicable && ShowEsiDetails;
+        if (wantsEsi && !IsTenDigits(EsiNumber))
+        {
+            Message = "An ESI-applicable employee needs a valid 10-digit IP number (e.g. 3100123456).";
+            return false;
+        }
+
         try
         {
             var service = new PayrollService(_company);
@@ -202,6 +221,10 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             if (wantsPf)
                 service.SetEmployeePfDetails(employee.Id, applicable: true,
                     contributeOnHigherWages: PfContributeOnHigherWages, pfJoinDate: pfJoin);
+            // ESI details (re-validates the 10-digit IP number as a backstop); a person-with-disability gets the
+            // higher ₹25,000 coverage ceiling.
+            if (wantsEsi)
+                service.SetEmployeeEsiDetails(employee.Id, applicable: true, personWithDisability: EsiPersonWithDisability);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -231,6 +254,8 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
         PfApplicable = false;
         PfContributeOnHigherWages = false;
         PfJoinDateText = string.Empty;
+        EsiApplicable = false;
+        EsiPersonWithDisability = false;
         SelectedCategory = CategoryOptions.FirstOrDefault();
         SelectedRegime = Regimes.First();
         _onChanged();
@@ -242,6 +267,15 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
     {
         var t = (value ?? string.Empty).Trim();
         if (t.Length != 12) return false;
+        foreach (var ch in t) if (ch is < '0' or > '9') return false;
+        return true;
+    }
+
+    /// <summary>True iff <paramref name="value"/> is exactly 10 digits (the ESIC IP-number shape, <c>^\d{10}$</c>).</summary>
+    private static bool IsTenDigits(string? value)
+    {
+        var t = (value ?? string.Empty).Trim();
+        if (t.Length != 10) return false;
         foreach (var ch in t) if (ch is < '0' or > '9') return false;
         return true;
     }

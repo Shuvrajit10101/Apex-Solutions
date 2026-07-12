@@ -76,6 +76,27 @@ public sealed class PayHead
     /// structure is set up. Additive, defaults <c>false</c> so an existing pay head is byte-identical (ER-13).</summary>
     public bool PartOfPfWages { get; set; }
 
+    /// <summary>The <b>Employees'-State-Insurance statutory role</b> of this head (Phase 8 slice 5); default
+    /// <see cref="EsiStatutoryComponent.None"/>. A non-<c>None</c> head is computed by the dedicated ESI engine
+    /// (<c>EsiContribution</c>) rather than its ordinary <see cref="CalculationType"/> slabs, because the statutory
+    /// split (independent round-up of each side, the ≤ ₹176 employee waiver, and once-per-period frozen coverage on
+    /// uncapped actual wages) cannot be expressed as ordinary slabs. Additive, defaults
+    /// <see cref="EsiStatutoryComponent.None"/> so an existing pay head is byte-identical (ER-13).</summary>
+    public EsiStatutoryComponent EsiComponent { get; set; } = EsiStatutoryComponent.None;
+
+    /// <summary>Whether this earning head counts toward <b>ESI wages</b> — the basic + DA + <b>HRA</b> + overtime +
+    /// regular cash allowances basis ESI is computed on (Phase 8 slice 5). Unlike PF wages, <b>HRA is included</b>;
+    /// annual bonus, employer PF, gratuity and reimbursements are excluded. Default <c>false</c>; the ESI-wage
+    /// earnings are flagged <c>true</c> when the salary structure is set up. Additive, defaults <c>false</c> so an
+    /// existing pay head is byte-identical (ER-13).</summary>
+    public bool PartOfEsiWages { get; set; }
+
+    /// <summary>Whether this earning head is <b>overtime</b> (Phase 8 slice 5). Overtime is asymmetric for ESI: it is
+    /// <b>included</b> in the contribution base (the amount ESI is charged on) but <b>excluded</b> from the ₹21,000
+    /// coverage test (a member does not lose eligibility because overtime pushed them over the ceiling). Only
+    /// meaningful together with <see cref="PartOfEsiWages"/>. Additive, defaults <c>false</c> (ER-13).</summary>
+    public bool IsOvertime { get; set; }
+
     /// <summary>The income-tax component tag (§192 treatment); default <see cref="IncomeTaxComponent.NotApplicable"/>.</summary>
     public IncomeTaxComponent IncomeTaxComponent { get; set; } = IncomeTaxComponent.NotApplicable;
 

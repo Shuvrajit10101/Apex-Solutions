@@ -379,6 +379,10 @@ public sealed class CompanyImportService
             // PF member the domain would never allow, which the PF ECR/Challan report then throws on or mis-emits.
             if (em.PfApplicable && !IsValid12DigitUan(em.Uan))
                 errors.Add($"Employee '{em.Name}' is PF-applicable but has no valid 12-digit UAN.");
+            // Mirror the ESI domain guard (Phase 8 slice 5; PayrollService.SetEmployeeEsiDetails): an ESI-applicable
+            // member MUST carry a valid 10-digit IP number (esi_number) — the monthly contribution file keys on it.
+            if (em.EsiApplicable && !IsValid10DigitIp(em.EsiNumber))
+                errors.Add($"Employee '{em.Name}' is ESI-applicable but has no valid 10-digit ESI IP number.");
         }
 
         // Pay heads (Phase 8 slice 2): under-group + ledger + attendance-type + computed-on component references.
@@ -693,6 +697,17 @@ public sealed class CompanyImportService
         if (uan is null) return false;
         var trimmed = uan.Trim();
         if (trimmed.Length != 12) return false;
+        foreach (var ch in trimmed) if (ch is < '0' or > '9') return false;
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="ip"/> is a valid 10-digit ESI IP number (<c>^\d{10}$</c>) — the same rule the
+    /// domain enforces at the master-save boundary (<c>PayrollService</c>), mirrored here for the import pre-flight.</summary>
+    private static bool IsValid10DigitIp(string? ip)
+    {
+        if (ip is null) return false;
+        var trimmed = ip.Trim();
+        if (trimmed.Length != 10) return false;
         foreach (var ch in trimmed) if (ch is < '0' or > '9') return false;
         return true;
     }
