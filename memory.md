@@ -1460,6 +1460,67 @@ de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S4
 ceiling, Apr–Sep / Oct–Mar contribution periods with benefit-period continuation, monthly ESI return; schema v34; A14 to
 web-verify ESI rates / ceiling / period rules).**
 
+### Phase 8 slice 5 — Employees' State Insurance (ESI) (2026-07-12) — schema v34
+Fifth Phase-8 (Payroll) slice — the second **statutory** payroll head: **Employees' State Insurance**, computed and posted
+through the S3 balanced/atomic voucher. **A14 web-verified against primary ESIC sources** the rates, ceiling, rounding, and
+contribution-period rules. Delivered:
+- **`EsiContribution`** (`src/Apex.Ledger/Services/EsiContribution.cs`) — pure, framework/DB/clock-free ESI computation.
+  Rates: **employee 0.75% + employer 3.25%**, each **CEIL (round UP) to the whole rupee INDEPENDENTLY** — deliberately
+  **different from PF's nearest-rupee round-half-up** (ESIC Reg. 40 rounds each contribution up). **Coverage ceiling
+  ₹21,000 gross** (**₹25,000 for a person with disability** — now **reachable** via a new `IsPersonWithDisability` flag,
+  previously dead/unreachable code); **NO ₹21k cap on the contribution BASE** (once covered, both shares compute on the
+  full gross, not on the clipped ceiling). **₹176/day average-daily-wage floor → the employee 0.75% share is WAIVED but
+  the employer 3.25% still pays** (ESIC exemption for the low-wage worker). `EsiComputationTests` incl. the golden.
+- **Two wage figures (the ESI asymmetry)** — the **coverage test uses gross EXCLUDING overtime**, but the **contribution
+  base INCLUDES overtime** (ESIC: OT can't push you *into* coverage, but once covered OT is contributory). **HRA is
+  included** in both. Encoded as two distinct wage rollups so OT never leaks into the ₹21k coverage test.
+- **Contribution-period CONTINUATION** — the two contribution periods **CP1 Apr–Sep / CP2 Oct–Mar**; **coverage is frozen
+  at the START of the contribution period for the whole period** (an IP covered at CP start stays covered every month of
+  that CP even if wages later cross ₹21k), and a **mid-CP joiner is frozen at their FIRST payroll** in that CP. Drives the
+  benefit-period guarantee ESIC promises the worker.
+- **Config surface** — **per-company `EsiConfig`** (`src/Apex.Ledger/Domain/EsiConfig.cs`: applicability, establishment
+  ESI code, rates/ceilings as data); **per-employee ESI fields** on `Employee` (ESI-applicable, **10-digit IP number**,
+  `IsPersonWithDisability`); the **per-pay-head ESI-wage flags** on `PayHead` (contributory / overtime) so the wage base is
+  data, not hardcoded. **`EsiStatutoryComponent`** (`src/Apex.Ledger/Domain/EsiStatutoryComponent.cs`) carries the computed
+  employee/employer breakup + the frozen-coverage decision.
+- **Posting integration into the S3 balanced/atomic voucher** — **employee ESI reduces net** (Cr ESI-payable, like any
+  employee deduction); **employer ESI posts a balanced Dr-expense / Cr-payable pair**; rides the same **pre-validate →
+  rollback-scope atomic** post and **non-destructive auto-create** of the ESI payable/expense ledgers from S3 — **no
+  voucher-service change**. `EsiVoucherPostingTests`.
+- **Monthly per-IP contribution file** — **`EsiContributionWriter`** (`src/Apex.Ledger.Io/EsiContributionWriter.cs`) emits
+  the monthly member/IP contribution lines (`EsiContribution` report, `src/Apex.Ledger/Reports/EsiContribution.cs`).
+  Deterministic, byte-stable, de-branded, offline emulation only. `EsiContributionWriterTests`.
+- **Schema v33→v34 — additive** (`Schema.cs` `CurrentVersion = 34`): EsiConfig columns on the company + the ESI-wage flags
+  on the pay head + per-employee ESI columns, added to **BOTH `CreateV1` AND `MigrateV33ToV34`** (no create-vs-migrate
+  drift); **`SchemaMigrationEquivalenceTests` green at v34**. `SqliteCompanyStore` persists it all (`EsiSchemaTests`).
+- **Io canonical fold-in** — EsiConfig + per-employee ESI + the ESI-wage flags folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** (`CanonicalEsiRoundTripTests`).
+- **CORRECTED the S1 IP-length bug** — the **per-employee Insurance Number (IP) is 10 digits, not 17**; **17 is the
+  establishment employer code**. Fixed the validation on `Employee` + the F11/Employee master VMs; **3 pre-existing tests
+  updated** for the corrected length (`PayrollServiceTests`, `CanonicalPayrollRoundTripTests`, `PayrollRoundTripTests`).
+- **GOLDEN** (hand-derived, regression-locked): **gross ₹20,000 → EE 150 / ER 650**, posted ESI voucher **Dr == Cr ==
+  ₹20,650** with **net ₹19,850**; **gross ₹17,500 → EE 132 / ER 569** (proves the independent **round-UP** each side —
+  0.75%×17,500 = 131.25→132, 3.25%×17,500 = 568.75→569).
+- **UI** — F11 payroll config VM gains the EsiConfig surface + the Employee master VM gains the ESI/IP/disability fields
+  (+ `MainWindow`); **`EsiContributionReportViewModel`** drives the monthly ESI contribution report pane.
+  `EsiConfigReportViewModelTests`.
+- **A10 adversarial review — posting-balance-weighted, CLEAN on balance.** ⚠️ the **workflow's review phase died on a
+  session limit** (the recurring habit — S3/S4/S8), so I (orchestrator) **ran the 3 A10 lenses SEPARATELY** before A12
+  committed. Caught + fixed **2 MED** — (1) the **disability ₹25,000 ceiling was unreachable dead code** (no flag ever set
+  it → added `IsPersonWithDisability` so the higher ceiling is actually reachable); (2) **contribution-period continuation
+  was broken for a mid-CP joiner** (coverage wasn't frozen at their first payroll → they could flip out of coverage
+  mid-CP; now frozen at first payroll). Plus **2 LOW** — the **₹176/day denominator was inflated by overtime** (used the
+  contribution base incl. OT instead of the coverage wage → now the OT-excluded wage); a **stale comment**. All
+  regression-locked.
+Gate fully green in Release: **Ledger 802 · Io 232 · Sqlite 130 · Desktop 642 = 1806 total, 0 failures**, schema v34,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S5. Release build sanity check: **0 warnings,
+0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 5 — Employees' State Insurance … schema v34` +
+`docs(memory): Phase 8 slice 5 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary). **Next = P8-S6 (Professional Tax — state-configurable slabs seeded
+MH + KA + WB + None, PT deduction + payment; schema v35; A14 to web-verify per-state PT bands + the ₹2,500/yr
+constitutional cap).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
