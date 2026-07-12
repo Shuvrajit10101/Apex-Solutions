@@ -1413,6 +1413,53 @@ slice 3 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touc
 at the phase boundary). The superseded P8-S3 WIP stash was dropped. **Next = P8-S4 (PF — computed EPS/EPF split + EDLI +
 admin charges + ECR, schema v33; A14 must web-verify PF admin/EDLI exact figures + the ₹15k ceiling).**
 
+### Phase 8 slice 4 — Provident Fund (EPF/EPS/EDLI/Admin/ECR) (2026-07-12) — schema v33
+Fourth Phase-8 (Payroll) slice — the first **statutory** payroll head: **Provident Fund**, computed and posted through
+the S3 balanced/atomic voucher. **A14 web-verified against primary EPFO sources** the exact figures, ceilings, and
+account splits. Delivered:
+- **`PfContribution`** (`src/Apex.Ledger/Services/PfContribution.cs`) — pure, framework/DB/clock-free PF computation over
+  **PF wages = Basic + DA** (HRA and other heads **excluded**, driven by a **per-pay-head PF-wage flag** so the wage base
+  is data, not hardcoded). Computation order (all **round half-up**): **EE_EPF = round(12% × EPFwages)**;
+  **EPS = round(8.33% × min(wages, ₹15,000))** capped **₹1,250**; **ER_EPF = EE_EPF − EPS** — the **anti-3.67%-hardcode
+  invariant** `EPS + ER_EPF == EE_EPF` (employer share is EPF-minus-EPS by construction, never a separate 3.67% figure);
+  **EDLI (A/c21) = round(0.5% × min(wages, ₹15,000))** capped **₹75**; **A/c2 admin = max(Σ 0.5% × EPFwages, ₹500)** at the
+  **ESTABLISHMENT level** (the **₹500 monthly minimum / ₹75 zero-member floor**, computed on the establishment total not
+  per-employee); **A/c22 NIL** (subsumed). **₹15,000 statutory ceiling**; the **12%/10% rate toggle** and a
+  **cap-wages-at-ceiling** switch are per-company config. `PfComputationTests` incl. the golden.
+- **Config surface** — **per-company `PfConfig`** (`src/Apex.Ledger/Domain/PfConfig.cs`: 12/10 rate toggle, establishment
+  code, cap-at-ceiling flag) on `Company`; **per-employee PF details** on `Employee` (PF-applicable, higher-wage opt-in,
+  PF join date). **`PfStatutoryComponent`** carries the computed A/c-wise breakup.
+- **Posting integration into the S3 balanced/atomic voucher** — **employee EPF reduces net** (Cr PF-payable, like any
+  employee deduction); **employer EPF / EPS / EDLI / admin** each post a **balanced Dr-expense / Cr-payable pair**; the
+  whole PF contribution rides the same **pre-validate → rollback-scope atomic** post and **non-destructive auto-create**
+  of the PF payable/expense ledgers from S3. `PfVoucherPostingTests`.
+- **ECR 2.0 offline flat-file** — **`EcrWriter`** (`src/Apex.Ledger.Io/EcrWriter.cs`) emits the hand-rolled **`#~#`
+  11-field member lines** (`PfEcr` report, `src/Apex.Ledger/Reports/PfEcr.cs`) + the **challan totals A/c1 / 2 / 10 / 21 /
+  22**. Deterministic, byte-stable, de-branded, offline emulation only. `EcrWriterTests`.
+- **Schema v32→v33 — additive** (`Schema.cs` `CurrentVersion = 33`): PfConfig columns on the company + the PF-wage flag on
+  the pay head + per-employee PF columns, added to **BOTH `CreateV1` AND `MigrateV32ToV33`** (no create-vs-migrate drift);
+  **`SchemaMigrationEquivalenceTests` green at v33**. `SqliteCompanyStore` persists it all (`PfSchemaTests`).
+- **Io canonical fold-in** — PfConfig + per-employee PF + the PF-wage flag folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** (`CanonicalPfRoundTripTests`).
+- **GOLDEN** (hand-derived, regression-locked): **EPFwages ₹15,000 → EE_EPF 1,800 / EPS 1,250 / ER_EPF 550 / EDLI 75 /
+  admin 500 / A/c22 0**; the posted PF voucher **Dr == Cr == ₹17,375** with **net ₹13,200**; the invariant
+  **EPS + ER_EPF == EE_EPF** (1,250 + 550 == 1,800) holds. (Statutory ESI / PT / §192 are S5–S7, so this golden is PF-only.)
+- **UI** — F11 payroll config VM gains the PfConfig surface (+ `MainWindow`); **`PfEcrReportViewModel`** drives the ECR /
+  challan report pane. `PfConfigReportViewModelTests`.
+- **A10 adversarial review — posting-balance-weighted** (3 lenses): caught + fixed **HIGH — the ECR CHALLAN trailer line
+  broke EPFO per-line validation** (the challan-totals line, appended after the member lines, failed the portal's
+  every-line-is-a-member-record check → now **member-lines-only**, challan totals surfaced separately in the report, not
+  in the uploaded file); **MED — the `CapWagesAtCeiling` flag was ignored by the computation** (wages weren't clipped to
+  ₹15k when the switch was on → now honoured). Both regression-locked.
+Gate fully green in Release: **Ledger 781 · Io 220 · Sqlite 126 · Desktop 634 = 1761 total, 0 failures**, schema v33,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S4. Release build sanity check: **0 warnings,
+0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 4 — Provident Fund … schema v33` +
+`docs(memory): Phase 8 slice 4 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary). **Next = P8-S5 (ESI — employee 0.75% + employer 3.25%, ₹21,000 wage
+ceiling, Apr–Sep / Oct–Mar contribution periods with benefit-period continuation, monthly ESI return; schema v34; A14 to
+web-verify ESI rates / ceiling / period rules).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
