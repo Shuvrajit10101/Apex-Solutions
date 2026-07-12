@@ -62,6 +62,20 @@ public sealed class PayHead
     /// existing pay head is byte-identical (ER-13).</summary>
     public Guid? EmployerExpenseLedgerId { get; set; }
 
+    /// <summary>The <b>Provident-Fund statutory role</b> of this head (Phase 8 slice 4); default
+    /// <see cref="PfStatutoryComponent.None"/>. A non-<c>None</c> head is computed by the dedicated EPF/EPS/EDLI
+    /// engine (<c>PfContribution</c>) rather than its ordinary <see cref="CalculationType"/> slabs, because the
+    /// statutory split (EPS cap, employer-EPF residual, establishment admin floor) cannot be expressed as ordinary
+    /// slabs. Additive, defaults <see cref="PfStatutoryComponent.None"/> so an existing pay head is byte-identical
+    /// (ER-13).</summary>
+    public PfStatutoryComponent PfComponent { get; set; } = PfStatutoryComponent.None;
+
+    /// <summary>Whether this earning head counts toward <b>PF (EPF/EPS/EDLI) wages</b> — the Basic + DA (+ retaining
+    /// allowance) basis PF is computed on, with HRA and other allowances excluded (Phase 8 slice 4). Default
+    /// <c>false</c>; the PF-wage earnings (typically Basic and DA) are flagged <c>true</c> when the salary
+    /// structure is set up. Additive, defaults <c>false</c> so an existing pay head is byte-identical (ER-13).</summary>
+    public bool PartOfPfWages { get; set; }
+
     /// <summary>The income-tax component tag (§192 treatment); default <see cref="IncomeTaxComponent.NotApplicable"/>.</summary>
     public IncomeTaxComponent IncomeTaxComponent { get; set; } = IncomeTaxComponent.NotApplicable;
 

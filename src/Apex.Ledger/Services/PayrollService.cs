@@ -48,6 +48,54 @@ public sealed class PayrollService
         _company.PayrollStatutoryEnabled = false;
     }
 
+    // ------------------------------------------------------------------ Provident Fund config (Phase 8 slice 4)
+
+    /// <summary>
+    /// Enrols the establishment for <b>Provident Fund</b> (Phase 8 slice 4; RQ-9), setting
+    /// <see cref="Company.PfConfig"/>, <b>idempotently</b>. Turns on Payroll Statutory (PF lives under it). The EPF
+    /// rate is 12% (default) or 10% for a special establishment; <paramref name="capWagesAtCeiling"/> is the
+    /// default ₹15,000 cap flag (per-employee opt-in overrides it). Once enrolled, a payroll run posts the
+    /// establishment EPF-admin charge; before enrolment no PF is computed and the company is byte-identical (ER-13).
+    /// </summary>
+    public PfConfig EnableProvidentFund(
+        int epfRateBasisPoints = PfConfig.DefaultEpfRateBasisPoints,
+        string? establishmentCode = null,
+        bool capWagesAtCeiling = true)
+    {
+        if (epfRateBasisPoints is not (PfConfig.DefaultEpfRateBasisPoints or PfConfig.ReducedEpfRateBasisPoints))
+            throw new InvalidOperationException(
+                $"EPF rate must be {PfConfig.DefaultEpfRateBasisPoints} (12%) or {PfConfig.ReducedEpfRateBasisPoints} (10%) basis points.");
+        _company.PayrollStatutoryEnabled = true;
+        var config = new PfConfig(epfRateBasisPoints, establishmentCode, capWagesAtCeiling);
+        _company.PfConfig = config;
+        return config;
+    }
+
+    /// <summary>
+    /// Sets an employee's <b>PF details</b> (Phase 8 slice 4): PF-applicable, the "contribute on higher wages"
+    /// opt-in and the PF join date. When marking a member <b>PF-applicable</b> the employee must carry a valid
+    /// 12-digit UAN (<c>^\d{12}$</c>) — the ECR keys the member on it — otherwise the change is rejected and the
+    /// employee is left unchanged.
+    /// </summary>
+    public void SetEmployeePfDetails(
+        Guid employeeId,
+        bool applicable,
+        bool contributeOnHigherWages = false,
+        DateOnly? pfJoinDate = null)
+    {
+        var employee = _company.FindEmployee(employeeId)
+            ?? throw new InvalidOperationException($"Employee {employeeId} not found.");
+        if (applicable)
+        {
+            if (string.IsNullOrWhiteSpace(employee.Uan) || !IsAllDigits(employee.Uan.Trim(), 12))
+                throw new InvalidOperationException(
+                    $"Employee '{employee.Name}' needs a valid 12-digit UAN before Provident Fund can apply.");
+        }
+        employee.PfApplicable = applicable;
+        employee.PfContributeOnHigherWages = contributeOnHigherWages;
+        employee.PfJoinDate = pfJoinDate;
+    }
+
     // ------------------------------------------------------------------ Employee categories
 
     /// <summary>Creates an employee category; name unique within the company, allocating revenue and/or

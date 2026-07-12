@@ -777,6 +777,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 32;
         }
 
+        // v32 → v33: apply the Provident-Fund schema (four additive companies columns for the establishment PF
+        // config, three additive employees columns for the per-employee PF details, two additive pay_heads columns
+        // for the PF statutory role + PF-wage flag), then bump the marker. Existing v32 data survives untouched
+        // (ALTER … ADD COLUMN only; no new tables, no row rewrites — Phase 8 slice 4). ER-13 byte-identical when the
+        // establishment never enrols for PF (pf_config_enabled defaults 0, the per-employee/pay-head flags default 0).
+        if (version == 32)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV32ToV33;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 33);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 33;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -799,7 +824,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    tds_enabled, tcs_enabled, tan, deductor_type, responsible_person_name, responsible_person_pan,
                    responsible_person_designation, responsible_person_address, surcharge_applicable,
                    cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from,
-                   payroll_enabled, payroll_statutory_enabled
+                   payroll_enabled, payroll_statutory_enabled,
+                   pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -884,6 +910,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     SurchargeApplicable = surcharge, CessApplicable = cess, Periodicity = periodicity,
                     ApplicableFrom = r.IsDBNull(37) ? (DateOnly?)null : ParseDate(r.GetString(37)),
                 };
+
+            // v33 (Phase 8 slice 4): establishment Provident-Fund config. Present iff pf_config_enabled = 1; when
+            // off (default for a company not enrolled for PF) PfConfig stays null and no PF path activates (ER-13).
+            if (r.GetInt64(40) != 0)
+                company.PfConfig = new PfConfig(
+                    (int)r.GetInt64(41),
+                    r.IsDBNull(42) ? null : r.GetString(42),
+                    r.GetInt64(43) != 0);
         }
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
@@ -1801,7 +1835,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, employee_group_id, employee_category_id, employee_number,
                    date_of_joining, date_of_leaving, designation, function, location, gender, date_of_birth,
                    pan, aadhaar, uan, pf_account_number, esi_number,
-                   bank_account_number, bank_name, bank_ifsc, tax_regime
+                   bank_account_number, bank_name, bank_ifsc, tax_regime,
+                   pf_applicable, pf_higher_wages, pf_join_date
             FROM employees WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1828,6 +1863,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 BankName = r.IsDBNull(18) ? null : r.GetString(18),
                 BankIfsc = r.IsDBNull(19) ? null : r.GetString(19),
                 ApplicableTaxRegime = (TaxRegime)(int)r.GetInt64(20),
+                // v33 (Phase 8 slice 4): per-employee PF details (default off — ER-13).
+                PfApplicable = r.GetInt64(21) != 0,
+                PfContributeOnHigherWages = r.GetInt64(22) != 0,
+                PfJoinDate = r.IsDBNull(23) ? (DateOnly?)null : ParseDate(r.GetString(23)),
             });
         return list;
     }
@@ -1886,7 +1925,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
                    under_group_id, ledger_id, income_tax_component, use_for_gratuity,
                    rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
-                   employer_expense_ledger_id
+                   employer_expense_ledger_id, pf_component, part_of_pf_wages
             FROM pay_heads WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1912,6 +1951,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 AttendanceTypeId = pr.IsDBNull(13) ? (Guid?)null : Guid.Parse(pr.GetString(13)),
                 PerDayCalculationBasisDays = pr.IsDBNull(14) ? (int?)null : (int)pr.GetInt64(14),
                 EmployerExpenseLedgerId = pr.IsDBNull(15) ? (Guid?)null : Guid.Parse(pr.GetString(15)),
+                // v33 (Phase 8 slice 4): PF statutory role + PF-wage flag (default None/false — ER-13).
+                PfComponent = (PfStatutoryComponent)(int)pr.GetInt64(16),
+                PartOfPfWages = pr.GetInt64(17) != 0,
             };
             var hasComponents = components.TryGetValue(id, out var comps);
             var hasSlabs = slabs.TryGetValue(id, out var slabList);
@@ -3100,7 +3142,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  tds_enabled, tcs_enabled, tan, deductor_type, responsible_person_name, responsible_person_pan,
                  responsible_person_designation, responsible_person_address, surcharge_applicable,
                  cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from,
-                 payroll_enabled, payroll_statutory_enabled)
+                 payroll_enabled, payroll_statutory_enabled,
+                 pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3108,7 +3151,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $abqty, $empl, $ejop,
                  $tdsen, $tcsen, $tan, $dedtype, $rpname, $rppan, $rpdesig, $rpaddr, $surch, $cess, $tdsper,
                  $tdsfrom, $tcsfrom,
-                 $payen, $paystat);
+                 $payen, $paystat,
+                 $pfen, $pfrate, $pfcode, $pfcap);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -3163,6 +3207,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v30 (Phase 8 slice 1): the Payroll F11 toggles, written verbatim (default 0 for an existing company — ER-13).
         cmd.Parameters.AddWithValue("$payen", c.PayrollEnabled ? 1 : 0);
         cmd.Parameters.AddWithValue("$paystat", c.PayrollStatutoryEnabled ? 1 : 0);
+        // v33 (Phase 8 slice 4): the establishment PF config. NULL/defaults for a company not enrolled for PF (ER-13).
+        var pf = c.PfConfig;
+        cmd.Parameters.AddWithValue("$pfen", pf is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$pfrate", pf?.EpfRateBasisPoints ?? PfConfig.DefaultEpfRateBasisPoints);
+        cmd.Parameters.AddWithValue("$pfcode", (object?)pf?.EstablishmentCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$pfcap", (pf?.CapWagesAtCeiling ?? true) ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
@@ -3740,11 +3790,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, employee_group_id, employee_category_id, employee_number,
                      date_of_joining, date_of_leaving, designation, function, location, gender, date_of_birth,
                      pan, aadhaar, uan, pf_account_number, esi_number,
-                     bank_account_number, bank_name, bank_ifsc, tax_regime)
+                     bank_account_number, bank_name, bank_ifsc, tax_regime,
+                     pf_applicable, pf_higher_wages, pf_join_date)
                 VALUES ($id, $cid, $name, $grp, $cat, $num,
                         $doj, $dol, $desig, $func, $loc, $gender, $dob,
                         $pan, $aadhaar, $uan, $pfacc, $esi,
-                        $bankacc, $bankname, $ifsc, $regime);
+                        $bankacc, $bankname, $ifsc, $regime,
+                        $pfapp, $pfhigh, $pfjoin);
                 """;
             cmd.Parameters.AddWithValue("$id", e.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -3768,6 +3820,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$bankname", (object?)e.BankName ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ifsc", (object?)e.BankIfsc ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$regime", (int)e.ApplicableTaxRegime);
+            // v33 (Phase 8 slice 4): per-employee PF details (default off — ER-13).
+            cmd.Parameters.AddWithValue("$pfapp", e.PfApplicable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pfhigh", e.PfContributeOnHigherWages ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pfjoin", e.PfJoinDate is { } pfj ? FormatDate(pfj) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -3784,11 +3840,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
                      under_group_id, ledger_id, income_tax_component, use_for_gratuity,
                      rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
-                     employer_expense_ledger_id)
+                     employer_expense_ledger_id, pf_component, part_of_pf_wages)
                 VALUES ($id, $cid, $name, $disp, $type, $calc, $anet,
                         $grp, $led, $itc, $grat,
                         $rm, $rl, $cp, $atid, $pdb,
-                        $eeled);
+                        $eeled, $pfcomp, $pfwage);
                 """;
             cmd.Parameters.AddWithValue("$id", p.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -3807,6 +3863,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$atid", (object?)p.AttendanceTypeId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$pdb", (object?)p.PerDayCalculationBasisDays ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$eeled", (object?)p.EmployerExpenseLedgerId?.ToString("D") ?? DBNull.Value);
+            // v33 (Phase 8 slice 4): PF statutory role + PF-wage flag (default None/false — ER-13).
+            cmd.Parameters.AddWithValue("$pfcomp", (int)p.PfComponent);
+            cmd.Parameters.AddWithValue("$pfwage", p.PartOfPfWages ? 1 : 0);
             cmd.ExecuteNonQuery();
         }
 

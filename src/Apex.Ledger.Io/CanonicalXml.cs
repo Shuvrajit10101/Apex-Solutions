@@ -64,6 +64,7 @@ public static class CanonicalXml
         if (c.Gst is { } gst) company.Add(BuildGstConfig(gst));
         if (c.Tds is { } tds) company.Add(BuildTdsConfig(tds));
         if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
+        if (c.Pf is { } pf) company.Add(BuildPfConfig(pf));
         root.Add(company);
 
         var p = m.Payload;
@@ -224,7 +225,9 @@ public static class CanonicalXml
         Opt("gender", e.Gender), Opt("dateOfBirth", e.DateOfBirth), Opt("pan", e.Pan), Opt("aadhaar", e.Aadhaar),
         Opt("uan", e.Uan), Opt("pfAccountNumber", e.PfAccountNumber), Opt("esiNumber", e.EsiNumber),
         Opt("bankAccountNumber", e.BankAccountNumber), Opt("bankName", e.BankName), Opt("bankIfsc", e.BankIfsc),
-        Attr("applicableTaxRegime", e.ApplicableTaxRegime));
+        Attr("applicableTaxRegime", e.ApplicableTaxRegime),
+        Attr("pfApplicable", e.PfApplicable), Attr("pfContributeOnHigherWages", e.PfContributeOnHigherWages),
+        Opt("pfJoinDate", e.PfJoinDate));
 
     private static XElement BuildPayHead(PayHeadDto p)
     {
@@ -237,7 +240,8 @@ public static class CanonicalXml
             Attr("useForGratuity", p.UseForGratuity), Attr("roundingMethod", p.RoundingMethod),
             Attr("roundingLimitPaisa", p.RoundingLimitPaisa), Attr("calculationPeriod", p.CalculationPeriod),
             OptId("attendanceTypeId", p.AttendanceTypeId),
-            OptInt("perDayCalculationBasisDays", p.PerDayCalculationBasisDays));
+            OptInt("perDayCalculationBasisDays", p.PerDayCalculationBasisDays),
+            Attr("pfComponent", p.PfComponent), Attr("partOfPfWages", p.PartOfPfWages));
         var comps = new XElement("computationComponents");
         foreach (var c in p.ComputationComponents)
             comps.Add(new XElement("component", Attr("payHeadId", c.PayHeadId), Attr("isSubtraction", c.IsSubtraction)));
@@ -405,6 +409,10 @@ public static class CanonicalXml
         el.Add(slabs);
         return el;
     }
+
+    private static XElement BuildPfConfig(PfConfigDto pf) => new("pf",
+        Attr("epfRateBasisPoints", pf.EpfRateBasisPoints), Opt("establishmentCode", pf.EstablishmentCode),
+        Attr("capWagesAtCeiling", pf.CapWagesAtCeiling));
 
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
         Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
@@ -692,6 +700,7 @@ public static class CanonicalXml
         var gstEl = e.Element("gst");
         var tdsEl = e.Element("tds");
         var tcsEl = e.Element("tcs");
+        var pfEl = e.Element("pf");
         return new CompanyDto
         {
             Id = id,
@@ -715,8 +724,16 @@ public static class CanonicalXml
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
             PayrollEnabled = Bool(e, "payrollEnabled"),
             PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
+            Pf = pfEl is null ? null : ReadPfConfig(pfEl),
         };
     }
+
+    private static PfConfigDto ReadPfConfig(XElement e) => new()
+    {
+        EpfRateBasisPoints = Int(e, "epfRateBasisPoints"),
+        EstablishmentCode = Str(e, "establishmentCode"),
+        CapWagesAtCeiling = Bool(e, "capWagesAtCeiling"),
+    };
 
     private static PayloadDto? ReadPayload(XElement root, List<string> errors)
     {
@@ -893,6 +910,8 @@ public static class CanonicalXml
         Uan = Str(e, "uan"), PfAccountNumber = Str(e, "pfAccountNumber"), EsiNumber = Str(e, "esiNumber"),
         BankAccountNumber = Str(e, "bankAccountNumber"), BankName = Str(e, "bankName"), BankIfsc = Str(e, "bankIfsc"),
         ApplicableTaxRegime = Str(e, "applicableTaxRegime") ?? nameof(Apex.Ledger.Domain.TaxRegime.New),
+        PfApplicable = Bool(e, "pfApplicable"), PfContributeOnHigherWages = Bool(e, "pfContributeOnHigherWages"),
+        PfJoinDate = Str(e, "pfJoinDate"),
     };
 
     private static PayHeadDto ReadPayHead(XElement e) => new()
@@ -906,6 +925,8 @@ public static class CanonicalXml
         RoundingLimitPaisa = Long(e, "roundingLimitPaisa"), CalculationPeriod = Str(e, "calculationPeriod")!,
         AttendanceTypeId = OptGuid(e, "attendanceTypeId"),
         PerDayCalculationBasisDays = OptInt(e, "perDayCalculationBasisDays"),
+        PfComponent = Str(e, "pfComponent") ?? nameof(Apex.Ledger.Domain.PfStatutoryComponent.None),
+        PartOfPfWages = Bool(e, "partOfPfWages"),
         ComputationComponents = (e.Element("computationComponents")?.Elements("component") ?? Enumerable.Empty<XElement>())
             .Select(c => new PayHeadComputationComponentDto
             {

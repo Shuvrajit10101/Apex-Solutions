@@ -48,7 +48,9 @@ public sealed class PayHeadService
         Guid? attendanceTypeId = null,
         int? perDayCalculationBasisDays = null,
         PayHeadComputation? computation = null,
-        string? displayName = null)
+        string? displayName = null,
+        PfStatutoryComponent pfComponent = PfStatutoryComponent.None,
+        bool partOfPfWages = false)
     {
         var trimmed = RequireName(name);
         if (_company.FindPayHeadByName(trimmed) is not null)
@@ -67,6 +69,8 @@ public sealed class PayHeadService
             AttendanceTypeId = attendanceTypeId,
             PerDayCalculationBasisDays = perDayCalculationBasisDays,
             Computation = computation,
+            PfComponent = pfComponent,
+            PartOfPfWages = partOfPfWages,
         };
         if (affectsNetSalary is { } a) payHead.AffectsNetSalary = a;
 

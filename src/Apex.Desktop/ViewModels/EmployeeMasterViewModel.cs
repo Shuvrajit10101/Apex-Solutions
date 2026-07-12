@@ -110,7 +110,18 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
     [ObservableProperty] private string _bankName = string.Empty;
     [ObservableProperty] private string _bankIfsc = string.Empty;
 
+    // Provident-Fund details (Phase 8 slice 4; RQ-9) — only meaningful (and only shown) while Payroll Statutory is
+    // on. Marking a member PF-applicable requires a valid 12-digit UAN (^\d{12}$); the ECR keys the member on it.
+    [ObservableProperty] private bool _pfApplicable;
+    [ObservableProperty] private bool _pfContributeOnHigherWages;
+    [ObservableProperty] private string _pfJoinDateText = string.Empty;
+
     [ObservableProperty] private string? _message;
+
+    /// <summary>True iff the per-employee PF details block should render — only while Payroll Statutory is on. A
+    /// non-statutory company never sees the PF fields (ER-13). Fixed for the page's lifetime (the company's
+    /// statutory flag does not change while an Employee-master page column is open).</summary>
+    public bool ShowPfDetails => _company.PayrollStatutoryEnabled;
 
     public EmployeeMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
@@ -152,6 +163,16 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
         }
         if (!TryParseOptionalDate(DateOfJoiningText, "Date of joining", out var doj)) return false;
         if (!TryParseOptionalDate(DateOfBirthText, "Date of birth", out var dob)) return false;
+        if (!TryParseOptionalDate(PfJoinDateText, "PF join date", out var pfJoin)) return false;
+
+        // A PF-applicable member is keyed on its 12-digit UAN — pre-validate BEFORE creating so a bad value is a
+        // friendly message and never leaves a half-created employee on the in-memory company.
+        var wantsPf = PfApplicable && ShowPfDetails;
+        if (wantsPf && !IsTwelveDigits(Uan))
+        {
+            Message = "A PF-applicable employee needs a valid 12-digit UAN (e.g. 100000000001).";
+            return false;
+        }
 
         try
         {
@@ -177,6 +198,10 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
             employee.BankAccountNumber = BlankToNull(BankAccountNumber);
             employee.BankName = BlankToNull(BankName);
             employee.BankIfsc = BlankToNull(BankIfsc);
+            // PF details (re-validates the UAN as a backstop; throws a friendly message if it slips through).
+            if (wantsPf)
+                service.SetEmployeePfDetails(employee.Id, applicable: true,
+                    contributeOnHigherWages: PfContributeOnHigherWages, pfJoinDate: pfJoin);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -203,9 +228,21 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
         BankAccountNumber = string.Empty;
         BankName = string.Empty;
         BankIfsc = string.Empty;
+        PfApplicable = false;
+        PfContributeOnHigherWages = false;
+        PfJoinDateText = string.Empty;
         SelectedCategory = CategoryOptions.FirstOrDefault();
         SelectedRegime = Regimes.First();
         _onChanged();
+        return true;
+    }
+
+    /// <summary>True iff <paramref name="value"/> is exactly 12 digits (the EPFO UAN shape, <c>^\d{12}$</c>).</summary>
+    private static bool IsTwelveDigits(string? value)
+    {
+        var t = (value ?? string.Empty).Trim();
+        if (t.Length != 12) return false;
+        foreach (var ch in t) if (ch is < '0' or > '9') return false;
         return true;
     }
 

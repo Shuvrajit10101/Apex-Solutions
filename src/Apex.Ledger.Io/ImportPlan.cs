@@ -388,6 +388,8 @@ internal sealed class ImportPlan
                 Pan = em.Pan, Aadhaar = em.Aadhaar, Uan = em.Uan, PfAccountNumber = em.PfAccountNumber,
                 EsiNumber = em.EsiNumber, BankAccountNumber = em.BankAccountNumber, BankName = em.BankName,
                 BankIfsc = em.BankIfsc, ApplicableTaxRegime = ParseEnum<TaxRegime>(em.ApplicableTaxRegime),
+                PfApplicable = em.PfApplicable, PfContributeOnHigherWages = em.PfContributeOnHigherWages,
+                PfJoinDate = CompanyImportService.ParseDateOpt(em.PfJoinDate),
             };
             t.AddEmployee(domain);
             journal.RecordEmployee(domain);
@@ -423,6 +425,8 @@ internal sealed class ImportPlan
                 CalculationPeriod = ParseEnum<PayHeadCalculationPeriod>(ph.CalculationPeriod),
                 AttendanceTypeId = ph.AttendanceTypeId is { } a ? ResolveAttendanceTypeId(a, attendanceTypeId, t) : null,
                 PerDayCalculationBasisDays = ph.PerDayCalculationBasisDays,
+                PfComponent = ParseEnum<PfStatutoryComponent>(ph.PfComponent),
+                PartOfPfWages = ph.PartOfPfWages,
             };
             t.AddPayHead(domain);
             journal.RecordPayHead(domain);
@@ -936,6 +940,11 @@ internal sealed class ImportPlan
         // Phase 8 slice 1 Payroll F11 toggles — plain flags, captured by the header snapshot for rollback.
         t.PayrollEnabled = c.PayrollEnabled;
         t.PayrollStatutoryEnabled = c.PayrollStatutoryEnabled;
+
+        // Phase 8 slice 4 Provident-Fund config — plain data holder, captured by the header snapshot for rollback.
+        t.PfConfig = c.Pf is { } pf
+            ? new PfConfig(pf.EpfRateBasisPoints, pf.EstablishmentCode, pf.CapWagesAtCeiling)
+            : null;
 
         // Enable Job Order Processing through the engine (slice 8; RQ-45) so the seeded Material In/Out + Job Work
         // Order voucher types get their IsActive / UseForJobWork / AllowConsumption flags stamped exactly as the app

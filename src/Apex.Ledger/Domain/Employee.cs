@@ -52,6 +52,21 @@ public sealed class Employee
 
     public string? PfAccountNumber { get; set; }
 
+    /// <summary>Whether Provident Fund applies to this employee (Phase 8 slice 4). When <c>false</c> the payroll
+    /// engine computes no PF for the member even if PF pay heads sit in the structure. Additive, defaults
+    /// <c>false</c> so an existing employee is byte-identical (ER-13); set <c>true</c> when the employee is enrolled
+    /// for PF.</summary>
+    public bool PfApplicable { get; set; }
+
+    /// <summary>Whether the employee has opted to <b>contribute on wages above the ₹15,000 ceiling</b> (Phase 8
+    /// slice 4). When <c>true</c>, EPF is computed on the full (uncapped) PF wages; EPS and EDLI stay capped at
+    /// ₹15,000 regardless. Additive, defaults <c>false</c> (the recommended default = cap at the ceiling).</summary>
+    public bool PfContributeOnHigherWages { get; set; }
+
+    /// <summary>The date the employee joined / became a PF member (Phase 8 slice 4); optional. The UAN
+    /// (<see cref="Uan"/>) already carries the member's universal account number from slice 1.</summary>
+    public DateOnly? PfJoinDate { get; set; }
+
     /// <summary>ESIC Insurance Number (17 digits; validated at the service boundary when set); optional.</summary>
     public string? EsiNumber { get; set; }
 

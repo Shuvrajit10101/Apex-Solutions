@@ -73,6 +73,14 @@ public static class CanonicalMapper
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
         PayrollEnabled = c.PayrollEnabled,
         PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
+        Pf = c.PfConfig is { } pf ? MapPfConfig(pf) : null,
+    };
+
+    private static PfConfigDto MapPfConfig(PfConfig pf) => new()
+    {
+        EpfRateBasisPoints = pf.EpfRateBasisPoints,
+        EstablishmentCode = pf.EstablishmentCode,
+        CapWagesAtCeiling = pf.CapWagesAtCeiling,
     };
 
     private static PayloadDto MapPayload(Company c) => new()
@@ -269,6 +277,8 @@ public static class CanonicalMapper
         DateOfBirth = Iso(e.DateOfBirth), Pan = e.Pan, Aadhaar = e.Aadhaar, Uan = e.Uan,
         PfAccountNumber = e.PfAccountNumber, EsiNumber = e.EsiNumber, BankAccountNumber = e.BankAccountNumber,
         BankName = e.BankName, BankIfsc = e.BankIfsc, ApplicableTaxRegime = e.ApplicableTaxRegime.ToString(),
+        PfApplicable = e.PfApplicable, PfContributeOnHigherWages = e.PfContributeOnHigherWages,
+        PfJoinDate = Iso(e.PfJoinDate),
     };
 
     private static PayHeadDto MapPayHead(PayHead p) => new()
@@ -280,6 +290,7 @@ public static class CanonicalMapper
         UseForGratuity = p.UseForGratuity, RoundingMethod = p.RoundingMethod.ToString(),
         RoundingLimitPaisa = MoneyCodec.ToPaisa(p.RoundingLimit), CalculationPeriod = p.CalculationPeriod.ToString(),
         AttendanceTypeId = p.AttendanceTypeId, PerDayCalculationBasisDays = p.PerDayCalculationBasisDays,
+        PfComponent = p.PfComponent.ToString(), PartOfPfWages = p.PartOfPfWages,
         ComputationComponents = p.Computation is { } c1
             ? c1.BasisComponents.Select(x => new PayHeadComputationComponentDto { PayHeadId = x.PayHeadId, IsSubtraction = x.IsSubtraction }).ToList()
             : [],

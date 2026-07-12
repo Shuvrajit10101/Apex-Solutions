@@ -373,6 +373,12 @@ public sealed class CompanyImportService
                 errors.Add($"Employee '{em.Name}' references an employee group that is neither imported nor present.");
             if (em.EmployeeCategoryId is { } cid && !plan.CanResolveEmployeeCategory(cid, _target))
                 errors.Add($"Employee '{em.Name}' references an employee category that is neither imported nor present.");
+            // Mirror the domain guard (Phase 8 slice 4; PayrollService.SetEmployeePfDetails / CreateEmployee.ValidateUan):
+            // a PF-applicable member MUST carry a valid 12-digit UAN. The direct-construction import path bypasses the
+            // service, so re-run the guard here or reject the whole batch — otherwise a hand-edited export could load a
+            // PF member the domain would never allow, which the PF ECR/Challan report then throws on or mis-emits.
+            if (em.PfApplicable && !IsValid12DigitUan(em.Uan))
+                errors.Add($"Employee '{em.Name}' is PF-applicable but has no valid 12-digit UAN.");
         }
 
         // Pay heads (Phase 8 slice 2): under-group + ledger + attendance-type + computed-on component references.
@@ -679,6 +685,17 @@ public sealed class CompanyImportService
             : throw new FormatException($"Date '{iso}' is not a valid ISO yyyy-MM-dd value.");
     internal static DateOnly? ParseDateOpt(string? iso) => string.IsNullOrEmpty(iso) ? null : ParseDate(iso);
     internal static TEnum ParseEnum<TEnum>(string name) where TEnum : struct, Enum => Enum.Parse<TEnum>(name);
+
+    /// <summary>Whether <paramref name="uan"/> is a valid 12-digit UAN (<c>^\d{12}$</c>) — the same rule the domain
+    /// enforces at the master-save boundary (<c>PayrollService</c>), mirrored here for the import pre-flight.</summary>
+    private static bool IsValid12DigitUan(string? uan)
+    {
+        if (uan is null) return false;
+        var trimmed = uan.Trim();
+        if (trimmed.Length != 12) return false;
+        foreach (var ch in trimmed) if (ch is < '0' or > '9') return false;
+        return true;
+    }
 }
 
 /// <summary>How a single incoming master resolves against the target: its name and whether it is a duplicate.</summary>

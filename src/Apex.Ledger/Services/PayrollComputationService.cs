@@ -144,12 +144,68 @@ public sealed class PayrollComputationService
             var payHead = _company.FindPayHead(payHeadId)
                 ?? throw new InvalidOperationException($"Salary structure references a pay head ({payHeadId}) that no longer exists.");
 
-            var raw = EvaluateRaw(payHead);
-            var amount = ApplyRounding(payHead, raw);
+            // A PF statutory head is computed by the dedicated EPF/EPS/EDLI engine (the EPS cap + employer-EPF
+            // residual + admin floor cannot be expressed as ordinary slabs), not its generic calculation type.
+            var amount = payHead.PfComponent != PfStatutoryComponent.None
+                ? EvaluatePf(payHead)
+                : ApplyRounding(payHead, EvaluateRaw(payHead));
 
             _visiting.Remove(payHeadId);
             _cache[payHeadId] = amount;
             return amount;
+        }
+
+        /// <summary>
+        /// Evaluates a PF statutory head for this member (Phase 8 slice 4) via <see cref="PfContribution"/>: PF
+        /// wages are the Σ of the structure's PF-wage earnings (Basic + DA, HRA excluded), capped at ₹15,000 unless
+        /// the member opts to contribute on higher wages, at the company's EPF rate (12% default / 10% special).
+        /// A non-PF-applicable member contributes nothing. The establishment <b>admin charge</b>
+        /// (<see cref="PfStatutoryComponent.ProvidentFundAdminCharges"/>) is an aggregate charge posted once per
+        /// challan by <see cref="PayrollVoucherService"/>, never on a per-member line — so it evaluates to zero here.
+        /// </summary>
+        private Money EvaluatePf(PayHead payHead)
+        {
+            if (payHead.PfComponent == PfStatutoryComponent.ProvidentFundAdminCharges)
+                return Money.Zero; // establishment-level, applied once per challan (not per member)
+            // ER-13: no PF is computed before the establishment is enrolled (PfConfig present) — symmetric with the
+            // establishment admin gate in PayrollVoucherService, so a not-enrolled company posts no member PF leg
+            // either (otherwise A/c 2 would be silently understated while members actively contribute).
+            if (_company.PfConfig is not { } pfConfig)
+                return Money.Zero;
+            if (!_employee.PfApplicable)
+                return Money.Zero; // member not enrolled for PF
+
+            var pfWages = PfWagesRaw();
+            // The EPF wage basis is uncapped when the member opts in OR the establishment's default is not-cap
+            // (PfConfig.CapWagesAtCeiling); the per-employee opt-in overrides the company default (EPS/EDLI stay capped).
+            var onHigherWages = PfContribution.ContributesOnHigherWages(
+                _employee.PfContributeOnHigherWages, pfConfig.CapWagesAtCeiling);
+            var c = PfContribution.ComputeMember(pfWages, onHigherWages, pfConfig.EpfRateBasisPoints);
+
+            return payHead.PfComponent switch
+            {
+                PfStatutoryComponent.EmployeeProvidentFund => c.EmployeeEpf,
+                PfStatutoryComponent.EmployerProvidentFund => c.EmployerEpf,
+                PfStatutoryComponent.EmployerPension => c.EmployerPension,
+                PfStatutoryComponent.EmployeesDepositLinkedInsurance => c.Edli,
+                _ => Money.Zero,
+            };
+        }
+
+        /// <summary>The member's PF (EPF/EPS/EDLI) wage basis: the Σ of the structure's earning heads flagged
+        /// <see cref="PayHead.PartOfPfWages"/> (Basic + DA; HRA excluded), each evaluated + memoised. No PF-wage
+        /// earning references a PF head, so this closes no cycle.</summary>
+        private decimal PfWagesRaw()
+        {
+            decimal sum = 0m;
+            foreach (var line in _structure.Lines)
+            {
+                var ph = _company.FindPayHead(line.PayHeadId);
+                if (ph is null || !ph.PartOfPfWages) continue;
+                if (PayrollComputationService.RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
+                sum += Evaluate(ph.Id).Amount;
+            }
+            return sum;
         }
 
         private decimal EvaluateRaw(PayHead payHead)
@@ -398,6 +454,21 @@ public sealed class PayrollComputationResult
 
     /// <summary>Net payable = gross earnings − total deductions (the Cr Salary-Payable amount).</summary>
     public Money NetPayable => GrossEarnings - TotalDeductions;
+
+    /// <summary>The member's <b>PF (EPF/EPS/EDLI) wage basis</b> (Phase 8 slice 4): the Σ of the evaluated earning
+    /// lines flagged <see cref="PayHead.PartOfPfWages"/> (Basic + DA; HRA excluded) — the same basis the PF engine
+    /// used per member, exposed so the payroll voucher can compute the establishment admin charge over all
+    /// contributory members. Uncapped (the ₹15,000 ceiling is applied by the PF engine per the member's opt-in).</summary>
+    public Money PfWages
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines)
+                if (l.Role == PayHeadPostingRole.Earning && l.PayHead.PartOfPfWages) sum += l.Amount.Amount;
+            return new Money(sum);
+        }
+    }
 
     private Money Sum(PayHeadPostingRole role, bool affectingOnly = false)
     {

@@ -254,6 +254,15 @@ public sealed class Company
     /// </summary>
     public bool PayrollStatutoryEnabled { get; set; }
 
+    /// <summary>
+    /// The establishment's <b>Provident-Fund configuration</b> (Phase 8 slice 4; catalog §14) — EPF rate toggle,
+    /// establishment code, default cap flag. Non-<c>null</c> once the establishment is enrolled for PF; the
+    /// dedicated <c>PfContribution</c> engine reads the rate + cap from here, and the payroll voucher posts the
+    /// establishment EPF-admin charge only when it is present. Defaults <c>null</c>, so a company that never enrols
+    /// for PF serialises byte-identically to a pre-v33 company (ER-13).
+    /// </summary>
+    public PfConfig? PfConfig { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

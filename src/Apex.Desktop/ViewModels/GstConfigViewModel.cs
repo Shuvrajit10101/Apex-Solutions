@@ -131,6 +131,34 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _payrollStatutoryEnabled;
 
+    // ---- Provident Fund (Phase 8 slice 4; F11 Payroll Statutory → PF; RQ-9) --------------------------------
+    // The establishment's EPFO enrolment facts the PF computation reads. Only meaningful (and only shown) while
+    // PayrollStatutoryEnabled is on; enrolling sets Company.PfConfig via the engine, disabling clears it. Every
+    // field is gated: a company that never enrols for PF is byte-identical to a pre-v33 company (ER-13).
+
+    /// <summary>Whether the establishment is enrolled for Provident Fund (the "Enable Provident Fund" toggle;
+    /// applied via <see cref="ApplyPf"/>). Non-<c>null</c> <see cref="Company.PfConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _pfEnabled;
+
+    /// <summary>Whether the reduced <b>10%</b> EPF rate applies (a special establishment — &lt;20 employees / sick /
+    /// jute-beedi-brick-coir-guar-gum). Off ⇒ the 12% default. Only the EPF rate varies; EPS 8.33% / EDLI 0.5% /
+    /// admin 0.5% are fixed.</summary>
+    [ObservableProperty] private bool _pfReducedRate;
+
+    /// <summary>The EPFO <b>establishment / PF code</b> printed on the ECR and challan; optional.</summary>
+    [ObservableProperty] private string _pfEstablishmentCode = string.Empty;
+
+    /// <summary>Whether EPF wages are capped at the ₹15,000 statutory ceiling by default (the recommended default);
+    /// a per-employee "contribute on higher wages" opt-in overrides it for that member.</summary>
+    [ObservableProperty] private bool _pfCapWagesAtCeiling = true;
+
+    /// <summary>The PF Enable/disable result message (kept separate from the GST/TDS/TCS messages).</summary>
+    [ObservableProperty] private string? _pfMessage;
+
+    /// <summary>True iff the PF configuration block should render — only while Payroll Statutory is on (PF lives
+    /// under it). A payroll-off / statutory-off company never sees the PF fields (ER-13).</summary>
+    public bool ShowPfConfig => PayrollStatutoryEnabled;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -245,6 +273,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
         PayrollEnabled = _company.PayrollEnabled;
         PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        LoadPfFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -419,6 +448,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // DisablePayroll turns statutory off too — keep the sub-toggle in sync with the persisted state.
         if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
             PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        OnPropertyChanged(nameof(ShowPfConfig));
         _onChanged();
     }
 
@@ -441,7 +471,70 @@ public sealed partial class GstConfigViewModel : ViewModelBase
                 PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
             return;
         }
+        OnPropertyChanged(nameof(ShowPfConfig)); // the PF block appears/hides with the statutory sub-toggle
         _onChanged();
+    }
+
+    /// <summary>Seeds the PF form from the company's current <see cref="Company.PfConfig"/> (defaults for a
+    /// never-enrolled company: 12% rate, no code, cap-at-ceiling on).</summary>
+    private void LoadPfFromCompany()
+    {
+        var pf = _company.PfConfig;
+        PfEnabled = pf is not null;
+        PfReducedRate = pf?.EpfRateBasisPoints == PfConfig.ReducedEpfRateBasisPoints;
+        PfEstablishmentCode = pf?.EstablishmentCode ?? string.Empty;
+        PfCapWagesAtCeiling = pf?.CapWagesAtCeiling ?? true;
+    }
+
+    /// <summary>
+    /// Applies the "Enable Provident Fund" toggle (F11 → Payroll Statutory; Phase 8 slice 4; RQ-9), mirroring
+    /// <see cref="Apply"/>/<see cref="ApplyTds"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableProvidentFund"/> (EPF 12% / 10%, the establishment code and the cap flag) —
+    /// which also turns Payroll Statutory on — and persist. On disable: clear <see cref="Company.PfConfig"/> and
+    /// persist (per-employee PF details are retained, inert). Any domain error is surfaced to
+    /// <see cref="PfMessage"/> without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyPf()
+    {
+        PfMessage = null;
+
+        if (!PfEnabled)
+        {
+            _company.PfConfig = null; // enrolment cleared; per-employee PF details retained (harmless, inert)
+            if (!TrySave(m => PfMessage = m)) { RevertPfToggle(); return false; }
+            PfMessage = "Provident Fund is now OFF for this company. Employee PF details are unchanged.";
+            _onChanged();
+            return true;
+        }
+
+        var rate = PfReducedRate ? PfConfig.ReducedEpfRateBasisPoints : PfConfig.DefaultEpfRateBasisPoints;
+        var code = BlankToNull(PfEstablishmentCode);
+        try
+        {
+            new PayrollService(_company).EnableProvidentFund(rate, code, PfCapWagesAtCeiling);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            PfMessage = ex.Message;
+            RevertPfToggle();
+            return false;
+        }
+
+        // EnableProvidentFund flips Payroll Statutory on — keep the sibling toggle + the PF block in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var rateLabel = PfReducedRate ? "10%" : "12%";
+        PfMessage = $"Provident Fund enabled for {_company.Name} (EPF {rateLabel}; EPS 8.33% / EDLI 0.5% / admin 0.5%).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="PfEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertPfToggle()
+    {
+        var real = _company.PfConfig is not null;
+        if (PfEnabled != real) PfEnabled = real;
     }
 
     /// <summary>
@@ -726,6 +819,10 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             ApplyTds();
         if (TcsEnabled != _company.TcsEnabled)
             ApplyTcs();
+        // Commit the PF enrolment whenever the toggle differs from the persisted state (or PF is on, to persist
+        // edited rate/code/cap), mirroring the auto-applying sibling feature toggles on the same panel.
+        if (ShowPfConfig && (PfEnabled != (_company.PfConfig is not null) || PfEnabled))
+            ApplyPf();
     }
 
     /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>

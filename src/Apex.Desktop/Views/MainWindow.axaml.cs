@@ -217,6 +217,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+B on the PF ECR / Challan report (Phase 8 slice 4) SAVES the ECR 2.0 flat file and RETURNS to the
+        // menu — the PF mirror of the Form 26Q / 27EQ Alt+B above. Scoped to the PF ECR screen so it never collides
+        // with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.PfEcrReport && !IsTyping(e))
+        {
+            vm.SaveReturnPfEcr();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B on a TDS/TCS certificate / control-chart page (Phase 7 slice 7) SAVES the PDF and RETURNS to the
         // menu — the mirror of the Form 26Q / 27EQ Alt+B above. Scoped to each certificate screen so it never
         // collides with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
@@ -720,6 +732,16 @@ public partial class MainWindow : Window
 
     private void OnApplyTcsClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.ApplyTcs();
+
+    // Provident Fund (Phase 8 slice 4) — F11 Enable Provident Fund + the PF ECR export / save-return actions.
+    private void OnApplyPfClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyPf();
+
+    private void OnExportEcrClick(object? sender, RoutedEventArgs e)
+        => Vm?.PfEcrReport?.ExportEcr();
+
+    private void OnSaveReturnPfEcrClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnPfEcr();
 
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfPaymentMaster?.Create();

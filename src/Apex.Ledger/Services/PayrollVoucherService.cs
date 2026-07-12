@@ -30,6 +30,12 @@ public sealed class PayrollVoucherService
     /// <summary>The auto-created company Salary-Payable ledger name (the net-pay liability).</summary>
     public const string SalaryPayableLedgerName = "Salary Payable";
 
+    /// <summary>The auto-created establishment EPF-admin-charge <b>expense</b> ledger name (A/c 2, Dr; Phase 8 slice 4).</summary>
+    public const string PfAdminExpenseLedgerName = "PF Admin Charges";
+
+    /// <summary>The auto-created establishment EPF-admin-charge <b>payable</b> ledger name (A/c 2, Cr; Phase 8 slice 4).</summary>
+    public const string PfAdminPayableLedgerName = "PF Admin Charges Payable";
+
     private const string IndirectExpensesGroupName = "Indirect Expenses";
     private const string CurrentLiabilitiesGroupName = "Current Liabilities";
 
@@ -84,6 +90,10 @@ public sealed class PayrollVoucherService
             var lines = new List<EntryLine>();
             foreach (var result in results)
                 AppendEmployeeLines(lines, result, scope);
+
+            // Establishment EPF administration charge (A/c 2) — computed ONCE over the run's contributory members
+            // and posted as a single balanced pair, NOT per member (Phase 8 slice 4).
+            AppendPfAdminLine(lines, results, scope);
 
             if (lines.Count < 2)
                 throw new InvalidOperationException(
@@ -173,6 +183,54 @@ public sealed class PayrollVoucherService
         if (net.Amount > 0m)
             lines.Add(new EntryLine(salaryPayableLedgerId, net, DrCr.Credit,
                 payroll: new PayrollLineDetail(result.EmployeeId, null, PayrollLineCategory.NetPayable, net)));
+    }
+
+    /// <summary>
+    /// Appends the establishment <b>EPF administration charge</b> (A/c 2; Phase 8 slice 4) as a single balanced
+    /// employer pair (Dr <see cref="PfAdminExpenseLedgerName"/> / Cr <see cref="PfAdminPayableLedgerName"/>). The
+    /// charge is <c>max(round(0.5% × Σ EPF wages), 500)</c> over the run's contributory members (₹75 when none),
+    /// applied <b>once per challan</b> at the establishment aggregate — a per-member floor would over-charge. It is
+    /// posted only for a PF-registered establishment (<see cref="Company.PfConfig"/> present), so a non-PF run is
+    /// byte-identical (ER-13). The pair self-balances, keeping the voucher balanced to the paisa. No per-employee
+    /// <see cref="PayrollLineDetail"/> — the charge is establishment-level, not attributable to one member.
+    /// </summary>
+    private void AppendPfAdminLine(List<EntryLine> lines, List<PayrollComputationResult> results, LedgerCreationScope scope)
+    {
+        if (_company.PfConfig is not { } pfConfig) return; // establishment not enrolled for PF
+
+        var contributoryEpfWages = new List<Money>();
+        foreach (var result in results)
+        {
+            var employee = _company.FindEmployee(result.EmployeeId);
+            if (employee is null || !employee.PfApplicable) continue;
+            var pfWages = result.PfWages.Amount;
+            if (pfWages <= 0m) continue; // no PF wages ⇒ not contributory this period
+            // The A/c 2 basis uses the same EPF-wage cap the per-member EPF used: uncapped when the member opts in
+            // OR the establishment's default is not-cap (PfConfig.CapWagesAtCeiling), else capped at ₹15,000.
+            var epfWages = PfContribution.ContributesOnHigherWages(
+                    employee.PfContributeOnHigherWages, pfConfig.CapWagesAtCeiling)
+                ? pfWages
+                : Math.Min(pfWages, PfContribution.WageCeiling);
+            contributoryEpfWages.Add(new Money(epfWages));
+        }
+
+        var admin = PfContribution.ComputeAdminCharge(contributoryEpfWages);
+        if (admin.Amount <= 0m) return;
+
+        var (expense, payable) = EnsurePfAdminLedgers(scope);
+        lines.Add(new EntryLine(expense, admin, DrCr.Debit));
+        lines.Add(new EntryLine(payable, admin, DrCr.Credit));
+    }
+
+    /// <summary>Ensures the establishment EPF-admin expense (Dr, Indirect Expenses) + payable (Cr, Current
+    /// Liabilities) ledger pair, idempotent + non-destructive (a ledger present by name is reused as-is), and
+    /// returns <c>(expenseId, payableId)</c>. A newly-created ledger is recorded in <paramref name="scope"/> for
+    /// rollback (F2).</summary>
+    private (Guid Expense, Guid Payable) EnsurePfAdminLedgers(LedgerCreationScope? scope)
+    {
+        var expense = EnsureLedger(PfAdminExpenseLedgerName, () => GroupIdByName(IndirectExpensesGroupName), openingIsDebit: true, scope);
+        var payable = EnsureLedger(PfAdminPayableLedgerName, () => GroupIdByName(CurrentLiabilitiesGroupName), openingIsDebit: false, scope);
+        return (expense, payable);
     }
 
     // ------------------------------------------------------------------ auto-ledger creation (idempotent, non-destructive)

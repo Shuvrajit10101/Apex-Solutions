@@ -6459,6 +6459,31 @@
                                       <TextBlock Grid.Column="2" Text="" />
                                       <TextBlock Grid.Column="3" Text="" />
                                     </Grid>
+
+                                    <!-- Provident-Fund details (Phase 8 slice 4; RQ-9) — shown only while Payroll
+                                         Statutory is on. Marking PF-applicable requires a valid 12-digit UAN. -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding ShowPfDetails}">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                              Margin="0,4,0,0" Padding="0,10,0,0">
+                                        <StackPanel Spacing="10">
+                                          <TextBlock Text="PROVIDENT FUND" FontSize="10.5" FontWeight="Bold"
+                                                     Foreground="#9098A8" LetterSpacing="1.5"/>
+                                          <CheckBox Content="Provident Fund applicable (needs a valid 12-digit UAN above)"
+                                                    IsChecked="{Binding PfApplicable, Mode=TwoWay}"
+                                                    FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                          <Grid ColumnDefinitions="120,*,120,*" IsVisible="{Binding PfApplicable}">
+                                            <TextBlock Grid.Column="0" Text="PF Join Date" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                            <TextBox Grid.Column="1" Text="{Binding PfJoinDateText, Mode=TwoWay}"
+                                                     PlaceholderText="yyyy-MM-dd (optional)"/>
+                                            <CheckBox Grid.Column="2" Grid.ColumnSpan="2"
+                                                      Content="Contribute on higher wages (above ₹15,000)"
+                                                      IsChecked="{Binding PfContributeOnHigherWages, Mode=TwoWay}"
+                                                      Margin="10,0,0,0" FontSize="12" VerticalAlignment="Center"/>
+                                          </Grid>
+                                        </StackPanel>
+                                      </Border>
+                                    </StackPanel>
                                   </StackPanel>
                                 </Expander>
 
@@ -7809,6 +7834,55 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </StackPanel>
+
+                            <!-- ================= Provident Fund (Phase 8 slice 4) ================= -->
+                            <!-- Shown only while Payroll Statutory is on (PF lives under it). Enrolling sets the
+                                 establishment's EPF rate (12% / 10%), PF code and default cap-at-ceiling. -->
+                            <Border Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8" IsVisible="{Binding ShowPfConfig}">
+                              <StackPanel Spacing="12">
+                                <TextBlock Text="PROVIDENT FUND (EPF / EPS / EDLI)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
+                                <CheckBox Content="Enable Provident Fund for this establishment"
+                                          IsChecked="{Binding PfEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <StackPanel Spacing="10" IsVisible="{Binding PfEnabled}">
+                                  <Grid ColumnDefinitions="150,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="Establishment / PF Code" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding PfEstablishmentCode, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"
+                                             PlaceholderText="e.g. MHBAN0012345000 (optional)"/>
+                                    <TextBlock Grid.Column="2" Text="EPF Rate" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="3" Text="12% (default) — 10% for a special establishment"
+                                               VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"
+                                               TextWrapping="Wrap"/>
+                                  </Grid>
+                                  <CheckBox Content="Reduced 10% EPF rate (special establishment — &lt;20 employees / sick / jute-beedi-brick-coir-guar-gum)"
+                                            IsChecked="{Binding PfReducedRate, Mode=TwoWay}" FontSize="12"/>
+                                  <CheckBox Content="Cap PF wages at the ₹15,000 statutory ceiling (per-employee higher-wage opt-in overrides)"
+                                            IsChecked="{Binding PfCapWagesAtCeiling, Mode=TwoWay}" FontSize="12"/>
+                                  <TextBlock Text="EPS 8.33% (cap ₹1,250) · EDLI 0.50% (cap ₹75) · Admin A/c 2 0.50% (min ₹500) · A/c 22 NIL — these are fixed."
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding PfMessage}"
+                                             IsVisible="{Binding PfMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply PF" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyPfClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
                              </StackPanel>
                             </ScrollViewer>
                           </Grid>
@@ -8407,6 +8481,165 @@
                                       Click="OnExportFvuForm26QClick"/>
                               <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
                                       Click="OnSaveReturnForm26QClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: PF ECR / Challan report (Phase 8 slice 4; RQ-9) -->
+                    <ContentControl IsVisible="{Binding PfEcrReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding PfEcrReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PfEcrReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + wage-month selectors (establishment code is shown in the subtitle) -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,160,Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PfEcrFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Wage Month" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Months}"
+                                        SelectedItem="{Binding SelectedMonth, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PfEcrMonthOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Challan account-head totals (A/c 1/2/10/21/22 + grand total) -->
+                            <Border Grid.Row="3" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*,*,*,*,*">
+                                  <StackPanel Grid.Column="0">
+                                    <TextBlock Text="A/c 1 — EPF ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding Account1Text}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1">
+                                    <TextBlock Text="A/c 2 — Admin ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding Account2Text}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="2">
+                                    <TextBlock Text="A/c 10 — EPS ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding Account10Text}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="3">
+                                    <TextBlock Text="A/c 21 — EDLI ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding Account21Text}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="4">
+                                    <TextBlock Text="A/c 22 — EDLI Adm ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding Account22Text}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="5">
+                                    <TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding GrandTotalText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Member (ECR 2.0) detail grid — wide, so it scrolls horizontally -->
+                            <TextBlock Grid.Row="4" Text="ECR 2.0 member lines" FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                            <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                              <Grid RowDefinitions="Auto,*" Width="1120">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="120,*,90,90,90,90,90,90,90,60,80">
+                                    <TextBlock Grid.Column="0" Text="UAN" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Member" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Gross" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="EPF Wg" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="EPS Wg" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="EDLI Wg" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="6" Text="EE EPF" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="7" Text="EPS" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="8" Text="ER EPF" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="9" Text="NCP" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="10" Text="Refund" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Grid.Row="1" Background="White" ItemsSource="{Binding Members}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PfEcrMemberRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="120,*,90,90,90,90,90,90,90,60,80" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Uan}" Margin="6,0"
+                                                     VerticalAlignment="Center" FontSize="11.5"
+                                                     FontFamily="Consolas,Menlo,monospace"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="4,0"
+                                                     VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding GrossWages}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding EpfWages}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding EpsWages}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding EdliWages}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="6" Text="{Binding EmployeeShareEpf}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="7" Text="{Binding EpsContribution}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="8" Text="{Binding EmployerShareEpf}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="9" Text="{Binding NcpDays}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="10" Text="{Binding RefundOfAdvances}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </Grid>
+                            </ScrollViewer>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="6" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export ECR (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportEcrClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnPfEcrClick"/>
                             </Grid>
                           </Grid>
                         </DataTemplate>

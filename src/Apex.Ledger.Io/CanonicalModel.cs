@@ -83,6 +83,18 @@ public sealed record CompanyDto
 
     /// <summary>F11 "Enable Payroll Statutory" (Phase 8 slice 1; RQ-1). Default false.</summary>
     public bool PayrollStatutoryEnabled { get; init; }
+
+    /// <summary>The establishment Provident-Fund config (Phase 8 slice 4); null when the establishment is not
+    /// enrolled for PF (a PF-off company is byte-identical — ER-13).</summary>
+    public PfConfigDto? Pf { get; init; }
+}
+
+/// <summary>The company Provident-Fund config (Phase 8 slice 4), mirroring the domain <c>PfConfig</c>.</summary>
+public sealed record PfConfigDto
+{
+    public int EpfRateBasisPoints { get; init; } = 1200;
+    public string? EstablishmentCode { get; init; }
+    public bool CapWagesAtCeiling { get; init; } = true;
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>
@@ -621,6 +633,11 @@ public sealed record EmployeeDto
     public string? BankName { get; init; }
     public string? BankIfsc { get; init; }
     public required string ApplicableTaxRegime { get; init; }   // TaxRegime name
+
+    // Provident Fund per-employee details (Phase 8 slice 4). All default off, so a pre-v33 employee is byte-identical.
+    public bool PfApplicable { get; init; }
+    public bool PfContributeOnHigherWages { get; init; }
+    public string? PfJoinDate { get; init; }                    // ISO yyyy-MM-dd or null
 }
 
 // ----------------------------------------------------------------- pay heads + salary structures (Phase 8 slice 2)
@@ -650,6 +667,14 @@ public sealed record PayHeadDto
     public required string CalculationPeriod { get; init; }     // PayHeadCalculationPeriod name
     public Guid? AttendanceTypeId { get; init; }
     public int? PerDayCalculationBasisDays { get; init; }
+
+    /// <summary>The PF statutory role (Phase 8 slice 4), a <see cref="Apex.Ledger.Domain.PfStatutoryComponent"/>
+    /// name; "None" for a non-PF head.</summary>
+    public string PfComponent { get; init; } = nameof(Apex.Ledger.Domain.PfStatutoryComponent.None);
+
+    /// <summary>Whether this earning counts toward PF (EPF/EPS/EDLI) wages (Phase 8 slice 4). Default false.</summary>
+    public bool PartOfPfWages { get; init; }
+
     public IReadOnlyList<PayHeadComputationComponentDto> ComputationComponents { get; init; } = [];
     public IReadOnlyList<PayHeadComputationSlabDto> ComputationSlabs { get; init; } = [];
 }
