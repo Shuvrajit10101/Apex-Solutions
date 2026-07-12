@@ -92,6 +92,34 @@ public sealed class PayHeadServiceTests
         Assert.Throws<InvalidOperationException>(() => svc.RenamePayHead(a.Id, "DA"));
     }
 
+    // ---- rounding-limit paisa-multiple guard (F6) ----
+
+    [Fact]
+    public void Sub_paisa_rounding_limit_is_rejected_at_pay_head_save()
+    {
+        var c = Seed();
+        var svc = new PayHeadService(c);
+        // A ₹0.005 limit yields a k×0.005 amount the balanced-voucher check accepts but the integer-paisa store
+        // rejects — reject it up front at the master-save boundary.
+        var ex = Assert.Throws<InvalidOperationException>(() => svc.CreatePayHead(
+            "Odd Round", PayHeadType.Earnings, PayHeadCalculationType.FlatRate, underGroupId: IndirectExpenses(c),
+            roundingMethod: PayHeadRoundingMethod.Normal, roundingLimit: new Money(0.005m)));
+        Assert.Contains("paisa", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(c.PayHeads); // nothing created
+    }
+
+    [Fact]
+    public void Whole_paisa_rounding_limit_is_accepted()
+    {
+        var c = Seed();
+        var svc = new PayHeadService(c);
+        // 5-paisa multiple: k×0.05 is always paisa-exact, so it is allowed.
+        var ph = svc.CreatePayHead("Rounded", PayHeadType.Earnings, PayHeadCalculationType.FlatRate,
+            underGroupId: IndirectExpenses(c),
+            roundingMethod: PayHeadRoundingMethod.Normal, roundingLimit: new Money(0.05m));
+        Assert.Equal(new Money(0.05m), ph.RoundingLimit);
+    }
+
     // ---- reference + calc-type guards ----
 
     [Fact]

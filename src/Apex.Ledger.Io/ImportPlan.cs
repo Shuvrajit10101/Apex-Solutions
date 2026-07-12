@@ -414,7 +414,8 @@ internal sealed class ImportPlan
                 DisplayName = ph.DisplayName,
                 AffectsNetSalary = ph.AffectsNetSalary,
                 UnderGroupId = ph.UnderGroupId is { } g ? ResolveGroupId(g, groupId, t) : null,
-                LedgerId = ph.LedgerId is { } l ? ResolveLedgerId(l, ledgerId, t) : null,
+                // LedgerId + EmployerExpenseLedgerId reference the auto-created payroll ledgers, which are imported
+                // LATER (section 3), so they are re-linked in a post-ledger pass below — not resolvable here yet.
                 IncomeTaxComponent = ParseEnum<IncomeTaxComponent>(ph.IncomeTaxComponent),
                 UseForGratuity = ph.UseForGratuity,
                 RoundingMethod = ParseEnum<PayHeadRoundingMethod>(ph.RoundingMethod),
@@ -464,6 +465,20 @@ internal sealed class ImportPlan
                 ParseEnum<SalaryStructureStartType>(ss.StartType), lines);
             t.AddSalaryStructure(domain);
             journal.RecordSalaryStructure(domain);
+            created++;
+        }
+
+        // 2i) Attendance entries (Phase 8 slice 3). No natural key → always re-created with a fresh Guid, re-mapping
+        //     the employee + attendance-type refs to the target's re-minted ids; recorded for rollback.
+        foreach (var ae in _model.Payload.AttendanceEntries)
+        {
+            var domain = new AttendanceEntry(Guid.NewGuid(),
+                ResolveEmployeeId(ae.EmployeeId, employeeId, t),
+                ResolveAttendanceTypeId(ae.AttendanceTypeId, attendanceTypeId, t),
+                CompanyImportService.ParseDate(ae.FromDate), CompanyImportService.ParseDate(ae.ToDate),
+                FromMicro(ae.ValueMicro));
+            t.AddAttendanceEntry(domain);
+            journal.RecordAttendanceEntry(domain);
             created++;
         }
 
@@ -531,6 +546,17 @@ internal sealed class ImportPlan
             journal.RecordLedger(domain);
             ledgerId[l.Id] = domain.Id;
             created++;
+        }
+
+        // 3b) Pay-head → ledger re-link (Phase 8 slice 3). A pay head's LedgerId / EmployerExpenseLedgerId point at
+        //     the auto-created payroll ledgers, which only exist now that ledgers are imported. Re-resolve them into
+        //     the target's re-minted ids so the payroll voucher's lines reconcile to the same ledgers (a duplicate
+        //     pay head reused above is not in createdPayHeads, so its links are left as the target already has them).
+        foreach (var ph in _model.Payload.PayHeads)
+        {
+            if (!createdPayHeads.TryGetValue(ph.Id, out var domain)) continue;
+            domain.LedgerId = ph.LedgerId is { } l ? ResolveLedgerId(l, ledgerId, t) : null;
+            domain.EmployerExpenseLedgerId = ph.EmployerExpenseLedgerId is { } el ? ResolveLedgerId(el, ledgerId, t) : null;
         }
 
         // 4) Units — simple before compound (compound references first/tail unit ids).
@@ -803,7 +829,7 @@ internal sealed class ImportPlan
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
@@ -1008,6 +1034,8 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> currencyId,
         Dictionary<Guid, Guid> tdsNatureId,
         Dictionary<Guid, Guid> tcsNatureId,
+        Dictionary<Guid, Guid> employeeId,
+        Dictionary<Guid, Guid> payHeadId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -1021,7 +1049,8 @@ internal sealed class ImportPlan
             forex: BuildForex(l.Forex, currencyId, t),
             gst: BuildGstLineTax(l.Gst),
             tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t),
-            tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t)));
+            tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t),
+            payroll: BuildPayrollLineDetail(l.Payroll, employeeId, payHeadId, t)));
 
         var invLines = v.InventoryLines.Count == 0
             ? null
@@ -1075,6 +1104,17 @@ internal sealed class ImportPlan
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
         ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa));
+
+    /// <summary>Rebuilds a line's payroll detail (Phase 8 slice 3), re-mapping the source employee + pay-head ids
+    /// into the target company's re-minted ids so the per-employee salary breakdown reconciles across companies
+    /// (paisa- and count-exact). Null for a non-payroll line; the pay head is null for the net Salary-Payable line.</summary>
+    private static PayrollLineDetail? BuildPayrollLineDetail(
+        PayrollLineDto? d, Dictionary<Guid, Guid> employeeId, Dictionary<Guid, Guid> payHeadId, Company t) =>
+        d is null ? null : new PayrollLineDetail(
+            ResolveEmployeeId(d.EmployeeId, employeeId, t),
+            d.PayHeadId is { } ph ? ResolvePayHeadId(ph, payHeadId, t) : null,
+            ParseEnum<PayrollLineCategory>(d.Category),
+            MoneyCodec.FromPaisa(d.AmountPaisa));
 
     /// <summary>Rebuilds a line's TDS withholding detail (Phase 7 slice 2), re-mapping the source nature id and
     /// deductee-ledger id into the target company's re-minted ids so the withholding reconciles across companies

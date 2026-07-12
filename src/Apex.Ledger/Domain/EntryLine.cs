@@ -112,6 +112,18 @@ public sealed class EntryLine
     /// <summary>True iff this line carries TCS collection detail.</summary>
     public bool HasTcs => Tcs is not null;
 
+    /// <summary>
+    /// The payroll detail for this line (catalog §14; Phase 8 slice 3), or <c>null</c> for a non-payroll line.
+    /// Present on every line of a Payroll voucher — the employee + pay head that produced it, its category
+    /// (earning / deduction / net / employer pair) and the computed amount — so the payslip / pay-sheet /
+    /// register read the per-employee breakdown straight off the posted voucher without recomputing (mirrors
+    /// <see cref="Gst"/> / <see cref="Tds"/> on a base line).
+    /// </summary>
+    public PayrollLineDetail? Payroll { get; }
+
+    /// <summary>True iff this line carries payroll detail.</summary>
+    public bool HasPayroll => Payroll is not null;
+
     public EntryLine(
         Guid ledgerId,
         Money amount,
@@ -122,8 +134,17 @@ public sealed class EntryLine
         ForexInfo? forex = null,
         GstLineTax? gst = null,
         TdsLineTax? tds = null,
-        TcsLineTax? tcs = null)
+        TcsLineTax? tcs = null,
+        PayrollLineDetail? payroll = null)
     {
+        // A payroll line self-describes its own amount, which by construction equals the line amount (they are
+        // posted together). Enforce that invariant here — the single choke point every path (posting, import,
+        // tests) flows through — so a hand-edited import (or any caller) can never persist a payroll_lines amount
+        // that diverges from the ledger posting the payslip/register read back (Phase 8 slice 3; ER-1/ER-2).
+        if (payroll is not null && payroll.Amount != amount)
+            throw new InvalidOperationException(
+                $"Payroll line detail amount {payroll.Amount} must equal its entry line amount {amount}.");
+
         LedgerId = ledgerId;
         Amount = amount;
         Side = side;
@@ -134,6 +155,7 @@ public sealed class EntryLine
         Gst = gst;
         Tds = tds;
         Tcs = tcs;
+        Payroll = payroll;
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>

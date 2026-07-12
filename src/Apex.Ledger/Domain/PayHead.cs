@@ -48,9 +48,19 @@ public sealed class PayHead
     /// reference is captured now; the actual ledger is auto-created in slice 3.</summary>
     public Guid? UnderGroupId { get; set; }
 
-    /// <summary>The <see cref="Ledger"/> this head is linked to, once slice 3 auto-creates it; <c>null</c> in this
-    /// slice (captured for forward compatibility so no later migration is needed).</summary>
+    /// <summary>The <see cref="Ledger"/> this head is linked to, auto-created + populated by slice 3's payroll
+    /// posting. For an earning head this is the head's own <b>expense</b> ledger (posted Dr); for an employee
+    /// deduction head this is its <b>payable</b> ledger (posted Cr); for an <b>employer</b> contribution / charge /
+    /// gratuity head this is the employer <b>payable</b> ledger (posted Cr), paired with
+    /// <see cref="EmployerExpenseLedgerId"/>. <c>null</c> until first posted.</summary>
     public Guid? LedgerId { get; set; }
+
+    /// <summary>The employer <b>expense</b> ledger for an Employer's-Statutory-Contribution / Other-Charges /
+    /// Gratuity head (Phase 8 slice 3) — the debit side of the balanced employer pair, while
+    /// <see cref="LedgerId"/> holds the employer-payable (credit) side. Auto-created + populated by the payroll
+    /// posting; <c>null</c> for every non-employer head (and until first posted). Additive, defaults null so an
+    /// existing pay head is byte-identical (ER-13).</summary>
+    public Guid? EmployerExpenseLedgerId { get; set; }
 
     /// <summary>The income-tax component tag (§192 treatment); default <see cref="IncomeTaxComponent.NotApplicable"/>.</summary>
     public IncomeTaxComponent IncomeTaxComponent { get; set; } = IncomeTaxComponent.NotApplicable;

@@ -95,6 +95,7 @@ public static class CanonicalXml
             List("employees", "employee", p.Employees, BuildEmployee),
             List("payHeads", "payHead", p.PayHeads, BuildPayHead),
             List("salaryStructures", "salaryStructure", p.SalaryStructures, BuildSalaryStructure),
+            List("attendanceEntries", "attendanceEntry", p.AttendanceEntries, BuildAttendanceEntry),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
@@ -231,7 +232,8 @@ public static class CanonicalXml
             Attr("id", p.Id), Attr("name", p.Name), Opt("displayName", p.DisplayName),
             Attr("payHeadType", p.PayHeadType), Attr("calculationType", p.CalculationType),
             Attr("affectsNetSalary", p.AffectsNetSalary), OptId("underGroupId", p.UnderGroupId),
-            OptId("ledgerId", p.LedgerId), Attr("incomeTaxComponent", p.IncomeTaxComponent),
+            OptId("ledgerId", p.LedgerId), OptId("employerExpenseLedgerId", p.EmployerExpenseLedgerId),
+            Attr("incomeTaxComponent", p.IncomeTaxComponent),
             Attr("useForGratuity", p.UseForGratuity), Attr("roundingMethod", p.RoundingMethod),
             Attr("roundingLimitPaisa", p.RoundingLimitPaisa), Attr("calculationPeriod", p.CalculationPeriod),
             OptId("attendanceTypeId", p.AttendanceTypeId),
@@ -260,6 +262,10 @@ public static class CanonicalXml
         el.Add(lines);
         return el;
     }
+
+    private static XElement BuildAttendanceEntry(AttendanceEntryDto a) => new("attendanceEntry",
+        Attr("id", a.Id), Attr("employeeId", a.EmployeeId), Attr("attendanceTypeId", a.AttendanceTypeId),
+        Attr("fromDate", a.FromDate), Attr("toDate", a.ToDate), Attr("valueMicro", a.ValueMicro));
 
     private static XElement BuildCurrency(CurrencyDto x) => new("currency",
         Attr("id", x.Id), Attr("symbol", x.Symbol), Attr("formalName", x.FormalName),
@@ -511,6 +517,9 @@ public static class CanonicalXml
                 Attr("assessableValuePaisa", tc.AssessableValuePaisa), Attr("rateBasisPoints", tc.RateBasisPoints),
                 Attr("tcsAmountPaisa", tc.TcsAmountPaisa), Attr("collecteeLedgerId", tc.CollecteeLedgerId),
                 Attr("panApplied", tc.PanApplied)));
+        if (l.Payroll is { } pr)
+            el.Add(new XElement("payroll", Attr("employeeId", pr.EmployeeId), OptId("payHeadId", pr.PayHeadId),
+                Attr("category", pr.Category), Attr("amountPaisa", pr.AmountPaisa)));
         return el;
     }
 
@@ -742,6 +751,7 @@ public static class CanonicalXml
                 Employees = ReadList(root, "employees", "employee", ReadEmployee),
                 PayHeads = ReadList(root, "payHeads", "payHead", ReadPayHead),
                 SalaryStructures = ReadList(root, "salaryStructures", "salaryStructure", ReadSalaryStructure),
+                AttendanceEntries = ReadList(root, "attendanceEntries", "attendanceEntry", ReadAttendanceEntry),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
                 TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
@@ -890,7 +900,8 @@ public static class CanonicalXml
         Id = Guid(e, "id"), Name = Str(e, "name")!, DisplayName = Str(e, "displayName"),
         PayHeadType = Str(e, "payHeadType")!, CalculationType = Str(e, "calculationType")!,
         AffectsNetSalary = Bool(e, "affectsNetSalary"), UnderGroupId = OptGuid(e, "underGroupId"),
-        LedgerId = OptGuid(e, "ledgerId"), IncomeTaxComponent = Str(e, "incomeTaxComponent")!,
+        LedgerId = OptGuid(e, "ledgerId"), EmployerExpenseLedgerId = OptGuid(e, "employerExpenseLedgerId"),
+        IncomeTaxComponent = Str(e, "incomeTaxComponent")!,
         UseForGratuity = Bool(e, "useForGratuity"), RoundingMethod = Str(e, "roundingMethod")!,
         RoundingLimitPaisa = Long(e, "roundingLimitPaisa"), CalculationPeriod = Str(e, "calculationPeriod")!,
         AttendanceTypeId = OptGuid(e, "attendanceTypeId"),
@@ -918,6 +929,13 @@ public static class CanonicalXml
             {
                 PayHeadId = Guid(l, "payHeadId"), Order = Int(l, "order"), AmountPaisa = OptLong(l, "amountPaisa"),
             }).ToList(),
+    };
+
+    private static AttendanceEntryDto ReadAttendanceEntry(XElement e) => new()
+    {
+        Id = Guid(e, "id"), EmployeeId = Guid(e, "employeeId"), AttendanceTypeId = Guid(e, "attendanceTypeId"),
+        FromDate = Str(e, "fromDate") ?? string.Empty, ToDate = Str(e, "toDate") ?? string.Empty,
+        ValueMicro = Long(e, "valueMicro"),
     };
 
     private static CurrencyDto ReadCurrency(XElement e) => new()
@@ -1198,6 +1216,11 @@ public static class CanonicalXml
             AssessableValuePaisa = Long(tc, "assessableValuePaisa"), RateBasisPoints = Int(tc, "rateBasisPoints"),
             TcsAmountPaisa = Long(tc, "tcsAmountPaisa"), CollecteeLedgerId = Guid(tc, "collecteeLedgerId"),
             PanApplied = Bool(tc, "panApplied"),
+        } : null,
+        Payroll = e.Element("payroll") is { } pr ? new PayrollLineDto
+        {
+            EmployeeId = Guid(pr, "employeeId"), PayHeadId = OptGuid(pr, "payHeadId"),
+            Category = Str(pr, "category")!, AmountPaisa = Long(pr, "amountPaisa"),
         } : null,
     };
 

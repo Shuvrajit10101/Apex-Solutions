@@ -138,6 +138,10 @@ public sealed record PayloadDto
     public IReadOnlyList<PayHeadDto> PayHeads { get; init; } = [];
     public IReadOnlyList<SalaryStructureDto> SalaryStructures { get; init; } = [];
 
+    /// <summary>Recorded attendance/production values (Phase 8 slice 3; RQ-6) — the data of a non-accounting
+    /// Attendance voucher. Empty when Payroll is unused (ER-13).</summary>
+    public IReadOnlyList<AttendanceEntryDto> AttendanceEntries { get; init; } = [];
+
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
 
     /// <summary>Stock/order vouchers (catalog §10): GRN/Delivery/Rejection/Stock-Journal/Physical/PO/SO.</summary>
@@ -634,6 +638,11 @@ public sealed record PayHeadDto
     public bool AffectsNetSalary { get; init; }
     public Guid? UnderGroupId { get; init; }
     public Guid? LedgerId { get; init; }
+
+    /// <summary>The employer-contribution expense (Dr) ledger (Phase 8 slice 3); null for a non-employer head or
+    /// until first posted. Paired with <see cref="LedgerId"/> (the employer payable, Cr).</summary>
+    public Guid? EmployerExpenseLedgerId { get; init; }
+
     public required string IncomeTaxComponent { get; init; }    // IncomeTaxComponent name
     public bool UseForGratuity { get; init; }
     public required string RoundingMethod { get; init; }        // PayHeadRoundingMethod name
@@ -680,6 +689,19 @@ public sealed record SalaryStructureLineDto
     public required Guid PayHeadId { get; init; }
     public int Order { get; init; }
     public long? AmountPaisa { get; init; }
+}
+
+/// <summary>A recorded attendance/production value (Phase 8 slice 3; RQ-6), mirroring the domain
+/// <c>AttendanceEntry</c> and the SQLite <c>attendance_entries</c> row. The value is exact micro-units
+/// (units × 1,000,000, so a half-day / fractional hour round-trips).</summary>
+public sealed record AttendanceEntryDto
+{
+    public required Guid Id { get; init; }
+    public required Guid EmployeeId { get; init; }
+    public required Guid AttendanceTypeId { get; init; }
+    public required string FromDate { get; init; }         // ISO yyyy-MM-dd
+    public required string ToDate { get; init; }           // ISO yyyy-MM-dd
+    public long ValueMicro { get; init; }                  // units × 1,000,000
 }
 
 // ----------------------------------------------------------------- multi-currency (catalog §2/§20)
@@ -895,6 +917,20 @@ public sealed record EntryLineDto
 
     /// <summary>The TCS collection detail (Phase 7 slice 5), or null for a non-TCS line. Money is integer paisa.</summary>
     public TcsLineTaxDto? Tcs { get; init; }
+
+    /// <summary>The payroll detail (Phase 8 slice 3), or null for a non-payroll line. Money is integer paisa.</summary>
+    public PayrollLineDto? Payroll { get; init; }
+}
+
+/// <summary>The per-employee computed salary detail on a Payroll-voucher entry line (Phase 8 slice 3), mirroring
+/// the domain <c>PayrollLineDetail</c> and the SQLite <c>payroll_lines</c> row. Money is integer paisa; the pay
+/// head is null for the net Salary-Payable line.</summary>
+public sealed record PayrollLineDto
+{
+    public required Guid EmployeeId { get; init; }
+    public Guid? PayHeadId { get; init; }
+    public required string Category { get; init; }       // PayrollLineCategory name
+    public long AmountPaisa { get; init; }
 }
 
 public sealed record BillAllocationDto

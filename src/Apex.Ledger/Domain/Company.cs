@@ -40,6 +40,7 @@ public sealed class Company
     private readonly List<AttendanceType> _attendanceTypes = new();
     private readonly List<PayHead> _payHeads = new();
     private readonly List<SalaryStructure> _salaryStructures = new();
+    private readonly List<AttendanceEntry> _attendanceEntries = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -585,6 +586,18 @@ public sealed class Company
     public bool RemoveSalaryStructure(SalaryStructure structure) => _salaryStructures.Remove(structure);
     /// <summary>Finds a salary structure by its id, or <c>null</c>.</summary>
     public SalaryStructure? FindSalaryStructure(Guid id) => _salaryStructures.FirstOrDefault(s => s.Id == id);
+
+    // ---- Attendance entries (Phase 8 slice 3; recorded by PayrollAttendanceService, read by the computation engine) ----
+
+    /// <summary>Recorded attendance / production values (Phase 8 slice 3; RQ-6). Empty unless Payroll is used (ER-13).</summary>
+    public IReadOnlyList<AttendanceEntry> AttendanceEntries => _attendanceEntries;
+
+    /// <summary>Adds an attendance entry (guards live in <c>PayrollAttendanceService</c>; also used by import).</summary>
+    public void AddAttendanceEntry(AttendanceEntry entry) => _attendanceEntries.Add(entry ?? throw new ArgumentNullException(nameof(entry)));
+    /// <summary>Removes an attendance entry (also used by import roll-back).</summary>
+    public bool RemoveAttendanceEntry(AttendanceEntry entry) => _attendanceEntries.Remove(entry);
+    /// <summary>Finds an attendance entry by its id, or <c>null</c>.</summary>
+    public AttendanceEntry? FindAttendanceEntry(Guid id) => _attendanceEntries.FirstOrDefault(a => a.Id == id);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);

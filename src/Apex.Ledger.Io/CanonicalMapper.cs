@@ -16,8 +16,8 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v31).</summary>
-    public const int SchemaVersion = 31;
+    /// <summary>The persistence schema version this export targets (SQLite schema v32).</summary>
+    public const int SchemaVersion = 32;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -128,6 +128,10 @@ public static class CanonicalMapper
         SalaryStructures = c.SalaryStructures
             .OrderBy(x => (int)x.Scope).ThenBy(x => x.ScopeId).ThenBy(x => x.EffectiveFrom).ThenBy(x => x.Id)
             .Select(MapSalaryStructure).ToList(),
+        // Attendance entries — ordered by (from date, employee, attendance type, id) so the stream is deterministic.
+        AttendanceEntries = c.AttendanceEntries
+            .OrderBy(a => a.FromDate).ThenBy(a => a.EmployeeId).ThenBy(a => a.AttendanceTypeId).ThenBy(a => a.Id)
+            .Select(MapAttendanceEntry).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
@@ -271,7 +275,8 @@ public static class CanonicalMapper
     {
         Id = p.Id, Name = p.Name, DisplayName = p.DisplayName, PayHeadType = p.Type.ToString(),
         CalculationType = p.CalculationType.ToString(), AffectsNetSalary = p.AffectsNetSalary,
-        UnderGroupId = p.UnderGroupId, LedgerId = p.LedgerId, IncomeTaxComponent = p.IncomeTaxComponent.ToString(),
+        UnderGroupId = p.UnderGroupId, LedgerId = p.LedgerId, EmployerExpenseLedgerId = p.EmployerExpenseLedgerId,
+        IncomeTaxComponent = p.IncomeTaxComponent.ToString(),
         UseForGratuity = p.UseForGratuity, RoundingMethod = p.RoundingMethod.ToString(),
         RoundingLimitPaisa = MoneyCodec.ToPaisa(p.RoundingLimit), CalculationPeriod = p.CalculationPeriod.ToString(),
         AttendanceTypeId = p.AttendanceTypeId, PerDayCalculationBasisDays = p.PerDayCalculationBasisDays,
@@ -298,6 +303,12 @@ public static class CanonicalMapper
         {
             PayHeadId = l.PayHeadId, Order = l.Order, AmountPaisa = MoneyCodec.ToPaisa(l.Amount),
         }).ToList(),
+    };
+
+    private static AttendanceEntryDto MapAttendanceEntry(AttendanceEntry a) => new()
+    {
+        Id = a.Id, EmployeeId = a.EmployeeId, AttendanceTypeId = a.AttendanceTypeId,
+        FromDate = Iso(a.FromDate), ToDate = Iso(a.ToDate), ValueMicro = ToMicro(a.Value),
     };
 
     private static CurrencyDto MapCurrency(Currency x) => new()
@@ -565,6 +576,13 @@ public static class CanonicalMapper
         Gst = l.Gst is { } g ? MapGstLineTax(g) : null,
         Tds = l.Tds is { } t ? MapTdsLineTax(t) : null,
         Tcs = l.Tcs is { } tc ? MapTcsLineTax(tc) : null,
+        Payroll = l.Payroll is { } pr ? MapPayrollLine(pr) : null,
+    };
+
+    private static PayrollLineDto MapPayrollLine(PayrollLineDetail p) => new()
+    {
+        EmployeeId = p.EmployeeId, PayHeadId = p.PayHeadId, Category = p.Category.ToString(),
+        AmountPaisa = MoneyCodec.ToPaisa(p.Amount),
     };
 
     private static TdsLineTaxDto MapTdsLineTax(TdsLineTax t) => new()

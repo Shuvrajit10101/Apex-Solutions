@@ -85,6 +85,10 @@ public enum Screen
     PayHeadMaster,
     SalaryStructureMaster,
 
+    // Payroll vouchers (Phase 8 slice 3; RQ-6/RQ-7) — Attendance / Production + Payroll, same F11 gate.
+    AttendanceVoucherEntry,
+    PayrollVoucherEntry,
+
     LedgerVouchers,
     VoucherDetail,
 }
@@ -332,6 +336,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Salary Details / structure master (Phase 8 slice 2; RQ-5), non-null only while that page is open.</summary>
     [ObservableProperty] private SalaryStructureMasterViewModel? _salaryDetails;
 
+    /// <summary>The Attendance / Production voucher entry (Phase 8 slice 3; RQ-6), non-null only while that page is open.</summary>
+    [ObservableProperty] private AttendanceVoucherEntryViewModel? _attendanceVoucher;
+
+    /// <summary>The Payroll voucher entry (Phase 8 slice 3; RQ-7), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PayrollVoucherEntryViewModel? _payrollVoucher;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -396,6 +406,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
         && PayrollUnitMaster is null && AttendanceTypeMaster is null
         && PayHeadMaster is null && SalaryDetails is null
+        && AttendanceVoucher is null && PayrollVoucher is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -458,6 +469,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnAttendanceTypeMasterChanged(AttendanceTypeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPayHeadMasterChanged(PayHeadMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSalaryDetailsChanged(SalaryStructureMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAttendanceVoucherChanged(AttendanceVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPayrollVoucherChanged(PayrollVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -698,6 +711,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // is advertised, so Ctrl+F stays unambiguously the TDS deposit even when both taxes are on — no dead key).
             if (Company is { TcsEnabled: true })
                 col.Add(new MenuItemViewModel("TCS Stat Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // Payroll vouchers (Phase 8 slice 3; RQ-6/RQ-7) — the Attendance / Production voucher (records attendance
+        // values, non-accounting) and the Payroll voucher (Ctrl+F4, posts the balanced integrated salary entry),
+        // surfaced under their own nested section only when the F11 feature "Maintain Payroll" is on. A company that
+        // never enables Payroll shows neither and is byte-identical (ER-13), so the whole header hides when off.
+        if (Company is { PayrollEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Payroll"));
+            col.Add(new MenuItemViewModel("Attendance / Production", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Payroll", () => { }, "Ctrl+F4", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2759,6 +2783,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the <b>Attendance / Production voucher</b> entry page (Transactions → Vouchers → Payroll → Attendance /
+    /// Production; Phase 8 slice 3; RQ-6) as a page column: records per-employee attendance / leave / production
+    /// values for a period (a non-accounting voucher). A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowAttendanceVoucher()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var page = new AttendanceVoucherEntryViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Attendance / Production", page), Screen.AttendanceVoucherEntry,
+            "Attendance / Production Voucher", () => AttendanceVoucher = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>Payroll voucher</b> entry page (Transactions → Vouchers → Payroll → Payroll · Ctrl+F4; Phase 8
+    /// slice 3; RQ-7) as a page column: pick a period + employees, Compute the salary breakdown, and post the
+    /// balanced integrated accounting voucher. A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowPayrollVoucher()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var page = new PayrollVoucherEntryViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Payroll", page), Screen.PayrollVoucherEntry,
+            "Payroll Voucher", () => PayrollVoucher = page);
+    }
+
+    /// <summary>
     /// Opens the <b>TDS Stat Payment</b> deposit page (Transactions → Vouchers → TDS Stat Payment, the Payment
     /// "Ctrl+F"; Phase 7 slice 3) as a page column: deposits the accrued TDS Payable into the bank and records the
     /// ITNS-281 challan. A no-op unless TDS is enabled (the menu item is itself gated on
@@ -3253,6 +3305,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AttendanceTypeMaster = null;
         PayHeadMaster = null;
         SalaryDetails = null;
+        AttendanceVoucher = null;
+        PayrollVoucher = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3630,6 +3684,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.SalaryStructureMaster:
                 SalaryDetails?.Save();
                 return;
+            case Screen.AttendanceVoucherEntry:
+                AttendanceVoucher?.Accept();
+                return;
+            case Screen.PayrollVoucherEntry:
+                PayrollVoucher?.Accept();
+                return;
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
@@ -3845,6 +3905,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Attendance / Production Type": ShowAttendanceTypeMaster(); break;
             case "Pay Head": ShowPayHeadMaster(); break;
             case "Salary Details": ShowSalaryStructureMaster(); break;
+            // Payroll vouchers (Phase 8 slice 3) — under Transactions → Vouchers → Payroll, gated by F11 Maintain Payroll.
+            case "Attendance / Production": ShowAttendanceVoucher(); break;
+            case "Payroll": ShowPayrollVoucher(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
             case "Form 26Q": OpenForm26Q(); break;

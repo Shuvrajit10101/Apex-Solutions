@@ -280,6 +280,8 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS nature_of_payment;");
         Exec(conn, "DROP TABLE IF EXISTS nature_of_goods;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
+        Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");
         Exec(conn, "DROP TABLE IF EXISTS salary_structure_lines;");
         Exec(conn, "DROP TABLE IF EXISTS salary_structures;");
         Exec(conn, "DROP TABLE IF EXISTS pay_head_computation_slabs;");

@@ -753,6 +753,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 31;
         }
 
+        // v31 → v32: apply the Attendance + Payroll-voucher engine schema (one additive pay_heads column + two new
+        // tables — attendance_entries + payroll_lines — with indexes), then bump the marker. Existing v31 data
+        // survives untouched (ALTER … ADD COLUMN NULL + CREATE TABLE/INDEX only; no row rewrites — Phase 8 slice 3).
+        // ER-13 byte-identical when Payroll is never run (the new column defaults NULL, the new tables stay empty).
+        if (version == 31)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV31ToV32;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 32);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 32;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -991,7 +1015,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var s in ReadSalaryStructures(companyId))
             company.AddSalaryStructure(s);
 
+        // Attendance entries (Phase 8 slice 3): recorded attendance/production values, FK employees + attendance types.
+        foreach (var a in ReadAttendanceEntries(companyId))
+            company.AddAttendanceEntry(a);
+
         return company;
+    }
+
+    private IEnumerable<AttendanceEntry> ReadAttendanceEntries(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, employee_id, attendance_type_id, from_date, to_date, value_micro
+            FROM attendance_entries WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<AttendanceEntry>();
+        while (r.Read())
+            list.Add(new AttendanceEntry(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                Guid.Parse(r.GetString(2)),
+                ParseDate(r.GetString(3)),
+                ParseDate(r.GetString(4)),
+                r.GetInt64(5) / 1_000_000m));
+        return list;
     }
 
     private IEnumerable<TdsChallan> ReadTdsChallans(Guid companyId)
@@ -1148,6 +1197,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // computed-on reference to another pay head is always already present.
         InsertPayHeads(tx, company);
         InsertSalaryStructures(tx, company);
+        // Attendance entries (Phase 8 slice 3): recorded attendance/production values — FK employees + attendance
+        // types (both inserted above). The Payroll voucher's payroll_lines are written by InsertVouchers above.
+        InsertAttendanceEntries(tx, company);
 
         tx.Commit();
     }
@@ -1833,7 +1885,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
                    under_group_id, ledger_id, income_tax_component, use_for_gratuity,
-                   rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis
+                   rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
+                   employer_expense_ledger_id
             FROM pay_heads WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1858,6 +1911,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 CalculationPeriod = (PayHeadCalculationPeriod)(int)pr.GetInt64(12),
                 AttendanceTypeId = pr.IsDBNull(13) ? (Guid?)null : Guid.Parse(pr.GetString(13)),
                 PerDayCalculationBasisDays = pr.IsDBNull(14) ? (int?)null : (int)pr.GetInt64(14),
+                EmployerExpenseLedgerId = pr.IsDBNull(15) ? (Guid?)null : Guid.Parse(pr.GetString(15)),
             };
             var hasComponents = components.TryGetValue(id, out var comps);
             var hasSlabs = slabs.TryGetValue(id, out var slabList);
@@ -2690,6 +2744,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var bankAlloc = ReadBankAllocation(id);
             var tds = ReadTdsLine(id); // v26: TDS withholding detail (null for a non-TDS line)
             var tcs = ReadTcsLine(id); // v28: TCS collection detail (null for a non-TCS line)
+            var payroll = ReadPayrollLine(id); // v32: payroll detail (null for a non-payroll line)
             lines.Add(new EntryLine(
                 ledgerId,
                 Paisa.ToMoney(amountPaisa),
@@ -2700,9 +2755,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 forex,
                 gst,
                 tds,
-                tcs));
+                tcs,
+                payroll));
         }
         return lines;
+    }
+
+    /// <summary>v32: reads the payroll detail hung off an entry line, or <c>null</c> for a non-payroll line.</summary>
+    private PayrollLineDetail? ReadPayrollLine(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT employee_id, pay_head_id, category, amount_micro
+            FROM payroll_lines WHERE entry_line_id = $lid LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new PayrollLineDetail(
+            Guid.Parse(r.GetString(0)),
+            r.IsDBNull(1) ? (Guid?)null : Guid.Parse(r.GetString(1)),
+            (PayrollLineCategory)(int)r.GetInt64(2),
+            new Money(r.GetInt64(3) / 1_000_000m));
     }
 
     /// <summary>v28: reads the TCS collection detail hung off an entry line, or <c>null</c> for a non-TCS line.</summary>
@@ -2884,6 +2958,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 JOIN vouchers v ON v.id = el.voucher_id
                 WHERE v.company_id = $cid);
             """, ("$cid", cid));
+        // v32 payroll detail FKs the entry line → delete before entry_lines (Phase 8 slice 3).
+        ExecTx(tx, """
+            DELETE FROM payroll_lines WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
         // Inventory & order vouchers: child lines FK the header; the header FKs voucher_types + a party ledger
@@ -2994,6 +3075,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // employee_groups, then employee_categories. Each is a single-statement delete, so the self-FK
         // (employee_groups.parent_id / attendance_types.parent_id / payroll_units.first/tail) is transiently
         // violated then cleared within the same statement (net-zero at statement end), as for stock_groups.
+        // v32 attendance entries FK employees + attendance_types → delete before both (Phase 8 slice 3).
+        ExecTx(tx, "DELETE FROM attendance_entries WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM employees WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM attendance_types WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM payroll_units WHERE company_id = $cid;", ("$cid", cid));
@@ -3700,10 +3783,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO pay_heads
                     (id, company_id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
                      under_group_id, ledger_id, income_tax_component, use_for_gratuity,
-                     rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis)
+                     rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
+                     employer_expense_ledger_id)
                 VALUES ($id, $cid, $name, $disp, $type, $calc, $anet,
                         $grp, $led, $itc, $grat,
-                        $rm, $rl, $cp, $atid, $pdb);
+                        $rm, $rl, $cp, $atid, $pdb,
+                        $eeled);
                 """;
             cmd.Parameters.AddWithValue("$id", p.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -3721,6 +3806,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$cp", (int)p.CalculationPeriod);
             cmd.Parameters.AddWithValue("$atid", (object?)p.AttendanceTypeId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$pdb", (object?)p.PerDayCalculationBasisDays ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$eeled", (object?)p.EmployerExpenseLedgerId?.ToString("D") ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
 
@@ -3799,6 +3885,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$amt", line.Amount is { } m ? Paisa.FromMoney(m) : (object)DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
+        }
+    }
+
+    private void InsertAttendanceEntries(SqliteTransaction tx, Company c)
+    {
+        foreach (var a in c.AttendanceEntries)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO attendance_entries
+                    (id, company_id, employee_id, attendance_type_id, from_date, to_date, value_micro)
+                VALUES ($id, $cid, $emp, $atid, $from, $to, $val);
+                """;
+            cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$emp", a.EmployeeId.ToString("D"));
+            cmd.Parameters.AddWithValue("$atid", a.AttendanceTypeId.ToString("D"));
+            cmd.Parameters.AddWithValue("$from", FormatDate(a.FromDate));
+            cmd.Parameters.AddWithValue("$to", FormatDate(a.ToDate));
+            cmd.Parameters.AddWithValue("$val", (long)(a.Value * 1_000_000m));
+            cmd.ExecuteNonQuery();
         }
     }
 
@@ -4447,10 +4555,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             InsertBankAllocation(tx, lineId, line);
             InsertTdsLine(tx, lineId, line);
             InsertTcsLine(tx, lineId, line);
+            InsertPayrollLine(tx, lineId, line);
         }
 
         InsertVoucherInventoryLines(tx, v);
         InsertPosTenderAllocations(tx, v);
+    }
+
+    /// <summary>v32: persists an entry line's payroll detail (catalog §14; Phase 8 slice 3) to <c>payroll_lines</c>.
+    /// A non-payroll line carries none, so nothing is written — byte-identical (ER-13). Money is stored as
+    /// rupees × 1,000,000 ("micros"), exact for a paisa-exact amount.</summary>
+    private void InsertPayrollLine(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        if (line.Payroll is not { } p) return;
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO payroll_lines
+                (entry_line_id, employee_id, pay_head_id, category, amount_micro)
+            VALUES ($lid, $emp, $ph, $cat, $amt);
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        cmd.Parameters.AddWithValue("$emp", p.EmployeeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$ph", (object?)p.PayHeadId?.ToString("D") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$cat", (int)p.Category);
+        cmd.Parameters.AddWithValue("$amt", (long)(p.Amount.Amount * 1_000_000m));
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>v26: persists an entry line's TDS withholding detail (catalog §13; Phase 7 slice 2) to

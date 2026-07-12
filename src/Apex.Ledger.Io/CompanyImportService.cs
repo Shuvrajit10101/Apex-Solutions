@@ -382,6 +382,8 @@ public sealed class CompanyImportService
                 errors.Add($"Pay head '{ph.Name}' references an under-group that is neither imported nor present.");
             if (ph.LedgerId is { } lid && !plan.CanResolveLedger(lid, _target))
                 errors.Add($"Pay head '{ph.Name}' references a ledger that is neither imported nor present.");
+            if (ph.EmployerExpenseLedgerId is { } elid && !plan.CanResolveLedger(elid, _target))
+                errors.Add($"Pay head '{ph.Name}' references an employer-contribution expense ledger that is neither imported nor present.");
             if (ph.AttendanceTypeId is { } aid && !plan.CanResolveAttendanceType(aid, _target))
                 errors.Add($"Pay head '{ph.Name}' references an attendance type that is neither imported nor present.");
             foreach (var comp in ph.ComputationComponents)
@@ -435,6 +437,16 @@ public sealed class CompanyImportService
                         errors.Add($"A salary structure line for a {calc} pay head must not carry an amount (it is computed / entered at the voucher).");
                 }
             }
+        }
+
+        // Attendance entries (Phase 8 slice 3): employee + attendance-type refs. A dangling ref would otherwise
+        // only surface as a generic post-apply rollback when ImportPlan re-maps the entry (F4).
+        foreach (var ae in model.Payload.AttendanceEntries)
+        {
+            if (!plan.CanResolveEmployee(ae.EmployeeId, _target))
+                errors.Add("An attendance entry references an employee that is neither imported nor present.");
+            if (!plan.CanResolveAttendanceType(ae.AttendanceTypeId, _target))
+                errors.Add("An attendance entry references an attendance type that is neither imported nor present.");
         }
 
         // Budget → under-group + each line's group/ledger.
@@ -622,6 +634,22 @@ public sealed class CompanyImportService
             if (string.Equals(line.Side, nameof(DrCr.Debit), StringComparison.Ordinal)) dr += line.AmountPaisa;
             else if (string.Equals(line.Side, nameof(DrCr.Credit), StringComparison.Ordinal)) cr += line.AmountPaisa;
             else errors.Add($"{label} has a line with an unknown side '{line.Side}'.");
+
+            // A payroll detail's amount must equal its entry line amount (the payslip/register read it back as the
+            // ledger posting). A hand-edited file can balance in paisa yet carry a divergent payroll detail amount —
+            // reject it here at pre-flight so nothing is applied (the domain EntryLine enforces the same invariant).
+            if (line.Payroll is { } pl)
+            {
+                if (pl.AmountPaisa != line.AmountPaisa)
+                    errors.Add($"{label} has a payroll line whose detail amount {pl.AmountPaisa} paisa does not equal " +
+                               $"the entry line amount {line.AmountPaisa} paisa.");
+                // Its employee + pay-head refs must resolve, else ImportPlan's re-mapping throws a generic post-apply
+                // rollback instead of a clean per-record error (F4). The net Salary-Payable line carries no pay head.
+                if (!plan.CanResolveEmployee(pl.EmployeeId, _target))
+                    errors.Add($"{label} has a payroll line referencing an employee that is neither imported nor present.");
+                if (pl.PayHeadId is { } phid && !plan.CanResolvePayHead(phid, _target))
+                    errors.Add($"{label} has a payroll line referencing a pay head that is neither imported nor present.");
+            }
         }
 
         // Σ Dr == Σ Cr, in exact integer paisa (RQ-21).

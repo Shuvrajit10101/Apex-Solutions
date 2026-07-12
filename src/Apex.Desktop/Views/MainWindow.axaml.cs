@@ -182,6 +182,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+F4 opens the Payroll voucher (Transactions → Vouchers → Payroll → Payroll; Phase 8 slice 3; RQ-7) —
+        // the advertised Payroll accelerator. Intercepted here (before the bare F4 = Contra case) so Ctrl+F4 never
+        // misfires as Contra; a no-op unless Payroll is enabled, so a non-payroll company is unaffected (ER-13).
+        if (e.Key == Key.F4 && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is { PayrollEnabled: true } && !IsTyping(e))
+        {
+            vm.ShowPayrollVoucher();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B on the Form 26Q return (Phase 7 slice 4) SAVES the FVU flat file and RETURNS to the menu. Scoped to
         // the Form 26Q screen so it never collides with the inventory-voucher Alt+B (batch allocation) below; not
         // while typing in a field.
@@ -767,6 +778,20 @@ public partial class MainWindow : Window
     // Salary Details / structure master (Phase 8 slice 2) — the Save action.
     private void OnSaveSalaryStructureClick(object? sender, RoutedEventArgs e)
         => Vm?.SalaryDetails?.Save();
+
+    // Attendance / Production voucher (Phase 8 slice 3) — add a line + record the entries.
+    private void OnAddAttendanceLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AttendanceVoucher?.AddBlankRow();
+
+    private void OnRecordAttendanceClick(object? sender, RoutedEventArgs e)
+        => Vm?.AttendanceVoucher?.Accept();
+
+    // Payroll voucher (Phase 8 slice 3) — compute the salary breakdown, then post the balanced voucher.
+    private void OnComputePayrollClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayrollVoucher?.Compute();
+
+    private void OnPostPayrollClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayrollVoucher?.Accept();
 
     private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.TdsStatPayment?.Deposit();

@@ -7221,6 +7221,315 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Attendance / Production voucher (Phase 8 slice 3; RQ-6) — records per-employee
+                         attendance / leave / production values for a period (non-accounting). -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).AttendanceVoucher, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).AttendanceVoucher}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AttendanceVoucherEntryViewModel">
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Attendance / Production Voucher"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <ScrollViewer Grid.Row="1">
+                              <StackPanel Spacing="10">
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="16">
+                                  <StackPanel Spacing="10">
+                                    <TextBlock IsVisible="{Binding !CanRecord}"
+                                               Text="Create an Employee and an Attendance / Production Type first (Payroll Masters) before recording attendance."
+                                               FontSize="11" Foreground="{StaticResource AlertRed}" TextWrapping="Wrap"/>
+
+                                    <!-- The period every line on this voucher is recorded against. -->
+                                    <Grid ColumnDefinitions="130,*,130,*">
+                                      <TextBlock Grid.Column="0" Text="Period From" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBlock Grid.Column="2" Text="Period To" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding PeriodToText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                    </Grid>
+
+                                    <!-- attendance / production lines -->
+                                    <Border Background="{StaticResource BrandNavy}">
+                                      <Grid ColumnDefinitions="*,*,160">
+                                        <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                        <TextBlock Grid.Column="1" Text="Attendance / Production Type" Classes="colHdr"/>
+                                        <TextBlock Grid.Column="2" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                                      </Grid>
+                                    </Border>
+                                    <ItemsControl ItemsSource="{Binding Rows}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AttendanceVoucherLineRowViewModel">
+                                          <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                                  Padding="0,2">
+                                            <Grid ColumnDefinitions="*,*,160">
+                                              <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="4,0"
+                                                        ItemsSource="{Binding Employees}"
+                                                        SelectedItem="{Binding SelectedEmployee, Mode=TwoWay}"
+                                                        PlaceholderText="employee…">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:Employee">
+                                                    <TextBlock Text="{Binding Name}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" Margin="4,0"
+                                                        ItemsSource="{Binding AttendanceTypes}"
+                                                        SelectedItem="{Binding SelectedAttendanceType, Mode=TwoWay}"
+                                                        PlaceholderText="attendance / production type…">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:AttendanceType">
+                                                    <TextBlock Text="{Binding Name}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <TextBox Grid.Column="2" Text="{Binding ValueText, Mode=TwoWay}"
+                                                       TextAlignment="Right" Margin="4,0"
+                                                       PlaceholderText="e.g. 26"/>
+                                            </Grid>
+                                          </Border>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                      <Button Grid.Column="0" Content="+ Add Line" Padding="10,4"
+                                              Background="{StaticResource Cream}" Foreground="{StaticResource BrandNavy}"
+                                              BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                              Click="OnAddAttendanceLineClick"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Message}"
+                                                 IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                 Foreground="{StaticResource BrandNavy}" FontSize="12" Margin="12,0"
+                                                 VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                      <Button Grid.Column="2" Content="Record (Ctrl+A)" Padding="14,6"
+                                              Background="{StaticResource BrandNavy}" Foreground="White"
+                                              Click="OnRecordAttendanceClick"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Recorded entries in this period (read-back) -->
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,*,200,120">
+                                    <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Type" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Period" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding RecentEntries}" Background="White">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AttendanceEntryRow">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,*,200,120" MinHeight="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Employee}" Margin="8,0"
+                                                     VerticalAlignment="Center" FontSize="12"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding AttendanceType}"
+                                                     VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Period}"
+                                                     VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Value}" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" FontSize="12" TextAlignment="Right"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Payroll voucher (Phase 8 slice 3; RQ-7) — pick a period + employees, Compute the
+                         salary breakdown (earnings/deductions/net + Dr/Cr summary + balance indicator), Accept posts
+                         the balanced integrated accounting voucher through the engine. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).PayrollVoucher, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).PayrollVoucher}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:PayrollVoucherEntryViewModel">
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Payroll Voucher"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <ScrollViewer Grid.Row="1">
+                              <StackPanel Spacing="10">
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="16">
+                                  <StackPanel Spacing="10">
+                                    <TextBlock IsVisible="{Binding !CanRun}"
+                                               Text="Create an Employee with a Salary structure first (Payroll Masters) before running payroll."
+                                               FontSize="11" Foreground="{StaticResource AlertRed}" TextWrapping="Wrap"/>
+
+                                    <Grid ColumnDefinitions="120,*,120,*">
+                                      <TextBlock Grid.Column="0" Text="Period From" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBlock Grid.Column="2" Text="Period To" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding PeriodToText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="120,*,120,*">
+                                      <TextBlock Grid.Column="0" Text="Voucher Date" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding VoucherDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBlock Grid.Column="2" Text="" />
+                                      <TextBlock Grid.Column="3" Text="" />
+                                    </Grid>
+
+                                    <!-- Employees included in this pay run -->
+                                    <TextBlock Text="Include Employees" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}" Margin="0,2,0,0"/>
+                                    <ItemsControl ItemsSource="{Binding EmployeeSelections}">
+                                      <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                          <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                      </ItemsControl.ItemsPanel>
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:PayrollEmployeeSelection">
+                                          <CheckBox Content="{Binding Name}" IsChecked="{Binding IsIncluded, Mode=TwoWay}"
+                                                    Margin="0,0,16,0" FontSize="12"/>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <Grid ColumnDefinitions="120,*">
+                                      <TextBlock Grid.Column="0" Text="Narration" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding Narration, Mode=TwoWay}"
+                                               PlaceholderText="optional"/>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="Auto,*">
+                                      <Button Grid.Column="0" Content="Compute" Padding="14,6"
+                                              Background="{StaticResource Cream}" Foreground="{StaticResource BrandNavy}"
+                                              BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                              Click="OnComputePayrollClick"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Message}"
+                                                 IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                 Foreground="{StaticResource BrandNavy}" FontSize="12" Margin="12,0"
+                                                 VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Computed breakdown + Dr/Cr summary + balance indicator (only after Compute) -->
+                                <StackPanel Spacing="8" IsVisible="{Binding HasComputed}">
+                                  <!-- Live "balances (Dr==Cr)" indicator: green banner when Dr==Cr, red when not. -->
+                                  <Border Padding="10,6" CornerRadius="3" IsVisible="{Binding IsBalanced}"
+                                          Background="{StaticResource PositiveGreen}">
+                                    <TextBlock Text="{Binding BalanceText}" FontWeight="Bold" Foreground="White"
+                                               FontSize="13" HorizontalAlignment="Center"/>
+                                  </Border>
+                                  <Border Padding="10,6" CornerRadius="3" IsVisible="{Binding !IsBalanced}"
+                                          Background="{StaticResource AlertRed}">
+                                    <TextBlock Text="{Binding BalanceText}" FontWeight="Bold" Foreground="White"
+                                               FontSize="13" HorizontalAlignment="Center"/>
+                                  </Border>
+
+                                  <!-- Summary tiles -->
+                                  <Grid ColumnDefinitions="*,*,*,*" >
+                                    <StackPanel Grid.Column="0" Margin="2">
+                                      <TextBlock Text="Gross Earnings" FontSize="11" Foreground="#6A6A6A"/>
+                                      <TextBlock Text="{Binding GrossText, StringFormat='₹{0}'}" FontSize="14"
+                                                 FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="2">
+                                      <TextBlock Text="Deductions" FontSize="11" Foreground="#6A6A6A"/>
+                                      <TextBlock Text="{Binding DeductionsText, StringFormat='₹{0}'}" FontSize="14"
+                                                 FontWeight="Bold" Foreground="{StaticResource AlertRed}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="2">
+                                      <TextBlock Text="Net Payable" FontSize="11" Foreground="#6A6A6A"/>
+                                      <TextBlock Text="{Binding NetText, StringFormat='₹{0}'}" FontSize="14"
+                                                 FontWeight="Bold" Foreground="{StaticResource PositiveGreen}"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Margin="2">
+                                      <TextBlock Text="Employer Contribution" FontSize="11" Foreground="#6A6A6A"/>
+                                      <TextBlock Text="{Binding EmployerText, StringFormat='₹{0}'}" FontSize="14"
+                                                 FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                    </StackPanel>
+                                  </Grid>
+
+                                  <!-- Wide breakdown grid; horizontal scroll so no column clips. Header + rows share
+                                       the SAME explicit widths so they scroll together and line up. -->
+                                  <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <StackPanel Width="590" HorizontalAlignment="Left">
+                                      <Border Background="{StaticResource BrandNavy}">
+                                        <Grid ColumnDefinitions="150,150,110,90,90">
+                                          <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                          <TextBlock Grid.Column="1" Text="Pay Head" Classes="colHdr"/>
+                                          <TextBlock Grid.Column="2" Text="Category" Classes="colHdr"/>
+                                          <TextBlock Grid.Column="3" Text="Debit ₹" Classes="colHdr" TextAlignment="Right"/>
+                                          <TextBlock Grid.Column="4" Text="Credit ₹" Classes="colHdr" TextAlignment="Right"/>
+                                        </Grid>
+                                      </Border>
+                                      <ItemsControl ItemsSource="{Binding Breakdown}" Background="White">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:PayrollBreakdownRow">
+                                            <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                              <Grid ColumnDefinitions="150,150,110,90,90" MinHeight="23">
+                                                <TextBlock Grid.Column="0" Text="{Binding Employee}" Margin="8,0"
+                                                           VerticalAlignment="Center" FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           FontWeight="{Binding IsEmployeeHeader, Converter={StaticResource BoolWeight}}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding PayHead}"
+                                                           VerticalAlignment="Center" FontSize="12"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Category}"
+                                                           VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
+                                                <TextBlock Grid.Column="3" Text="{Binding DebitText}" Margin="0,0,8,0"
+                                                           VerticalAlignment="Center" FontSize="12" TextAlignment="Right"/>
+                                                <TextBlock Grid.Column="4" Text="{Binding CreditText}" Margin="0,0,8,0"
+                                                           VerticalAlignment="Center" FontSize="12" TextAlignment="Right"/>
+                                              </Grid>
+                                            </Border>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                      <!-- Totals footer -->
+                                      <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                                        <Grid ColumnDefinitions="150,150,110,90,90" MinHeight="26">
+                                          <TextBlock Grid.Column="2" Text="Total" Margin="0,0,8,0"
+                                                     VerticalAlignment="Center" FontWeight="Bold" TextAlignment="Right"
+                                                     Foreground="{StaticResource BrandNavy}"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding TotalDebitText}" Margin="0,0,8,0"
+                                                     VerticalAlignment="Center" FontWeight="Bold" TextAlignment="Right"
+                                                     Foreground="{StaticResource BrandNavy}"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding TotalCreditText}" Margin="0,0,8,0"
+                                                     VerticalAlignment="Center" FontWeight="Bold" TextAlignment="Right"
+                                                     Foreground="{StaticResource BrandNavy}"/>
+                                        </Grid>
+                                      </Border>
+                                    </StackPanel>
+                                  </ScrollViewer>
+
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text=""/>
+                                    <Button Grid.Column="1" Content="Post (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnPostPayrollClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GST — Statutory configuration (F11 Features → GST) -->
                     <ContentControl IsVisible="{Binding GstConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding GstConfig}">

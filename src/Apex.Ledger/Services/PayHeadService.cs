@@ -141,6 +141,14 @@ public sealed class PayHeadService
         {
             throw new InvalidOperationException($"Pay head '{payHead.Name}' needs a positive rounding limit for its rounding method.");
         }
+        else if (!payHead.RoundingLimit.IsPaisaExact)
+        {
+            // The rounding limit is the multiple the amount snaps to (k × limit). A sub-paisa limit (e.g. ₹0.005)
+            // yields a sub-paisa result the balanced-voucher validator accepts but the integer-paisa store rejects,
+            // so reject it up front at the master-save boundary (F6).
+            throw new InvalidOperationException(
+                $"Pay head '{payHead.Name}' rounding limit {payHead.RoundingLimit} must be a whole number of paisa.");
+        }
 
         ValidateAttendanceLinkage(payHead);
         ValidateComputation(payHead);

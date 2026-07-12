@@ -59,18 +59,23 @@ namespace Apex.Persistence.Sqlite;
 /// Materials (v17) and the Manufacturing-Journal flags (v18), additional cost of purchase (v19), zero-valued
 /// &amp; separate actual-vs-billed quantity (v20), price levels/lists (v21), reorder levels (v22), POS (v23),
 /// job work (v24), and the Phase-7 TDS/TCS masters, per-line compute and deposit/challan tables (v25-v29).
-/// <b><see cref="CurrentVersion"/> = 29</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v30–v32</b> add Phase-8 Payroll: the payroll masters — employee / group / category, payroll units and
+/// attendance types — plus the F11 payroll toggles (v30); pay heads and dated salary structures (v31); and
+/// attendance entries + the Payroll-voucher per-line payroll detail together with the pay head's
+/// employer-expense ledger link (v32).
+/// <b><see cref="CurrentVersion"/> = 32</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v29</b> is the latest bump (Phase 7
-    /// slice 6 — TCS deposit challans + the TCS challan↔voucher links). The full v1→v29 history is documented on
-    /// each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight
-    /// to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
-    /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must
-    /// also appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 31;
+    /// <summary>The current schema version this adapter reads and writes. <b>v32</b> is the latest bump (Phase 8
+    /// slice 3 — attendance entries + the Payroll-voucher per-line payroll detail and the pay-head employer-expense
+    /// ledger link). The full v1→v32 history is documented on each <c>MigrateVNToVN+1</c> constant below and
+    /// summarised on the class; a fresh database is stamped straight to this version via <see cref="CreateV1"/>,
+    /// while an older database is migrated up to it one version at a time. Keep this in lock-step with
+    /// <see cref="CreateV1"/>: any table/column/index added to a migration must also appear in
+    /// <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
+    public const int CurrentVersion = 32;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1066,7 +1071,8 @@ public static class Schema
             rounding_limit_paisa      INTEGER NOT NULL DEFAULT 0,
             calculation_period        INTEGER NOT NULL DEFAULT 0,    -- PayHeadCalculationPeriod ordinal
             attendance_type_id        TEXT        NULL REFERENCES attendance_types(id),
-            per_day_calculation_basis INTEGER     NULL
+            per_day_calculation_basis INTEGER     NULL,
+            employer_expense_ledger_id TEXT       NULL REFERENCES ledgers(id)  -- v32: employer-contribution Dr side
         );
         CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
 
@@ -1109,6 +1115,32 @@ public static class Schema
             amount_paisa        INTEGER     NULL
         );
         CREATE INDEX ix_salary_structure_lines_structure ON salary_structure_lines(salary_structure_id);
+
+        -- v32 (Phase 8 slice 3): recorded Attendance/Production values (a non-accounting Attendance voucher).
+        -- Empty when Payroll is unused (ER-13). value_micro = units × 1,000,000 (exact fractional days/hours).
+        CREATE TABLE attendance_entries (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            employee_id        TEXT    NOT NULL REFERENCES employees(id),
+            attendance_type_id TEXT    NOT NULL REFERENCES attendance_types(id),
+            from_date          TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            to_date            TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            value_micro        INTEGER NOT NULL    -- units × 1,000,000
+        );
+        CREATE INDEX ix_attendance_entries_company ON attendance_entries(company_id);
+
+        -- v32 (Phase 8 slice 3): the per-employee computed salary lines of a Payroll voucher — one row per
+        -- entry_lines row, self-describing the breakdown (employee, pay head, category, amount) so the payslip /
+        -- register read it back without recomputing. Empty when Payroll is unused (ER-13). Money is micros.
+        CREATE TABLE payroll_lines (
+            id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id INTEGER NOT NULL REFERENCES entry_lines(id),
+            employee_id   TEXT    NOT NULL,   -- the employee this computed line is for
+            pay_head_id   TEXT        NULL,   -- the pay head (NULL for the net Salary-Payable line)
+            category      INTEGER NOT NULL,   -- PayrollLineCategory ordinal
+            amount_micro  INTEGER NOT NULL    -- computed amount, rupees × 1,000,000
+        );
+        CREATE INDEX ix_payroll_lines_entry_line ON payroll_lines(entry_line_id);
         """;
 
     /// <summary>
@@ -2258,5 +2290,42 @@ public static class Schema
             amount_paisa        INTEGER     NULL
         );
         CREATE INDEX ix_salary_structure_lines_structure ON salary_structure_lines(salary_structure_id);
+        """;
+
+    /// <summary>
+    /// v31 → v32 (Phase 8 slice 3; Attendance + Payroll voucher engine): purely additive — one
+    /// <c>ALTER TABLE pay_heads ADD COLUMN employer_expense_ledger_id</c> (the employer-contribution debit-side
+    /// ledger, NULL for every existing head) plus two new tables (<c>attendance_entries</c> — the recorded
+    /// attendance/production values of a non-accounting Attendance voucher; <c>payroll_lines</c> — the per-employee
+    /// computed salary lines hung off <c>entry_lines</c>) with their indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 32. <b>No row rewrites, no data backfill</b> — an existing v31 database keeps every
+    /// row untouched, the new column defaults NULL and the two tables start empty, so a company that never runs
+    /// Payroll serialises byte-identically to a v31 company (ER-13). The DDL is byte-identical to the corresponding
+    /// blocks in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped
+    /// straight to v32 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV31ToV32 = """
+        ALTER TABLE pay_heads ADD COLUMN employer_expense_ledger_id TEXT NULL REFERENCES ledgers(id);
+
+        CREATE TABLE attendance_entries (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            employee_id        TEXT    NOT NULL REFERENCES employees(id),
+            attendance_type_id TEXT    NOT NULL REFERENCES attendance_types(id),
+            from_date          TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            to_date            TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            value_micro        INTEGER NOT NULL    -- units × 1,000,000
+        );
+        CREATE INDEX ix_attendance_entries_company ON attendance_entries(company_id);
+
+        CREATE TABLE payroll_lines (
+            id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id INTEGER NOT NULL REFERENCES entry_lines(id),
+            employee_id   TEXT    NOT NULL,   -- the employee this computed line is for
+            pay_head_id   TEXT        NULL,   -- the pay head (NULL for the net Salary-Payable line)
+            category      INTEGER NOT NULL,   -- PayrollLineCategory ordinal
+            amount_micro  INTEGER NOT NULL    -- computed amount, rupees × 1,000,000
+        );
+        CREATE INDEX ix_payroll_lines_entry_line ON payroll_lines(entry_line_id);
         """;
 }
