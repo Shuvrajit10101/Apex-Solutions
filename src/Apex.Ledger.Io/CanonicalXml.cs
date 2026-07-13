@@ -60,7 +60,8 @@ public static class CanonicalXml
             Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
             Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing),
             Attr("payrollEnabled", c.PayrollEnabled),
-            Attr("payrollStatutoryEnabled", c.PayrollStatutoryEnabled));
+            Attr("payrollStatutoryEnabled", c.PayrollStatutoryEnabled),
+            Attr("salaryTdsEnabled", c.SalaryTdsEnabled));
         if (c.Gst is { } gst) company.Add(BuildGstConfig(gst));
         if (c.Tds is { } tds) company.Add(BuildTdsConfig(tds));
         if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
@@ -99,6 +100,7 @@ public static class CanonicalXml
             List("payHeads", "payHead", p.PayHeads, BuildPayHead),
             List("salaryStructures", "salaryStructure", p.SalaryStructures, BuildSalaryStructure),
             List("attendanceEntries", "attendanceEntry", p.AttendanceEntries, BuildAttendanceEntry),
+            List("taxDeclarations", "taxDeclaration", p.TaxDeclarations, BuildTaxDeclaration),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
@@ -275,6 +277,14 @@ public static class CanonicalXml
     private static XElement BuildAttendanceEntry(AttendanceEntryDto a) => new("attendanceEntry",
         Attr("id", a.Id), Attr("employeeId", a.EmployeeId), Attr("attendanceTypeId", a.AttendanceTypeId),
         Attr("fromDate", a.FromDate), Attr("toDate", a.ToDate), Attr("valueMicro", a.ValueMicro));
+
+    private static XElement BuildTaxDeclaration(TaxDeclarationDto d) => new("taxDeclaration",
+        Attr("employeeId", d.EmployeeId),
+        Attr("section80CPaisa", d.Section80CPaisa), Attr("section80DPaisa", d.Section80DPaisa),
+        Attr("section80CCD1BPaisa", d.Section80CCD1BPaisa), Attr("section80CCD2EmployerPaisa", d.Section80CCD2EmployerPaisa),
+        Attr("hraExemptPaisa", d.HraExemptPaisa), Attr("homeLoanInterestPaisa", d.HomeLoanInterestPaisa),
+        Attr("otherIncomePaisa", d.OtherIncomePaisa), Attr("prevEmployerSalaryPaisa", d.PrevEmployerSalaryPaisa),
+        Attr("prevEmployerTdsPaisa", d.PrevEmployerTdsPaisa));
 
     private static XElement BuildCurrency(CurrencyDto x) => new("currency",
         Attr("id", x.Id), Attr("symbol", x.Symbol), Attr("formalName", x.FormalName),
@@ -764,6 +774,7 @@ public static class CanonicalXml
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
             PayrollEnabled = Bool(e, "payrollEnabled"),
             PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
+            SalaryTdsEnabled = Bool(e, "salaryTdsEnabled"),
             Pf = pfEl is null ? null : ReadPfConfig(pfEl),
             Esi = esiEl is null ? null : ReadEsiConfig(esiEl),
             Pt = ptEl is null ? null : ReadPtConfig(ptEl),
@@ -842,6 +853,7 @@ public static class CanonicalXml
                 PayHeads = ReadList(root, "payHeads", "payHead", ReadPayHead),
                 SalaryStructures = ReadList(root, "salaryStructures", "salaryStructure", ReadSalaryStructure),
                 AttendanceEntries = ReadList(root, "attendanceEntries", "attendanceEntry", ReadAttendanceEntry),
+                TaxDeclarations = ReadList(root, "taxDeclarations", "taxDeclaration", ReadTaxDeclaration),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
                 TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
@@ -1034,6 +1046,16 @@ public static class CanonicalXml
         Id = Guid(e, "id"), EmployeeId = Guid(e, "employeeId"), AttendanceTypeId = Guid(e, "attendanceTypeId"),
         FromDate = Str(e, "fromDate") ?? string.Empty, ToDate = Str(e, "toDate") ?? string.Empty,
         ValueMicro = Long(e, "valueMicro"),
+    };
+
+    private static TaxDeclarationDto ReadTaxDeclaration(XElement e) => new()
+    {
+        EmployeeId = Guid(e, "employeeId"),
+        Section80CPaisa = Long(e, "section80CPaisa"), Section80DPaisa = Long(e, "section80DPaisa"),
+        Section80CCD1BPaisa = Long(e, "section80CCD1BPaisa"), Section80CCD2EmployerPaisa = Long(e, "section80CCD2EmployerPaisa"),
+        HraExemptPaisa = Long(e, "hraExemptPaisa"), HomeLoanInterestPaisa = Long(e, "homeLoanInterestPaisa"),
+        OtherIncomePaisa = Long(e, "otherIncomePaisa"), PrevEmployerSalaryPaisa = Long(e, "prevEmployerSalaryPaisa"),
+        PrevEmployerTdsPaisa = Long(e, "prevEmployerTdsPaisa"),
     };
 
     private static CurrencyDto ReadCurrency(XElement e) => new()

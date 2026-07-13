@@ -210,8 +210,11 @@ public sealed class PayrollComputationService
     /// <see cref="RoleOf"/>.
     /// </summary>
     public static PayHeadPostingRole? RequiredStatutoryRole(
-        PtStatutoryComponent ptComponent, PfStatutoryComponent pfComponent, EsiStatutoryComponent esiComponent)
+        PtStatutoryComponent ptComponent, PfStatutoryComponent pfComponent, EsiStatutoryComponent esiComponent,
+        IncomeTaxComponent incomeTaxComponent = IncomeTaxComponent.NotApplicable)
     {
+        if (incomeTaxComponent == IncomeTaxComponent.TaxDeductedAtSource)
+            return PayHeadPostingRole.Deduction; // §192 salary-TDS is an employee deduction with no employer side
         if (ptComponent != PtStatutoryComponent.None)
             return PayHeadPostingRole.Deduction; // PT is an employee deduction with no employer side
         switch (pfComponent)
@@ -292,7 +295,9 @@ public sealed class PayrollComputationService
                     ? EvaluateEsi(payHead)
                     : payHead.PtComponent != PtStatutoryComponent.None
                         ? EvaluatePt(payHead)
-                        : ApplyRounding(payHead, EvaluateRaw(payHead));
+                        : payHead.IncomeTaxComponent == IncomeTaxComponent.TaxDeductedAtSource
+                            ? EvaluateIncomeTax(payHead)
+                            : ApplyRounding(payHead, EvaluateRaw(payHead));
 
             _visiting.Remove(payHeadId);
             _cache[payHeadId] = amount;
@@ -485,6 +490,126 @@ public sealed class PayrollComputationService
                 }
             }
             return new Money(sum);
+        }
+
+        /// <summary>
+        /// Evaluates a <b>§192 salary-TDS</b> deduction head for this member (Phase 8 slice 7) via
+        /// <see cref="SalaryIncomeTax"/>: estimates the member's annual salary income (this month's taxable gross
+        /// earnings × 12 + any declared other/previous-employer income), reduces it by the regime standard deduction
+        /// and the regime-allowed declared deductions (old-regime Chapter VI-A / HRA / 24(b), or new-regime employer
+        /// NPS), computes the annual income-tax under the member's elected regime and age band (slabs → §87A rebate →
+        /// surcharge → 4% cess, or the §206AA 20% floor when the member has no valid PAN), then spreads the residual
+        /// (net of TDS already deducted this FY + any previous-employer TDS) <b>average-rate</b> over the FY months
+        /// remaining. A not-enabled establishment, a zero-salary member, or a fully-rebated tax contributes nothing —
+        /// so the deduction line self-cancels and the voucher stays balanced (ER-13). The result is a
+        /// <see cref="PayHeadPostingRole.Deduction"/> that reduces net pay and is credited to the salary-TDS payable.
+        /// </summary>
+        private Money EvaluateIncomeTax(PayHead payHead)
+        {
+            if (payHead.IncomeTaxComponent != IncomeTaxComponent.TaxDeductedAtSource) return Money.Zero;
+            if (!_company.SalaryTdsEnabled) return Money.Zero; // establishment not deducting salary-TDS (ER-13)
+
+            var regime = _employee.ApplicableTaxRegime;
+            var monthlyGross = MonthlyTaxableGrossRaw();
+            var declaration = _company.FindTaxDeclaration(_employee.Id);
+            var additionalIncome = declaration?.AdditionalIncome.Amount ?? 0m;
+            var monthsRemaining = SalaryIncomeTax.MonthsRemainingInFy(_to);
+
+            // §192 estimate = actual salary PAID-TO-DATE this FY (posted, non-cancelled) + the CURRENT and remaining
+            // months PROJECTED from the in-force structure + declared other income. Annualising THIS month × 12 (the
+            // old estimate) never trued a variable salary up to actuals: a mid-year raise, a one-off bonus or a
+            // mid-year joiner made the year-end Σ-posted TDS diverge from the tax on the ACTUAL FY gross that
+            // Annexure II / Form 16 Part B sum. Telescoping paid-to-date + projected collapses, in March
+            // (monthsRemaining == 1), to the actual FY gross, so the year trues up to Annexure II by construction (F1).
+            var estAnnual = PaidToDateTaxableGross() + monthlyGross * monthsRemaining + additionalIncome;
+            if (estAnnual <= 0m) return Money.Zero;
+
+            var allowedDeductions = declaration?.AllowedDeductions(regime).Amount ?? 0m;
+            var taxable = SalaryIncomeTax.TaxableIncome(estAnnual, allowedDeductions, regime);
+            var age = SalaryIncomeTax.AgeBandFor(_employee.DateOfBirth, _to);
+            var annualTax = Pan.IsValid(_employee.Pan)
+                ? SalaryIncomeTax.ComputeAnnual(taxable, regime, age).AnnualTax
+                : SalaryIncomeTax.AnnualTaxNoPan(taxable, regime, age); // §206AA higher-of-average-rate-or-20%
+
+            var prevEmployerTds = declaration?.PreviousEmployerTds.Amount ?? 0m;
+            var alreadyByUs = PriorFinancialYearSalaryTds();
+            return SalaryIncomeTax.MonthlyTds(annualTax, new Money(alreadyByUs + prevEmployerTds), monthsRemaining);
+        }
+
+        /// <summary>The member's estimated <b>monthly taxable gross</b> (Phase 8 slice 7): the Σ of the structure's
+        /// affecting earning heads that are <b>not</b> tagged <see cref="IncomeTaxComponent.FullyExempt"/>, each
+        /// evaluated + memoised. No earning references the §192 deduction head, so this closes no cycle. Projected
+        /// over the current + remaining FY months (alongside the paid-to-date actuals) by the caller to estimate the
+        /// year's salary income.</summary>
+        private decimal MonthlyTaxableGrossRaw()
+        {
+            decimal sum = 0m;
+            foreach (var line in _structure.Lines)
+            {
+                var ph = _company.FindPayHead(line.PayHeadId);
+                if (ph is null || !ph.AffectsNetSalary) continue;
+                if (PayrollComputationService.RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
+                if (ph.IncomeTaxComponent == IncomeTaxComponent.FullyExempt) continue;
+                sum += Evaluate(ph.Id).Amount;
+            }
+            return sum;
+        }
+
+        /// <summary>The member's <b>actual taxable salary paid to date this financial year</b> (Apr–Mar) up to but
+        /// excluding the current period (Phase 8 slice 7; F1): the Σ of posted, <b>non-cancelled</b> Payroll earning
+        /// lines for this employee whose pay head is taxable (not <see cref="IncomeTaxComponent.FullyExempt"/>), dated
+        /// in <c>[FY-start, periodFrom)</c>. Added to the current + remaining months projected from the in-force
+        /// structure, it forms the §192 annual-salary estimate. It reads the <b>same</b> posted taxable-gross base the
+        /// <see cref="Reports.Form24Q"/> Annexure II annual sum uses, so the year trues up to the reported tax by
+        /// construction. Derived (pure) from the books — no persisted running total; a cancelled month is excluded (F2).</summary>
+        private decimal PaidToDateTaxableGross()
+        {
+            var (fyStart, _) = TdsService.FinancialYearOf(_to);
+            decimal sum = 0m;
+            foreach (var v in _company.Vouchers)
+            {
+                if (v.Cancelled) continue;                         // a cancelled month never accrued salary (F2)
+                if (v.Date < fyStart || v.Date >= _from) continue; // FY-to-date, strictly before this period
+                foreach (var line in v.Lines)
+                {
+                    if (line.Payroll is not { } pd) continue;
+                    if (pd.EmployeeId != _employee.Id) continue;
+                    if (pd.Category != PayrollLineCategory.Earning) continue;
+                    if (pd.PayHeadId is not { } phId) continue;
+                    var ph = _company.FindPayHead(phId);
+                    if (ph is null || ph.IncomeTaxComponent == IncomeTaxComponent.FullyExempt) continue;
+                    sum += pd.Amount.Amount;
+                }
+            }
+            return sum;
+        }
+
+        /// <summary>The §192 salary-TDS this member has already had deducted <b>this financial year</b> (Apr–Mar) up
+        /// to but excluding the current period — the running total the average-rate true-up spreads the residual net
+        /// of. Derived (pure) from posted Payroll vouchers: the income-tax deduction lines for this employee dated in
+        /// <c>[FY-start, periodFrom)</c>. Needs no persisted running total; the true-up re-derives from the books. A
+        /// cancelled voucher's TDS never reached the exchequer, so it is excluded (F2) — mirroring
+        /// <see cref="TdsService.ProjectPriorCumulative"/>; counting it would under-withhold the remaining months.</summary>
+        private decimal PriorFinancialYearSalaryTds()
+        {
+            var (fyStart, _) = TdsService.FinancialYearOf(_to);
+            decimal sum = 0m;
+            foreach (var v in _company.Vouchers)
+            {
+                if (v.Cancelled) continue;                         // a cancelled deduction was never paid over (F2)
+                if (v.Date < fyStart || v.Date >= _from) continue; // FY-to-date, strictly before this period
+                foreach (var line in v.Lines)
+                {
+                    if (line.Payroll is not { } pd) continue;
+                    if (pd.EmployeeId != _employee.Id) continue;
+                    if (pd.Category != PayrollLineCategory.Deduction) continue;
+                    if (pd.PayHeadId is not { } phId) continue;
+                    var ph = _company.FindPayHead(phId);
+                    if (ph is null || ph.IncomeTaxComponent != IncomeTaxComponent.TaxDeductedAtSource) continue;
+                    sum += pd.Amount.Amount;
+                }
+            }
+            return sum;
         }
 
         private decimal EvaluateRaw(PayHead payHead)
@@ -774,6 +899,23 @@ public sealed class PayrollComputationResult
             var sum = 0m;
             foreach (var l in Lines)
                 if (l.Role == PayHeadPostingRole.Deduction && l.PayHead.PtComponent != PtStatutoryComponent.None)
+                    sum += l.Amount.Amount;
+            return new Money(sum);
+        }
+    }
+
+    /// <summary>The member's <b>§192 salary-TDS</b> for the month (Phase 8 slice 7): the Σ of the evaluated
+    /// deduction lines whose pay head is the income-tax withholding head
+    /// (<see cref="IncomeTaxComponent.TaxDeductedAtSource"/>) — the average-rate TDS the payroll voucher credits to
+    /// the salary-TDS payable, exposed so Form 24Q / Form 16 read the same figure the voucher posted.</summary>
+    public Money SalaryTdsDeducted
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines)
+                if (l.Role == PayHeadPostingRole.Deduction
+                    && l.PayHead.IncomeTaxComponent == IncomeTaxComponent.TaxDeductedAtSource)
                     sum += l.Amount.Amount;
             return new Money(sum);
         }

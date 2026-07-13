@@ -775,6 +775,26 @@ public partial class MainWindow : Window
     private void OnSaveReturnProfessionalTaxClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnProfessionalTax();
 
+    // §192 salary TDS (Phase 8 slice 7) — F11 Enable Salary TDS, the Form-12BB declaration save, and the
+    // Form 24Q / Form 16 export + save-return actions.
+    private void OnApplySalaryTdsClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplySalaryTds();
+
+    private void OnSaveTaxDeclarationClick(object? sender, RoutedEventArgs e)
+        => Vm?.TaxDeclarationMaster?.Save();
+
+    private void OnExportForm24QClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form24Q?.ExportFvu();
+
+    private void OnSaveReturnForm24QClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm24Q();
+
+    private void OnExportForm16Click(object? sender, RoutedEventArgs e)
+        => Vm?.Form16?.ExportPdf();
+
+    private void OnSaveReturnForm16Click(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm16();
+
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfPaymentMaster?.Create();
 

@@ -436,7 +436,8 @@ public sealed class CompanyImportService
                 && Enum.TryParse<PtStatutoryComponent>(ph.PtComponent, out var phPt)
                 && Enum.TryParse<PfStatutoryComponent>(ph.PfComponent, out var phPf)
                 && Enum.TryParse<EsiStatutoryComponent>(ph.EsiComponent, out var phEsi)
-                && PayrollComputationService.RequiredStatutoryRole(phPt, phPf, phEsi) is { } requiredRole
+                && Enum.TryParse<IncomeTaxComponent>(ph.IncomeTaxComponent, out var phItc)
+                && PayrollComputationService.RequiredStatutoryRole(phPt, phPf, phEsi, phItc) is { } requiredRole
                 && PayrollComputationService.RoleOf(phType) != requiredRole)
                 errors.Add(
                     $"Pay head '{ph.Name}' carries a statutory component that must post as {requiredRole}, but its " +
@@ -500,6 +501,12 @@ public sealed class CompanyImportService
             if (!plan.CanResolveAttendanceType(ae.AttendanceTypeId, _target))
                 errors.Add("An attendance entry references an attendance type that is neither imported nor present.");
         }
+
+        // §192 income-tax declarations (Phase 8 slice 7): each references an employee — a dangling ref would
+        // otherwise only surface as a generic post-apply rollback when ImportPlan re-maps the declaration (F4).
+        foreach (var td in model.Payload.TaxDeclarations)
+            if (!plan.CanResolveEmployee(td.EmployeeId, _target))
+                errors.Add("A tax declaration references an employee that is neither imported nor present.");
 
         // Budget → under-group + each line's group/ledger.
         foreach (var bd in model.Payload.Budgets)

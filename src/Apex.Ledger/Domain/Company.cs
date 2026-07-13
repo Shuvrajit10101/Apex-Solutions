@@ -41,6 +41,7 @@ public sealed class Company
     private readonly List<PayHead> _payHeads = new();
     private readonly List<SalaryStructure> _salaryStructures = new();
     private readonly List<AttendanceEntry> _attendanceEntries = new();
+    private readonly List<TaxDeclaration> _taxDeclarations = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -282,6 +283,15 @@ public sealed class Company
     /// </summary>
     public PtConfig? PtConfig { get; set; }
 
+    /// <summary>
+    /// Whether the establishment deducts <b>§192 salary TDS</b> (Phase 8 slice 7; catalog §14; F11 Payroll
+    /// Statutory). When <c>true</c> the payroll voucher computes the average-rate monthly TDS for each employee whose
+    /// structure carries a §192 income-tax deduction head. Additive, defaults <c>false</c> so a company that never
+    /// enables salary-TDS is byte-identical to a pre-v36 company (ER-13). The deductor/TAN/responsible-person facts
+    /// reuse the Phase-7 <c>TdsConfig</c> (no parallel deductor config).
+    /// </summary>
+    public bool SalaryTdsEnabled { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 
@@ -385,6 +395,12 @@ public sealed class Company
 
     /// <summary>Employees (Phase 8 slice 1; RQ-2): the workforce masters, under a group + optional category.</summary>
     public IReadOnlyList<Employee> Employees => _employees;
+
+    /// <summary>Per-employee income-tax declarations (Phase 8 slice 7; RQ-12; Form 12BB): the §80C/§80D/HRA/24(b)/
+    /// other-income/previous-employer figures the §192 engine estimates the salary TDS from. Empty until a
+    /// declaration is captured (a new-regime employee needs none), so a company without declarations is
+    /// byte-identical (ER-13).</summary>
+    public IReadOnlyList<TaxDeclaration> TaxDeclarations => _taxDeclarations;
 
     /// <summary>Payroll units (Phase 8 slice 1; RQ-3): simple + compound units for attendance/production.</summary>
     public IReadOnlyList<PayrollUnit> PayrollUnits => _payrollUnits;
@@ -551,6 +567,21 @@ public sealed class Company
     public void AddEmployee(Employee employee) => _employees.Add(employee ?? throw new ArgumentNullException(nameof(employee)));
     /// <summary>Removes an employee (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
     public bool RemoveEmployee(Employee employee) => _employees.Remove(employee);
+
+    /// <summary>Adds a per-employee income-tax declaration (Phase 8 slice 7; also used by the store/import
+    /// rehydration). Replaces any existing declaration for the same employee (one declaration per employee).</summary>
+    public void AddTaxDeclaration(TaxDeclaration declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        _taxDeclarations.RemoveAll(d => d.EmployeeId == declaration.EmployeeId);
+        _taxDeclarations.Add(declaration);
+    }
+    /// <summary>Removes a tax declaration (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveTaxDeclaration(TaxDeclaration declaration) => _taxDeclarations.Remove(declaration);
+    /// <summary>Finds an employee's income-tax declaration (Phase 8 slice 7), or <c>null</c> when none is captured
+    /// (⇒ the §192 engine treats every declared figure as ₹0 — correct for a new-regime employee).</summary>
+    public TaxDeclaration? FindTaxDeclaration(Guid employeeId) =>
+        _taxDeclarations.FirstOrDefault(d => d.EmployeeId == employeeId);
 
     /// <summary>Adds a payroll unit (uniqueness guard lives in <c>PayrollService</c>).</summary>
     public void AddPayrollUnit(PayrollUnit unit) => _payrollUnits.Add(unit ?? throw new ArgumentNullException(nameof(unit)));

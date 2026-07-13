@@ -84,6 +84,11 @@ public sealed record CompanyDto
     /// <summary>F11 "Enable Payroll Statutory" (Phase 8 slice 1; RQ-1). Default false.</summary>
     public bool PayrollStatutoryEnabled { get; init; }
 
+    /// <summary>§192 salary-TDS toggle (Phase 8 slice 7; RQ-12). Default false, so a company that never deducts
+    /// salary-TDS is byte-identical (ER-13). The per-employee Form-12BB declarations live in the payload's
+    /// <c>TaxDeclarations</c>.</summary>
+    public bool SalaryTdsEnabled { get; init; }
+
     /// <summary>The establishment Provident-Fund config (Phase 8 slice 4); null when the establishment is not
     /// enrolled for PF (a PF-off company is byte-identical — ER-13).</summary>
     public PfConfigDto? Pf { get; init; }
@@ -227,6 +232,10 @@ public sealed record PayloadDto
     /// <summary>Recorded attendance/production values (Phase 8 slice 3; RQ-6) — the data of a non-accounting
     /// Attendance voucher. Empty when Payroll is unused (ER-13).</summary>
     public IReadOnlyList<AttendanceEntryDto> AttendanceEntries { get; init; } = [];
+
+    /// <summary>Per-employee §192 income-tax declarations (Phase 8 slice 7; Form 12BB) — the investment / exemption /
+    /// prior-income figures the salary-TDS estimate uses. Empty when no employee declared (ER-13).</summary>
+    public IReadOnlyList<TaxDeclarationDto> TaxDeclarations { get; init; } = [];
 
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
 
@@ -824,6 +833,23 @@ public sealed record AttendanceEntryDto
     public required string FromDate { get; init; }         // ISO yyyy-MM-dd
     public required string ToDate { get; init; }           // ISO yyyy-MM-dd
     public long ValueMicro { get; init; }                  // units × 1,000,000
+}
+
+/// <summary>A per-employee §192 income-tax declaration (Phase 8 slice 7; Form 12BB), mirroring the domain
+/// <c>TaxDeclaration</c> and the SQLite <c>employee_tax_declarations</c> row. All money is exact integer paisa via
+/// <see cref="MoneyCodec"/>. The <see cref="EmployeeId"/> is remapped to the target employee on import.</summary>
+public sealed record TaxDeclarationDto
+{
+    public required Guid EmployeeId { get; init; }
+    public long Section80CPaisa { get; init; }
+    public long Section80DPaisa { get; init; }
+    public long Section80CCD1BPaisa { get; init; }
+    public long Section80CCD2EmployerPaisa { get; init; }
+    public long HraExemptPaisa { get; init; }
+    public long HomeLoanInterestPaisa { get; init; }
+    public long OtherIncomePaisa { get; init; }
+    public long PrevEmployerSalaryPaisa { get; init; }
+    public long PrevEmployerTdsPaisa { get; init; }
 }
 
 // ----------------------------------------------------------------- multi-currency (catalog §2/§20)

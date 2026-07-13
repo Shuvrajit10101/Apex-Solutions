@@ -853,6 +853,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 35;
         }
 
+        // v35 → v36: apply the §192 salary-TDS schema (one additive companies column for the establishment salary-TDS
+        // toggle, one new employee_tax_declarations table + index for the per-employee Form-12BB declaration), then
+        // bump the marker. Existing v35 data survives untouched (ALTER … ADD COLUMN + a new empty table; no row
+        // rewrites — Phase 8 slice 7). ER-13 byte-identical when the establishment never deducts salary-TDS
+        // (salary_tds_enabled defaults 0, employee_tax_declarations starts empty).
+        if (version == 35)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV35ToV36;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 36);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 36;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -878,7 +903,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    payroll_enabled, payroll_statutory_enabled,
                    pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
                    esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
-                   pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis
+                   pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
+                   salary_tds_enabled
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -988,6 +1014,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.IsDBNull(49) ? null : r.GetString(49),
                     r.IsDBNull(50) ? null : r.GetString(50),
                     (PtWageBasis)(int)r.GetInt64(51));
+
+            // v36 (Phase 8 slice 7): establishment §192 salary-TDS toggle. Off (default) for a company that never
+            // deducts salary-TDS (ER-13); per-employee declarations are hydrated from employee_tax_declarations below.
+            company.SalaryTdsEnabled = r.GetInt64(52) != 0;
         }
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
@@ -1007,6 +1037,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (company.PtConfig is not null)
             foreach (var slab in ReadPtSlabTables(companyId))
                 company.PtConfig.AddSlabTable(slab);
+
+        // v36 per-employee §192 income-tax declarations (empty for a company with no declarations — ER-13).
+        foreach (var declaration in ReadTaxDeclarations(companyId))
+            company.AddTaxDeclaration(declaration);
 
         // Groups: the reserved P&L head (is_pl_head = 1) is registered via SetProfitAndLossHead and
         // kept OUT of Company.Groups; the 28 (and any custom) groups go into Company.Groups. Load
@@ -1693,6 +1727,38 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var t = byId[id];
             list.Add(new PtSlab(id, t.State, t.Scope, t.Bands));
         }
+        return list;
+    }
+
+    /// <summary>v36: reads the per-employee §192 income-tax declarations (Form 12BB) for a company. No rows ⇒ an
+    /// empty list (ER-13). All money is stored as integer paisa.</summary>
+    private IEnumerable<TaxDeclaration> ReadTaxDeclarations(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT employee_id, section_80c_paisa, section_80d_paisa, section_80ccd1b_paisa,
+                   section_80ccd2_employer_paisa, hra_exempt_paisa, home_loan_interest_paisa, other_income_paisa,
+                   prev_employer_salary_paisa, prev_employer_tds_paisa
+            FROM employee_tax_declarations WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+
+        var list = new List<TaxDeclaration>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new TaxDeclaration
+            {
+                EmployeeId = Guid.Parse(r.GetString(0)),
+                Section80C = new Money(r.GetInt64(1) / 100m),
+                Section80D = new Money(r.GetInt64(2) / 100m),
+                Section80CCD1B = new Money(r.GetInt64(3) / 100m),
+                Section80CCD2Employer = new Money(r.GetInt64(4) / 100m),
+                HouseRentAllowanceExempt = new Money(r.GetInt64(5) / 100m),
+                HomeLoanInterest24b = new Money(r.GetInt64(6) / 100m),
+                OtherIncome = new Money(r.GetInt64(7) / 100m),
+                PreviousEmployerSalary = new Money(r.GetInt64(8) / 100m),
+                PreviousEmployerTds = new Money(r.GetInt64(9) / 100m),
+            });
         return list;
     }
 
@@ -3265,6 +3331,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM gst_rate_slabs WHERE company_id = $cid;", ("$cid", cid));
         // v35 PT slab bands FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
+        // v36 §192 tax declarations FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM employee_tax_declarations WHERE company_id = $cid;", ("$cid", cid));
         // v25 TDS/TCS masters FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM nature_of_payment WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM nature_of_goods WHERE company_id = $cid;", ("$cid", cid));
@@ -3301,7 +3369,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  payroll_enabled, payroll_statutory_enabled,
                  pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
                  esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
-                 pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis)
+                 pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
+                 salary_tds_enabled)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3312,7 +3381,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $payen, $paystat,
                  $pfen, $pfrate, $pfcode, $pfcap,
                  $esien, $esieerate, $esiererate, $esicode,
-                 $pten, $ptstate, $ptreg, $ptbasis);
+                 $pten, $ptstate, $ptreg, $ptbasis,
+                 $salarytds);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -3385,7 +3455,36 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$ptstate", (object?)pt?.StateCode ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$ptreg", (object?)pt?.RegistrationNumber ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$ptbasis", (int)(pt?.WageBasis ?? PtWageBasis.GrossEarnings));
+        // v36 (Phase 8 slice 7): the establishment §192 salary-TDS toggle, written verbatim (default 0 — ER-13).
+        cmd.Parameters.AddWithValue("$salarytds", c.SalaryTdsEnabled ? 1 : 0);
         cmd.ExecuteNonQuery();
+
+        // v36 per-employee §192 income-tax declarations (only for employees that declared figures). All money in
+        // integer paisa. One row per declaration; a company with none writes nothing (ER-13).
+        foreach (var declaration in c.TaxDeclarations)
+        {
+            using var s = _connection.CreateCommand();
+            s.Transaction = tx;
+            s.CommandText = """
+                INSERT INTO employee_tax_declarations
+                    (employee_id, company_id, section_80c_paisa, section_80d_paisa, section_80ccd1b_paisa,
+                     section_80ccd2_employer_paisa, hra_exempt_paisa, home_loan_interest_paisa, other_income_paisa,
+                     prev_employer_salary_paisa, prev_employer_tds_paisa)
+                VALUES ($eid, $cid, $c80, $d80, $ccd1b, $ccd2, $hra, $loan, $other, $prevsal, $prevtds);
+                """;
+            s.Parameters.AddWithValue("$eid", declaration.EmployeeId.ToString("D"));
+            s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            s.Parameters.AddWithValue("$c80", (long)(declaration.Section80C.Amount * 100m));
+            s.Parameters.AddWithValue("$d80", (long)(declaration.Section80D.Amount * 100m));
+            s.Parameters.AddWithValue("$ccd1b", (long)(declaration.Section80CCD1B.Amount * 100m));
+            s.Parameters.AddWithValue("$ccd2", (long)(declaration.Section80CCD2Employer.Amount * 100m));
+            s.Parameters.AddWithValue("$hra", (long)(declaration.HouseRentAllowanceExempt.Amount * 100m));
+            s.Parameters.AddWithValue("$loan", (long)(declaration.HomeLoanInterest24b.Amount * 100m));
+            s.Parameters.AddWithValue("$other", (long)(declaration.OtherIncome.Amount * 100m));
+            s.Parameters.AddWithValue("$prevsal", (long)(declaration.PreviousEmployerSalary.Amount * 100m));
+            s.Parameters.AddWithValue("$prevtds", (long)(declaration.PreviousEmployerTds.Amount * 100m));
+            s.ExecuteNonQuery();
+        }
 
         // v35 PT slab bands (only when PT is enrolled), hung off the PT config like the GST slabs. Each band is one
         // row keyed to its PtSlab (slab_id) with its state + gender scope, ordered low-to-high.

@@ -48,6 +48,7 @@ internal sealed class ApplyJournal
     private readonly List<PayHead> _payHeads = new();
     private readonly List<SalaryStructure> _salaryStructures = new();
     private readonly List<AttendanceEntry> _attendanceEntries = new();
+    private readonly List<TaxDeclaration> _taxDeclarations = new();
 
     // Enable Job Order Processing: whether it was already on before the import stamped the seeded voucher types, so a
     // rollback re-runs JobWorkService.SetEnabled(prior) to restore both the company flag and the seeded type flags.
@@ -113,6 +114,7 @@ internal sealed class ApplyJournal
     public void RecordPayHead(PayHead x) => _payHeads.Add(x);
     public void RecordSalaryStructure(SalaryStructure x) => _salaryStructures.Add(x);
     public void RecordAttendanceEntry(AttendanceEntry x) => _attendanceEntries.Add(x);
+    public void RecordTaxDeclaration(TaxDeclaration x) => _taxDeclarations.Add(x);
 
     /// <summary>Snapshots the Enable-Job-Order-Processing flag as it was BEFORE the import toggled it (via
     /// <c>JobWorkService.SetEnabled</c>), so a rollback restores the flag AND the seeded voucher-type flags it
@@ -166,6 +168,8 @@ internal sealed class ApplyJournal
         //      order among pay heads is immaterial). Both must go before the payroll masters they reference.
         // Attendance entries (Phase 8 slice 3) reference employees + attendance types → remove before those masters.
         for (var i = _attendanceEntries.Count - 1; i >= 0; i--) _company.RemoveAttendanceEntry(_attendanceEntries[i]);
+        // §192 tax declarations (Phase 8 slice 7) reference employees → remove before the employee masters.
+        for (var i = _taxDeclarations.Count - 1; i >= 0; i--) _company.RemoveTaxDeclaration(_taxDeclarations[i]);
         for (var i = _salaryStructures.Count - 1; i >= 0; i--) _company.RemoveSalaryStructure(_salaryStructures[i]);
         for (var i = _payHeads.Count - 1; i >= 0; i--) _company.RemovePayHead(_payHeads[i]);
 
@@ -279,14 +283,15 @@ internal sealed class ApplyJournal
         DateOnly FinancialYearStart, DateOnly BooksBeginFrom, string BaseCurrencySymbol, string BaseCurrencyName,
         int DecimalPlaces, string DecimalUnitName,
         bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels,
-        bool PayrollEnabled, bool PayrollStatutoryEnabled, PfConfig? PfConfig, EsiConfig? EsiConfig, PtConfig? PtConfig)
+        bool PayrollEnabled, bool PayrollStatutoryEnabled, bool SalaryTdsEnabled,
+        PfConfig? PfConfig, EsiConfig? EsiConfig, PtConfig? PtConfig)
     {
         public static CompanyHeaderSnapshot Capture(Company t) => new(
             t.Name, t.MailingName, t.Address, t.Country, t.State, t.Pin,
             t.FinancialYearStart, t.BooksBeginFrom, t.BaseCurrencySymbol, t.BaseCurrencyName,
             t.DecimalPlaces, t.DecimalUnitName,
             t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels,
-            t.PayrollEnabled, t.PayrollStatutoryEnabled, t.PfConfig, t.EsiConfig, t.PtConfig);
+            t.PayrollEnabled, t.PayrollStatutoryEnabled, t.SalaryTdsEnabled, t.PfConfig, t.EsiConfig, t.PtConfig);
 
         public void RestoreTo(Company t)
         {
@@ -306,6 +311,7 @@ internal sealed class ApplyJournal
             t.EnableMultiplePriceLevels = EnableMultiplePriceLevels;
             t.PayrollEnabled = PayrollEnabled;
             t.PayrollStatutoryEnabled = PayrollStatutoryEnabled;
+            t.SalaryTdsEnabled = SalaryTdsEnabled;
             t.PfConfig = PfConfig;
             t.EsiConfig = EsiConfig;
             t.PtConfig = PtConfig;

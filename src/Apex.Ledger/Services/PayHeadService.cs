@@ -179,7 +179,7 @@ public sealed class PayHeadService
     private static void ValidateStatutoryComponentRole(PayHead payHead)
     {
         if (PayrollComputationService.RequiredStatutoryRole(
-                payHead.PtComponent, payHead.PfComponent, payHead.EsiComponent) is not { } required)
+                payHead.PtComponent, payHead.PfComponent, payHead.EsiComponent, payHead.IncomeTaxComponent) is not { } required)
             return;
         var actual = PayrollComputationService.RoleOf(payHead.Type);
         if (actual != required)

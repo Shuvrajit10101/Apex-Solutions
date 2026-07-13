@@ -238,6 +238,52 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>True when the selected PT state levies no PT (no slab bands) — drives the "None" note.</summary>
     public bool PtStateHasNoSlab => PtSlabBands.Count == 0;
 
+    // ---- §192 Salary TDS (Phase 8 slice 7; F11 Payroll Statutory → Income-Tax; RQ-12) -----------------------
+    // The establishment's §192 salary-TDS switch + the salary deductor category. Only meaningful (and only shown)
+    // while PayrollStatutoryEnabled is on; enabling flips Company.SalaryTdsEnabled via the engine, disabling clears
+    // it. The deductor IDENTITY (TAN / responsible person) is the SHARED Phase-7 deductor config — no parallel one.
+    // Gated: a company that never enables salary-TDS is byte-identical to a pre-v36 company (ER-13).
+
+    /// <summary>Whether the establishment deducts <b>§192 salary TDS</b> (the "Enable Salary TDS" toggle; applied via
+    /// <see cref="ApplySalaryTds"/>). Mirrors <see cref="Company.SalaryTdsEnabled"/>.</summary>
+    [ObservableProperty] private bool _salaryTdsEnabled;
+
+    /// <summary>The salary <b>deductor category</b> = the Form-24Q section code (92B private default / 92A govt /
+    /// 92C union-govt). Surfaced here for the establishment; the Form 24Q / Form 16 screens carry the same picker.</summary>
+    [ObservableProperty] private SalarySectionCodeOption? _selectedSalarySectionCode;
+
+    /// <summary>The §192 Enable/disable result message (kept separate from the GST/TDS/TCS/PF/ESI/PT messages).</summary>
+    [ObservableProperty] private string? _salaryTdsMessage;
+
+    /// <summary>True iff the §192 salary-TDS block should render — only while Payroll Statutory is on (it lives under
+    /// it). A payroll-off / statutory-off company never sees the salary-TDS fields (ER-13).</summary>
+    public bool ShowSalaryTdsConfig => PayrollStatutoryEnabled;
+
+    /// <summary>The financial-year label the salary-TDS estimate runs for (e.g. "2025-26").</summary>
+    public string SalaryTdsFinancialYearLabel => FyLabel(_company.FinancialYearStart.Year);
+
+    /// <summary>The assessment-year label (FY + 1, e.g. "2026-27") the §192 return is filed for.</summary>
+    public string SalaryTdsAssessmentYearLabel => FyLabel(_company.FinancialYearStart.Year + 1);
+
+    /// <summary>The reused Phase-7 deductor identity the Form 24Q / Form 16 print (TAN + responsible person), or a
+    /// prompt to enable TDS when no TAN is captured yet — §192 does not fork a parallel deductor config.</summary>
+    public string SalaryTdsDeductorText
+    {
+        get
+        {
+            var tds = _company.Tds;
+            if (tds is null || string.IsNullOrWhiteSpace(tds.Tan))
+                return "No TAN captured yet — enable TDS above to file Form 24Q / issue Form 16.";
+            var who = string.IsNullOrWhiteSpace(tds.ResponsiblePersonName) ? "—" : tds.ResponsiblePersonName!;
+            return $"TAN {tds.Tan}  ·  {who}";
+        }
+    }
+
+    /// <summary>The salary deductor-category options (92B private / 92A govt / 92C union-govt), shared with the reports.</summary>
+    public ObservableCollection<SalarySectionCodeOption> SalarySectionCodes { get; } = new();
+
+    private static string FyLabel(int startYear) => $"{startYear}-{(startYear + 1) % 100:00}";
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -346,6 +392,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             if (st is not null) PtStateOptions.Add(new PtStateOption { Code = st.Code, Display = $"{st.Code} — {st.Name}" });
         }
 
+        // §192 salary deductor category (92B private default / 92A govt / 92C union-govt) — shared with the reports.
+        foreach (var opt in SalarySectionCodeOption.All) SalarySectionCodes.Add(opt);
+
         LoadFromCompany();
     }
 
@@ -364,6 +413,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         LoadPfFromCompany();
         LoadEsiFromCompany();
         LoadPtFromCompany();
+        LoadSalaryTdsFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -396,6 +446,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SurchargeApplicable = tds?.SurchargeApplicable ?? tcs?.SurchargeApplicable ?? false;
         CessApplicable = tds?.CessApplicable ?? tcs?.CessApplicable ?? false;
         RefreshTdsTcsLedgers();
+        OnPropertyChanged(nameof(SalaryTdsDeductorText)); // §192 reuses the just-loaded deductor identity
     }
 
     /// <summary>
@@ -541,6 +592,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowPfConfig));
         OnPropertyChanged(nameof(ShowEsiConfig));
         OnPropertyChanged(nameof(ShowPtConfig));
+        OnPropertyChanged(nameof(ShowSalaryTdsConfig));
         _onChanged();
     }
 
@@ -566,6 +618,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowPfConfig)); // the PF block appears/hides with the statutory sub-toggle
         OnPropertyChanged(nameof(ShowEsiConfig)); // the ESI block appears/hides with the statutory sub-toggle
         OnPropertyChanged(nameof(ShowPtConfig)); // the PT block appears/hides with the statutory sub-toggle
+        OnPropertyChanged(nameof(ShowSalaryTdsConfig)); // the §192 salary-TDS block appears/hides with the sub-toggle
         _onChanged();
     }
 
@@ -810,6 +863,62 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         PtGenderScope.Female => "Women",
         _ => "All employees",
     };
+
+    // =========================================================== §192 Salary TDS (Phase 8 slice 7)
+
+    /// <summary>Seeds the §192 form from the company's current <see cref="Company.SalaryTdsEnabled"/> (defaults for a
+    /// never-enabled company: not enabled, deductor category 92B private).</summary>
+    private void LoadSalaryTdsFromCompany()
+    {
+        SalaryTdsEnabled = _company.SalaryTdsEnabled;
+        SelectedSalarySectionCode ??= SalarySectionCodes.FirstOrDefault(o => o.Code == "92B")
+                                      ?? SalarySectionCodes.FirstOrDefault();
+        OnPropertyChanged(nameof(SalaryTdsDeductorText));
+    }
+
+    /// <summary>
+    /// Applies the "Enable Salary TDS" toggle (F11 → Payroll Statutory; Phase 8 slice 7; RQ-12), mirroring
+    /// <see cref="ApplyPt"/>. On enable: turn on §192 salary-TDS via the engine's idempotent
+    /// <see cref="PayrollService.EnableSalaryTds"/> (which also turns Payroll Statutory on) and persist. On disable:
+    /// <see cref="PayrollService.DisableSalaryTds"/> + persist (per-employee tax declarations are retained, inert).
+    /// Any domain error is surfaced to <see cref="SalaryTdsMessage"/> without crashing, and the toggle reverts.
+    /// </summary>
+    public bool ApplySalaryTds()
+    {
+        SalaryTdsMessage = null;
+
+        try
+        {
+            var service = new PayrollService(_company);
+            if (SalaryTdsEnabled) service.EnableSalaryTds();
+            else service.DisableSalaryTds();
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            SalaryTdsMessage = ex.Message;
+            RevertSalaryTdsToggle();
+            return false;
+        }
+
+        // EnableSalaryTds flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var category = SelectedSalarySectionCode?.Code ?? "92B";
+        SalaryTdsMessage = SalaryTdsEnabled
+            ? $"§192 salary TDS enabled for {_company.Name} (average-rate monthly withholding; deductor {category}; "
+              + $"AY {SalaryTdsAssessmentYearLabel})."
+            : "§192 salary TDS is now OFF for this company. Employee tax declarations are unchanged.";
+        OnPropertyChanged(nameof(SalaryTdsDeductorText));
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="SalaryTdsEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertSalaryTdsToggle()
+    {
+        if (SalaryTdsEnabled != _company.SalaryTdsEnabled) SalaryTdsEnabled = _company.SalaryTdsEnabled;
+    }
 
     /// <summary>
     /// Applies the "Define type of component for BOM" F12 toggle to the live company (RQ-10) and persists, so the
@@ -1103,6 +1212,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // Commit the PT enrolment on the same rule (toggle changed, or PT on to persist an edited state / enrolment no.).
         if (ShowPtConfig && (PtEnabled != (_company.PtConfig is not null) || PtEnabled))
             ApplyPt();
+        // Commit the §192 salary-TDS switch whenever the toggle differs from the persisted state.
+        if (ShowSalaryTdsConfig && SalaryTdsEnabled != _company.SalaryTdsEnabled)
+            ApplySalaryTds();
     }
 
     /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>

@@ -79,7 +79,7 @@ public static class Schema
     /// migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>: any
     /// table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the
     /// migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 35;
+    public const int CurrentVersion = 36;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -175,7 +175,12 @@ public static class Schema
             pt_config_enabled              INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PT establishment enrolled)
             pt_state                       TEXT        NULL,            -- active PT state (2-digit GST state code), or NULL = None
             pt_registration_number         TEXT        NULL,            -- PT enrolment/registration number, or NULL
-            pt_wage_basis                  INTEGER NOT NULL DEFAULT 0   -- PtWageBasis enum ordinal (0 = GrossEarnings)
+            pt_wage_basis                  INTEGER NOT NULL DEFAULT 0,  -- PtWageBasis enum ordinal (0 = GrossEarnings)
+            -- v36 (Phase 8 slice 7): establishment §192 salary-TDS toggle. salary_tds_enabled = 0 for every existing
+            -- company, so a company that never deducts salary-TDS is byte-identical (ER-13). The deductor/TAN facts
+            -- reuse the Phase-7 tds columns above; only this toggle is new. Per-employee Form-12BB declarations live in
+            -- the employee_tax_declarations table below.
+            salary_tds_enabled             INTEGER NOT NULL DEFAULT 0   -- 0/1 (§192 salary-TDS enabled)
         );
 
         CREATE TABLE nature_of_payment (
@@ -237,6 +242,24 @@ public static class Schema
             month_overrides      TEXT    NOT NULL DEFAULT ''
         );
         CREATE INDEX ix_pt_slab_bands_company ON pt_slab_bands(company_id);
+
+        -- v36 (Phase 8 slice 7): per-employee §192 income-tax declaration (Form 12BB) — the investment / exemption /
+        -- prior-income figures the §192 engine estimates the salary TDS from. One row per declaring employee; empty
+        -- for a company with no declarations (ER-13). All money in integer paisa (NFR-3).
+        CREATE TABLE employee_tax_declarations (
+            employee_id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id                    TEXT    NOT NULL REFERENCES companies(id),
+            section_80c_paisa             INTEGER NOT NULL DEFAULT 0,  -- §80C (capped ₹1.5L at compute)
+            section_80d_paisa             INTEGER NOT NULL DEFAULT 0,  -- §80D medical insurance
+            section_80ccd1b_paisa         INTEGER NOT NULL DEFAULT 0,  -- §80CCD(1B) additional NPS (capped ₹50k)
+            section_80ccd2_employer_paisa INTEGER NOT NULL DEFAULT 0,  -- §80CCD(2) employer NPS (allowed both regimes)
+            hra_exempt_paisa              INTEGER NOT NULL DEFAULT 0,  -- §10(13A) HRA exemption (old regime)
+            home_loan_interest_paisa      INTEGER NOT NULL DEFAULT 0,  -- §24(b) self-occupied interest (capped ₹2L)
+            other_income_paisa            INTEGER NOT NULL DEFAULT 0,  -- declared other income
+            prev_employer_salary_paisa    INTEGER NOT NULL DEFAULT 0,  -- previous-employer salary this FY (Form 12B)
+            prev_employer_tds_paisa       INTEGER NOT NULL DEFAULT 0   -- previous-employer TDS this FY
+        );
+        CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
 
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -2479,5 +2502,35 @@ public static class Schema
             month_overrides      TEXT    NOT NULL DEFAULT ''
         );
         CREATE INDEX ix_pt_slab_bands_company ON pt_slab_bands(company_id);
+        """;
+
+    /// <summary>
+    /// v35 → v36 (Phase 8 slice 7; §192 salary TDS + Form 24Q + Form 16): additive — one <c>ALTER TABLE companies
+    /// ADD COLUMN</c> for the establishment salary-TDS toggle and one new <c>employee_tax_declarations</c> table
+    /// (+ its company-scoped index) holding the per-employee Form-12BB income-tax declaration — run inside a
+    /// transaction that bumps <c>schema_version</c> to 36. <b>No row rewrites, no data backfill</b> — an existing v35
+    /// database keeps every row untouched, the toggle defaults off (0) and the new table starts empty, so a company
+    /// that never deducts salary-TDS serialises byte-identically to a v35 company (ER-13). The §192 income-tax
+    /// deduction pay-head marker rides the existing <c>pay_heads.income_tax_component</c> column (no new column). Each
+    /// added column / table / index is byte-identical to its counterpart in <see cref="CreateV1"/> (the
+    /// migration-equivalence test enforces this). A fresh DB is stamped straight to v36 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV35ToV36 = """
+        ALTER TABLE companies ADD COLUMN salary_tds_enabled INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE employee_tax_declarations (
+            employee_id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id                    TEXT    NOT NULL REFERENCES companies(id),
+            section_80c_paisa             INTEGER NOT NULL DEFAULT 0,
+            section_80d_paisa             INTEGER NOT NULL DEFAULT 0,
+            section_80ccd1b_paisa         INTEGER NOT NULL DEFAULT 0,
+            section_80ccd2_employer_paisa INTEGER NOT NULL DEFAULT 0,
+            hra_exempt_paisa              INTEGER NOT NULL DEFAULT 0,
+            home_loan_interest_paisa      INTEGER NOT NULL DEFAULT 0,
+            other_income_paisa            INTEGER NOT NULL DEFAULT 0,
+            prev_employer_salary_paisa    INTEGER NOT NULL DEFAULT 0,
+            prev_employer_tds_paisa       INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
         """;
 }

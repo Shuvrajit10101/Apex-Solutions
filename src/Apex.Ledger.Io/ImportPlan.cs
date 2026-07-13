@@ -491,6 +491,28 @@ internal sealed class ImportPlan
             created++;
         }
 
+        // 2j) §192 income-tax declarations (Phase 8 slice 7). Keyed to their employee (re-mapped to the target's
+        //     re-minted id); one per employee. Recorded for rollback.
+        foreach (var td in _model.Payload.TaxDeclarations)
+        {
+            var domain = new TaxDeclaration
+            {
+                EmployeeId = ResolveEmployeeId(td.EmployeeId, employeeId, t),
+                Section80C = MoneyCodec.FromPaisa(td.Section80CPaisa),
+                Section80D = MoneyCodec.FromPaisa(td.Section80DPaisa),
+                Section80CCD1B = MoneyCodec.FromPaisa(td.Section80CCD1BPaisa),
+                Section80CCD2Employer = MoneyCodec.FromPaisa(td.Section80CCD2EmployerPaisa),
+                HouseRentAllowanceExempt = MoneyCodec.FromPaisa(td.HraExemptPaisa),
+                HomeLoanInterest24b = MoneyCodec.FromPaisa(td.HomeLoanInterestPaisa),
+                OtherIncome = MoneyCodec.FromPaisa(td.OtherIncomePaisa),
+                PreviousEmployerSalary = MoneyCodec.FromPaisa(td.PrevEmployerSalaryPaisa),
+                PreviousEmployerTds = MoneyCodec.FromPaisa(td.PrevEmployerTdsPaisa),
+            };
+            t.AddTaxDeclaration(domain);
+            journal.RecordTaxDeclaration(domain);
+            created++;
+        }
+
         // 3) Ledgers. Some ledgers already exist in the (freshly seeded) target BY NAME even though the pre-flight
         //    saw them as new: the 2 predefined seed ledgers (Cash, Profit & Loss A/c) and — created just above by
         //    EnableGst — the 6 GST tax ledgers + Round Off. Re-check by name here and REUSE any such instance
@@ -945,6 +967,8 @@ internal sealed class ImportPlan
         // Phase 8 slice 1 Payroll F11 toggles — plain flags, captured by the header snapshot for rollback.
         t.PayrollEnabled = c.PayrollEnabled;
         t.PayrollStatutoryEnabled = c.PayrollStatutoryEnabled;
+        // Phase 8 slice 7 §192 salary-TDS toggle — plain flag, captured by the header snapshot for rollback.
+        t.SalaryTdsEnabled = c.SalaryTdsEnabled;
 
         // Phase 8 slice 4 Provident-Fund config — plain data holder, captured by the header snapshot for rollback.
         t.PfConfig = c.Pf is { } pf

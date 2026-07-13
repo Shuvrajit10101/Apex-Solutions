@@ -185,6 +185,25 @@ public sealed class PayrollService
         cfg.StateCode = string.IsNullOrWhiteSpace(stateCode) ? null : stateCode.Trim();
     }
 
+    // ------------------------------------------------------------------ §192 salary TDS config (Phase 8 slice 7)
+
+    /// <summary>
+    /// Enables <b>§192 salary TDS</b> (Phase 8 slice 7; RQ-12) on the establishment, setting
+    /// <see cref="Company.SalaryTdsEnabled"/>, <b>idempotently</b>. Turns on Payroll Statutory (salary-TDS lives
+    /// under it). Once enabled, a payroll run computes the average-rate monthly income-tax for each employee whose
+    /// structure carries a §192 income-tax deduction head, under the employee's elected regime; before it is enabled
+    /// no salary-TDS is computed and the company is byte-identical (ER-13). The deductor/TAN/responsible-person facts
+    /// reuse the Phase-7 <c>TdsConfig</c> — this is only the salary-TDS toggle, no parallel deductor config.
+    /// </summary>
+    public void EnableSalaryTds()
+    {
+        _company.PayrollStatutoryEnabled = true;
+        _company.SalaryTdsEnabled = true;
+    }
+
+    /// <summary>Disables §192 salary TDS (Phase 8 slice 7) — a payroll run then computes no salary-TDS.</summary>
+    public void DisableSalaryTds() => _company.SalaryTdsEnabled = false;
+
     // ------------------------------------------------------------------ Employee categories
 
     /// <summary>Creates an employee category; name unique within the company, allocating revenue and/or

@@ -95,6 +95,12 @@ public enum Screen
     EsiContributionReport,
     ProfessionalTaxRegister,
 
+    // §192 salary-TDS (Phase 8 slice 7; RQ-12/RQ-13) — the per-employee Form-12BB declaration master + the Form 24Q
+    // return and Form 16 certificate reports, all gated on the F11 "Enable Salary TDS" switch.
+    TaxDeclarationMaster,
+    Form24Q,
+    Form16,
+
     LedgerVouchers,
     VoucherDetail,
 }
@@ -363,6 +369,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// open.</summary>
     [ObservableProperty] private ProfessionalTaxRegisterViewModel? _professionalTaxRegister;
 
+    /// <summary>The per-employee Income-Tax Declaration (Form 12BB) master (Phase 8 slice 7; RQ-12), non-null only
+    /// while that page column is open.</summary>
+    [ObservableProperty] private TaxDeclarationViewModel? _taxDeclarationMaster;
+
+    /// <summary>The Form 24Q quarterly salary-TDS-return report (Phase 8 slice 7; RQ-13), non-null only while that
+    /// page column is open.</summary>
+    [ObservableProperty] private Form24QViewModel? _form24Q;
+
+    /// <summary>The Form 16 salary-TDS-certificate report (Phase 8 slice 7; RQ-13), non-null only while that page
+    /// column is open.</summary>
+    [ObservableProperty] private Form16ViewModel? _form16;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -429,6 +447,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && PayHeadMaster is null && SalaryDetails is null
         && AttendanceVoucher is null && PayrollVoucher is null && PfEcrReport is null
         && EsiContributionReport is null && ProfessionalTaxRegister is null
+        && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -496,6 +515,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPfEcrReportChanged(PfEcrReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEsiContributionReportChanged(EsiContributionReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnProfessionalTaxRegisterChanged(ProfessionalTaxRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTaxDeclarationMasterChanged(TaxDeclarationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm24QChanged(Form24QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm16Changed(Form16ViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -943,6 +965,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Phase 8 slice 2 (RQ-4/RQ-5): Pay Head + Salary Details, the heart of the salary structure.
             col.Add(new MenuItemViewModel("Pay Head", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Salary Details", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Phase 8 slice 7 (RQ-12): the per-employee income-tax declaration (Form 12BB), surfaced only when the
+            // F11 feature "Enable Salary TDS" is on (ER-13) — its figures drive the §192 salary-TDS estimate.
+            if (Company is { SalaryTdsEnabled: true })
+                col.Add(new MenuItemViewModel("Income Tax Declaration", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -1383,6 +1409,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // §192 salary-TDS return + certificate (Phase 8 slice 7; RQ-13) — surfaced only when the F11 feature
+        // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
+        if (Company is { SalaryTdsEnabled: true })
+        {
+            col.Add(new MenuItemViewModel("Form 24Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 16", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -3021,6 +3054,78 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BackFromPage();
     }
 
+    // =============================================================== §192 salary TDS (Phase 8 slice 7)
+
+    /// <summary>
+    /// Opens the per-employee <b>Income Tax Declaration (Form 12BB)</b> master (Masters → Create → Payroll Masters →
+    /// Income Tax Declaration; Phase 8 slice 7; RQ-12) as a page column: pick an employee, capture the declared
+    /// investments / exemptions / prior-income the §192 engine estimates the salary TDS from, and Save (Ctrl+A). A
+    /// no-op unless §192 salary TDS is enabled (the menu item + the open path are gated on
+    /// <see cref="Company.SalaryTdsEnabled"/>), so a non-salary-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void ShowTaxDeclarationMaster()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var master = new TaxDeclarationViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Income Tax Declaration", master), Screen.TaxDeclarationMaster,
+            "Income Tax Declaration (Form 12BB)", () => TaxDeclarationMaster = master);
+    }
+
+    /// <summary>True while the Income-Tax-Declaration master is the active screen (drives its arrow-key nav).</summary>
+    public bool IsTaxDeclarationMasterScreen => CurrentScreen == Screen.TaxDeclarationMaster && TaxDeclarationMaster is not null;
+
+    /// <summary>
+    /// Opens the <b>Form 24Q</b> quarterly salary-TDS-return report page (Reports → Statutory Reports → Payroll →
+    /// Form 24Q; Phase 8 slice 7; RQ-13) as a page column: the Annexure I deductee rows + the Q4 Annexure II annual
+    /// computation + control totals for a chosen FY / quarter / section code, with a Ctrl+A flat-file export and an
+    /// Alt+B save-return. A no-op unless §192 salary TDS is enabled (ER-13).
+    /// </summary>
+    public void OpenForm24Q()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var page = new Form24QViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 24Q", page), Screen.Form24Q,
+            "Form 24Q (Quarterly Salary-TDS Return)", () => Form24Q = page);
+    }
+
+    /// <summary>True while the Form 24Q return report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm24QScreen => CurrentScreen == Screen.Form24Q && Form24Q is not null;
+
+    /// <summary>Alt+B on the Form 24Q screen — <b>save &amp; return</b>: writes the return flat file then pops back to the menu.</summary>
+    public void SaveReturnForm24Q()
+    {
+        if (!IsForm24QScreen || Form24Q is null) return;
+        Form24Q.ExportFvu();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Form 16</b> salary-TDS-certificate report page (Reports → Statutory Reports → Payroll → Form 16;
+    /// Phase 8 slice 7; RQ-13) as a page column: per-employee Part A (quarter-wise TDS) + Part B (salary/tax
+    /// computation), with a Ctrl+A PDF export and an Alt+B save-return. A no-op unless §192 salary TDS is enabled (ER-13).
+    /// </summary>
+    public void OpenForm16()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var page = new Form16ViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 16", page), Screen.Form16,
+            "Form 16 (Salary-TDS Certificate)", () => Form16 = page);
+    }
+
+    /// <summary>True while the Form 16 certificate page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm16Screen => CurrentScreen == Screen.Form16 && Form16 is not null;
+
+    /// <summary>Alt+B on the Form 16 screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
+    public void SaveReturnForm16()
+    {
+        if (!IsForm16Screen || Form16 is null) return;
+        Form16.ExportPdf();
+        BackFromPage();
+    }
+
     /// <summary>
     /// Opens the <b>TCS Stat Payment</b> deposit page (Transactions → Vouchers → Statutory → TCS Stat Payment, the
     /// Payment "Ctrl+F" family; Phase 7 slice 6) as a page column: deposits the collected TCS Payable into the bank and
@@ -3458,6 +3563,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PfEcrReport = null;
         EsiContributionReport = null;
         ProfessionalTaxRegister = null;
+        TaxDeclarationMaster = null;
+        Form24Q = null;
+        Form16 = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3712,6 +3820,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the Form 24Q return the arrows move the Annexure-I deductee-row highlight (keeps a live selection).
+        if (IsForm24QScreen)
+        {
+            Form24Q!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Form 16 certificate the arrows move the employee highlight (rebuilds the certificate).
+        if (IsForm16Screen)
+        {
+            Form16!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Income-Tax-Declaration master the arrows move the employee highlight (loads that declaration).
+        if (IsTaxDeclarationMasterScreen)
+        {
+            TaxDeclarationMaster!.MoveHighlight(direction);
+            return;
+        }
+
         // On the TCS Challan Reconciliation report the arrows move the code-row highlight (keeps a live selection).
         if (IsTcsChallanReconciliationScreen)
         {
@@ -3887,6 +4016,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.ProfessionalTaxRegister:
                 ProfessionalTaxRegister?.ExportRegister(); // Ctrl+A exports the PT register CSV (the page's primary action)
+                return;
+            case Screen.TaxDeclarationMaster:
+                TaxDeclarationMaster?.Save(); // Ctrl+A saves the per-employee Form-12BB declaration
+                return;
+            case Screen.Form24Q:
+                Form24Q?.ExportFvu(); // Ctrl+A exports the Form 24Q flat file (the return's primary action)
+                return;
+            case Screen.Form16:
+                Form16?.ExportPdf(); // Ctrl+A exports the Form 16 certificate PDF (the page's primary action)
                 return;
             case Screen.TcsStatPayment:
                 TcsStatPayment?.Deposit();
@@ -4067,6 +4205,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Attendance / Production Type": ShowAttendanceTypeMaster(); break;
             case "Pay Head": ShowPayHeadMaster(); break;
             case "Salary Details": ShowSalaryStructureMaster(); break;
+            case "Income Tax Declaration": ShowTaxDeclarationMaster(); break;
             // Payroll vouchers (Phase 8 slice 3) — under Transactions → Vouchers → Payroll, gated by F11 Maintain Payroll.
             case "Attendance / Production": ShowAttendanceVoucher(); break;
             case "Payroll": ShowPayrollVoucher(); break;
@@ -4121,6 +4260,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "PF ECR / Challan": OpenPfEcrReport(); break;
             case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
+            // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
+            case "Form 24Q": OpenForm24Q(); break;
+            case "Form 16": OpenForm16(); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;

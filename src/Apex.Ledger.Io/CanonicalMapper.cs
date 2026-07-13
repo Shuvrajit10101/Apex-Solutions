@@ -73,6 +73,7 @@ public static class CanonicalMapper
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
         PayrollEnabled = c.PayrollEnabled,
         PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
+        SalaryTdsEnabled = c.SalaryTdsEnabled,
         Pf = c.PfConfig is { } pf ? MapPfConfig(pf) : null,
         Esi = c.EsiConfig is { } esi ? MapEsiConfig(esi) : null,
         Pt = c.PtConfig is { } pt ? MapPtConfig(pt) : null,
@@ -175,6 +176,10 @@ public static class CanonicalMapper
         AttendanceEntries = c.AttendanceEntries
             .OrderBy(a => a.FromDate).ThenBy(a => a.EmployeeId).ThenBy(a => a.AttendanceTypeId).ThenBy(a => a.Id)
             .Select(MapAttendanceEntry).ToList(),
+        // §192 income-tax declarations — ordered by employee for a deterministic stream (Phase 8 slice 7).
+        TaxDeclarations = c.TaxDeclarations
+            .OrderBy(d => d.EmployeeId)
+            .Select(MapTaxDeclaration).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
@@ -358,6 +363,20 @@ public static class CanonicalMapper
     {
         Id = a.Id, EmployeeId = a.EmployeeId, AttendanceTypeId = a.AttendanceTypeId,
         FromDate = Iso(a.FromDate), ToDate = Iso(a.ToDate), ValueMicro = ToMicro(a.Value),
+    };
+
+    private static TaxDeclarationDto MapTaxDeclaration(TaxDeclaration d) => new()
+    {
+        EmployeeId = d.EmployeeId,
+        Section80CPaisa = MoneyCodec.ToPaisa(d.Section80C),
+        Section80DPaisa = MoneyCodec.ToPaisa(d.Section80D),
+        Section80CCD1BPaisa = MoneyCodec.ToPaisa(d.Section80CCD1B),
+        Section80CCD2EmployerPaisa = MoneyCodec.ToPaisa(d.Section80CCD2Employer),
+        HraExemptPaisa = MoneyCodec.ToPaisa(d.HouseRentAllowanceExempt),
+        HomeLoanInterestPaisa = MoneyCodec.ToPaisa(d.HomeLoanInterest24b),
+        OtherIncomePaisa = MoneyCodec.ToPaisa(d.OtherIncome),
+        PrevEmployerSalaryPaisa = MoneyCodec.ToPaisa(d.PreviousEmployerSalary),
+        PrevEmployerTdsPaisa = MoneyCodec.ToPaisa(d.PreviousEmployerTds),
     };
 
     private static CurrencyDto MapCurrency(Currency x) => new()

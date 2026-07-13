@@ -321,6 +321,10 @@ public sealed class InventoryVoucherRoundTripTests
         // companies rebuild below strips the v35 pt_* columns back to the v9 shape).
         Exec(conn, "DROP INDEX IF EXISTS ix_pt_slab_bands_company;");
         Exec(conn, "DROP TABLE IF EXISTS pt_slab_bands;");
+        // v36 §192 tax-declaration table (+ its index) — drop so the reopen's v35→v36 CREATE TABLE does not collide
+        // (the companies rebuild below strips the v36 salary_tds_enabled column back to the v9 shape).
+        Exec(conn, "DROP INDEX IF EXISTS ix_employee_tax_declarations_company;");
+        Exec(conn, "DROP TABLE IF EXISTS employee_tax_declarations;");
         // v32 Attendance/Payroll-voucher tables — drop before the masters/entry_lines they FK so the reopen's
         // v31→v32 CREATE TABLE does not collide (payroll_lines FKs entry_lines; attendance_entries FKs employees).
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");

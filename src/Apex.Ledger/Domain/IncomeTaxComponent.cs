@@ -37,4 +37,15 @@ public enum IncomeTaxComponent
 
     /// <summary>Fully exempt from income-tax.</summary>
     FullyExempt = 9,
+
+    /// <summary>
+    /// <b>§192 Tax Deducted at Source on salary</b> (Phase 8 slice 7) — the marker that a
+    /// <see cref="PayHeadType.EmployeesStatutoryDeductions"/> pay head <b>is</b> the salary-TDS withholding head:
+    /// its monthly amount is computed by the dedicated §192 regime engine (<c>SalaryIncomeTax</c>) — annual tax on
+    /// the estimated salary spread average-rate over the FY months — rather than the head's ordinary calculation
+    /// slabs. Additive; every earning-classification value above is unchanged, so a pre-slice-7 pay head is
+    /// byte-identical (ER-13). Stored as this enum ordinal (10) in the existing <c>income_tax_component</c> column
+    /// (no schema change) and round-tripped by name in Io.
+    /// </summary>
+    TaxDeductedAtSource = 10,
 }
