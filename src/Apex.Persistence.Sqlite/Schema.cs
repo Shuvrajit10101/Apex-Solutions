@@ -59,18 +59,31 @@ namespace Apex.Persistence.Sqlite;
 /// Materials (v17) and the Manufacturing-Journal flags (v18), additional cost of purchase (v19), zero-valued
 /// &amp; separate actual-vs-billed quantity (v20), price levels/lists (v21), reorder levels (v22), POS (v23),
 /// job work (v24), and the Phase-7 TDS/TCS masters, per-line compute and deposit/challan tables (v25-v29).
-/// <b><see cref="CurrentVersion"/> = 29</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v30–v32</b> add Phase-8 Payroll: the payroll masters — employee / group / category, payroll units and
+/// attendance types — plus the F11 payroll toggles (v30); pay heads and dated salary structures (v31); and
+/// attendance entries + the Payroll-voucher per-line payroll detail together with the pay head's
+/// employer-expense ledger link (v32); and the Provident-Fund config (establishment PF config on companies,
+/// per-employee PF details, and the pay-head PF statutory role + PF-wage flag) (v33); and the Employees'-State-
+/// Insurance config (establishment ESI config on companies, per-employee ESI applicability, and the pay-head ESI
+/// statutory role + ESI-wage flag + overtime marker) (v34); the Professional-Tax config (establishment PT
+/// state/registration/wage-basis columns on companies, the pay-head PT statutory role, and the seeded per-state
+/// <c>pt_slab_bands</c> table) (v35); §192 salary-TDS (the <c>salary_tds_enabled</c> company flag and the
+/// <c>employee_tax_declarations</c> table of Chapter VI-A / HRA / other-income figures) (v36); and the establishment
+/// Gratuity-provision + statutory-Bonus config columns on companies (v37).
+/// <b><see cref="CurrentVersion"/> = 37</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v29</b> is the latest bump (Phase 7
-    /// slice 6 — TCS deposit challans + the TCS challan↔voucher links). The full v1→v29 history is documented on
-    /// each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight
-    /// to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
-    /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must
-    /// also appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 29;
+    /// <summary>The current schema version this adapter reads and writes. <b>v37</b> is the latest bump (Phase 8
+    /// slice 9 — Gratuity provision + statutory Bonus: the establishment Gratuity config columns (enrolled flag,
+    /// §4(3) cap, wage basis, provision population) and statutory-Bonus config columns (enrolled flag, rate, §12
+    /// calc-ceiling, minimum wage, prorate) on companies). The full v1→v37 history is documented on each
+    /// <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight to
+    /// this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time.
+    /// Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
+    /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
+    public const int CurrentVersion = 37;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -141,7 +154,51 @@ public static class Schema
             cess_applicable                INTEGER NOT NULL DEFAULT 0,  -- 0/1
             tds_periodicity                INTEGER     NULL,            -- TdsTcsPeriodicity enum ordinal
             tds_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
-            tcs_applicable_from            TEXT        NULL             -- ISO yyyy-MM-dd, or NULL
+            tcs_applicable_from            TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
+            -- v30 (Phase 8 slice 1): Payroll F11 toggles. Both default 0 for every existing company, so a company
+            -- that never enables Payroll is byte-identical and carries no payroll masters (ER-13).
+            payroll_enabled                INTEGER NOT NULL DEFAULT 0,  -- 0/1 (F11 "Maintain Payroll")
+            payroll_statutory_enabled      INTEGER NOT NULL DEFAULT 0,  -- 0/1 (F11 "Enable Payroll Statutory")
+            -- v33 (Phase 8 slice 4): establishment Provident-Fund config. pf_config_enabled = 0 for every existing
+            -- company, so a company not enrolled for PF is byte-identical (ER-13); the other columns carry defaults.
+            pf_config_enabled              INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PF establishment enrolled)
+            pf_epf_rate_bp                 INTEGER NOT NULL DEFAULT 1200, -- EPF rate basis points (1200=12% / 1000=10%)
+            pf_establishment_code          TEXT        NULL,            -- EPFO establishment/PF code, or NULL
+            pf_cap_at_ceiling              INTEGER NOT NULL DEFAULT 1,   -- 0/1 (default cap EPF wages at ceiling)
+            -- v34 (Phase 8 slice 5): establishment Employees'-State-Insurance config. esi_config_enabled = 0 for every
+            -- existing company, so a company not enrolled for ESI is byte-identical (ER-13); the other columns carry
+            -- defaults. The employer_code is the 17-digit ESIC establishment code (NOT the per-employee 10-digit IP).
+            esi_config_enabled             INTEGER NOT NULL DEFAULT 0,  -- 0/1 (ESI establishment enrolled)
+            esi_ee_rate_bp                 INTEGER NOT NULL DEFAULT 75,  -- employee ESI rate basis points (75=0.75%)
+            esi_er_rate_bp                 INTEGER NOT NULL DEFAULT 325, -- employer ESI rate basis points (325=3.25%)
+            esi_employer_code              TEXT        NULL,            -- 17-digit ESIC establishment employer code, or NULL
+            -- v35 (Phase 8 slice 6): establishment Professional-Tax config. pt_config_enabled = 0 for every existing
+            -- company, so a company not enrolled for PT is byte-identical (ER-13). pt_state = active PT state (2-digit
+            -- GST state code, or NULL = "None"); pt_wage_basis = PtWageBasis ordinal (0 = gross earnings). The editable
+            -- per-state slab bands live in the pt_slab_bands table below.
+            pt_config_enabled              INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PT establishment enrolled)
+            pt_state                       TEXT        NULL,            -- active PT state (2-digit GST state code), or NULL = None
+            pt_registration_number         TEXT        NULL,            -- PT enrolment/registration number, or NULL
+            pt_wage_basis                  INTEGER NOT NULL DEFAULT 0,  -- PtWageBasis enum ordinal (0 = GrossEarnings)
+            -- v36 (Phase 8 slice 7): establishment §192 salary-TDS toggle. salary_tds_enabled = 0 for every existing
+            -- company, so a company that never deducts salary-TDS is byte-identical (ER-13). The deductor/TAN facts
+            -- reuse the Phase-7 tds columns above; only this toggle is new. Per-employee Form-12BB declarations live in
+            -- the employee_tax_declarations table below.
+            salary_tds_enabled             INTEGER NOT NULL DEFAULT 0,  -- 0/1 (§192 salary-TDS enabled)
+            -- v37 (Phase 8 slice 9): establishment Gratuity + statutory-Bonus config. Both *_enabled default 0 for
+            -- every existing company, so a company that provisions neither is byte-identical (ER-13); the other
+            -- columns carry statutory defaults. Money is integer paisa (NFR-3): gratuity cap ₹20,00,000 = 200000000
+            -- paisa; bonus calc ceiling ₹7,000 = 700000 paisa. gratuity_wage_basis = GratuityWageBasis ordinal
+            -- (0 = Basic+DA); gratuity_population = GratuityProvisionPopulation ordinal (0 = all active).
+            gratuity_config_enabled        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (Gratuity provisioning enrolled)
+            gratuity_cap_paisa             INTEGER NOT NULL DEFAULT 200000000, -- §4(3) cap, paisa (₹20,00,000)
+            gratuity_wage_basis            INTEGER NOT NULL DEFAULT 0,  -- GratuityWageBasis ordinal (0 = Basic+DA)
+            gratuity_population            INTEGER NOT NULL DEFAULT 0,  -- GratuityProvisionPopulation ordinal (0 = all active)
+            bonus_config_enabled           INTEGER NOT NULL DEFAULT 0,  -- 0/1 (statutory Bonus enrolled)
+            bonus_rate_bp                  INTEGER NOT NULL DEFAULT 833, -- bonus rate basis points (833 = 8.33%), clamped [833,2000]
+            bonus_calc_ceiling_paisa       INTEGER NOT NULL DEFAULT 700000, -- §12 calc ceiling, paisa (₹7,000)
+            bonus_minimum_wage_paisa       INTEGER NOT NULL DEFAULT 0,  -- state minimum wage, paisa (0 = fall back to ₹7,000)
+            bonus_prorate                  INTEGER NOT NULL DEFAULT 1   -- 0/1 (prorate mid-year joiner by months worked)
         );
 
         CREATE TABLE nature_of_payment (
@@ -184,6 +241,43 @@ public static class Schema
             is_predefined INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX ix_gst_rate_slabs_company ON gst_rate_slabs(company_id);
+
+        -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
+        -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
+        -- (slab_id) form one PtSlab. No rows for a company not enrolled for PT (ER-13).
+        CREATE TABLE pt_slab_bands (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            slab_id              TEXT    NOT NULL,   -- the PtSlab (state+gender table) this band belongs to
+            state_code           TEXT    NOT NULL,   -- 2-digit GST state code of the slab table
+            gender_scope         INTEGER NOT NULL,   -- PtGenderScope ordinal (0 = Any)
+            band_order           INTEGER NOT NULL,   -- band order within its slab table (low to high)
+            from_wage_paisa      INTEGER NOT NULL,   -- inclusive lower bound, paisa
+            to_wage_paisa        INTEGER     NULL,   -- inclusive upper bound, paisa; NULL = open-ended top (∞)
+            monthly_amount_paisa INTEGER NOT NULL,   -- flat PT amount, paisa
+            -- per-band month overrides (e.g. the ₹300 February over-charge): compact "month:paisa" pairs joined by
+            -- ';' ("2:30000" = ₹300 in February), '' = none.
+            month_overrides      TEXT    NOT NULL DEFAULT ''
+        );
+        CREATE INDEX ix_pt_slab_bands_company ON pt_slab_bands(company_id);
+
+        -- v36 (Phase 8 slice 7): per-employee §192 income-tax declaration (Form 12BB) — the investment / exemption /
+        -- prior-income figures the §192 engine estimates the salary TDS from. One row per declaring employee; empty
+        -- for a company with no declarations (ER-13). All money in integer paisa (NFR-3).
+        CREATE TABLE employee_tax_declarations (
+            employee_id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id                    TEXT    NOT NULL REFERENCES companies(id),
+            section_80c_paisa             INTEGER NOT NULL DEFAULT 0,  -- §80C (capped ₹1.5L at compute)
+            section_80d_paisa             INTEGER NOT NULL DEFAULT 0,  -- §80D medical insurance
+            section_80ccd1b_paisa         INTEGER NOT NULL DEFAULT 0,  -- §80CCD(1B) additional NPS (capped ₹50k)
+            section_80ccd2_employer_paisa INTEGER NOT NULL DEFAULT 0,  -- §80CCD(2) employer NPS (allowed both regimes)
+            hra_exempt_paisa              INTEGER NOT NULL DEFAULT 0,  -- §10(13A) HRA exemption (old regime)
+            home_loan_interest_paisa      INTEGER NOT NULL DEFAULT 0,  -- §24(b) self-occupied interest (capped ₹2L)
+            other_income_paisa            INTEGER NOT NULL DEFAULT 0,  -- declared other income
+            prev_employer_salary_paisa    INTEGER NOT NULL DEFAULT 0,  -- previous-employer salary this FY (Form 12B)
+            prev_employer_tds_paisa       INTEGER NOT NULL DEFAULT 0   -- previous-employer TDS this FY
+        );
+        CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
 
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -973,6 +1067,186 @@ public static class Schema
         CREATE INDEX ix_material_order_links_order      ON material_order_links(job_work_order_id);
         -- v14: one saved view per (company, name); the unique index enforces the case-insensitive upsert key.
         CREATE UNIQUE INDEX ux_saved_views_company_name ON saved_views(company_id, name COLLATE NOCASE);
+
+        -- v30 (Phase 8 slice 1): Payroll masters. All FK companies(id); parents self-FK; empty when Payroll off (ER-13).
+        CREATE TABLE employee_categories (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            allocate_revenue     INTEGER NOT NULL DEFAULT 1,   -- mirror cost_categories (RQ-2)
+            allocate_non_revenue INTEGER NOT NULL DEFAULT 0,
+            is_predefined        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_categories_company ON employee_categories(company_id);
+
+        CREATE TABLE employee_groups (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            company_id            TEXT    NOT NULL REFERENCES companies(id),
+            name                  TEXT    NOT NULL,
+            parent_id             TEXT        NULL REFERENCES employee_groups(id),
+            alias                 TEXT        NULL,
+            define_salary_details INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_groups_company ON employee_groups(company_id);
+
+        CREATE TABLE payroll_units (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            symbol                 TEXT    NOT NULL,
+            formal_name            TEXT    NOT NULL,
+            is_compound            INTEGER NOT NULL DEFAULT 0,
+            decimal_places         INTEGER NOT NULL DEFAULT 0,
+            first_unit_id          TEXT        NULL REFERENCES payroll_units(id),
+            tail_unit_id           TEXT        NULL REFERENCES payroll_units(id),
+            conversion_numerator   INTEGER     NULL,
+            conversion_denominator INTEGER     NULL
+        );
+        CREATE INDEX ix_payroll_units_company ON payroll_units(company_id);
+
+        CREATE TABLE attendance_types (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            name            TEXT    NOT NULL,
+            parent_id       TEXT        NULL REFERENCES attendance_types(id),
+            kind            INTEGER NOT NULL,   -- AttendanceTypeKind enum ordinal
+            payroll_unit_id TEXT        NULL REFERENCES payroll_units(id)
+        );
+        CREATE INDEX ix_attendance_types_company ON attendance_types(company_id);
+
+        CREATE TABLE employees (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            employee_group_id    TEXT    NOT NULL REFERENCES employee_groups(id),
+            employee_category_id TEXT        NULL REFERENCES employee_categories(id),
+            employee_number      TEXT        NULL,
+            date_of_joining      TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL
+            date_of_leaving      TEXT        NULL,
+            designation          TEXT        NULL,
+            function             TEXT        NULL,
+            location             TEXT        NULL,
+            gender               TEXT        NULL,
+            date_of_birth        TEXT        NULL,
+            pan                  TEXT        NULL,   -- 10-char PAN, NULL when unset
+            aadhaar              TEXT        NULL,
+            uan                  TEXT        NULL,   -- 12-digit UAN, NULL when unset
+            pf_account_number    TEXT        NULL,
+            esi_number           TEXT        NULL,   -- 10-digit ESI IP number, NULL when unset
+            bank_account_number  TEXT        NULL,
+            bank_name            TEXT        NULL,
+            bank_ifsc            TEXT        NULL,
+            tax_regime           INTEGER NOT NULL DEFAULT 0,  -- TaxRegime enum ordinal (0 = New)
+            -- v33 (Phase 8 slice 4): per-employee Provident-Fund details. All default off, so a pre-v33 employee is
+            -- byte-identical (ER-13). UAN already lives in the uan column above.
+            pf_applicable        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PF applies to this member)
+            pf_higher_wages      INTEGER NOT NULL DEFAULT 0,  -- 0/1 (opted to contribute on wages above the ceiling)
+            pf_join_date         TEXT        NULL,            -- ISO yyyy-MM-dd, or NULL
+            -- v34 (Phase 8 slice 5): per-employee ESI applicability. Default off, so a pre-v34 employee is
+            -- byte-identical (ER-13). The 10-digit IP number lives in the esi_number column above (corrected in v34
+            -- from a wrongly-validated 17-digit value to the 10-digit IP number).
+            esi_applicable       INTEGER NOT NULL DEFAULT 0,  -- 0/1 (ESI applies to this member)
+            esi_person_with_disability INTEGER NOT NULL DEFAULT 0   -- 0/1 (higher ₹25,000 coverage ceiling applies)
+        );
+        CREATE INDEX ix_employees_company ON employees(company_id);
+
+        -- v31 (Phase 8 slice 2): Pay Heads + dated Salary Structures. Empty when Payroll is unused (ER-13).
+        CREATE TABLE pay_heads (
+            id                        TEXT    NOT NULL PRIMARY KEY,
+            company_id                TEXT    NOT NULL REFERENCES companies(id),
+            name                      TEXT    NOT NULL,
+            display_name              TEXT        NULL,
+            pay_head_type             INTEGER NOT NULL,              -- PayHeadType ordinal
+            calculation_type          INTEGER NOT NULL,              -- PayHeadCalculationType ordinal
+            affects_net_salary        INTEGER NOT NULL DEFAULT 1,
+            under_group_id            TEXT        NULL REFERENCES groups(id),
+            ledger_id                 TEXT        NULL REFERENCES ledgers(id),
+            income_tax_component      INTEGER NOT NULL DEFAULT 0,    -- IncomeTaxComponent ordinal
+            use_for_gratuity          INTEGER NOT NULL DEFAULT 0,
+            rounding_method           INTEGER NOT NULL DEFAULT 0,    -- PayHeadRoundingMethod ordinal
+            rounding_limit_paisa      INTEGER NOT NULL DEFAULT 0,
+            calculation_period        INTEGER NOT NULL DEFAULT 0,    -- PayHeadCalculationPeriod ordinal
+            attendance_type_id        TEXT        NULL REFERENCES attendance_types(id),
+            per_day_calculation_basis INTEGER     NULL,
+            employer_expense_ledger_id TEXT       NULL REFERENCES ledgers(id), -- v32: employer-contribution Dr side
+            -- v33 (Phase 8 slice 4): PF statutory role + PF-wage flag. Default 0 (None / not a PF-wage), so a pre-v33
+            -- pay head is byte-identical (ER-13).
+            pf_component              INTEGER NOT NULL DEFAULT 0,  -- PfStatutoryComponent ordinal (0 = None)
+            part_of_pf_wages          INTEGER NOT NULL DEFAULT 0,  -- 0/1 (counts toward EPF/EPS/EDLI wages)
+            -- v34 (Phase 8 slice 5): ESI statutory role + ESI-wage flag + overtime marker. Default 0 (None / not an
+            -- ESI-wage / not overtime), so a pre-v34 pay head is byte-identical (ER-13).
+            esi_component             INTEGER NOT NULL DEFAULT 0,  -- EsiStatutoryComponent ordinal (0 = None)
+            part_of_esi_wages         INTEGER NOT NULL DEFAULT 0,  -- 0/1 (counts toward ESI wages; HRA included)
+            is_overtime               INTEGER NOT NULL DEFAULT 0,  -- 0/1 (in ESI contribution base, out of coverage test)
+            -- v35 (Phase 8 slice 6): PT statutory role. Default 0 (None), so a pre-v35 pay head is byte-identical (ER-13).
+            pt_component              INTEGER NOT NULL DEFAULT 0   -- PtStatutoryComponent ordinal (0 = None)
+        );
+        CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
+
+        CREATE TABLE pay_head_computation (
+            id                    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id           TEXT    NOT NULL REFERENCES pay_heads(id),
+            component_pay_head_id TEXT    NOT NULL REFERENCES pay_heads(id),
+            is_subtraction        INTEGER NOT NULL DEFAULT 0,
+            ord                   INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_payhead ON pay_head_computation(pay_head_id);
+
+        CREATE TABLE pay_head_computation_slabs (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id       TEXT    NOT NULL REFERENCES pay_heads(id),
+            from_amount_paisa INTEGER     NULL,
+            to_amount_paisa   INTEGER     NULL,
+            slab_type         INTEGER NOT NULL,                     -- PayHeadComputationSlabType ordinal
+            rate_basis_points INTEGER NOT NULL DEFAULT 0,
+            value_paisa       INTEGER NOT NULL DEFAULT 0,
+            ord               INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_slabs_payhead ON pay_head_computation_slabs(pay_head_id);
+
+        CREATE TABLE salary_structures (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            scope          INTEGER NOT NULL,                        -- SalaryStructureScope ordinal
+            scope_id       TEXT    NOT NULL,                        -- employee or employee_group id (polymorphic; no FK)
+            effective_from TEXT    NOT NULL,                        -- ISO yyyy-MM-dd
+            start_type     INTEGER NOT NULL DEFAULT 0               -- SalaryStructureStartType ordinal
+        );
+        CREATE INDEX ix_salary_structures_company ON salary_structures(company_id);
+
+        CREATE TABLE salary_structure_lines (
+            id                  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            salary_structure_id TEXT    NOT NULL REFERENCES salary_structures(id),
+            pay_head_id         TEXT    NOT NULL REFERENCES pay_heads(id),
+            ord                 INTEGER NOT NULL,
+            amount_paisa        INTEGER     NULL
+        );
+        CREATE INDEX ix_salary_structure_lines_structure ON salary_structure_lines(salary_structure_id);
+
+        -- v32 (Phase 8 slice 3): recorded Attendance/Production values (a non-accounting Attendance voucher).
+        -- Empty when Payroll is unused (ER-13). value_micro = units × 1,000,000 (exact fractional days/hours).
+        CREATE TABLE attendance_entries (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            employee_id        TEXT    NOT NULL REFERENCES employees(id),
+            attendance_type_id TEXT    NOT NULL REFERENCES attendance_types(id),
+            from_date          TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            to_date            TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            value_micro        INTEGER NOT NULL    -- units × 1,000,000
+        );
+        CREATE INDEX ix_attendance_entries_company ON attendance_entries(company_id);
+
+        -- v32 (Phase 8 slice 3): the per-employee computed salary lines of a Payroll voucher — one row per
+        -- entry_lines row, self-describing the breakdown (employee, pay head, category, amount) so the payslip /
+        -- register read it back without recomputing. Empty when Payroll is unused (ER-13). Money is micros.
+        CREATE TABLE payroll_lines (
+            id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id INTEGER NOT NULL REFERENCES entry_lines(id),
+            employee_id   TEXT    NOT NULL,   -- the employee this computed line is for
+            pay_head_id   TEXT        NULL,   -- the pay head (NULL for the net Salary-Payable line)
+            category      INTEGER NOT NULL,   -- PayrollLineCategory ordinal
+            amount_micro  INTEGER NOT NULL    -- computed amount, rupees × 1,000,000
+        );
+        CREATE INDEX ix_payroll_lines_entry_line ON payroll_lines(entry_line_id);
         """;
 
     /// <summary>
@@ -1960,5 +2234,344 @@ public static class Schema
             voucher_id  TEXT    NOT NULL REFERENCES vouchers(id)
         );
         CREATE INDEX ix_tcs_challan_voucher_links_challan ON tcs_challan_voucher_links(challan_id);
+        """;
+
+    /// <summary>
+    /// v29 → v30 (Phase 8 slice 1; Payroll masters + F11 config): additive only — two
+    /// <c>ALTER TABLE companies ADD COLUMN … DEFAULT 0</c> (the Payroll + Payroll-Statutory F11 toggles) plus five
+    /// new master tables (<c>employee_categories</c>, <c>employee_groups</c>, <c>payroll_units</c>,
+    /// <c>attendance_types</c>, <c>employees</c>) with their company indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 30. No ALTER that rewrites rows, no data backfill — an existing v29 database keeps
+    /// every row untouched, the two flags default 0 and the five tables start empty, so a company that never
+    /// enables Payroll serialises byte-identically to a v29 company (ER-13). The <c>employee_groups</c>,
+    /// <c>payroll_units</c> and <c>attendance_types</c> tables carry a self-referential <c>parent_id</c>/component
+    /// FK (hierarchical / compound), matching <see cref="CreateV1"/> exactly. A fresh DB is stamped straight to
+    /// v30 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV29ToV30 = """
+        ALTER TABLE companies ADD COLUMN payroll_enabled           INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN payroll_statutory_enabled INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE employee_categories (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            allocate_revenue     INTEGER NOT NULL DEFAULT 1,
+            allocate_non_revenue INTEGER NOT NULL DEFAULT 0,
+            is_predefined        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_categories_company ON employee_categories(company_id);
+
+        CREATE TABLE employee_groups (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            company_id            TEXT    NOT NULL REFERENCES companies(id),
+            name                  TEXT    NOT NULL,
+            parent_id             TEXT        NULL REFERENCES employee_groups(id),
+            alias                 TEXT        NULL,
+            define_salary_details INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_groups_company ON employee_groups(company_id);
+
+        CREATE TABLE payroll_units (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            symbol                 TEXT    NOT NULL,
+            formal_name            TEXT    NOT NULL,
+            is_compound            INTEGER NOT NULL DEFAULT 0,
+            decimal_places         INTEGER NOT NULL DEFAULT 0,
+            first_unit_id          TEXT        NULL REFERENCES payroll_units(id),
+            tail_unit_id           TEXT        NULL REFERENCES payroll_units(id),
+            conversion_numerator   INTEGER     NULL,
+            conversion_denominator INTEGER     NULL
+        );
+        CREATE INDEX ix_payroll_units_company ON payroll_units(company_id);
+
+        CREATE TABLE attendance_types (
+            id              TEXT    NOT NULL PRIMARY KEY,
+            company_id      TEXT    NOT NULL REFERENCES companies(id),
+            name            TEXT    NOT NULL,
+            parent_id       TEXT        NULL REFERENCES attendance_types(id),
+            kind            INTEGER NOT NULL,
+            payroll_unit_id TEXT        NULL REFERENCES payroll_units(id)
+        );
+        CREATE INDEX ix_attendance_types_company ON attendance_types(company_id);
+
+        CREATE TABLE employees (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            name                 TEXT    NOT NULL,
+            employee_group_id    TEXT    NOT NULL REFERENCES employee_groups(id),
+            employee_category_id TEXT        NULL REFERENCES employee_categories(id),
+            employee_number      TEXT        NULL,
+            date_of_joining      TEXT        NULL,
+            date_of_leaving      TEXT        NULL,
+            designation          TEXT        NULL,
+            function             TEXT        NULL,
+            location             TEXT        NULL,
+            gender               TEXT        NULL,
+            date_of_birth        TEXT        NULL,
+            pan                  TEXT        NULL,
+            aadhaar              TEXT        NULL,
+            uan                  TEXT        NULL,
+            pf_account_number    TEXT        NULL,
+            esi_number           TEXT        NULL,
+            bank_account_number  TEXT        NULL,
+            bank_name            TEXT        NULL,
+            bank_ifsc            TEXT        NULL,
+            tax_regime           INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employees_company ON employees(company_id);
+        """;
+
+    /// <summary>
+    /// v30 → v31 (Phase 8 slice 2; Pay Heads + dated Salary Structures): purely additive — five new tables
+    /// (<c>pay_heads</c>, <c>pay_head_computation</c> [the computed-on basis], <c>pay_head_computation_slabs</c>
+    /// [the slab bands], <c>salary_structures</c>, <c>salary_structure_lines</c>) with their indexes, run inside a
+    /// transaction that bumps <c>schema_version</c> to 31. <b>No ALTER, no companies column, no row rewrites</b> —
+    /// an existing v30 database keeps every row untouched and the five tables start empty, so a company that never
+    /// uses Payroll serialises byte-identically to a v30 company (ER-13). The two <c>pay_head_computation*</c> child
+    /// tables and <c>salary_structure_lines</c> FK <c>pay_heads(id)</c>; a pay head references only
+    /// <c>groups</c>/<c>ledgers</c>/<c>attendance_types</c> (never another pay head at the row level — computed-on
+    /// links live in the child table), so no self-FK ordering is needed. The DDL is byte-identical to the
+    /// corresponding block in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is
+    /// stamped straight to v31 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV30ToV31 = """
+        CREATE TABLE pay_heads (
+            id                        TEXT    NOT NULL PRIMARY KEY,
+            company_id                TEXT    NOT NULL REFERENCES companies(id),
+            name                      TEXT    NOT NULL,
+            display_name              TEXT        NULL,
+            pay_head_type             INTEGER NOT NULL,              -- PayHeadType ordinal
+            calculation_type          INTEGER NOT NULL,              -- PayHeadCalculationType ordinal
+            affects_net_salary        INTEGER NOT NULL DEFAULT 1,
+            under_group_id            TEXT        NULL REFERENCES groups(id),
+            ledger_id                 TEXT        NULL REFERENCES ledgers(id),
+            income_tax_component      INTEGER NOT NULL DEFAULT 0,    -- IncomeTaxComponent ordinal
+            use_for_gratuity          INTEGER NOT NULL DEFAULT 0,
+            rounding_method           INTEGER NOT NULL DEFAULT 0,    -- PayHeadRoundingMethod ordinal
+            rounding_limit_paisa      INTEGER NOT NULL DEFAULT 0,
+            calculation_period        INTEGER NOT NULL DEFAULT 0,    -- PayHeadCalculationPeriod ordinal
+            attendance_type_id        TEXT        NULL REFERENCES attendance_types(id),
+            per_day_calculation_basis INTEGER     NULL
+        );
+        CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
+
+        CREATE TABLE pay_head_computation (
+            id                    INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id           TEXT    NOT NULL REFERENCES pay_heads(id),
+            component_pay_head_id TEXT    NOT NULL REFERENCES pay_heads(id),
+            is_subtraction        INTEGER NOT NULL DEFAULT 0,
+            ord                   INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_payhead ON pay_head_computation(pay_head_id);
+
+        CREATE TABLE pay_head_computation_slabs (
+            id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            pay_head_id       TEXT    NOT NULL REFERENCES pay_heads(id),
+            from_amount_paisa INTEGER     NULL,
+            to_amount_paisa   INTEGER     NULL,
+            slab_type         INTEGER NOT NULL,                     -- PayHeadComputationSlabType ordinal
+            rate_basis_points INTEGER NOT NULL DEFAULT 0,
+            value_paisa       INTEGER NOT NULL DEFAULT 0,
+            ord               INTEGER NOT NULL
+        );
+        CREATE INDEX ix_pay_head_computation_slabs_payhead ON pay_head_computation_slabs(pay_head_id);
+
+        CREATE TABLE salary_structures (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            scope          INTEGER NOT NULL,                        -- SalaryStructureScope ordinal
+            scope_id       TEXT    NOT NULL,                        -- employee or employee_group id (polymorphic; no FK)
+            effective_from TEXT    NOT NULL,                        -- ISO yyyy-MM-dd
+            start_type     INTEGER NOT NULL DEFAULT 0               -- SalaryStructureStartType ordinal
+        );
+        CREATE INDEX ix_salary_structures_company ON salary_structures(company_id);
+
+        CREATE TABLE salary_structure_lines (
+            id                  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            salary_structure_id TEXT    NOT NULL REFERENCES salary_structures(id),
+            pay_head_id         TEXT    NOT NULL REFERENCES pay_heads(id),
+            ord                 INTEGER NOT NULL,
+            amount_paisa        INTEGER     NULL
+        );
+        CREATE INDEX ix_salary_structure_lines_structure ON salary_structure_lines(salary_structure_id);
+        """;
+
+    /// <summary>
+    /// v31 → v32 (Phase 8 slice 3; Attendance + Payroll voucher engine): purely additive — one
+    /// <c>ALTER TABLE pay_heads ADD COLUMN employer_expense_ledger_id</c> (the employer-contribution debit-side
+    /// ledger, NULL for every existing head) plus two new tables (<c>attendance_entries</c> — the recorded
+    /// attendance/production values of a non-accounting Attendance voucher; <c>payroll_lines</c> — the per-employee
+    /// computed salary lines hung off <c>entry_lines</c>) with their indexes, run inside a transaction that bumps
+    /// <c>schema_version</c> to 32. <b>No row rewrites, no data backfill</b> — an existing v31 database keeps every
+    /// row untouched, the new column defaults NULL and the two tables start empty, so a company that never runs
+    /// Payroll serialises byte-identically to a v31 company (ER-13). The DDL is byte-identical to the corresponding
+    /// blocks in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped
+    /// straight to v32 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV31ToV32 = """
+        ALTER TABLE pay_heads ADD COLUMN employer_expense_ledger_id TEXT NULL REFERENCES ledgers(id);
+
+        CREATE TABLE attendance_entries (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            employee_id        TEXT    NOT NULL REFERENCES employees(id),
+            attendance_type_id TEXT    NOT NULL REFERENCES attendance_types(id),
+            from_date          TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            to_date            TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            value_micro        INTEGER NOT NULL    -- units × 1,000,000
+        );
+        CREATE INDEX ix_attendance_entries_company ON attendance_entries(company_id);
+
+        CREATE TABLE payroll_lines (
+            id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            entry_line_id INTEGER NOT NULL REFERENCES entry_lines(id),
+            employee_id   TEXT    NOT NULL,   -- the employee this computed line is for
+            pay_head_id   TEXT        NULL,   -- the pay head (NULL for the net Salary-Payable line)
+            category      INTEGER NOT NULL,   -- PayrollLineCategory ordinal
+            amount_micro  INTEGER NOT NULL    -- computed amount, rupees × 1,000,000
+        );
+        CREATE INDEX ix_payroll_lines_entry_line ON payroll_lines(entry_line_id);
+        """;
+
+    /// <summary>
+    /// v32 → v33 (Phase 8 slice 4; Provident Fund): purely additive — four <c>ALTER TABLE companies ADD COLUMN</c>
+    /// for the establishment PF config (enrolled flag, EPF rate, establishment code, cap-at-ceiling flag), three
+    /// <c>ALTER TABLE employees ADD COLUMN</c> for the per-employee PF details (PF-applicable, higher-wage opt-in,
+    /// PF join date — the UAN already lives on <c>employees</c> from v30) and two <c>ALTER TABLE pay_heads ADD
+    /// COLUMN</c> for the PF statutory role + PF-wage flag, run inside a transaction that bumps
+    /// <c>schema_version</c> to 33. <b>No new tables, no row rewrites, no data backfill</b> — an existing v32
+    /// database keeps every row untouched, the flags default off (0), the rate/cap carry their statutory defaults
+    /// and the establishment code stays NULL, so a company not enrolled for PF serialises byte-identically to a
+    /// v32 company (ER-13). Each added column is byte-identical to its counterpart in <see cref="CreateV1"/> (the
+    /// migration-equivalence test enforces this). A fresh DB is stamped straight to v33 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV32ToV33 = """
+        ALTER TABLE companies ADD COLUMN pf_config_enabled     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN pf_epf_rate_bp        INTEGER NOT NULL DEFAULT 1200;
+        ALTER TABLE companies ADD COLUMN pf_establishment_code TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN pf_cap_at_ceiling     INTEGER NOT NULL DEFAULT 1;
+
+        ALTER TABLE employees ADD COLUMN pf_applicable   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE employees ADD COLUMN pf_higher_wages INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE employees ADD COLUMN pf_join_date    TEXT        NULL;
+
+        ALTER TABLE pay_heads ADD COLUMN pf_component     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pay_heads ADD COLUMN part_of_pf_wages INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v33 → v34 (Phase 8 slice 5; Employees' State Insurance): purely additive — four <c>ALTER TABLE companies ADD
+    /// COLUMN</c> for the establishment ESI config (enrolled flag, EE/ER rate defaults, 17-digit employer code), two
+    /// <c>ALTER TABLE employees ADD COLUMN</c> for per-employee ESI applicability + the person-with-disability flag
+    /// (the 10-digit IP number already lives in <c>esi_number</c> from v30) and three <c>ALTER TABLE pay_heads ADD
+    /// COLUMN</c> for the ESI statutory
+    /// role + ESI-wage flag + overtime marker, run inside a transaction that bumps <c>schema_version</c> to 34.
+    /// <b>No new tables, no row rewrites, no data backfill</b> — an existing v33 database keeps every row untouched,
+    /// the flags default off (0) and the rates carry their statutory defaults, so a company not enrolled for ESI
+    /// serialises byte-identically to a v33 company (ER-13). Each added column is byte-identical to its counterpart
+    /// in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped straight to
+    /// v34 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV33ToV34 = """
+        ALTER TABLE companies ADD COLUMN esi_config_enabled INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN esi_ee_rate_bp     INTEGER NOT NULL DEFAULT 75;
+        ALTER TABLE companies ADD COLUMN esi_er_rate_bp     INTEGER NOT NULL DEFAULT 325;
+        ALTER TABLE companies ADD COLUMN esi_employer_code  TEXT        NULL;
+
+        ALTER TABLE employees ADD COLUMN esi_applicable INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE employees ADD COLUMN esi_person_with_disability INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE pay_heads ADD COLUMN esi_component     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pay_heads ADD COLUMN part_of_esi_wages INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE pay_heads ADD COLUMN is_overtime       INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v34 → v35 (Phase 8 slice 6; Professional Tax): additive — four <c>ALTER TABLE companies ADD COLUMN</c> for the
+    /// establishment PT config (enrolled flag, active state, registration number, wage basis), one <c>ALTER TABLE
+    /// pay_heads ADD COLUMN</c> for the PT statutory role, and one new <c>pt_slab_bands</c> table (+ its
+    /// company-scoped index) holding the editable per-state slab bands — run inside a transaction that bumps
+    /// <c>schema_version</c> to 35. <b>No row rewrites, no data backfill</b> — an existing v34 database keeps every
+    /// row untouched, the flags default off (0), the state/registration stay NULL and the new table starts empty, so a
+    /// company not enrolled for PT serialises byte-identically to a v34 company (ER-13). Each added column / table /
+    /// index is byte-identical to its counterpart in <see cref="CreateV1"/> (the migration-equivalence test enforces
+    /// this). A fresh DB is stamped straight to v35 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV34ToV35 = """
+        ALTER TABLE companies ADD COLUMN pt_config_enabled      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN pt_state               TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN pt_registration_number TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN pt_wage_basis          INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE pay_heads ADD COLUMN pt_component INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE pt_slab_bands (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            slab_id              TEXT    NOT NULL,
+            state_code           TEXT    NOT NULL,
+            gender_scope         INTEGER NOT NULL,
+            band_order           INTEGER NOT NULL,
+            from_wage_paisa      INTEGER NOT NULL,
+            to_wage_paisa        INTEGER     NULL,
+            monthly_amount_paisa INTEGER NOT NULL,
+            month_overrides      TEXT    NOT NULL DEFAULT ''
+        );
+        CREATE INDEX ix_pt_slab_bands_company ON pt_slab_bands(company_id);
+        """;
+
+    /// <summary>
+    /// v35 → v36 (Phase 8 slice 7; §192 salary TDS + Form 24Q + Form 16): additive — one <c>ALTER TABLE companies
+    /// ADD COLUMN</c> for the establishment salary-TDS toggle and one new <c>employee_tax_declarations</c> table
+    /// (+ its company-scoped index) holding the per-employee Form-12BB income-tax declaration — run inside a
+    /// transaction that bumps <c>schema_version</c> to 36. <b>No row rewrites, no data backfill</b> — an existing v35
+    /// database keeps every row untouched, the toggle defaults off (0) and the new table starts empty, so a company
+    /// that never deducts salary-TDS serialises byte-identically to a v35 company (ER-13). The §192 income-tax
+    /// deduction pay-head marker rides the existing <c>pay_heads.income_tax_component</c> column (no new column). Each
+    /// added column / table / index is byte-identical to its counterpart in <see cref="CreateV1"/> (the
+    /// migration-equivalence test enforces this). A fresh DB is stamped straight to v36 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV35ToV36 = """
+        ALTER TABLE companies ADD COLUMN salary_tds_enabled INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE employee_tax_declarations (
+            employee_id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id                    TEXT    NOT NULL REFERENCES companies(id),
+            section_80c_paisa             INTEGER NOT NULL DEFAULT 0,
+            section_80d_paisa             INTEGER NOT NULL DEFAULT 0,
+            section_80ccd1b_paisa         INTEGER NOT NULL DEFAULT 0,
+            section_80ccd2_employer_paisa INTEGER NOT NULL DEFAULT 0,
+            hra_exempt_paisa              INTEGER NOT NULL DEFAULT 0,
+            home_loan_interest_paisa      INTEGER NOT NULL DEFAULT 0,
+            other_income_paisa            INTEGER NOT NULL DEFAULT 0,
+            prev_employer_salary_paisa    INTEGER NOT NULL DEFAULT 0,
+            prev_employer_tds_paisa       INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
+        """;
+
+    /// <summary>
+    /// v36 → v37 (Phase 8 slice 9; Gratuity provision + statutory Bonus): additive — nine <c>ALTER TABLE companies ADD
+    /// COLUMN</c> for the establishment Gratuity config (enrolled flag, §4(3) cap paisa, wage basis, provision
+    /// population) and statutory-Bonus config (enrolled flag, rate bp, §12 calc-ceiling paisa, minimum-wage paisa,
+    /// prorate flag) — run inside a transaction that bumps <c>schema_version</c> to 37. <b>No new tables, no row
+    /// rewrites, no data backfill</b> — an existing v36 database keeps every row untouched, the enrolled flags default
+    /// off (0) and the other columns carry statutory defaults, so a company that provisions neither serialises
+    /// byte-identically to a v36 company (ER-13). Each added column is byte-identical to its counterpart in
+    /// <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped straight to v37 via
+    /// <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV36ToV37 = """
+        ALTER TABLE companies ADD COLUMN gratuity_config_enabled  INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gratuity_cap_paisa       INTEGER NOT NULL DEFAULT 200000000;
+        ALTER TABLE companies ADD COLUMN gratuity_wage_basis      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gratuity_population      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN bonus_config_enabled     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN bonus_rate_bp            INTEGER NOT NULL DEFAULT 833;
+        ALTER TABLE companies ADD COLUMN bonus_calc_ceiling_paisa INTEGER NOT NULL DEFAULT 700000;
+        ALTER TABLE companies ADD COLUMN bonus_minimum_wage_paisa INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN bonus_prorate            INTEGER NOT NULL DEFAULT 1;
         """;
 }

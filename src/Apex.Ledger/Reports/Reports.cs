@@ -139,4 +139,45 @@ public static class Report
     /// <summary>R9 — Ledgers / parties without PAN as of a date (Phase 7 slice 8).</summary>
     public static LedgersWithoutPanReport BuildLedgersWithoutPan(Company c, DateOnly asOf)
         => LedgersWithoutPanReport.Build(c, asOf);
+
+    // ------------------------------------------------------------------ payroll reports (Phase 8 slice 8)
+
+    /// <summary>A single employee's Payslip for a period (Phase 8 slice 8; RQ-16) — identity, earnings/deductions,
+    /// gross/net, employer contributions (informational), attendance summary and YTD; a projection of the posted
+    /// Payroll voucher, so it reconciles to the books to the paisa.</summary>
+    public static Payslip BuildPayslip(Company c, Guid employeeId, DateOnly from, DateOnly to)
+        => Payslip.Build(c, employeeId, from, to);
+
+    /// <summary>The Pay Sheet — an employees × pay-heads matrix with footing column/row totals (Phase 8 slice 8;
+    /// RQ-16), projected from the posted Payroll voucher.</summary>
+    public static PaySheet BuildPaySheet(Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)
+        => PaySheet.Build(c, employeeIds, from, to);
+
+    /// <summary>The Payroll Register / Statement — a columnar per-employee salary summary with statutory deductions
+    /// broken out + period totals (Phase 8 slice 8; RQ-16), projected from the posted Payroll voucher.</summary>
+    public static PayrollRegister BuildPayrollRegister(Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)
+        => PayrollRegister.Build(c, employeeIds, from, to);
+
+    /// <summary>The Attendance / Production Register — an employees × attendance-types matrix over a period (Phase 8
+    /// slice 8; RQ-16).</summary>
+    public static AttendanceRegister BuildAttendanceRegister(
+        Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)
+        => AttendanceRegister.Build(c, employeeIds, from, to);
+
+    /// <summary>The Payment / Bank Advice — net pay per employee for a bank transfer (Phase 8 slice 8; RQ-16),
+    /// projected from the posted Payroll voucher.</summary>
+    public static PaymentAdvice BuildPaymentAdvice(Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)
+        => PaymentAdvice.Build(c, employeeIds, from, to);
+
+    /// <summary>The Gratuity Provision register — per active employee, the accrued gratuity (15/26, ₹20L cap) as-on a
+    /// date with a vested (≥5 yrs) flag + total liability (Phase 8 slice 9; RQ-14).</summary>
+    public static GratuityProvisionRegisterReturn BuildGratuityProvisionRegister(
+        Company c, IReadOnlyList<Guid> employeeIds, DateOnly asOn)
+        => GratuityProvisionRegister.Build(c, employeeIds, asOn);
+
+    /// <summary>The statutory-Bonus register — per eligible employee, the actual + capped base, rate and annual bonus
+    /// for the accounting year + total (Phase 8 slice 9; RQ-15).</summary>
+    public static BonusRegisterReturn BuildBonusRegister(
+        Company c, IReadOnlyList<Guid> employeeIds, DateOnly financialYearStart)
+        => BonusRegister.Build(c, employeeIds, financialYearStart);
 }

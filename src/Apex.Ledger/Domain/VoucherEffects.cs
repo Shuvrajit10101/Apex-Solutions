@@ -53,7 +53,12 @@ public static class VoucherEffects
         or VoucherBaseType.CreditNote
         or VoucherBaseType.DebitNote
         or VoucherBaseType.Memorandum
-        or VoucherBaseType.ReversingJournal;
+        or VoucherBaseType.ReversingJournal
+        // Payroll (Phase 8 slice 3): the Payroll voucher posts a balanced integrated accounting entry — earnings
+        // Dr to expense, deductions/net Cr to payable/Salary-Payable, employer contributions a separate balanced
+        // pair (ER-1) — so it AFFECTS ACCOUNTS. (Attendance is the non-accounting sibling — it records attendance
+        // values, books no ledger entry, and is stored as AttendanceEntry rows, never a posted Voucher.)
+        or VoucherBaseType.Payroll;
 
     /// <summary>Whether the base kind is a stock/order voucher kind the inventory engine posts (an inventory
     /// voucher). Phase 6 slice 8 adds the four Job-Work kinds (two order-only + Material In/Out).</summary>

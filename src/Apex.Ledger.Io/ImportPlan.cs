@@ -30,6 +30,14 @@ internal sealed class ImportPlan
     public Dictionary<Guid, MasterTarget> CurrencyTargets { get; } = new();
     public Dictionary<Guid, MasterTarget> BudgetTargets { get; } = new();
     public Dictionary<Guid, MasterTarget> ScenarioTargets { get; } = new();
+    // Payroll masters (Phase 8 slice 1).
+    public Dictionary<Guid, MasterTarget> EmployeeCategoryTargets { get; } = new();
+    public Dictionary<Guid, MasterTarget> EmployeeGroupTargets { get; } = new();
+    public Dictionary<Guid, MasterTarget> PayrollUnitTargets { get; } = new();
+    public Dictionary<Guid, MasterTarget> AttendanceTypeTargets { get; } = new();
+    public Dictionary<Guid, MasterTarget> EmployeeTargets { get; } = new();
+    // Pay heads (Phase 8 slice 2). Salary structures have no natural name key → they are always re-created (no dedup).
+    public Dictionary<Guid, MasterTarget> PayHeadTargets { get; } = new();
 
     public ImportPlan(CanonicalModel model, DuplicatePolicy policy)
     {
@@ -61,6 +69,18 @@ internal sealed class ImportPlan
         CostCentreTargets.ContainsKey(id) || t.FindCostCentre(id) is not null;
     public bool CanResolveCurrency(Guid id, Company t) =>
         CurrencyTargets.ContainsKey(id) || t.FindCurrency(id) is not null;
+    public bool CanResolveEmployeeCategory(Guid id, Company t) =>
+        EmployeeCategoryTargets.ContainsKey(id) || t.FindEmployeeCategory(id) is not null;
+    public bool CanResolveEmployeeGroup(Guid id, Company t) =>
+        EmployeeGroupTargets.ContainsKey(id) || t.FindEmployeeGroup(id) is not null;
+    public bool CanResolvePayrollUnit(Guid id, Company t) =>
+        PayrollUnitTargets.ContainsKey(id) || t.FindPayrollUnit(id) is not null;
+    public bool CanResolveAttendanceType(Guid id, Company t) =>
+        AttendanceTypeTargets.ContainsKey(id) || t.FindAttendanceType(id) is not null;
+    public bool CanResolveEmployee(Guid id, Company t) =>
+        EmployeeTargets.ContainsKey(id) || t.FindEmployee(id) is not null;
+    public bool CanResolvePayHead(Guid id, Company t) =>
+        PayHeadTargets.ContainsKey(id) || t.FindPayHead(id) is not null;
 
     // ---- execute: create masters (engine-routed) then post vouchers (engine-routed) ----
 
@@ -90,6 +110,13 @@ internal sealed class ImportPlan
         var bomId = new Dictionary<Guid, Guid>();          // Phase 6 slice 2 (needed to resolve Job Work fill-BOM refs)
         var tdsNatureId = new Dictionary<Guid, Guid>();    // Phase 7 slice 1 (DTO nature id → re-minted target id)
         var tcsNatureId = new Dictionary<Guid, Guid>();
+        // Payroll masters (Phase 8 slice 1): DTO id → re-minted target id.
+        var employeeCategoryId = new Dictionary<Guid, Guid>();
+        var employeeGroupId = new Dictionary<Guid, Guid>();
+        var payrollUnitId = new Dictionary<Guid, Guid>();
+        var attendanceTypeId = new Dictionary<Guid, Guid>();
+        var employeeId = new Dictionary<Guid, Guid>();     // Phase 8 slice 2 (salary-structure scope resolution)
+        var payHeadId = new Dictionary<Guid, Guid>();      // Phase 8 slice 2 (structure lines + computed-on refs)
 
         // Phase 6 slice 7: POS retail-till configs reference godowns + ledgers created later, so they are attached in
         // a deferred pass once those masters exist. Each pair is a newly-created POS voucher type + its exported config.
@@ -264,6 +291,228 @@ internal sealed class ImportPlan
             created++;
         }
 
+        // 2f) Payroll masters (Phase 8 slice 1). Re-minted with fresh Guids, resolved by name across companies —
+        //     categories + groups (parents first) + payroll units (simple first) first, then attendance types
+        //     (reference a payroll unit + a parent) and employees (reference a group + optional category). Never
+        //     routed through the domain service (the import is pre-validated); recorded in the journal for rollback.
+        foreach (var ec in _model.Payload.EmployeeCategories)
+        {
+            var target = EmployeeCategoryTargets[ec.Id];
+            if (target.IsDuplicate)
+            {
+                employeeCategoryId[ec.Id] = t.FindEmployeeCategoryByName(target.Name)!.Id;
+                reused++;
+                continue;
+            }
+            var domain = new EmployeeCategory(Guid.NewGuid(), ec.Name,
+                ec.AllocateRevenueItems, ec.AllocateNonRevenueItems, isPredefined: false);
+            t.AddEmployeeCategory(domain);
+            journal.RecordEmployeeCategory(domain);
+            employeeCategoryId[ec.Id] = domain.Id;
+            created++;
+        }
+
+        foreach (var eg in OrderEmployeeGroupsParentsFirst(_model.Payload.EmployeeGroups))
+        {
+            var target = EmployeeGroupTargets[eg.Id];
+            if (target.IsDuplicate)
+            {
+                employeeGroupId[eg.Id] = t.FindEmployeeGroupByName(target.Name)!.Id;
+                reused++;
+                continue;
+            }
+            var parent = eg.ParentId is { } pid ? ResolveEmployeeGroupId(pid, employeeGroupId, t) : (Guid?)null;
+            var domain = new EmployeeGroup(Guid.NewGuid(), eg.Name, parent, eg.Alias, eg.DefineSalaryDetails);
+            t.AddEmployeeGroup(domain);
+            journal.RecordEmployeeGroup(domain);
+            employeeGroupId[eg.Id] = domain.Id;
+            created++;
+        }
+
+        foreach (var pu in OrderPayrollUnitsSimpleFirst(_model.Payload.PayrollUnits))
+        {
+            var target = PayrollUnitTargets[pu.Id];
+            if (target.IsDuplicate)
+            {
+                payrollUnitId[pu.Id] = t.FindPayrollUnitByName(target.Name)!.Id;
+                reused++;
+                continue;
+            }
+            var domain = pu.IsCompound
+                ? PayrollUnit.Compound(Guid.NewGuid(), pu.Symbol, pu.FormalName,
+                    ResolvePayrollUnitId(pu.FirstUnitId!.Value, payrollUnitId, t),
+                    ResolvePayrollUnitId(pu.TailUnitId!.Value, payrollUnitId, t),
+                    pu.ConversionNumerator!.Value, pu.ConversionDenominator ?? 1)
+                : PayrollUnit.Simple(Guid.NewGuid(), pu.Symbol, pu.FormalName, pu.DecimalPlaces);
+            t.AddPayrollUnit(domain);
+            journal.RecordPayrollUnit(domain);
+            payrollUnitId[pu.Id] = domain.Id;
+            created++;
+        }
+
+        foreach (var at in OrderAttendanceTypesParentsFirst(_model.Payload.AttendanceTypes))
+        {
+            var target = AttendanceTypeTargets[at.Id];
+            if (target.IsDuplicate)
+            {
+                attendanceTypeId[at.Id] = t.FindAttendanceTypeByName(target.Name)!.Id;
+                reused++;
+                continue;
+            }
+            var parent = at.ParentId is { } pid ? ResolveAttendanceTypeId(pid, attendanceTypeId, t) : (Guid?)null;
+            var unit = at.PayrollUnitId is { } uid ? ResolvePayrollUnitId(uid, payrollUnitId, t) : (Guid?)null;
+            var domain = new AttendanceType(Guid.NewGuid(), at.Name, ParseEnum<AttendanceTypeKind>(at.Kind), parent, unit);
+            t.AddAttendanceType(domain);
+            journal.RecordAttendanceType(domain);
+            attendanceTypeId[at.Id] = domain.Id;
+            created++;
+        }
+
+        foreach (var em in _model.Payload.Employees)
+        {
+            var target = EmployeeTargets[em.Id];
+            if (target.IsDuplicate)
+            {
+                employeeId[em.Id] = t.FindEmployeeByName(target.Name)!.Id;
+                reused++;
+                continue;
+            }
+            var domain = new Employee(Guid.NewGuid(), em.Name, ResolveEmployeeGroupId(em.EmployeeGroupId, employeeGroupId, t))
+            {
+                EmployeeCategoryId = em.EmployeeCategoryId is { } cid ? ResolveEmployeeCategoryId(cid, employeeCategoryId, t) : null,
+                EmployeeNumber = em.EmployeeNumber,
+                DateOfJoining = CompanyImportService.ParseDateOpt(em.DateOfJoining),
+                DateOfLeaving = CompanyImportService.ParseDateOpt(em.DateOfLeaving),
+                Designation = em.Designation, Function = em.Function, Location = em.Location, Gender = em.Gender,
+                DateOfBirth = CompanyImportService.ParseDateOpt(em.DateOfBirth),
+                Pan = em.Pan, Aadhaar = em.Aadhaar, Uan = em.Uan, PfAccountNumber = em.PfAccountNumber,
+                EsiNumber = em.EsiNumber, BankAccountNumber = em.BankAccountNumber, BankName = em.BankName,
+                BankIfsc = em.BankIfsc, ApplicableTaxRegime = ParseEnum<TaxRegime>(em.ApplicableTaxRegime),
+                PfApplicable = em.PfApplicable, PfContributeOnHigherWages = em.PfContributeOnHigherWages,
+                PfJoinDate = CompanyImportService.ParseDateOpt(em.PfJoinDate),
+                EsiApplicable = em.EsiApplicable, IsPersonWithDisability = em.IsPersonWithDisability,
+            };
+            t.AddEmployee(domain);
+            journal.RecordEmployee(domain);
+            employeeId[em.Id] = domain.Id;
+            created++;
+        }
+
+        // 2g) Pay heads (Phase 8 slice 2). Two passes: (1) create every pay-head shell (re-mapping group/ledger/
+        //     attendance refs) so all ids exist, then (2) attach each As-Computed-Value head's computation, whose
+        //     basis components reference other (now-created) pay heads. Name-deduped like the other masters.
+        var createdPayHeads = new Dictionary<Guid, PayHead>();
+        foreach (var ph in _model.Payload.PayHeads)
+        {
+            var target = PayHeadTargets[ph.Id];
+            if (target.IsDuplicate)
+            {
+                payHeadId[ph.Id] = t.FindPayHeadByName(target.Name)!.Id;
+                reused++;
+                continue;
+            }
+            var domain = new PayHead(Guid.NewGuid(), ph.Name,
+                ParseEnum<PayHeadType>(ph.PayHeadType), ParseEnum<PayHeadCalculationType>(ph.CalculationType))
+            {
+                DisplayName = ph.DisplayName,
+                AffectsNetSalary = ph.AffectsNetSalary,
+                UnderGroupId = ph.UnderGroupId is { } g ? ResolveGroupId(g, groupId, t) : null,
+                // LedgerId + EmployerExpenseLedgerId reference the auto-created payroll ledgers, which are imported
+                // LATER (section 3), so they are re-linked in a post-ledger pass below — not resolvable here yet.
+                IncomeTaxComponent = ParseEnum<IncomeTaxComponent>(ph.IncomeTaxComponent),
+                UseForGratuity = ph.UseForGratuity,
+                RoundingMethod = ParseEnum<PayHeadRoundingMethod>(ph.RoundingMethod),
+                RoundingLimit = MoneyCodec.FromPaisa(ph.RoundingLimitPaisa),
+                CalculationPeriod = ParseEnum<PayHeadCalculationPeriod>(ph.CalculationPeriod),
+                AttendanceTypeId = ph.AttendanceTypeId is { } a ? ResolveAttendanceTypeId(a, attendanceTypeId, t) : null,
+                PerDayCalculationBasisDays = ph.PerDayCalculationBasisDays,
+                PfComponent = ParseEnum<PfStatutoryComponent>(ph.PfComponent),
+                PartOfPfWages = ph.PartOfPfWages,
+                EsiComponent = ParseEnum<EsiStatutoryComponent>(ph.EsiComponent),
+                PartOfEsiWages = ph.PartOfEsiWages,
+                IsOvertime = ph.IsOvertime,
+                PtComponent = ParseEnum<PtStatutoryComponent>(ph.PtComponent),
+            };
+            t.AddPayHead(domain);
+            journal.RecordPayHead(domain);
+            payHeadId[ph.Id] = domain.Id;
+            createdPayHeads[ph.Id] = domain;
+            created++;
+        }
+        foreach (var ph in _model.Payload.PayHeads)
+        {
+            if (!createdPayHeads.TryGetValue(ph.Id, out var domain)) continue;
+            if (ph.ComputationComponents.Count == 0 && ph.ComputationSlabs.Count == 0) continue;
+            var components = ph.ComputationComponents
+                .Select(c => new PayHeadComputationComponent(ResolvePayHeadId(c.PayHeadId, payHeadId, t), c.IsSubtraction))
+                .ToList();
+            var slabs = ph.ComputationSlabs
+                .Select(s => new PayHeadComputationSlab(
+                    ParseEnum<PayHeadComputationSlabType>(s.SlabType), s.RateBasisPoints,
+                    MoneyCodec.FromPaisa(s.ValuePaisa),
+                    s.FromAmountPaisa is { } f ? MoneyCodec.FromPaisa(f) : (Money?)null,
+                    s.ToAmountPaisa is { } to ? MoneyCodec.FromPaisa(to) : (Money?)null))
+                .ToList();
+            domain.Computation = new PayHeadComputation(components, slabs);
+        }
+
+        // 2h) Salary structures (Phase 8 slice 2). No natural name key → always re-created with a fresh Guid,
+        //     re-mapping the scope (employee or group) + each line's pay head; recorded for rollback.
+        foreach (var ss in _model.Payload.SalaryStructures)
+        {
+            var scope = ParseEnum<SalaryStructureScope>(ss.Scope);
+            var scopeId = scope == SalaryStructureScope.Employee
+                ? ResolveEmployeeId(ss.ScopeId, employeeId, t)
+                : ResolveEmployeeGroupId(ss.ScopeId, employeeGroupId, t);
+            var lines = ss.Lines
+                .Select(l => new SalaryStructureLine(
+                    ResolvePayHeadId(l.PayHeadId, payHeadId, t), l.Order,
+                    l.AmountPaisa is { } a ? MoneyCodec.FromPaisa(a) : (Money?)null))
+                .ToList();
+            var domain = new SalaryStructure(Guid.NewGuid(), scope, scopeId,
+                CompanyImportService.ParseDate(ss.EffectiveFrom),
+                ParseEnum<SalaryStructureStartType>(ss.StartType), lines);
+            t.AddSalaryStructure(domain);
+            journal.RecordSalaryStructure(domain);
+            created++;
+        }
+
+        // 2i) Attendance entries (Phase 8 slice 3). No natural key → always re-created with a fresh Guid, re-mapping
+        //     the employee + attendance-type refs to the target's re-minted ids; recorded for rollback.
+        foreach (var ae in _model.Payload.AttendanceEntries)
+        {
+            var domain = new AttendanceEntry(Guid.NewGuid(),
+                ResolveEmployeeId(ae.EmployeeId, employeeId, t),
+                ResolveAttendanceTypeId(ae.AttendanceTypeId, attendanceTypeId, t),
+                CompanyImportService.ParseDate(ae.FromDate), CompanyImportService.ParseDate(ae.ToDate),
+                FromMicro(ae.ValueMicro));
+            t.AddAttendanceEntry(domain);
+            journal.RecordAttendanceEntry(domain);
+            created++;
+        }
+
+        // 2j) §192 income-tax declarations (Phase 8 slice 7). Keyed to their employee (re-mapped to the target's
+        //     re-minted id); one per employee. Recorded for rollback.
+        foreach (var td in _model.Payload.TaxDeclarations)
+        {
+            var domain = new TaxDeclaration
+            {
+                EmployeeId = ResolveEmployeeId(td.EmployeeId, employeeId, t),
+                Section80C = MoneyCodec.FromPaisa(td.Section80CPaisa),
+                Section80D = MoneyCodec.FromPaisa(td.Section80DPaisa),
+                Section80CCD1B = MoneyCodec.FromPaisa(td.Section80CCD1BPaisa),
+                Section80CCD2Employer = MoneyCodec.FromPaisa(td.Section80CCD2EmployerPaisa),
+                HouseRentAllowanceExempt = MoneyCodec.FromPaisa(td.HraExemptPaisa),
+                HomeLoanInterest24b = MoneyCodec.FromPaisa(td.HomeLoanInterestPaisa),
+                OtherIncome = MoneyCodec.FromPaisa(td.OtherIncomePaisa),
+                PreviousEmployerSalary = MoneyCodec.FromPaisa(td.PrevEmployerSalaryPaisa),
+                PreviousEmployerTds = MoneyCodec.FromPaisa(td.PrevEmployerTdsPaisa),
+            };
+            t.AddTaxDeclaration(domain);
+            journal.RecordTaxDeclaration(domain);
+            created++;
+        }
+
         // 3) Ledgers. Some ledgers already exist in the (freshly seeded) target BY NAME even though the pre-flight
         //    saw them as new: the 2 predefined seed ledgers (Cash, Profit & Loss A/c) and — created just above by
         //    EnableGst — the 6 GST tax ledgers + Round Off. Re-check by name here and REUSE any such instance
@@ -328,6 +577,17 @@ internal sealed class ImportPlan
             journal.RecordLedger(domain);
             ledgerId[l.Id] = domain.Id;
             created++;
+        }
+
+        // 3b) Pay-head → ledger re-link (Phase 8 slice 3). A pay head's LedgerId / EmployerExpenseLedgerId point at
+        //     the auto-created payroll ledgers, which only exist now that ledgers are imported. Re-resolve them into
+        //     the target's re-minted ids so the payroll voucher's lines reconcile to the same ledgers (a duplicate
+        //     pay head reused above is not in createdPayHeads, so its links are left as the target already has them).
+        foreach (var ph in _model.Payload.PayHeads)
+        {
+            if (!createdPayHeads.TryGetValue(ph.Id, out var domain)) continue;
+            domain.LedgerId = ph.LedgerId is { } l ? ResolveLedgerId(l, ledgerId, t) : null;
+            domain.EmployerExpenseLedgerId = ph.EmployerExpenseLedgerId is { } el ? ResolveLedgerId(el, ledgerId, t) : null;
         }
 
         // 4) Units — simple before compound (compound references first/tail unit ids).
@@ -600,7 +860,7 @@ internal sealed class ImportPlan
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
@@ -704,6 +964,44 @@ internal sealed class ImportPlan
         t.UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity;   // slice 4 (RQ-22)
         t.EnableMultiplePriceLevels = c.EnableMultiplePriceLevels;               // slice 5 (RQ-26)
 
+        // Phase 8 slice 1 Payroll F11 toggles — plain flags, captured by the header snapshot for rollback.
+        t.PayrollEnabled = c.PayrollEnabled;
+        t.PayrollStatutoryEnabled = c.PayrollStatutoryEnabled;
+        // Phase 8 slice 7 §192 salary-TDS toggle — plain flag, captured by the header snapshot for rollback.
+        t.SalaryTdsEnabled = c.SalaryTdsEnabled;
+
+        // Phase 8 slice 4 Provident-Fund config — plain data holder, captured by the header snapshot for rollback.
+        t.PfConfig = c.Pf is { } pf
+            ? new PfConfig(pf.EpfRateBasisPoints, pf.EstablishmentCode, pf.CapWagesAtCeiling)
+            : null;
+
+        // Phase 8 slice 5 Employees'-State-Insurance config — plain data holder, captured by the header snapshot.
+        t.EsiConfig = c.Esi is { } esi
+            ? new EsiConfig(esi.EmployeeRateBasisPoints, esi.EmployerRateBasisPoints, esi.EmployerCode)
+            : null;
+
+        // Phase 8 slice 6 Professional-Tax config — plain data holder (config + editable slab tables), captured by
+        // the header snapshot for rollback. Slab tables are rebuilt with fresh band objects preserving the exported
+        // ids/bands/overrides.
+        t.PtConfig = c.Pt is { } pt ? BuildPtConfig(pt) : null;
+
+        // Phase 8 slice 9 Gratuity config — plain data holder, captured by the header snapshot for rollback.
+        t.GratuityConfig = c.Gratuity is { } gr
+            ? new GratuityConfig(
+                MoneyCodec.FromPaisa(gr.CapPaisa),
+                ParseEnum<GratuityWageBasis>(gr.WageBasis),
+                ParseEnum<GratuityProvisionPopulation>(gr.Population))
+            : null;
+
+        // Phase 8 slice 9 statutory-Bonus config — plain data holder, captured by the header snapshot for rollback.
+        t.BonusConfig = c.Bonus is { } bo
+            ? new BonusConfig(
+                bo.RateBasisPoints,
+                MoneyCodec.FromPaisa(bo.CalculationCeilingPaisa),
+                MoneyCodec.FromPaisa(bo.MinimumWagePaisa),
+                bo.Prorate)
+            : null;
+
         // Enable Job Order Processing through the engine (slice 8; RQ-45) so the seeded Material In/Out + Job Work
         // Order voucher types get their IsActive / UseForJobWork / AllowConsumption flags stamped exactly as the app
         // does — the export captures those stamped flags, so a reused seeded type reconciles without an overlay. The
@@ -713,6 +1011,23 @@ internal sealed class ImportPlan
             journal.RecordJobOrderProcessingBefore(t.EnableJobOrderProcessing);
             new JobWorkService(t).SetEnabled(c.EnableJobOrderProcessing);
         }
+    }
+
+    /// <summary>Builds a <see cref="PtConfig"/> from its DTO (Phase 8 slice 6), preserving the exported state /
+    /// registration / wage basis and rebuilding every slab table (with its bands + month overrides).</summary>
+    private static PtConfig BuildPtConfig(PtConfigDto pt)
+    {
+        var config = new PtConfig(pt.StateCode, pt.RegistrationNumber, ParseEnum<PtWageBasis>(pt.WageBasis));
+        foreach (var s in pt.SlabTables)
+        {
+            var bands = s.Bands.Select(b => new PtSlabBand(
+                MoneyCodec.FromPaisa(b.FromWagePaisa),
+                b.ToWagePaisa is { } tw ? MoneyCodec.FromPaisa(tw) : (Money?)null,
+                MoneyCodec.FromPaisa(b.MonthlyAmountPaisa),
+                b.MonthOverrides.Select(o => new PtMonthOverride(o.Month, MoneyCodec.FromPaisa(o.AmountPaisa)))));
+            config.AddSlabTable(new PtSlab(s.Id, s.StateCode, ParseEnum<PtGenderScope>(s.GenderScope), bands));
+        }
+        return config;
     }
 
     private static GstConfig BuildGstConfig(GstConfigDto g)
@@ -801,6 +1116,8 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> currencyId,
         Dictionary<Guid, Guid> tdsNatureId,
         Dictionary<Guid, Guid> tcsNatureId,
+        Dictionary<Guid, Guid> employeeId,
+        Dictionary<Guid, Guid> payHeadId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -814,7 +1131,8 @@ internal sealed class ImportPlan
             forex: BuildForex(l.Forex, currencyId, t),
             gst: BuildGstLineTax(l.Gst),
             tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t),
-            tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t)));
+            tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t),
+            payroll: BuildPayrollLineDetail(l.Payroll, employeeId, payHeadId, t)));
 
         var invLines = v.InventoryLines.Count == 0
             ? null
@@ -868,6 +1186,17 @@ internal sealed class ImportPlan
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
         ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa));
+
+    /// <summary>Rebuilds a line's payroll detail (Phase 8 slice 3), re-mapping the source employee + pay-head ids
+    /// into the target company's re-minted ids so the per-employee salary breakdown reconciles across companies
+    /// (paisa- and count-exact). Null for a non-payroll line; the pay head is null for the net Salary-Payable line.</summary>
+    private static PayrollLineDetail? BuildPayrollLineDetail(
+        PayrollLineDto? d, Dictionary<Guid, Guid> employeeId, Dictionary<Guid, Guid> payHeadId, Company t) =>
+        d is null ? null : new PayrollLineDetail(
+            ResolveEmployeeId(d.EmployeeId, employeeId, t),
+            d.PayHeadId is { } ph ? ResolvePayHeadId(ph, payHeadId, t) : null,
+            ParseEnum<PayrollLineCategory>(d.Category),
+            MoneyCodec.FromPaisa(d.AmountPaisa));
 
     /// <summary>Rebuilds a line's TDS withholding detail (Phase 7 slice 2), re-mapping the source nature id and
     /// deductee-ledger id into the target company's re-minted ids so the withholding reconciles across companies
@@ -1079,6 +1408,24 @@ internal sealed class ImportPlan
     private static Guid ResolveTcsNatureId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
         map.TryGetValue(dtoId, out var id) ? id : t.FindNatureOfGoods(dtoId)?.Id
             ?? throw new InvalidOperationException($"Nature-of-Goods reference {dtoId} could not be resolved.");
+    private static Guid ResolveEmployeeCategoryId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindEmployeeCategory(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Employee category reference {dtoId} could not be resolved.");
+    private static Guid ResolveEmployeeGroupId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindEmployeeGroup(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Employee group reference {dtoId} could not be resolved.");
+    private static Guid ResolvePayrollUnitId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindPayrollUnit(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Payroll unit reference {dtoId} could not be resolved.");
+    private static Guid ResolveAttendanceTypeId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindAttendanceType(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Attendance type reference {dtoId} could not be resolved.");
+    private static Guid ResolveEmployeeId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindEmployee(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Employee reference {dtoId} could not be resolved.");
+    private static Guid ResolvePayHeadId(Guid dtoId, Dictionary<Guid, Guid> map, Company t) =>
+        map.TryGetValue(dtoId, out var id) ? id : t.FindPayHead(dtoId)?.Id
+            ?? throw new InvalidOperationException($"Pay head reference {dtoId} could not be resolved.");
 
     // ---- dependency ordering (parents before children; simple units before compound) ----
 
@@ -1092,8 +1439,14 @@ internal sealed class ImportPlan
         => TopoOrder(godowns, g => g.Id, g => g.ParentId);
     private IEnumerable<CostCentreDto> OrderCostCentresParentsFirst(IReadOnlyList<CostCentreDto> centres)
         => TopoOrder(centres, c => c.Id, c => c.ParentId);
+    private IEnumerable<EmployeeGroupDto> OrderEmployeeGroupsParentsFirst(IReadOnlyList<EmployeeGroupDto> groups)
+        => TopoOrder(groups, g => g.Id, g => g.ParentId);
+    private IEnumerable<AttendanceTypeDto> OrderAttendanceTypesParentsFirst(IReadOnlyList<AttendanceTypeDto> types)
+        => TopoOrder(types, a => a.Id, a => a.ParentId);
 
     private static IEnumerable<UnitDto> OrderUnitsSimpleFirst(IReadOnlyList<UnitDto> units)
+        => units.Where(u => !u.IsCompound).Concat(units.Where(u => u.IsCompound));
+    private static IEnumerable<PayrollUnitDto> OrderPayrollUnitsSimpleFirst(IReadOnlyList<PayrollUnitDto> units)
         => units.Where(u => !u.IsCompound).Concat(units.Where(u => u.IsCompound));
 
     /// <summary>Stable topological sort: emit an item only after its parent (when the parent is in the set).

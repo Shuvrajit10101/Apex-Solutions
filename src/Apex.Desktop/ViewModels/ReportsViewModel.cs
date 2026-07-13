@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -74,6 +77,17 @@ public enum ReportKind
     TcsInterest,
     TcsNatureSummary,
     LedgersWithoutPan,
+
+    // ---- Payroll presentation reports (Phase 8 slice 8; RQ-16; catalog §14) ----
+    // Reports → Payroll Reports, gated on Payroll. Pure projections over the same PayrollComputationService the
+    // payroll voucher posts (no schema, no new persisted data): the Payslip (a single-employee detail + PDF via the
+    // PayslipPdf writer) and the four wide tabular reports (Pay Sheet / Payroll Register / Attendance Register /
+    // Payment Advice) rendered through a shared dynamic payroll matrix so every figure reconciles to the books.
+    Payslip,
+    PaySheet,
+    PayrollRegister,
+    AttendanceRegister,
+    PaymentAdvice,
 }
 
 /// <summary>
@@ -150,8 +164,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         or ReportKind.TcsInterest or ReportKind.TcsNatureSummary or ReportKind.LedgersWithoutPan;
 
     /// <summary>True to show the accounting (Particulars/Dr/Cr/Amount) grid — a report that is neither
-    /// inventory, GST, nor statutory (TB / BS / P&amp;L / Day Book + the accounting exception reports).</summary>
-    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport && !IsStatutoryReport;
+    /// inventory, GST, statutory, nor payroll (TB / BS / P&amp;L / Day Book + the accounting exception reports).</summary>
+    public bool IsAccountingReport => !IsInventoryReport && !IsGstReport && !IsStatutoryReport && !IsPayrollReport;
 
     // ---- statutory-report layout flags (drive which statutory DataTemplate the view shows; Phase 7 slice 8) ----
     // The TDS and TCS reports mirror each other, so each pair shares a column layout; the header labels that differ
@@ -246,6 +260,93 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>True for the two Job Work Order Books (Phase 6 slice 8; RQ-51) — drives the order-book
     /// DataTemplate (order header rows + tracked component rows with their pending figures).</summary>
     public bool IsJobWorkOrderBook => Kind is ReportKind.JobWorkInOrderBook or ReportKind.JobWorkOutOrderBook;
+
+    // ---- Payroll-report layout flags (drive which payroll DataTemplate the view shows; Phase 8 slice 8) ----
+
+    /// <summary>True for any of the five Phase-8 slice-8 payroll presentation reports (Payslip / Pay Sheet /
+    /// Payroll Register / Attendance Register / Payment Advice) — they use their own payroll screens, not the
+    /// accounting / inventory / GST / statutory grids, and carry the wage-month picker.</summary>
+    public bool IsPayrollReport => Kind is ReportKind.Payslip or ReportKind.PaySheet
+        or ReportKind.PayrollRegister or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice;
+
+    /// <summary>True for the single-employee Payslip (RQ-16) — its own detail layout + employee picker + PDF.</summary>
+    public bool IsPayslipReport => Kind == ReportKind.Payslip;
+
+    /// <summary>True for the four wide tabular payroll reports (Pay Sheet / Payroll Register / Attendance Register /
+    /// Payment Advice) — all rendered through the shared, horizontally-scrolling <see cref="PayrollColumns"/> /
+    /// <see cref="PayrollRows"/> matrix so one DataTemplate serves every payroll grid.</summary>
+    public bool IsPayrollMatrix => Kind is ReportKind.PaySheet or ReportKind.PayrollRegister
+        or ReportKind.AttendanceRegister or ReportKind.PaymentAdvice;
+
+    /// <summary>Show the wage-month picker — every payroll report is scoped to one wage month.</summary>
+    public bool ShowPayrollMonthPicker => IsPayrollReport;
+
+    /// <summary>Show the employee picker — only the Payslip is scoped to a single employee.</summary>
+    public bool ShowPayrollEmployeePicker => IsPayslipReport;
+
+    /// <summary>The selectable wage months of the report's financial year (Apr … Mar), driving the payroll period.</summary>
+    public ObservableCollection<PayrollMonthOption> PayrollMonths { get; } = new();
+
+    /// <summary>The company's employees, for the Payslip employee picker (ordered by name then number).</summary>
+    public ObservableCollection<PayrollEmployeeOption> PayrollEmployees { get; } = new();
+
+    /// <summary>The selected wage month; changing it re-projects the current payroll report for that month.</summary>
+    [ObservableProperty] private PayrollMonthOption? _selectedPayrollMonth;
+
+    /// <summary>The selected employee for the Payslip; changing it re-projects the payslip for that employee.</summary>
+    [ObservableProperty] private PayrollEmployeeOption? _selectedPayrollEmployee;
+
+    partial void OnSelectedPayrollMonthChanged(PayrollMonthOption? value) { if (IsPayrollReport) Show(Kind); }
+    partial void OnSelectedPayrollEmployeeChanged(PayrollEmployeeOption? value) { if (IsPayslipReport) Show(Kind); }
+
+    // ---- Payroll matrix (Pay Sheet / Payroll Register / Attendance Register / Payment Advice) ----
+
+    /// <summary>The payroll matrix column headers (aligned to each row's <see cref="PayrollMatrixRowVm.Cells"/>);
+    /// the first is the employee label column, the rest are per-report figure columns. Empty off a payroll matrix.</summary>
+    public ObservableCollection<PayrollMatrixColumnVm> PayrollColumns { get; } = new();
+
+    /// <summary>The payroll matrix rows (one per employee + a footing Grand-Total row). Empty off a payroll matrix.</summary>
+    public ObservableCollection<PayrollMatrixRowVm> PayrollRows { get; } = new();
+
+    /// <summary>True while a payroll matrix has no employee rows (drives the "nothing to show" note).</summary>
+    [ObservableProperty] private bool _isPayrollEmpty;
+
+    /// <summary>A one-line note shown when a payroll report has nothing to project (no salaried employee this month).</summary>
+    [ObservableProperty] private string _payrollEmptyNote = string.Empty;
+
+    // ---- Payslip (single-employee detail) presentation properties ----
+
+    /// <summary>The current payslip projection (for the PDF/Print path); null when none is built.</summary>
+    private Payslip? _currentPayslip;
+
+    /// <summary>The current payslip projection, exposed so the Print path renders it through the PayslipPdf writer.</summary>
+    public Payslip? CurrentPayslip => _currentPayslip;
+
+    [ObservableProperty] private string _payslipEmployee = string.Empty;
+    [ObservableProperty] private string _payslipMeta = string.Empty;
+    [ObservableProperty] private string _payslipMeta2 = string.Empty;
+    [ObservableProperty] private string _payslipPeriodText = string.Empty;
+    [ObservableProperty] private string _payslipGross = string.Empty;
+    [ObservableProperty] private string _payslipTotalDeductions = string.Empty;
+    [ObservableProperty] private string _payslipNet = string.Empty;
+    [ObservableProperty] private string _payslipNetWords = string.Empty;
+    [ObservableProperty] private string _payslipAttendance = string.Empty;
+    [ObservableProperty] private string _payslipYtd = string.Empty;
+
+    /// <summary>The payslip earning lines (name + always-rendered amount); foot to <see cref="PayslipGross"/>.</summary>
+    public ObservableCollection<PayslipLineVm> PayslipEarnings { get; } = new();
+
+    /// <summary>The payslip deduction lines; foot to <see cref="PayslipTotalDeductions"/>.</summary>
+    public ObservableCollection<PayslipLineVm> PayslipDeductions { get; } = new();
+
+    /// <summary>The employer-contribution lines shown informationally (not part of net pay).</summary>
+    public ObservableCollection<PayslipLineVm> PayslipEmployerContributions { get; } = new();
+
+    /// <summary>True when the payslip carries employer contributions (drives that section's visibility).</summary>
+    public bool HasPayslipEmployerContributions => PayslipEmployerContributions.Count > 0;
+
+    /// <summary>True while the Payslip has no employee/structure to show (drives the empty note).</summary>
+    [ObservableProperty] private bool _isPayslipEmpty;
 
     /// <summary>
     /// Raised when a Stock-Summary row is drilled into (Enter / double-click a stock item): carries the
@@ -350,7 +451,43 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Scenarios.Add(new ScenarioOption(s));
         _selectedScenario = Scenarios[0];
 
+        InitPayrollPickers();
+
         Show(kind);
+    }
+
+    /// <summary>Populates the payroll wage-month picker (the 12 months of the report's financial year) and the
+    /// employee picker (for the Payslip), defaulting the month to the latest posted payroll voucher's month (else the
+    /// financial-year start) and the employee to the first by name. Assigns the backing fields directly so the ctor
+    /// does not trigger a premature rebuild before <see cref="Show"/> runs.</summary>
+    private void InitPayrollPickers()
+    {
+        var first = new DateOnly(_company.FinancialYearStart.Year, _company.FinancialYearStart.Month, 1);
+        for (int i = 0; i < 12; i++)
+            PayrollMonths.Add(new PayrollMonthOption { FirstDay = first.AddMonths(i) });
+
+        // Default to the month of the latest posted payroll voucher, else the financial-year start month.
+        DateOnly? latest = null;
+        foreach (var v in _company.Vouchers)
+        {
+            if (v.Cancelled) continue;
+            if (!v.Lines.Any(l => l.Payroll is not null)) continue;
+            if (latest is null || v.Date > latest.Value) latest = v.Date;
+        }
+        var target = latest ?? first;
+        // Kind is still the ctor default here (not a payroll kind), so setting the properties does not trigger a
+        // premature rebuild — OnSelectedPayroll*Changed guards on IsPayrollReport, which is false until Show runs.
+        SelectedPayrollMonth = PayrollMonths.FirstOrDefault(m => m.FirstDay.Year == target.Year && m.FirstDay.Month == target.Month)
+            ?? PayrollMonths.FirstOrDefault();
+
+        foreach (var e in _company.Employees
+            .OrderBy(e => e.Name, StringComparer.Ordinal)
+            .ThenBy(e => e.EmployeeNumber, StringComparer.Ordinal))
+        {
+            var label = string.IsNullOrWhiteSpace(e.EmployeeNumber) ? e.Name : $"{e.Name} ({e.EmployeeNumber})";
+            PayrollEmployees.Add(new PayrollEmployeeOption { EmployeeId = e.Id, Display = label });
+        }
+        SelectedPayrollEmployee = PayrollEmployees.FirstOrDefault();
     }
 
     // =============================================================== RQ-1 / RQ-2 / RQ-6 report parameters
@@ -504,9 +641,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(StatInterestHeader));
         OnPropertyChanged(nameof(StatutoryFootnote));
         OnPropertyChanged(nameof(HasStatutoryFootnote));
+        // Phase 8 slice 8 payroll-report flags + the wage-month / employee picker visibilities.
+        OnPropertyChanged(nameof(IsPayrollReport));
+        OnPropertyChanged(nameof(IsPayslipReport));
+        OnPropertyChanged(nameof(IsPayrollMatrix));
+        OnPropertyChanged(nameof(ShowPayrollMonthPicker));
+        OnPropertyChanged(nameof(ShowPayrollEmployeePicker));
         // A kind change can invalidate the extra columns (e.g. switching to a non-comparative kind); the base
         // report always rebuilds below and, if comparative, the multi-column grid rebuilds after it.
         Rows.Clear();
+        PayrollColumns.Clear();
+        PayrollRows.Clear();
+        PayslipEarnings.Clear();
+        PayslipDeductions.Clear();
+        PayslipEmployerContributions.Clear();
 
         switch (kind)
         {
@@ -559,6 +707,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.TcsInterest: BuildTcsInterest(); break;
             case ReportKind.TcsNatureSummary: BuildTcsNatureSummary(); break;
             case ReportKind.LedgersWithoutPan: BuildLedgersWithoutPan(); break;
+
+            case ReportKind.Payslip: BuildPayslip(); break;
+            case ReportKind.PaySheet: BuildPaySheet(); break;
+            case ReportKind.PayrollRegister: BuildPayrollRegister(); break;
+            case ReportKind.AttendanceRegister: BuildAttendanceRegister(); break;
+            case ReportKind.PaymentAdvice: BuildPaymentAdvice(); break;
         }
 
         // RQ-4: after the single-column report is built, (re)build the comparative multi-column grid when any
@@ -782,6 +936,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.TcsInterest] = "TcsInterest",
         [ReportKind.TcsNatureSummary] = "TcsNatureSummary",
         [ReportKind.LedgersWithoutPan] = "LedgersWithoutPan",
+        [ReportKind.Payslip] = "Payslip",
+        [ReportKind.PaySheet] = "PaySheet",
+        [ReportKind.PayrollRegister] = "PayrollRegister",
+        [ReportKind.AttendanceRegister] = "AttendanceRegister",
+        [ReportKind.PaymentAdvice] = "PaymentAdvice",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -2612,6 +2771,280 @@ public sealed partial class ReportsViewModel : ViewModelBase
         }
     }
 
+    // =============================================================== Payroll presentation reports (Phase 8 slice 8)
+
+    // The four wide payroll reports share the dynamic PayrollColumns/PayrollRows matrix; the Payslip is a bespoke
+    // single-employee detail. Every figure is a deterministic projection of the POSTED Payroll voucher for the wage
+    // month (F1/F2) — so the reports reflect what was actually paid (they carry As-User-Defined-Value amounts and
+    // omit a cancelled / never-posted run) and reconcile to the books to the paisa. Money is 2-decimal rupees (blank
+    // cells in the body, always-rendered figures in the Grand-Total row); attendance columns are day counts.
+
+    private const double PayrollLabelWidth = 200;
+    private const double PayrollNumWidth = 112;
+    private const double PayrollDayWidth = 96;
+
+    private static PayrollMatrixColumnVm PayCol(string header, double width, bool numeric)
+        => new() { Header = header, Width = width, IsNumeric = numeric };
+
+    private static PayrollMatrixCellVm PayCell(string text, double width, bool numeric)
+        => new() { Text = text, Width = width, IsNumeric = numeric };
+
+    /// <summary>The [from,to] wage-month window the payroll reports project (the selected month, else the FY start).</summary>
+    private (DateOnly From, DateOnly To) PayrollPeriod()
+    {
+        var m = SelectedPayrollMonth ?? PayrollMonths.FirstOrDefault();
+        var from = m?.FirstDay ?? new DateOnly(_company.FinancialYearStart.Year, _company.FinancialYearStart.Month, 1);
+        var to = m?.LastDay ?? from.AddMonths(1).AddDays(-1);
+        return (from, to);
+    }
+
+    /// <summary>The full employee roster — the payroll reports project the <b>posted Payroll voucher</b> for the wage
+    /// month and internally keep only employees who actually have posted payroll lines (a cancelled / never-posted
+    /// member yields no row), so the roster is passed straight through with no recompute and no error-swallowing.</summary>
+    private List<Guid> EligiblePayrollEmployees()
+        => _company.Employees.Select(e => e.Id).ToList();
+
+    /// <summary>Sets the payroll-report subtitle (company + wage month) and returns the period.</summary>
+    private (DateOnly From, DateOnly To) BeginPayrollReport(string title)
+    {
+        var (from, to) = PayrollPeriod();
+        Title = title;
+        Subtitle = $"{CompanyName}  —  Wage month {from.ToString("MMMM yyyy", CultureInfo.InvariantCulture)}";
+        IsTwoColumn = false;
+        IsPayrollEmpty = false;
+        PayrollEmptyNote = string.Empty;
+        return (from, to);
+    }
+
+    // --------------------------------------------------------------- Pay Sheet (employees × pay heads matrix)
+    private void BuildPaySheet()
+    {
+        var (from, to) = BeginPayrollReport("Pay Sheet");
+        var ids = EligiblePayrollEmployees();
+        var sheet = Report.BuildPaySheet(_company, ids, from, to);
+
+        PayrollColumns.Add(PayCol("Employee", PayrollLabelWidth, false));
+        foreach (var col in sheet.Columns) PayrollColumns.Add(PayCol(col.Name, PayrollNumWidth, true));
+        PayrollColumns.Add(PayCol("Gross", PayrollNumWidth, true));
+        PayrollColumns.Add(PayCol("Deductions", PayrollNumWidth, true));
+        PayrollColumns.Add(PayCol("Net Pay", PayrollNumWidth, true));
+
+        foreach (var r in sheet.Rows)
+        {
+            var cells = new List<PayrollMatrixCellVm> { PayCell(r.EmployeeName, PayrollLabelWidth, false) };
+            foreach (var v in r.Values) cells.Add(PayCell(IndianFormat.Amount(v), PayrollNumWidth, true));
+            cells.Add(PayCell(IndianFormat.Amount(r.GrossEarnings), PayrollNumWidth, true));
+            cells.Add(PayCell(IndianFormat.Amount(r.TotalDeductions), PayrollNumWidth, true));
+            cells.Add(PayCell(IndianFormat.Amount(r.NetPayable), PayrollNumWidth, true));
+            PayrollRows.Add(new PayrollMatrixRowVm { Cells = cells });
+        }
+
+        var totals = new List<PayrollMatrixCellVm> { PayCell("Grand Total", PayrollLabelWidth, false) };
+        foreach (var t in sheet.ColumnTotals) totals.Add(PayCell(IndianFormat.AmountAlways(t), PayrollNumWidth, true));
+        totals.Add(PayCell(IndianFormat.AmountAlways(sheet.TotalGrossEarnings), PayrollNumWidth, true));
+        totals.Add(PayCell(IndianFormat.AmountAlways(sheet.TotalDeductions), PayrollNumWidth, true));
+        totals.Add(PayCell(IndianFormat.AmountAlways(sheet.TotalNetPayable), PayrollNumWidth, true));
+        PayrollRows.Add(new PayrollMatrixRowVm { Cells = totals, IsTotal = true });
+
+        MarkPayrollEmpty(sheet.Rows.Count == 0);
+    }
+
+    // --------------------------------------------------------------- Payroll Register / Statement (columnar)
+    private void BuildPayrollRegister()
+    {
+        var (from, to) = BeginPayrollReport("Payroll Register");
+        var ids = EligiblePayrollEmployees();
+        var reg = Report.BuildPayrollRegister(_company, ids, from, to);
+
+        foreach (var (header, numeric) in new[]
+        {
+            ("Employee", false), ("Gross", true), ("Prof. Tax", true), ("Employee PF", true),
+            ("Employee ESI", true), ("Income Tax", true), ("Other Ded.", true),
+            ("Total Ded.", true), ("Net Pay", true), ("Employer Contrib.", true),
+        })
+            PayrollColumns.Add(PayCol(header, header == "Employee" ? PayrollLabelWidth : PayrollNumWidth, numeric));
+
+        foreach (var r in reg.Rows)
+            PayrollRows.Add(new PayrollMatrixRowVm
+            {
+                Cells = new List<PayrollMatrixCellVm>
+                {
+                    PayCell(r.EmployeeName, PayrollLabelWidth, false),
+                    PayCell(IndianFormat.Amount(r.GrossEarnings), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.ProfessionalTax), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.EmployeePf), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.EmployeeEsi), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.IncomeTax), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.OtherDeductions), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.TotalDeductions), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.NetPayable), PayrollNumWidth, true),
+                    PayCell(IndianFormat.Amount(r.EmployerContributions), PayrollNumWidth, true),
+                },
+            });
+
+        PayrollRows.Add(new PayrollMatrixRowVm
+        {
+            IsTotal = true,
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                PayCell("Grand Total", PayrollLabelWidth, false),
+                PayCell(IndianFormat.AmountAlways(reg.TotalGrossEarnings), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalProfessionalTax), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalEmployeePf), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalEmployeeEsi), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalIncomeTax), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalOtherDeductions), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalDeductions), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalNetPayable), PayrollNumWidth, true),
+                PayCell(IndianFormat.AmountAlways(reg.TotalEmployerContributions), PayrollNumWidth, true),
+            },
+        });
+
+        MarkPayrollEmpty(reg.Rows.Count == 0);
+    }
+
+    // --------------------------------------------------------------- Attendance / Production Register (matrix)
+    private void BuildAttendanceRegister()
+    {
+        var (from, to) = BeginPayrollReport("Attendance Register");
+        var ids = _company.Employees.Select(e => e.Id).ToList();
+        var reg = Report.BuildAttendanceRegister(_company, ids, from, to);
+
+        PayrollColumns.Add(PayCol("Employee", PayrollLabelWidth, false));
+        foreach (var t in reg.Types) PayrollColumns.Add(PayCol(t.Name, PayrollDayWidth, true));
+        PayrollColumns.Add(PayCol("Days Paid", PayrollDayWidth, true));
+        PayrollColumns.Add(PayCol("LOP", PayrollDayWidth, true));
+
+        foreach (var r in reg.Rows)
+        {
+            var cells = new List<PayrollMatrixCellVm> { PayCell(r.EmployeeName, PayrollLabelWidth, false) };
+            foreach (var v in r.Values) cells.Add(PayCell(Days(v), PayrollDayWidth, true));
+            cells.Add(PayCell(Days(r.DaysPaid), PayrollDayWidth, true));
+            cells.Add(PayCell(Days(r.DaysLop), PayrollDayWidth, true));
+            PayrollRows.Add(new PayrollMatrixRowVm { Cells = cells });
+        }
+
+        var totals = new List<PayrollMatrixCellVm> { PayCell("Total", PayrollLabelWidth, false) };
+        foreach (var t in reg.TypeTotals) totals.Add(PayCell(DaysAlways(t), PayrollDayWidth, true));
+        totals.Add(PayCell(DaysAlways(reg.Rows.Sum(r => r.DaysPaid)), PayrollDayWidth, true));
+        totals.Add(PayCell(DaysAlways(reg.Rows.Sum(r => r.DaysLop)), PayrollDayWidth, true));
+        PayrollRows.Add(new PayrollMatrixRowVm { Cells = totals, IsTotal = true });
+
+        MarkPayrollEmpty(reg.Rows.Count == 0);
+    }
+
+    // --------------------------------------------------------------- Payment / Bank Advice
+    private void BuildPaymentAdvice()
+    {
+        var (from, to) = BeginPayrollReport("Payment Advice");
+        var ids = EligiblePayrollEmployees();
+        var advice = Report.BuildPaymentAdvice(_company, ids, from, to);
+
+        PayrollColumns.Add(PayCol("Employee", PayrollLabelWidth, false));
+        PayrollColumns.Add(PayCol("Bank", 160, false));
+        PayrollColumns.Add(PayCol("A/c Number", 140, false));
+        PayrollColumns.Add(PayCol("IFSC", 120, false));
+        PayrollColumns.Add(PayCol("Net Pay", PayrollNumWidth, true));
+
+        foreach (var r in advice.Rows)
+            PayrollRows.Add(new PayrollMatrixRowVm
+            {
+                Cells = new List<PayrollMatrixCellVm>
+                {
+                    PayCell(r.EmployeeName, PayrollLabelWidth, false),
+                    PayCell(r.BankName ?? "—", 160, false),
+                    PayCell(r.BankAccountNumber ?? "—", 140, false),
+                    PayCell(r.BankIfsc ?? "—", 120, false),
+                    PayCell(IndianFormat.Amount(r.NetPayable), PayrollNumWidth, true),
+                },
+            });
+
+        PayrollRows.Add(new PayrollMatrixRowVm
+        {
+            IsTotal = true,
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                PayCell("Total", PayrollLabelWidth, false),
+                PayCell(string.Empty, 160, false),
+                PayCell(string.Empty, 140, false),
+                PayCell(string.Empty, 120, false),
+                PayCell(IndianFormat.AmountAlways(advice.TotalNetPayable), PayrollNumWidth, true),
+            },
+        });
+
+        MarkPayrollEmpty(advice.Rows.Count == 0);
+    }
+
+    // --------------------------------------------------------------- Payslip (single-employee detail + PDF)
+    private void BuildPayslip()
+    {
+        var (from, to) = PayrollPeriod();
+        Title = "Payslip";
+        IsTwoColumn = false;
+        _currentPayslip = null;
+        IsPayslipEmpty = false;
+        PayslipEmployee = PayslipMeta = PayslipMeta2 = string.Empty;
+        PayslipGross = PayslipTotalDeductions = PayslipNet = PayslipNetWords = string.Empty;
+        PayslipAttendance = PayslipYtd = string.Empty;
+        PayslipPeriodText = $"For {FormatDate(from)} to {FormatDate(to)}";
+
+        var emp = SelectedPayrollEmployee;
+        if (emp is null)
+        {
+            IsPayslipEmpty = true;
+            Subtitle = $"{CompanyName}  —  no employees to show a payslip for.";
+            OnPropertyChanged(nameof(HasPayslipEmployerContributions));
+            return;
+        }
+
+        // The payslip projects the POSTED Payroll voucher for the month; empty earnings/deductions ⇒ nothing was
+        // posted for this member this wage month (a cancelled or never-run pay), so show a "not posted" note.
+        var slip = Report.BuildPayslip(_company, emp.EmployeeId, from, to);
+        if (slip.Earnings.Count == 0 && slip.Deductions.Count == 0 && slip.EmployerContributions.Count == 0)
+        {
+            IsPayslipEmpty = true;
+            Subtitle = $"{CompanyName}  —  {emp.Display}  —  no payroll posted for this wage month.";
+            OnPropertyChanged(nameof(HasPayslipEmployerContributions));
+            return;
+        }
+
+        _currentPayslip = slip;
+        Subtitle = $"{CompanyName}  —  {slip.EmployeeName}  —  {from.ToString("MMMM yyyy", CultureInfo.InvariantCulture)}";
+        PayslipEmployee = slip.EmployeeName;
+        PayslipMeta = $"Emp No: {Or(slip.EmployeeNumber)}    Designation: {Or(slip.Designation)}    Department: {Or(slip.Department)}    DOJ: {(slip.DateOfJoining is { } d ? FormatDate(d) : "—")}";
+        PayslipMeta2 = $"PAN: {Or(slip.Pan)}    UAN: {Or(slip.Uan)}    ESI No: {Or(slip.EsiNumber)}    Bank: {Or(slip.BankName)}    A/c: {Or(slip.BankAccountNumber)}    IFSC: {Or(slip.BankIfsc)}";
+
+        foreach (var l in slip.Earnings)
+            PayslipEarnings.Add(new PayslipLineVm { Name = l.Name, Amount = IndianFormat.AmountAlways(l.Amount) });
+        foreach (var l in slip.Deductions)
+            PayslipDeductions.Add(new PayslipLineVm { Name = l.Name, Amount = IndianFormat.AmountAlways(l.Amount) });
+        foreach (var l in slip.EmployerContributions)
+            PayslipEmployerContributions.Add(new PayslipLineVm { Name = l.Name, Amount = IndianFormat.AmountAlways(l.Amount) });
+
+        PayslipGross = IndianFormat.AmountAlways(slip.GrossEarnings);
+        PayslipTotalDeductions = IndianFormat.AmountAlways(slip.TotalDeductions);
+        PayslipNet = IndianFormat.AmountAlways(slip.NetPayable);
+        PayslipNetWords = IndianAmountInWords.Convert(slip.NetPayable.Amount);
+        PayslipAttendance = $"Days Paid: {Days(slip.DaysPaid)}     Loss of Pay: {Days(slip.DaysLop)}";
+        PayslipYtd = $"Year to date  —  Gross {IndianFormat.AmountAlways(slip.YtdGrossEarnings)}   ·   Deductions {IndianFormat.AmountAlways(slip.YtdTotalDeductions)}   ·   Net {IndianFormat.AmountAlways(slip.YtdNetPayable)}";
+        OnPropertyChanged(nameof(HasPayslipEmployerContributions));
+    }
+
+    /// <summary>Sets the payroll-matrix empty state (drives the "nothing to show" note and hides the grid).</summary>
+    private void MarkPayrollEmpty(bool empty)
+    {
+        IsPayrollEmpty = empty;
+        PayrollEmptyNote = empty ? "No employees with salary for this wage month." : string.Empty;
+    }
+
+    private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;
+
+    /// <summary>A day/hour attendance count, trailing zeros trimmed; blank at exactly zero (report convention).</summary>
+    private static string Days(decimal v) => v == 0m ? string.Empty : v.ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>A day/hour attendance count always rendered (even zero) — for the attendance totals row.</summary>
+    private static string DaysAlways(decimal v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+
     // --------------------------------------------------------------- helpers
 
     private static DateOnly ComputeAsOf(Company company)
@@ -2686,4 +3119,59 @@ public sealed class ComparativeRowVM
         GroupName = groupName;
         Cells = cells;
     }
+}
+
+/// <summary>A selectable wage month on a payroll report (its first-of-month date + "MMM yyyy" label). Every payroll
+/// report (Payslip / Pay Sheet / Payroll Register / Attendance / Payment Advice) is built one wage month at a time.</summary>
+public sealed class PayrollMonthOption
+{
+    public DateOnly FirstDay { get; init; }
+    public DateOnly LastDay => FirstDay.AddMonths(1).AddDays(-1);
+    public string Label => FirstDay.ToString("MMM yyyy", CultureInfo.InvariantCulture);
+    public override string ToString() => Label;
+}
+
+/// <summary>A selectable employee on the Payslip screen (its id + display label "Name (Number)").</summary>
+public sealed class PayrollEmployeeOption
+{
+    public Guid EmployeeId { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
+}
+
+/// <summary>One column of the shared payroll matrix (Pay Sheet / Payroll Register / Attendance / Payment Advice):
+/// its <see cref="Header"/>, fixed pixel <see cref="Width"/> and whether it is a right-aligned numeric column.
+/// Header and body cells carry the same widths so they line up as the grid scrolls horizontally.</summary>
+public sealed class PayrollMatrixColumnVm
+{
+    public string Header { get; init; } = string.Empty;
+    public double Width { get; init; }
+    public bool IsNumeric { get; init; }
+    public bool IsText => !IsNumeric;
+}
+
+/// <summary>One cell of a payroll matrix row — its formatted <see cref="Text"/>, its column <see cref="Width"/> and
+/// numeric/text alignment (mirrors the owning <see cref="PayrollMatrixColumnVm"/>).</summary>
+public sealed class PayrollMatrixCellVm
+{
+    public string Text { get; init; } = string.Empty;
+    public double Width { get; init; }
+    public bool IsNumeric { get; init; }
+    public bool IsText => !IsNumeric;
+}
+
+/// <summary>One row of a payroll matrix — the per-column <see cref="Cells"/> and whether it is the bold footing
+/// Grand-Total row.</summary>
+public sealed class PayrollMatrixRowVm
+{
+    public IReadOnlyList<PayrollMatrixCellVm> Cells { get; init; } = Array.Empty<PayrollMatrixCellVm>();
+    public bool IsTotal { get; init; }
+}
+
+/// <summary>One printed line of the Payslip detail — a head <see cref="Name"/> and its always-rendered
+/// <see cref="Amount"/> (an earning, a deduction, or an employer contribution).</summary>
+public sealed class PayslipLineVm
+{
+    public string Name { get; init; } = string.Empty;
+    public string Amount { get; init; } = string.Empty;
 }

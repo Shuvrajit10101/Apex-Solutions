@@ -77,6 +77,142 @@ public sealed record CompanyDto
 
     /// <summary>F11 "Enable Job Order Processing" (Phase 6 slice 8; RQ-45). Default false.</summary>
     public bool EnableJobOrderProcessing { get; init; }
+
+    /// <summary>F11 "Maintain Payroll" (Phase 8 slice 1; RQ-1). Default false.</summary>
+    public bool PayrollEnabled { get; init; }
+
+    /// <summary>F11 "Enable Payroll Statutory" (Phase 8 slice 1; RQ-1). Default false.</summary>
+    public bool PayrollStatutoryEnabled { get; init; }
+
+    /// <summary>§192 salary-TDS toggle (Phase 8 slice 7; RQ-12). Default false, so a company that never deducts
+    /// salary-TDS is byte-identical (ER-13). The per-employee Form-12BB declarations live in the payload's
+    /// <c>TaxDeclarations</c>.</summary>
+    public bool SalaryTdsEnabled { get; init; }
+
+    /// <summary>The establishment Provident-Fund config (Phase 8 slice 4); null when the establishment is not
+    /// enrolled for PF (a PF-off company is byte-identical — ER-13).</summary>
+    public PfConfigDto? Pf { get; init; }
+
+    /// <summary>The establishment Employees'-State-Insurance config (Phase 8 slice 5); null when the establishment is
+    /// not enrolled for ESI (an ESI-off company is byte-identical — ER-13).</summary>
+    public EsiConfigDto? Esi { get; init; }
+
+    /// <summary>The establishment Professional-Tax config (Phase 8 slice 6); null when the establishment is not
+    /// enrolled for PT (a PT-off company is byte-identical — ER-13).</summary>
+    public PtConfigDto? Pt { get; init; }
+
+    /// <summary>The establishment Gratuity config (Phase 8 slice 9); null when the establishment does not provision for
+    /// gratuity (a gratuity-off company is byte-identical — ER-13).</summary>
+    public GratuityConfigDto? Gratuity { get; init; }
+
+    /// <summary>The establishment statutory-Bonus config (Phase 8 slice 9); null when the establishment does not
+    /// compute statutory bonus (a bonus-off company is byte-identical — ER-13).</summary>
+    public BonusConfigDto? Bonus { get; init; }
+}
+
+/// <summary>The company Provident-Fund config (Phase 8 slice 4), mirroring the domain <c>PfConfig</c>.</summary>
+public sealed record PfConfigDto
+{
+    public int EpfRateBasisPoints { get; init; } = 1200;
+    public string? EstablishmentCode { get; init; }
+    public bool CapWagesAtCeiling { get; init; } = true;
+}
+
+/// <summary>The company Employees'-State-Insurance config (Phase 8 slice 5), mirroring the domain <c>EsiConfig</c>.</summary>
+public sealed record EsiConfigDto
+{
+    public int EmployeeRateBasisPoints { get; init; } = 75;
+    public int EmployerRateBasisPoints { get; init; } = 325;
+    public string? EmployerCode { get; init; }
+}
+
+/// <summary>The company Professional-Tax config (Phase 8 slice 6), mirroring the domain <c>PtConfig</c> — the active
+/// state, registration number, wage basis and the editable per-state slab tables.</summary>
+public sealed record PtConfigDto
+{
+    /// <summary>The active PT state (2-digit GST state code), or null = "None" (no PT levied).</summary>
+    public string? StateCode { get; init; }
+
+    /// <summary>The PT enrolment/registration number, or null.</summary>
+    public string? RegistrationNumber { get; init; }
+
+    /// <summary>The wage basis a slab is selected against (<c>PtWageBasis</c> name); default "GrossEarnings".</summary>
+    public string WageBasis { get; init; } = nameof(Apex.Ledger.Domain.PtWageBasis.GrossEarnings);
+
+    /// <summary>The per-state slab tables (order-preserved).</summary>
+    public IReadOnlyList<PtSlabDto> SlabTables { get; init; } = [];
+}
+
+/// <summary>One PT state slab table (Phase 8 slice 6), mirroring the domain <c>PtSlab</c>.</summary>
+public sealed record PtSlabDto
+{
+    public Guid Id { get; init; }
+
+    /// <summary>The 2-digit GST state code the table belongs to.</summary>
+    public required string StateCode { get; init; }
+
+    /// <summary>The gender scope (<c>PtGenderScope</c> name); "Any" for a gender-agnostic state.</summary>
+    public string GenderScope { get; init; } = nameof(Apex.Ledger.Domain.PtGenderScope.Any);
+
+    /// <summary>The bands, low-to-high (order-preserved).</summary>
+    public IReadOnlyList<PtSlabBandDto> Bands { get; init; } = [];
+}
+
+/// <summary>One PT slab band (Phase 8 slice 6), mirroring the domain <c>PtSlabBand</c>. Money is integer paisa.</summary>
+public sealed record PtSlabBandDto
+{
+    /// <summary>The inclusive lower bound of the monthly PT-wage band, in paisa.</summary>
+    public long FromWagePaisa { get; init; }
+
+    /// <summary>The inclusive upper bound, in paisa; null = open-ended top band (∞).</summary>
+    public long? ToWagePaisa { get; init; }
+
+    /// <summary>The flat PT amount for the band, in paisa (before any month override).</summary>
+    public long MonthlyAmountPaisa { get; init; }
+
+    /// <summary>Per-month overrides (order-preserved), e.g. a single February over-charge.</summary>
+    public IReadOnlyList<PtMonthOverrideDto> MonthOverrides { get; init; } = [];
+}
+
+/// <summary>One PT per-month override (Phase 8 slice 6), mirroring the domain <c>PtMonthOverride</c>.</summary>
+public sealed record PtMonthOverrideDto
+{
+    /// <summary>The calendar month (1–12) the override applies to.</summary>
+    public int Month { get; init; }
+
+    /// <summary>The PT amount charged in that month, in paisa.</summary>
+    public long AmountPaisa { get; init; }
+}
+
+/// <summary>The company Gratuity config (Phase 8 slice 9), mirroring the domain <c>GratuityConfig</c>. Money is integer
+/// paisa.</summary>
+public sealed record GratuityConfigDto
+{
+    /// <summary>The §4(3) cap in paisa (default 200000000 = ₹20,00,000).</summary>
+    public long CapPaisa { get; init; } = 200_000_000L;
+
+    /// <summary>The wage basis (<c>GratuityWageBasis</c> name); default "BasicAndDearnessAllowance".</summary>
+    public string WageBasis { get; init; } = nameof(Apex.Ledger.Domain.GratuityWageBasis.BasicAndDearnessAllowance);
+
+    /// <summary>The provision population (<c>GratuityProvisionPopulation</c> name); default "AllActiveEmployees".</summary>
+    public string Population { get; init; } = nameof(Apex.Ledger.Domain.GratuityProvisionPopulation.AllActiveEmployees);
+}
+
+/// <summary>The company statutory-Bonus config (Phase 8 slice 9), mirroring the domain <c>BonusConfig</c>. Money is
+/// integer paisa.</summary>
+public sealed record BonusConfigDto
+{
+    /// <summary>The bonus rate in basis points (default 833 = 8.33%); clamped to [833, 2000] on rehydration.</summary>
+    public int RateBasisPoints { get; init; } = 833;
+
+    /// <summary>The §12 calculation ceiling in paisa (default 700000 = ₹7,000).</summary>
+    public long CalculationCeilingPaisa { get; init; } = 700_000L;
+
+    /// <summary>The state minimum wage in paisa (default 0).</summary>
+    public long MinimumWagePaisa { get; init; }
+
+    /// <summary>Whether a mid-year joiner's bonus is prorated by months worked (default true).</summary>
+    public bool Prorate { get; init; } = true;
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>
@@ -118,6 +254,27 @@ public sealed record PayloadDto
 
     // Reorder-Level definitions (Phase 6 slice 6; catalog §11): per item / group / category.
     public IReadOnlyList<ReorderDefinitionDto> ReorderDefinitions { get; init; } = [];
+
+    // Payroll masters (Phase 8 slice 1; catalog §14): employee classification, hierarchy, units, attendance types
+    // and the workforce. Categories/groups/units precede attendance types (unit refs) + employees (group/category refs).
+    public IReadOnlyList<EmployeeCategoryDto> EmployeeCategories { get; init; } = [];
+    public IReadOnlyList<EmployeeGroupDto> EmployeeGroups { get; init; } = [];
+    public IReadOnlyList<PayrollUnitDto> PayrollUnits { get; init; } = [];
+    public IReadOnlyList<AttendanceTypeDto> AttendanceTypes { get; init; } = [];
+    public IReadOnlyList<EmployeeDto> Employees { get; init; } = [];
+
+    // Pay heads + dated salary structures (Phase 8 slice 2; catalog §14). Pay heads precede structures (lines FK
+    // pay heads); a pay head's computed-on components reference other pay heads (resolved on import).
+    public IReadOnlyList<PayHeadDto> PayHeads { get; init; } = [];
+    public IReadOnlyList<SalaryStructureDto> SalaryStructures { get; init; } = [];
+
+    /// <summary>Recorded attendance/production values (Phase 8 slice 3; RQ-6) — the data of a non-accounting
+    /// Attendance voucher. Empty when Payroll is unused (ER-13).</summary>
+    public IReadOnlyList<AttendanceEntryDto> AttendanceEntries { get; init; } = [];
+
+    /// <summary>Per-employee §192 income-tax declarations (Phase 8 slice 7; Form 12BB) — the investment / exemption /
+    /// prior-income figures the salary-TDS estimate uses. Empty when no employee declared (ER-13).</summary>
+    public IReadOnlyList<TaxDeclarationDto> TaxDeclarations { get; init; } = [];
 
     public IReadOnlyList<VoucherDto> Vouchers { get; init; } = [];
 
@@ -533,6 +690,207 @@ public sealed record CostCentreDto
     public string? Alias { get; init; }
 }
 
+// ----------------------------------------------------------------- payroll masters (Phase 8 slice 1; catalog §14)
+
+public sealed record EmployeeCategoryDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public bool AllocateRevenueItems { get; init; }
+    public bool AllocateNonRevenueItems { get; init; }
+    public bool IsPredefined { get; init; }
+}
+
+public sealed record EmployeeGroupDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public Guid? ParentId { get; init; }
+    public string? Alias { get; init; }
+    public bool DefineSalaryDetails { get; init; }
+}
+
+public sealed record PayrollUnitDto
+{
+    public required Guid Id { get; init; }
+    public required string Symbol { get; init; }
+    public required string FormalName { get; init; }
+    public bool IsCompound { get; init; }
+    public int DecimalPlaces { get; init; }
+    public Guid? FirstUnitId { get; init; }
+    public Guid? TailUnitId { get; init; }
+    public int? ConversionNumerator { get; init; }
+    public int? ConversionDenominator { get; init; }
+}
+
+public sealed record AttendanceTypeDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public Guid? ParentId { get; init; }
+    public required string Kind { get; init; }             // AttendanceTypeKind name
+    public Guid? PayrollUnitId { get; init; }
+}
+
+public sealed record EmployeeDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public required Guid EmployeeGroupId { get; init; }
+    public Guid? EmployeeCategoryId { get; init; }
+    public string? EmployeeNumber { get; init; }
+    public string? DateOfJoining { get; init; }            // ISO or null
+    public string? DateOfLeaving { get; init; }            // ISO or null
+    public string? Designation { get; init; }
+    public string? Function { get; init; }
+    public string? Location { get; init; }
+    public string? Gender { get; init; }
+    public string? DateOfBirth { get; init; }              // ISO or null
+    public string? Pan { get; init; }
+    public string? Aadhaar { get; init; }
+    public string? Uan { get; init; }
+    public string? PfAccountNumber { get; init; }
+    public string? EsiNumber { get; init; }
+    public string? BankAccountNumber { get; init; }
+    public string? BankName { get; init; }
+    public string? BankIfsc { get; init; }
+    public required string ApplicableTaxRegime { get; init; }   // TaxRegime name
+
+    // Provident Fund per-employee details (Phase 8 slice 4). All default off, so a pre-v33 employee is byte-identical.
+    public bool PfApplicable { get; init; }
+    public bool PfContributeOnHigherWages { get; init; }
+    public string? PfJoinDate { get; init; }                    // ISO yyyy-MM-dd or null
+
+    /// <summary>ESI applicability (Phase 8 slice 5). Default off, so a pre-v34 employee is byte-identical. The
+    /// 10-digit IP number is carried by <see cref="EsiNumber"/> above.</summary>
+    public bool EsiApplicable { get; init; }
+
+    /// <summary>Person-with-disability flag (Phase 8 slice 5) — the higher ₹25,000 ESI coverage ceiling. Default off,
+    /// so a pre-v34 employee is byte-identical.</summary>
+    public bool IsPersonWithDisability { get; init; }
+}
+
+// ----------------------------------------------------------------- pay heads + salary structures (Phase 8 slice 2)
+
+/// <summary>A Pay Head master. Enums are member names; money is integer paisa. The computed-on formula of an
+/// As-Computed-Value head is carried as <see cref="ComputationComponents"/> (the basis) +
+/// <see cref="ComputationSlabs"/> (the bands) — both empty for a non-computed head.</summary>
+public sealed record PayHeadDto
+{
+    public required Guid Id { get; init; }
+    public required string Name { get; init; }
+    public string? DisplayName { get; init; }
+    public required string PayHeadType { get; init; }           // PayHeadType name
+    public required string CalculationType { get; init; }       // PayHeadCalculationType name
+    public bool AffectsNetSalary { get; init; }
+    public Guid? UnderGroupId { get; init; }
+    public Guid? LedgerId { get; init; }
+
+    /// <summary>The employer-contribution expense (Dr) ledger (Phase 8 slice 3); null for a non-employer head or
+    /// until first posted. Paired with <see cref="LedgerId"/> (the employer payable, Cr).</summary>
+    public Guid? EmployerExpenseLedgerId { get; init; }
+
+    public required string IncomeTaxComponent { get; init; }    // IncomeTaxComponent name
+    public bool UseForGratuity { get; init; }
+    public required string RoundingMethod { get; init; }        // PayHeadRoundingMethod name
+    public long RoundingLimitPaisa { get; init; }
+    public required string CalculationPeriod { get; init; }     // PayHeadCalculationPeriod name
+    public Guid? AttendanceTypeId { get; init; }
+    public int? PerDayCalculationBasisDays { get; init; }
+
+    /// <summary>The PF statutory role (Phase 8 slice 4), a <see cref="Apex.Ledger.Domain.PfStatutoryComponent"/>
+    /// name; "None" for a non-PF head.</summary>
+    public string PfComponent { get; init; } = nameof(Apex.Ledger.Domain.PfStatutoryComponent.None);
+
+    /// <summary>Whether this earning counts toward PF (EPF/EPS/EDLI) wages (Phase 8 slice 4). Default false.</summary>
+    public bool PartOfPfWages { get; init; }
+
+    /// <summary>The ESI statutory role (Phase 8 slice 5), a <see cref="Apex.Ledger.Domain.EsiStatutoryComponent"/>
+    /// name; "None" for a non-ESI head.</summary>
+    public string EsiComponent { get; init; } = nameof(Apex.Ledger.Domain.EsiStatutoryComponent.None);
+
+    /// <summary>Whether this earning counts toward ESI wages — HRA included (Phase 8 slice 5). Default false.</summary>
+    public bool PartOfEsiWages { get; init; }
+
+    /// <summary>Whether this earning is overtime — in the ESI contribution base but out of the coverage test
+    /// (Phase 8 slice 5). Default false.</summary>
+    public bool IsOvertime { get; init; }
+
+    /// <summary>The PT statutory role (Phase 8 slice 6), a <see cref="Apex.Ledger.Domain.PtStatutoryComponent"/> name;
+    /// "None" for a non-PT head.</summary>
+    public string PtComponent { get; init; } = nameof(Apex.Ledger.Domain.PtStatutoryComponent.None);
+
+    public IReadOnlyList<PayHeadComputationComponentDto> ComputationComponents { get; init; } = [];
+    public IReadOnlyList<PayHeadComputationSlabDto> ComputationSlabs { get; init; } = [];
+}
+
+/// <summary>One computed-on basis term (a pay-head reference, added or subtracted).</summary>
+public sealed record PayHeadComputationComponentDto
+{
+    public required Guid PayHeadId { get; init; }
+    public bool IsSubtraction { get; init; }
+}
+
+/// <summary>One computation slab band. Money is integer paisa; a null bound = open-ended.</summary>
+public sealed record PayHeadComputationSlabDto
+{
+    public required string SlabType { get; init; }              // PayHeadComputationSlabType name
+    public int RateBasisPoints { get; init; }
+    public long ValuePaisa { get; init; }
+    public long? FromAmountPaisa { get; init; }
+    public long? ToAmountPaisa { get; init; }
+}
+
+/// <summary>A dated Salary Structure ("Salary Details") for an employee or employee group, with ordered lines.</summary>
+public sealed record SalaryStructureDto
+{
+    public required Guid Id { get; init; }
+    public required string Scope { get; init; }                 // SalaryStructureScope name
+    public required Guid ScopeId { get; init; }
+    public required string EffectiveFrom { get; init; }         // ISO yyyy-MM-dd
+    public required string StartType { get; init; }             // SalaryStructureStartType name
+    public IReadOnlyList<SalaryStructureLineDto> Lines { get; init; } = [];
+}
+
+/// <summary>One salary-structure line: a pay head + its ordered per-employee amount (integer paisa; null when the
+/// pay head is computed / user-defined).</summary>
+public sealed record SalaryStructureLineDto
+{
+    public required Guid PayHeadId { get; init; }
+    public int Order { get; init; }
+    public long? AmountPaisa { get; init; }
+}
+
+/// <summary>A recorded attendance/production value (Phase 8 slice 3; RQ-6), mirroring the domain
+/// <c>AttendanceEntry</c> and the SQLite <c>attendance_entries</c> row. The value is exact micro-units
+/// (units × 1,000,000, so a half-day / fractional hour round-trips).</summary>
+public sealed record AttendanceEntryDto
+{
+    public required Guid Id { get; init; }
+    public required Guid EmployeeId { get; init; }
+    public required Guid AttendanceTypeId { get; init; }
+    public required string FromDate { get; init; }         // ISO yyyy-MM-dd
+    public required string ToDate { get; init; }           // ISO yyyy-MM-dd
+    public long ValueMicro { get; init; }                  // units × 1,000,000
+}
+
+/// <summary>A per-employee §192 income-tax declaration (Phase 8 slice 7; Form 12BB), mirroring the domain
+/// <c>TaxDeclaration</c> and the SQLite <c>employee_tax_declarations</c> row. All money is exact integer paisa via
+/// <see cref="MoneyCodec"/>. The <see cref="EmployeeId"/> is remapped to the target employee on import.</summary>
+public sealed record TaxDeclarationDto
+{
+    public required Guid EmployeeId { get; init; }
+    public long Section80CPaisa { get; init; }
+    public long Section80DPaisa { get; init; }
+    public long Section80CCD1BPaisa { get; init; }
+    public long Section80CCD2EmployerPaisa { get; init; }
+    public long HraExemptPaisa { get; init; }
+    public long HomeLoanInterestPaisa { get; init; }
+    public long OtherIncomePaisa { get; init; }
+    public long PrevEmployerSalaryPaisa { get; init; }
+    public long PrevEmployerTdsPaisa { get; init; }
+}
+
 // ----------------------------------------------------------------- multi-currency (catalog §2/§20)
 
 public sealed record CurrencyDto
@@ -746,6 +1104,20 @@ public sealed record EntryLineDto
 
     /// <summary>The TCS collection detail (Phase 7 slice 5), or null for a non-TCS line. Money is integer paisa.</summary>
     public TcsLineTaxDto? Tcs { get; init; }
+
+    /// <summary>The payroll detail (Phase 8 slice 3), or null for a non-payroll line. Money is integer paisa.</summary>
+    public PayrollLineDto? Payroll { get; init; }
+}
+
+/// <summary>The per-employee computed salary detail on a Payroll-voucher entry line (Phase 8 slice 3), mirroring
+/// the domain <c>PayrollLineDetail</c> and the SQLite <c>payroll_lines</c> row. Money is integer paisa; the pay
+/// head is null for the net Salary-Payable line.</summary>
+public sealed record PayrollLineDto
+{
+    public required Guid EmployeeId { get; init; }
+    public Guid? PayHeadId { get; init; }
+    public required string Category { get; init; }       // PayrollLineCategory name
+    public long AmountPaisa { get; init; }
 }
 
 public sealed record BillAllocationDto

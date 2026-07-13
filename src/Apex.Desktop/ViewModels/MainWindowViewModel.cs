@@ -73,6 +73,39 @@ public enum Screen
     PriceLevelsMaster,
     PriceListsMaster,
     ReorderLevelsMaster,
+
+    // Payroll masters (Phase 8 slice 1; RQ-1/RQ-2/RQ-3) — surfaced only when F11 "Maintain Payroll" is on.
+    EmployeeCategoryMaster,
+    EmployeeGroupMaster,
+    EmployeeMaster,
+    PayrollUnitMaster,
+    AttendanceTypeMaster,
+
+    // Payroll masters (Phase 8 slice 2; RQ-4/RQ-5) — Pay Head + Salary Details, same F11 gate.
+    PayHeadMaster,
+    SalaryStructureMaster,
+
+    // Payroll vouchers (Phase 8 slice 3; RQ-6/RQ-7) — Attendance / Production + Payroll, same F11 gate.
+    AttendanceVoucherEntry,
+    PayrollVoucherEntry,
+
+    // Payroll statutory reports — PF ECR / Challan (Phase 8 slice 4; RQ-9), ESI Monthly Contribution
+    // (Phase 8 slice 5; RQ-10) and PT Deduction Register (Phase 8 slice 6; RQ-11), all gated on Payroll Statutory.
+    PfEcrReport,
+    EsiContributionReport,
+    ProfessionalTaxRegister,
+
+    // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — under Reports → Statutory
+    // Reports → Payroll, each gated on its own enrolment (GratuityConfig / BonusConfig).
+    GratuityProvisionRegister,
+    BonusRegister,
+
+    // §192 salary-TDS (Phase 8 slice 7; RQ-12/RQ-13) — the per-employee Form-12BB declaration master + the Form 24Q
+    // return and Form 16 certificate reports, all gated on the F11 "Enable Salary TDS" switch.
+    TaxDeclarationMaster,
+    Form24Q,
+    Form16,
+
     LedgerVouchers,
     VoucherDetail,
 }
@@ -116,6 +149,14 @@ public enum GatewayMenu
     StatutoryReports,
     TdsReports,
     TcsReports,
+
+    // Reports → Statutory Reports → Payroll (PF) (Phase 8 slice 4): the PF ECR / Challan report, nested under a
+    // Payroll sub-group only when Payroll Statutory is enabled.
+    PayrollStatutoryReports,
+
+    // Reports → Payroll Reports (Phase 8 slice 8): the payslip + pay sheet + payroll register + attendance register +
+    // payment advice, a group under the Reports root shown only when Payroll is enabled.
+    PayrollReports,
 }
 
 /// <summary>
@@ -292,6 +333,69 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Reorder Levels master (slice 6; RQ-32), non-null only while that page is open.</summary>
     [ObservableProperty] private ReorderLevelsViewModel? _reorderLevels;
 
+    // Payroll master page VMs (Phase 8 slice 1). Bound from the cascade page column via an EXPLICIT
+    // {Binding #Root.((vm:MainWindowViewModel)DataContext).XMaster} path in MainWindow.axaml, not the implicit
+    // x:DataType fallback the other master ContentControls use: the Avalonia 12 XamlIl compiled-binding
+    // transformer intermittently fails to resolve these (session-new) members through the GatewayColumn→Window
+    // fallback on a clean build (AVLN2000), which breaks the CI build and leaves the ContentControls mis-visible
+    // → a layout storm that hangs the headless window tests. The explicit #Root path resolves deterministically.
+
+    /// <summary>The Employee-Category master (Phase 8 slice 1; RQ-2), non-null only while that page column is open.</summary>
+    [ObservableProperty] private EmployeeCategoryMasterViewModel? _employeeCategoryMaster;
+
+    /// <summary>The Employee-Group master (Phase 8 slice 1; RQ-2), non-null only while that page column is open.</summary>
+    [ObservableProperty] private EmployeeGroupMasterViewModel? _employeeGroupMaster;
+
+    /// <summary>The Employee master (Phase 8 slice 1; RQ-2), non-null only while that page column is open.</summary>
+    [ObservableProperty] private EmployeeMasterViewModel? _employeeMaster;
+
+    /// <summary>The Payroll-Unit master (Phase 8 slice 1; RQ-3), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PayrollUnitMasterViewModel? _payrollUnitMaster;
+
+    /// <summary>The Attendance/Production-Type master (Phase 8 slice 1; RQ-3), non-null only while that page is open.</summary>
+    [ObservableProperty] private AttendanceTypeMasterViewModel? _attendanceTypeMaster;
+
+    /// <summary>The Pay Head master (Phase 8 slice 2; RQ-4), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PayHeadMasterViewModel? _payHeadMaster;
+
+    /// <summary>The Salary Details / structure master (Phase 8 slice 2; RQ-5), non-null only while that page is open.</summary>
+    [ObservableProperty] private SalaryStructureMasterViewModel? _salaryDetails;
+
+    /// <summary>The Attendance / Production voucher entry (Phase 8 slice 3; RQ-6), non-null only while that page is open.</summary>
+    [ObservableProperty] private AttendanceVoucherEntryViewModel? _attendanceVoucher;
+
+    /// <summary>The Payroll voucher entry (Phase 8 slice 3; RQ-7), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PayrollVoucherEntryViewModel? _payrollVoucher;
+
+    /// <summary>The PF ECR / Challan report (Phase 8 slice 4; RQ-9), non-null only while that page column is open.</summary>
+    [ObservableProperty] private PfEcrReportViewModel? _pfEcrReport;
+
+    /// <summary>The ESI Monthly Contribution report (Phase 8 slice 5; RQ-10), non-null only while that page column is
+    /// open.</summary>
+    [ObservableProperty] private EsiContributionReportViewModel? _esiContributionReport;
+
+    /// <summary>The PT Deduction Register report (Phase 8 slice 6; RQ-11), non-null only while that page column is
+    /// open.</summary>
+    [ObservableProperty] private ProfessionalTaxRegisterViewModel? _professionalTaxRegister;
+
+    /// <summary>The Gratuity Provision register (Phase 8 slice 9; RQ-14), non-null only while that page column is open.</summary>
+    [ObservableProperty] private GratuityProvisionRegisterViewModel? _gratuityProvisionRegister;
+
+    /// <summary>The statutory-Bonus register (Phase 8 slice 9; RQ-15), non-null only while that page column is open.</summary>
+    [ObservableProperty] private BonusRegisterViewModel? _bonusRegister;
+
+    /// <summary>The per-employee Income-Tax Declaration (Form 12BB) master (Phase 8 slice 7; RQ-12), non-null only
+    /// while that page column is open.</summary>
+    [ObservableProperty] private TaxDeclarationViewModel? _taxDeclarationMaster;
+
+    /// <summary>The Form 24Q quarterly salary-TDS-return report (Phase 8 slice 7; RQ-13), non-null only while that
+    /// page column is open.</summary>
+    [ObservableProperty] private Form24QViewModel? _form24Q;
+
+    /// <summary>The Form 16 salary-TDS-certificate report (Phase 8 slice 7; RQ-13), non-null only while that page
+    /// column is open.</summary>
+    [ObservableProperty] private Form16ViewModel? _form16;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -353,6 +457,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
+        && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
+        && PayrollUnitMaster is null && AttendanceTypeMaster is null
+        && PayHeadMaster is null && SalaryDetails is null
+        && AttendanceVoucher is null && PayrollVoucher is null && PfEcrReport is null
+        && EsiContributionReport is null && ProfessionalTaxRegister is null
+        && GratuityProvisionRegister is null && BonusRegister is null
+        && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -408,6 +519,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPriceLevelsChanged(PriceLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPriceListsChanged(PriceListsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReorderLevelsChanged(ReorderLevelsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmployeeCategoryMasterChanged(EmployeeCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmployeeGroupMasterChanged(EmployeeGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEmployeeMasterChanged(EmployeeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPayrollUnitMasterChanged(PayrollUnitMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAttendanceTypeMasterChanged(AttendanceTypeMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPayHeadMasterChanged(PayHeadMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnSalaryDetailsChanged(SalaryStructureMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAttendanceVoucherChanged(AttendanceVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPayrollVoucherChanged(PayrollVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPfEcrReportChanged(PfEcrReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEsiContributionReportChanged(EsiContributionReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnProfessionalTaxRegisterChanged(ProfessionalTaxRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGratuityProvisionRegisterChanged(GratuityProvisionRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBonusRegisterChanged(BonusRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnTaxDeclarationMasterChanged(TaxDeclarationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm24QChanged(Form24QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnForm16Changed(Form16ViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -599,10 +727,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
-        // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports. Surfaced
-        // only when the F11 feature enables at least one of the two taxes (ER-13), so a company using neither is
-        // byte-identical to the pre-slice Reports menu.
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+        // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
+        // attendance register + payment advice. Surfaced only when the F11 feature "Maintain Payroll" is on (ER-13),
+        // so a company that never enables Payroll is byte-identical to the pre-slice Reports menu.
+        if (Company is { PayrollEnabled: true })
+            col.Add(new MenuItemViewModel("Payroll Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports and, from
+        // Phase 8 slice 4, the Payroll (PF) statutory reports. Surfaced only when the F11 feature enables TDS, TCS
+        // or Payroll Statutory (ER-13), so a company using none is byte-identical to the pre-slice Reports menu.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true })
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
@@ -648,6 +782,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // is advertised, so Ctrl+F stays unambiguously the TDS deposit even when both taxes are on — no dead key).
             if (Company is { TcsEnabled: true })
                 col.Add(new MenuItemViewModel("TCS Stat Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // Payroll vouchers (Phase 8 slice 3; RQ-6/RQ-7) — the Attendance / Production voucher (records attendance
+        // values, non-accounting) and the Payroll voucher (Ctrl+F4, posts the balanced integrated salary entry),
+        // surfaced under their own nested section only when the F11 feature "Maintain Payroll" is on. A company that
+        // never enables Payroll shows neither and is byte-identical (ER-13), so the whole header hides when off.
+        if (Company is { PayrollEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Payroll"));
+            col.Add(new MenuItemViewModel("Attendance / Production", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Payroll", () => { }, "Ctrl+F4", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -827,6 +972,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 col.Add(new MenuItemViewModel("Nature of Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             if (Company is { TcsEnabled: true })
                 col.Add(new MenuItemViewModel("Nature of Goods", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
+
+        // Payroll Masters (Phase 8 slice 1; RQ-2/RQ-3) — the employee / payroll-unit / attendance-type masters,
+        // surfaced under their own nested section only when the F11 feature "Maintain Payroll" is on. A company
+        // that never enables Payroll carries no payroll masters and is byte-identical (ER-13), so the whole header
+        // hides when the flag is off.
+        if (Company is { PayrollEnabled: true })
+        {
+            col.Add(MenuItemViewModel.Header("Payroll Masters"));
+            col.Add(new MenuItemViewModel("Employee Category", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Employee Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Employee", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Payroll Unit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Attendance / Production Type", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Phase 8 slice 2 (RQ-4/RQ-5): Pay Head + Salary Details, the heart of the salary structure.
+            col.Add(new MenuItemViewModel("Pay Head", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Salary Details", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Phase 8 slice 7 (RQ-12): the per-employee income-tax declaration (Form 12BB), surfaced only when the
+            // F11 feature "Enable Salary TDS" is on (ER-13) — its figures drive the §192 salary-TDS estimate.
+            if (Company is { SalaryTdsEnabled: true })
+                col.Add(new MenuItemViewModel("Income Tax Declaration", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -1245,9 +1411,42 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(new MenuItemViewModel("TDS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         if (Company is { TcsEnabled: true })
             col.Add(new MenuItemViewModel("TCS Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level (shown whenever
-        // either tax is on — which is the only way this column is reachable).
-        col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Payroll statutory reports (Phase 8 slice 4/5; RQ-9/RQ-10) nest under their own Payroll sub-group, surfaced
+        // only when the F11 feature "Enable Payroll Statutory" is on (ER-13).
+        if (Company is { PayrollStatutoryEnabled: true })
+            col.Add(new MenuItemViewModel("Payroll", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
+        // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true })
+            col.Add(new MenuItemViewModel("Ledgers without PAN", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "Payroll" submenu column (Reports → Statutory Reports → Payroll; Phase 8 slice 4/5/6;
+    /// RQ-9/RQ-10/RQ-11): the PF ECR / Challan report page (member-wise ECR 2.0 + the A/c 1/2/10/21/22 challan totals),
+    /// the ESI Monthly Contribution report page (per-IP EE 0.75% / ER 3.25% + the offline monthly file) and the PT
+    /// Deduction Register (per-employee monthly PT + FY cumulative + totals).</summary>
+    private GatewayColumn BuildPayrollStatutoryReportsColumn()
+    {
+        var col = new GatewayColumn("Payroll");
+        col.Add(MenuItemViewModel.Header("Payroll Statutory"));
+        col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
+        // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
+        // byte-identical to the pre-slice Payroll submenu (ER-13).
+        if (Company is { GratuityConfig: not null })
+            col.Add(new MenuItemViewModel("Gratuity Provision", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        if (Company is { BonusConfig: not null })
+            col.Add(new MenuItemViewModel("Bonus Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // §192 salary-TDS return + certificate (Phase 8 slice 7; RQ-13) — surfaced only when the F11 feature
+        // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
+        if (Company is { SalaryTdsEnabled: true })
+        {
+            col.Add(new MenuItemViewModel("Form 24Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel("Form 16", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        }
         return col;
     }
 
@@ -1303,6 +1502,43 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectSubmenuItem("TCS Reports");
         OpenSubmenuColumn(BuildTcsReportsColumn(), GatewayMenu.TcsReports,
             "Gateway of Apex Solutions — TCS Reports");
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → Payroll" submenu column directly (Phase 8 slice 4/5).</summary>
+    public void ShowPayrollStatutoryReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("Payroll");
+        OpenSubmenuColumn(BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
+            "Gateway of Apex Solutions — Payroll");
+    }
+
+    /// <summary>Builds the "Payroll Reports" submenu column (Reports → Payroll Reports; Phase 8 slice 8; RQ-16;
+    /// catalog §14): the Payslip (single-employee detail + PDF), the Pay Sheet (employees × pay heads), the Payroll
+    /// Register/Statement (columnar salary summary), the Attendance Register (employees × attendance types) and the
+    /// Payment/Bank Advice (net-pay-per-employee bank list) — all pure projections over the posted payroll data.</summary>
+    private GatewayColumn BuildPayrollReportsColumn()
+    {
+        var col = new GatewayColumn("Payroll Reports");
+        col.Add(MenuItemViewModel.Header("Payroll Reports"));
+        col.Add(new MenuItemViewModel("Payslip", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Pay Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Payroll Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Attendance Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Payment Advice", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Payroll Reports" submenu column directly (Phase 8 slice 8; RQ-16) — the public
+    /// entry a hotkey/test uses. A no-op when Payroll is off (the group is not surfaced).</summary>
+    public void ShowPayrollReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (Company is not { PayrollEnabled: true }) return;   // group hidden when Payroll is off (ER-13)
+        SelectRootItem("Payroll Reports");
+        OpenSubmenuColumn(BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
+            "Gateway of Apex Solutions — Payroll Reports");
     }
 
     /// <summary>
@@ -1795,6 +2031,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PrintPreviewViewModel preview;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
             preview = vd.BuildPrintPreview();
+        // A Payslip prints the dedicated de-branded PayslipPdf (RQ-16) — the same PDF pipeline as the tax invoice /
+        // TDS certificates — rather than the generic report grid; a payslip with no employee/structure is a no-op.
+        else if (Reports is { IsPayslipReport: true, CurrentPayslip: { } slip })
+            preview = new PrintPreviewViewModel(slip, Reports.Title);
+        else if (Reports is { IsPayslipReport: true })
+            return;                               // payslip with no employee/structure — nothing to print
         else if (Reports is not null)
             preview = new PrintPreviewViewModel(Reports);
         else
@@ -2597,6 +2839,128 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
     }
 
+    // =============================================================== screen: payroll masters (Phase 8 slice 1)
+
+    /// <summary>
+    /// Opens the Employee-Category master (Masters → Create → Payroll Masters → Employee Category; Phase 8 slice 1)
+    /// as a page column. A no-op unless Payroll is enabled (the menu item is itself gated on
+    /// <see cref="Company.PayrollEnabled"/>), so a non-payroll company never reaches it (ER-13).
+    /// </summary>
+    public void ShowEmployeeCategoryMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new EmployeeCategoryMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Employee Category Creation", master), Screen.EmployeeCategoryMaster,
+            "Employee Category Creation", () => EmployeeCategoryMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Employee-Group master (Masters → Create → Payroll Masters → Employee Group; Phase 8 slice 1) as a
+    /// page column. A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowEmployeeGroupMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new EmployeeGroupMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Employee Group Creation", master), Screen.EmployeeGroupMaster,
+            "Employee Group Creation", () => EmployeeGroupMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Employee master (Masters → Create → Payroll Masters → Employee; Phase 8 slice 1) as a page column.
+    /// A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowEmployeeMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new EmployeeMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Employee Creation", master), Screen.EmployeeMaster,
+            "Employee Creation", () => EmployeeMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Payroll-Unit master (Masters → Create → Payroll Masters → Payroll Unit; Phase 8 slice 1) as a page
+    /// column. A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowPayrollUnitMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new PayrollUnitMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Payroll Unit Creation", master), Screen.PayrollUnitMaster,
+            "Payroll Unit Creation", () => PayrollUnitMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Attendance/Production-Type master (Masters → Create → Payroll Masters → Attendance / Production
+    /// Type; Phase 8 slice 1) as a page column. A no-op unless Payroll is enabled.
+    /// </summary>
+    public void ShowAttendanceTypeMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new AttendanceTypeMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Attendance Type Creation", master), Screen.AttendanceTypeMaster,
+            "Attendance / Production Type Creation", () => AttendanceTypeMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Pay Head master (Masters → Create → Payroll Masters → Pay Head; Phase 8 slice 2; RQ-4) as a page
+    /// column. A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowPayHeadMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new PayHeadMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Pay Head Creation", master), Screen.PayHeadMaster,
+            "Pay Head Creation", () => PayHeadMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Salary Details / structure master (Masters → Create → Payroll Masters → Salary Details; Phase 8
+    /// slice 2; RQ-5) as a page column. A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowSalaryStructureMaster()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var master = new SalaryStructureMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Salary Details", master), Screen.SalaryStructureMaster,
+            "Salary Details", () => SalaryDetails = master);
+    }
+
+    /// <summary>
+    /// Opens the <b>Attendance / Production voucher</b> entry page (Transactions → Vouchers → Payroll → Attendance /
+    /// Production; Phase 8 slice 3; RQ-6) as a page column: records per-employee attendance / leave / production
+    /// values for a period (a non-accounting voucher). A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowAttendanceVoucher()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var page = new AttendanceVoucherEntryViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Attendance / Production", page), Screen.AttendanceVoucherEntry,
+            "Attendance / Production Voucher", () => AttendanceVoucher = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>Payroll voucher</b> entry page (Transactions → Vouchers → Payroll → Payroll · Ctrl+F4; Phase 8
+    /// slice 3; RQ-7) as a page column: pick a period + employees, Compute the salary breakdown, and post the
+    /// balanced integrated accounting voucher. A no-op unless Payroll is enabled (ER-13).
+    /// </summary>
+    public void ShowPayrollVoucher()
+    {
+        if (Company is not { PayrollEnabled: true }) return;
+
+        var page = new PayrollVoucherEntryViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Payroll", page), Screen.PayrollVoucherEntry,
+            "Payroll Voucher", () => PayrollVoucher = page);
+    }
+
     /// <summary>
     /// Opens the <b>TDS Stat Payment</b> deposit page (Transactions → Vouchers → TDS Stat Payment, the Payment
     /// "Ctrl+F"; Phase 7 slice 3) as a page column: deposits the accrued TDS Payable into the bank and records the
@@ -2657,6 +3021,219 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (!IsForm26QScreen || Form26Q is null) return;
         Form26Q.ExportFvu();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>PF ECR / Challan</b> report page (Reports → Statutory Reports → Payroll (PF) → PF ECR / Challan;
+    /// Phase 8 slice 4; RQ-9) as a page column: the member-wise ECR 2.0 rows + the A/c 1/2/10/21/22 challan totals
+    /// for a chosen FY + wage month, with a Ctrl+A ECR export and an Alt+B save-return. A no-op unless Payroll
+    /// Statutory is enabled (the menu item + the open path are gated on <see cref="Company.PayrollStatutoryEnabled"/>),
+    /// so a non-payroll company never reaches it (ER-13).
+    /// </summary>
+    public void OpenPfEcrReport()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+
+        var page = new PfEcrReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("PF ECR / Challan", page), Screen.PfEcrReport,
+            "PF ECR / Challan (EPFO)", () => PfEcrReport = page);
+    }
+
+    /// <summary>True while the PF ECR / Challan report page is the active screen (drives its keyboard actions).</summary>
+    public bool IsPfEcrReportScreen => CurrentScreen == Screen.PfEcrReport && PfEcrReport is not null;
+
+    /// <summary>
+    /// Alt+B on the PF ECR / Challan screen — <b>save &amp; return</b>: writes the ECR 2.0 flat file for the current
+    /// return to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnPfEcr()
+    {
+        if (!IsPfEcrReportScreen || PfEcrReport is null) return;
+        PfEcrReport.ExportEcr();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>ESI Monthly Contribution</b> report page (Reports → Statutory Reports → Payroll → ESI Monthly
+    /// Contribution; Phase 8 slice 5; RQ-10) as a page column: the per-IP rows (IP number, name, days, ESI wages,
+    /// EE 0.75% / ER 3.25% contributions) + the EE / ER / total footings for a chosen FY + wage month, with a Ctrl+A
+    /// contribution-file export and an Alt+B save-return. A no-op unless Payroll Statutory is enabled (the menu item
+    /// + the open path are gated on <see cref="Company.PayrollStatutoryEnabled"/>), so a non-payroll company never
+    /// reaches it (ER-13).
+    /// </summary>
+    public void OpenEsiContributionReport()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+
+        var page = new EsiContributionReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("ESI Monthly Contribution", page), Screen.EsiContributionReport,
+            "ESI Monthly Contribution (ESIC)", () => EsiContributionReport = page);
+    }
+
+    /// <summary>True while the ESI Monthly Contribution report page is the active screen (drives its keyboard
+    /// actions).</summary>
+    public bool IsEsiContributionReportScreen => CurrentScreen == Screen.EsiContributionReport && EsiContributionReport is not null;
+
+    /// <summary>
+    /// Alt+B on the ESI Monthly Contribution screen — <b>save &amp; return</b>: writes the ESIC monthly-contribution
+    /// offline file for the current return to the export folder (the "save") then pops back to the menu (the
+    /// "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnEsiContribution()
+    {
+        if (!IsEsiContributionReportScreen || EsiContributionReport is null) return;
+        EsiContributionReport.ExportReturn();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>PT Deduction Register</b> report page (Reports → Statutory Reports → Payroll → PT Deduction
+    /// Register; Phase 8 slice 6; RQ-11) as a page column: the per-employee rows (name, number, PT wages, the month's
+    /// PT and the FY-to-date cumulative bounded by the ₹2,500 cap) + the PT-wages / PT footings for a chosen FY + wage
+    /// month, with a Ctrl+A CSV export and an Alt+B save-return. A no-op unless Payroll Statutory is enabled (the menu
+    /// item + the open path are gated on <see cref="Company.PayrollStatutoryEnabled"/>), so a non-payroll company never
+    /// reaches it (ER-13).
+    /// </summary>
+    public void OpenProfessionalTaxRegister()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+
+        var page = new ProfessionalTaxRegisterViewModel(Company);
+        OpenPageColumn(new GatewayColumn("PT Deduction Register", page), Screen.ProfessionalTaxRegister,
+            "PT Deduction Register", () => ProfessionalTaxRegister = page);
+    }
+
+    /// <summary>True while the PT Deduction Register report page is the active screen (drives its keyboard actions).</summary>
+    public bool IsProfessionalTaxRegisterScreen => CurrentScreen == Screen.ProfessionalTaxRegister && ProfessionalTaxRegister is not null;
+
+    /// <summary>
+    /// Alt+B on the PT Deduction Register screen — <b>save &amp; return</b>: writes the register CSV for the current
+    /// wage month to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnProfessionalTax()
+    {
+        if (!IsProfessionalTaxRegisterScreen || ProfessionalTaxRegister is null) return;
+        ProfessionalTaxRegister.ExportRegister();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Gratuity Provision</b> register page (Reports → Statutory Reports → Payroll → Gratuity Provision;
+    /// Phase 8 slice 9; RQ-14) as a page column: the per-employee accrual as-on a chosen provision date (completed
+    /// years, vested flag, Basic + DA, accrued gratuity) + the total liability / prior balance / delta, with a
+    /// <b>Post Provision</b> action (Ctrl+A) that posts the delta voucher. A no-op unless the establishment is enrolled
+    /// for gratuity (the menu item + the open path are gated on <see cref="Company.GratuityConfig"/>), so a non-gratuity
+    /// company never reaches it (ER-13).
+    /// </summary>
+    public void OpenGratuityProvisionRegister()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true, GratuityConfig: not null }) return;
+
+        var page = new GratuityProvisionRegisterViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Gratuity Provision", page), Screen.GratuityProvisionRegister,
+            "Gratuity Provision Register", () => GratuityProvisionRegister = page);
+    }
+
+    /// <summary>True while the Gratuity Provision register page is the active screen (drives its keyboard actions).</summary>
+    public bool IsGratuityProvisionRegisterScreen => CurrentScreen == Screen.GratuityProvisionRegister && GratuityProvisionRegister is not null;
+
+    /// <summary>Ctrl+A on the Gratuity Provision screen — posts the period-end provision voucher for the delta over the
+    /// prior balance (the screen's primary command). A no-op off that screen.</summary>
+    public void PostGratuityProvision()
+    {
+        if (!IsGratuityProvisionRegisterScreen || GratuityProvisionRegister is null) return;
+        GratuityProvisionRegister.PostProvision();
+    }
+
+    /// <summary>
+    /// Opens the <b>Bonus</b> register page (Reports → Statutory Reports → Payroll → Bonus Register; Phase 8 slice 9;
+    /// RQ-15) as a page column: the per-employee statutory-bonus figures for a chosen accounting year (eligibility,
+    /// actual Basic + DA, capped base, rate, annual bonus) + the total bonus. A no-op unless the establishment is
+    /// enrolled for statutory bonus (the menu item + the open path are gated on <see cref="Company.BonusConfig"/>), so a
+    /// non-bonus company never reaches it (ER-13).
+    /// </summary>
+    public void OpenBonusRegister()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true, BonusConfig: not null }) return;
+
+        var page = new BonusRegisterViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Bonus Register", page), Screen.BonusRegister,
+            "Statutory Bonus Register", () => BonusRegister = page);
+    }
+
+    /// <summary>True while the Bonus register page is the active screen.</summary>
+    public bool IsBonusRegisterScreen => CurrentScreen == Screen.BonusRegister && BonusRegister is not null;
+
+    // =============================================================== §192 salary TDS (Phase 8 slice 7)
+
+    /// <summary>
+    /// Opens the per-employee <b>Income Tax Declaration (Form 12BB)</b> master (Masters → Create → Payroll Masters →
+    /// Income Tax Declaration; Phase 8 slice 7; RQ-12) as a page column: pick an employee, capture the declared
+    /// investments / exemptions / prior-income the §192 engine estimates the salary TDS from, and Save (Ctrl+A). A
+    /// no-op unless §192 salary TDS is enabled (the menu item + the open path are gated on
+    /// <see cref="Company.SalaryTdsEnabled"/>), so a non-salary-TDS company never reaches it (ER-13).
+    /// </summary>
+    public void ShowTaxDeclarationMaster()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var master = new TaxDeclarationViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Income Tax Declaration", master), Screen.TaxDeclarationMaster,
+            "Income Tax Declaration (Form 12BB)", () => TaxDeclarationMaster = master);
+    }
+
+    /// <summary>True while the Income-Tax-Declaration master is the active screen (drives its arrow-key nav).</summary>
+    public bool IsTaxDeclarationMasterScreen => CurrentScreen == Screen.TaxDeclarationMaster && TaxDeclarationMaster is not null;
+
+    /// <summary>
+    /// Opens the <b>Form 24Q</b> quarterly salary-TDS-return report page (Reports → Statutory Reports → Payroll →
+    /// Form 24Q; Phase 8 slice 7; RQ-13) as a page column: the Annexure I deductee rows + the Q4 Annexure II annual
+    /// computation + control totals for a chosen FY / quarter / section code, with a Ctrl+A flat-file export and an
+    /// Alt+B save-return. A no-op unless §192 salary TDS is enabled (ER-13).
+    /// </summary>
+    public void OpenForm24Q()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var page = new Form24QViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 24Q", page), Screen.Form24Q,
+            "Form 24Q (Quarterly Salary-TDS Return)", () => Form24Q = page);
+    }
+
+    /// <summary>True while the Form 24Q return report page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm24QScreen => CurrentScreen == Screen.Form24Q && Form24Q is not null;
+
+    /// <summary>Alt+B on the Form 24Q screen — <b>save &amp; return</b>: writes the return flat file then pops back to the menu.</summary>
+    public void SaveReturnForm24Q()
+    {
+        if (!IsForm24QScreen || Form24Q is null) return;
+        Form24Q.ExportFvu();
+        BackFromPage();
+    }
+
+    /// <summary>
+    /// Opens the <b>Form 16</b> salary-TDS-certificate report page (Reports → Statutory Reports → Payroll → Form 16;
+    /// Phase 8 slice 7; RQ-13) as a page column: per-employee Part A (quarter-wise TDS) + Part B (salary/tax
+    /// computation), with a Ctrl+A PDF export and an Alt+B save-return. A no-op unless §192 salary TDS is enabled (ER-13).
+    /// </summary>
+    public void OpenForm16()
+    {
+        if (Company is not { SalaryTdsEnabled: true }) return;
+
+        var page = new Form16ViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Form 16", page), Screen.Form16,
+            "Form 16 (Salary-TDS Certificate)", () => Form16 = page);
+    }
+
+    /// <summary>True while the Form 16 certificate page is the active screen (drives its arrow-key nav).</summary>
+    public bool IsForm16Screen => CurrentScreen == Screen.Form16 && Form16 is not null;
+
+    /// <summary>Alt+B on the Form 16 screen — <b>save &amp; return</b>: writes the certificate PDF then pops back to the menu.</summary>
+    public void SaveReturnForm16()
+    {
+        if (!IsForm16Screen || Form16 is null) return;
+        Form16.ExportPdf();
         BackFromPage();
     }
 
@@ -3085,6 +3662,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PriceLevels = null;
         PriceLists = null;
         ReorderLevels = null;
+        EmployeeCategoryMaster = null;
+        EmployeeGroupMaster = null;
+        EmployeeMaster = null;
+        PayrollUnitMaster = null;
+        AttendanceTypeMaster = null;
+        PayHeadMaster = null;
+        SalaryDetails = null;
+        AttendanceVoucher = null;
+        PayrollVoucher = null;
+        PfEcrReport = null;
+        EsiContributionReport = null;
+        ProfessionalTaxRegister = null;
+        GratuityProvisionRegister = null;
+        BonusRegister = null;
+        TaxDeclarationMaster = null;
+        Form24Q = null;
+        Form16 = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3144,7 +3738,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
                  or Screen.GstConfig
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
-                 or Screen.TdsStatPayment or Screen.TcsStatPayment)
+                 or Screen.TdsStatPayment or Screen.TcsStatPayment
+                 or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
+                 or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
+                 or Screen.PayHeadMaster or Screen.SalaryStructureMaster)
             BackFromPage();
     }
 
@@ -3336,6 +3933,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the Form 24Q return the arrows move the Annexure-I deductee-row highlight (keeps a live selection).
+        if (IsForm24QScreen)
+        {
+            Form24Q!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Form 16 certificate the arrows move the employee highlight (rebuilds the certificate).
+        if (IsForm16Screen)
+        {
+            Form16!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Income-Tax-Declaration master the arrows move the employee highlight (loads that declaration).
+        if (IsTaxDeclarationMasterScreen)
+        {
+            TaxDeclarationMaster!.MoveHighlight(direction);
+            return;
+        }
+
         // On the TCS Challan Reconciliation report the arrows move the code-row highlight (keeps a live selection).
         if (IsTcsChallanReconciliationScreen)
         {
@@ -3438,6 +4056,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ReorderLevelsMaster:
                 ReorderLevels?.Create();
                 return;
+            case Screen.EmployeeCategoryMaster:
+                EmployeeCategoryMaster?.Create();
+                return;
+            case Screen.EmployeeGroupMaster:
+                EmployeeGroupMaster?.Create();
+                return;
+            case Screen.EmployeeMaster:
+                EmployeeMaster?.Create();
+                return;
+            case Screen.PayrollUnitMaster:
+                PayrollUnitMaster?.Create();
+                return;
+            case Screen.AttendanceTypeMaster:
+                AttendanceTypeMaster?.Create();
+                return;
+            case Screen.PayHeadMaster:
+                PayHeadMaster?.Create();
+                return;
+            case Screen.SalaryStructureMaster:
+                SalaryDetails?.Save();
+                return;
+            case Screen.AttendanceVoucherEntry:
+                AttendanceVoucher?.Accept();
+                return;
+            case Screen.PayrollVoucherEntry:
+                PayrollVoucher?.Accept();
+                return;
             case Screen.ManufacturingJournalEntry:
                 ManufacturingJournalEntry?.Accept();
                 return;
@@ -3475,6 +4120,30 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.Form26Q:
                 Form26Q?.ExportFvu(); // Ctrl+A exports the FVU flat file (the return's primary action)
+                return;
+            case Screen.PfEcrReport:
+                PfEcrReport?.ExportEcr(); // Ctrl+A exports the ECR 2.0 flat file (the return's primary action)
+                return;
+            case Screen.EsiContributionReport:
+                EsiContributionReport?.ExportReturn(); // Ctrl+A exports the ESIC monthly-contribution offline file
+                return;
+            case Screen.ProfessionalTaxRegister:
+                ProfessionalTaxRegister?.ExportRegister(); // Ctrl+A exports the PT register CSV (the page's primary action)
+                return;
+            case Screen.GratuityProvisionRegister:
+                GratuityProvisionRegister?.PostProvision(); // Ctrl+A posts the period-end gratuity provision (the page's primary action)
+                return;
+            case Screen.BonusRegister:
+                return; // read-only register — Ctrl+A/Enter is a safe no-op
+
+            case Screen.TaxDeclarationMaster:
+                TaxDeclarationMaster?.Save(); // Ctrl+A saves the per-employee Form-12BB declaration
+                return;
+            case Screen.Form24Q:
+                Form24Q?.ExportFvu(); // Ctrl+A exports the Form 24Q flat file (the return's primary action)
+                return;
+            case Screen.Form16:
+                Form16?.ExportPdf(); // Ctrl+A exports the Form 16 certificate PDF (the page's primary action)
                 return;
             case Screen.TcsStatPayment:
                 TcsStatPayment?.Deposit();
@@ -3584,6 +4253,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — TDS Reports"),
             "TCS Reports" => (BuildTcsReportsColumn(), GatewayMenu.TcsReports,
                 "Gateway of Apex Solutions — TCS Reports"),
+            "Payroll" => (BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
+                "Gateway of Apex Solutions — Payroll"),
+            "Payroll Reports" => (BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
+                "Gateway of Apex Solutions — Payroll Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -3645,6 +4318,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "GST": ShowGstConfig(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
+            // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.
+            case "Employee Category": ShowEmployeeCategoryMaster(); break;
+            case "Employee Group": ShowEmployeeGroupMaster(); break;
+            case "Employee": ShowEmployeeMaster(); break;
+            case "Payroll Unit": ShowPayrollUnitMaster(); break;
+            case "Attendance / Production Type": ShowAttendanceTypeMaster(); break;
+            case "Pay Head": ShowPayHeadMaster(); break;
+            case "Salary Details": ShowSalaryStructureMaster(); break;
+            case "Income Tax Declaration": ShowTaxDeclarationMaster(); break;
+            // Payroll vouchers (Phase 8 slice 3) — under Transactions → Vouchers → Payroll, gated by F11 Maintain Payroll.
+            case "Attendance / Production": ShowAttendanceVoucher(); break;
+            case "Payroll": ShowPayrollVoucher(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
             case "Form 26Q": OpenForm26Q(); break;
@@ -3692,6 +4377,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "TCS Interest u/s 206C(7)": OpenReport(ReportKind.TcsInterest); break;
             case "TCS Nature of Goods Summary": OpenReport(ReportKind.TcsNatureSummary); break;
             case "Ledgers without PAN": OpenReport(ReportKind.LedgersWithoutPan); break;
+            // Payroll statutory reports (Phase 8 slice 4/5) — under Reports → Statutory Reports → Payroll.
+            case "PF ECR / Challan": OpenPfEcrReport(); break;
+            case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
+            case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
+            // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
+            case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
+            case "Bonus Register": OpenBonusRegister(); break;
+            // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
+            case "Form 24Q": OpenForm24Q(); break;
+            case "Form 16": OpenForm16(); break;
+            // Payroll presentation reports (Phase 8 slice 8) — under Reports → Payroll Reports.
+            case "Payslip": OpenReport(ReportKind.Payslip); break;
+            case "Pay Sheet": OpenReport(ReportKind.PaySheet); break;
+            case "Payroll Register": OpenReport(ReportKind.PayrollRegister); break;
+            case "Attendance Register": OpenReport(ReportKind.AttendanceRegister); break;
+            case "Payment Advice": OpenReport(ReportKind.PaymentAdvice); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -3840,6 +4541,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Statutory Reports" => GatewayMenu.StatutoryReports,
                     "TDS Reports" => GatewayMenu.TdsReports,
                     "TCS Reports" => GatewayMenu.TcsReports,
+                    "Payroll" => GatewayMenu.PayrollStatutoryReports,
+                    "Payroll Reports" => GatewayMenu.PayrollReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,
                     "Bank Book" => GatewayMenu.BankBook,

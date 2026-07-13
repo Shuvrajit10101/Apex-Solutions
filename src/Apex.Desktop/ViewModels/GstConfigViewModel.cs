@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
+using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
@@ -36,6 +38,35 @@ public sealed class GstTaxLedgerRow
 {
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
+}
+
+/// <summary>A Professional-Tax state picker option (Phase 8 slice 6): the 2-digit GST state code the seeded slab table
+/// belongs to (<c>null</c> = "None", no PT levied) + the display label.</summary>
+public sealed class PtStateOption
+{
+    /// <summary>The 2-digit GST state code (e.g. "27" Maharashtra); <c>null</c> for the "None" option.</summary>
+    public string? Code { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
+/// <summary>One band row of the seeded Professional-Tax slab table for the active state (Phase 8 slice 6; read-only
+/// view): who it applies to (all / men / women), the monthly PT-wage range, the flat monthly PT and any February
+/// over-charge. All figures whole rupees (PT carries no paisa).</summary>
+public sealed class PtSlabRow
+{
+    public string AppliesTo { get; init; } = string.Empty;
+    public string FromText { get; init; } = string.Empty;
+    public string ToText { get; init; } = string.Empty;
+    public string MonthlyText { get; init; } = string.Empty;
+    public string FebText { get; init; } = string.Empty;
+}
+
+/// <summary>A gratuity provision-population picker option (Phase 8 slice 9): which employees a provision run accrues
+/// for — all active (the recommended default, liability builds pre-vesting) or vested-only (≥ 5 years).</summary>
+public sealed class GratuityPopulationOption
+{
+    public GratuityProvisionPopulation Value { get; init; }
+    public string Display { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -111,6 +142,216 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// the live company by <see cref="OnEnableJobOrderProcessingChanged"/> and persisted.
     /// </summary>
     [ObservableProperty] private bool _enableJobOrderProcessing;
+
+    /// <summary>
+    /// The company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). The
+    /// master gate for the whole Payroll module — the Payroll Masters section (Employee Category / Group /
+    /// Employee, Payroll Unit, Attendance type) and, in later slices, the Attendance/Payroll voucher types and
+    /// payroll reports are all hidden/inert when it is off. Applied to the live company by
+    /// <see cref="OnPayrollEnabledChanged"/> through <see cref="PayrollService.EnablePayroll"/> /
+    /// <see cref="PayrollService.DisablePayroll"/> and persisted; a company that never enables it is byte-identical
+    /// and carries no payroll masters (ER-13). Turning it off never deletes payroll data — the UI simply hides.
+    /// </summary>
+    [ObservableProperty] private bool _payrollEnabled;
+
+    /// <summary>
+    /// The company feature flag <b>"Enable Payroll Statutory"</b> (F11 Company Features; Phase 8 slice 1; RQ-1) —
+    /// surfaces the Company Payroll Statutory Details (PF/ESI/NPS/IT codes) captured in the later statutory slices.
+    /// Only meaningful (and only shown) while <see cref="PayrollEnabled"/> is on; applied by
+    /// <see cref="OnPayrollStatutoryEnabledChanged"/> and persisted. Defaults to <c>false</c> (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _payrollStatutoryEnabled;
+
+    // ---- Provident Fund (Phase 8 slice 4; F11 Payroll Statutory → PF; RQ-9) --------------------------------
+    // The establishment's EPFO enrolment facts the PF computation reads. Only meaningful (and only shown) while
+    // PayrollStatutoryEnabled is on; enrolling sets Company.PfConfig via the engine, disabling clears it. Every
+    // field is gated: a company that never enrols for PF is byte-identical to a pre-v33 company (ER-13).
+
+    /// <summary>Whether the establishment is enrolled for Provident Fund (the "Enable Provident Fund" toggle;
+    /// applied via <see cref="ApplyPf"/>). Non-<c>null</c> <see cref="Company.PfConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _pfEnabled;
+
+    /// <summary>Whether the reduced <b>10%</b> EPF rate applies (a special establishment — &lt;20 employees / sick /
+    /// jute-beedi-brick-coir-guar-gum). Off ⇒ the 12% default. Only the EPF rate varies; EPS 8.33% / EDLI 0.5% /
+    /// admin 0.5% are fixed.</summary>
+    [ObservableProperty] private bool _pfReducedRate;
+
+    /// <summary>The EPFO <b>establishment / PF code</b> printed on the ECR and challan; optional.</summary>
+    [ObservableProperty] private string _pfEstablishmentCode = string.Empty;
+
+    /// <summary>Whether EPF wages are capped at the ₹15,000 statutory ceiling by default (the recommended default);
+    /// a per-employee "contribute on higher wages" opt-in overrides it for that member.</summary>
+    [ObservableProperty] private bool _pfCapWagesAtCeiling = true;
+
+    /// <summary>The PF Enable/disable result message (kept separate from the GST/TDS/TCS messages).</summary>
+    [ObservableProperty] private string? _pfMessage;
+
+    /// <summary>True iff the PF configuration block should render — only while Payroll Statutory is on (PF lives
+    /// under it). A payroll-off / statutory-off company never sees the PF fields (ER-13).</summary>
+    public bool ShowPfConfig => PayrollStatutoryEnabled;
+
+    // ---- Employees' State Insurance (Phase 8 slice 5; F11 Payroll Statutory → ESI; RQ-10) -------------------
+    // The establishment's ESIC enrolment facts the ESI computation reads. Only meaningful (and only shown) while
+    // PayrollStatutoryEnabled is on; enrolling sets Company.EsiConfig via the engine, disabling clears it. Every
+    // field is gated: a company that never enrols for ESI is byte-identical to a pre-v34 company (ER-13).
+
+    /// <summary>Whether the establishment is enrolled for Employees' State Insurance (the "Enable ESI" toggle;
+    /// applied via <see cref="ApplyEsi"/>). Non-<c>null</c> <see cref="Company.EsiConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _esiEnabled;
+
+    /// <summary>The ESIC <b>establishment / employer code</b> (17 digits) printed on the challan and monthly file;
+    /// optional (may be captured later). Distinct from the per-employee 10-digit IP number.</summary>
+    [ObservableProperty] private string _esiEmployerCode = string.Empty;
+
+    /// <summary>The ESI Enable/disable result message (kept separate from the GST/TDS/TCS/PF messages).</summary>
+    [ObservableProperty] private string? _esiMessage;
+
+    /// <summary>True iff the ESI configuration block should render — only while Payroll Statutory is on (ESI lives
+    /// under it). A payroll-off / statutory-off company never sees the ESI fields (ER-13).</summary>
+    public bool ShowEsiConfig => PayrollStatutoryEnabled;
+
+    // ---- Professional Tax (Phase 8 slice 6; F11 Payroll Statutory → PT; RQ-11) ------------------------------
+    // A state slab deduction on the monthly PT-wages. Only meaningful (and only shown) while PayrollStatutoryEnabled
+    // is on; enrolling sets Company.PtConfig via the engine (seeding the editable state slab tables), disabling clears
+    // it. Every field is gated: a company that never enrols for PT is byte-identical to a pre-v35 company (ER-13).
+
+    /// <summary>Whether the establishment is enrolled for Professional Tax (the "Enable Professional Tax" toggle;
+    /// applied via <see cref="ApplyPt"/>). Non-<c>null</c> <see cref="Company.PtConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _ptEnabled;
+
+    /// <summary>The PT <b>enrolment / registration number</b> (the PTEC/PTRC number printed on the challan); optional.</summary>
+    [ObservableProperty] private string _ptRegistrationNumber = string.Empty;
+
+    /// <summary>The active PT state (whose seeded slab table drives the deduction); "None" ⇒ no PT levied.</summary>
+    [ObservableProperty] private PtStateOption? _selectedPtState;
+
+    /// <summary>The PT Enable/disable result message (kept separate from the GST/TDS/TCS/PF/ESI messages).</summary>
+    [ObservableProperty] private string? _ptMessage;
+
+    /// <summary>True iff the PT configuration block should render — only while Payroll Statutory is on (PT lives
+    /// under it). A payroll-off / statutory-off company never sees the PT fields (ER-13).</summary>
+    public bool ShowPtConfig => PayrollStatutoryEnabled;
+
+    /// <summary>The read-only display of the PT wage basis (only <see cref="PtWageBasis.GrossEarnings"/> today).</summary>
+    public string PtWageBasisText => "Gross monthly earnings";
+
+    /// <summary>The PT state picker options (None + the seeded states Maharashtra / Karnataka / West Bengal).</summary>
+    public ObservableCollection<PtStateOption> PtStateOptions { get; } = new();
+
+    /// <summary>The seeded slab bands of the currently-selected PT state (read-only view; rebuilt as the state
+    /// changes). Empty for "None".</summary>
+    public ObservableCollection<PtSlabRow> PtSlabBands { get; } = new();
+
+    /// <summary>True when the selected PT state has seeded slab bands to show (drives the slab grid's visibility).</summary>
+    public bool HasPtSlabBands => PtSlabBands.Count > 0;
+
+    /// <summary>True when the selected PT state levies no PT (no slab bands) — drives the "None" note.</summary>
+    public bool PtStateHasNoSlab => PtSlabBands.Count == 0;
+
+    // ---- §192 Salary TDS (Phase 8 slice 7; F11 Payroll Statutory → Income-Tax; RQ-12) -----------------------
+    // The establishment's §192 salary-TDS switch + the salary deductor category. Only meaningful (and only shown)
+    // while PayrollStatutoryEnabled is on; enabling flips Company.SalaryTdsEnabled via the engine, disabling clears
+    // it. The deductor IDENTITY (TAN / responsible person) is the SHARED Phase-7 deductor config — no parallel one.
+    // Gated: a company that never enables salary-TDS is byte-identical to a pre-v36 company (ER-13).
+
+    /// <summary>Whether the establishment deducts <b>§192 salary TDS</b> (the "Enable Salary TDS" toggle; applied via
+    /// <see cref="ApplySalaryTds"/>). Mirrors <see cref="Company.SalaryTdsEnabled"/>.</summary>
+    [ObservableProperty] private bool _salaryTdsEnabled;
+
+    /// <summary>The salary <b>deductor category</b> = the Form-24Q section code (92B private default / 92A govt /
+    /// 92C union-govt). Surfaced here for the establishment; the Form 24Q / Form 16 screens carry the same picker.</summary>
+    [ObservableProperty] private SalarySectionCodeOption? _selectedSalarySectionCode;
+
+    /// <summary>The §192 Enable/disable result message (kept separate from the GST/TDS/TCS/PF/ESI/PT messages).</summary>
+    [ObservableProperty] private string? _salaryTdsMessage;
+
+    /// <summary>True iff the §192 salary-TDS block should render — only while Payroll Statutory is on (it lives under
+    /// it). A payroll-off / statutory-off company never sees the salary-TDS fields (ER-13).</summary>
+    public bool ShowSalaryTdsConfig => PayrollStatutoryEnabled;
+
+    /// <summary>The financial-year label the salary-TDS estimate runs for (e.g. "2025-26").</summary>
+    public string SalaryTdsFinancialYearLabel => FyLabel(_company.FinancialYearStart.Year);
+
+    /// <summary>The assessment-year label (FY + 1, e.g. "2026-27") the §192 return is filed for.</summary>
+    public string SalaryTdsAssessmentYearLabel => FyLabel(_company.FinancialYearStart.Year + 1);
+
+    /// <summary>The reused Phase-7 deductor identity the Form 24Q / Form 16 print (TAN + responsible person), or a
+    /// prompt to enable TDS when no TAN is captured yet — §192 does not fork a parallel deductor config.</summary>
+    public string SalaryTdsDeductorText
+    {
+        get
+        {
+            var tds = _company.Tds;
+            if (tds is null || string.IsNullOrWhiteSpace(tds.Tan))
+                return "No TAN captured yet — enable TDS above to file Form 24Q / issue Form 16.";
+            var who = string.IsNullOrWhiteSpace(tds.ResponsiblePersonName) ? "—" : tds.ResponsiblePersonName!;
+            return $"TAN {tds.Tan}  ·  {who}";
+        }
+    }
+
+    /// <summary>The salary deductor-category options (92B private / 92A govt / 92C union-govt), shared with the reports.</summary>
+    public ObservableCollection<SalarySectionCodeOption> SalarySectionCodes { get; } = new();
+
+    // ---- Gratuity (Phase 8 slice 9; F11 Payroll Statutory → Gratuity; RQ-14) --------------------------------
+    // The establishment's gratuity-provision policy the deterministic accrual reads (Payment of Gratuity Act 1972):
+    // the ₹20,00,000 §4(3) cap, the Basic + DA wage basis and which employees a run accrues for. Only meaningful
+    // (and only shown) while PayrollStatutoryEnabled is on; enrolling sets Company.GratuityConfig via the engine,
+    // disabling clears it. A company that never enrols for gratuity is byte-identical to a pre-v37 company (ER-13).
+
+    /// <summary>Whether the establishment provisions for Gratuity (the "Enable Gratuity" toggle; applied via
+    /// <see cref="ApplyGratuity"/>). Non-<c>null</c> <see cref="Company.GratuityConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _gratuityEnabled;
+
+    /// <summary>The statutory gratuity ceiling in whole rupees (§4(3); default ₹20,00,000). Configurable so a revised
+    /// government notification is a data change, not a code change.</summary>
+    [ObservableProperty] private string _gratuityCapText = "2000000";
+
+    /// <summary>Which employees a provision run accrues for (all active [default] / vested-only ≥ 5 years).</summary>
+    [ObservableProperty] private GratuityPopulationOption? _selectedGratuityPopulation;
+
+    /// <summary>The Gratuity Enable/disable result message (kept separate from the other statutory messages).</summary>
+    [ObservableProperty] private string? _gratuityMessage;
+
+    /// <summary>True iff the Gratuity configuration block should render — only while Payroll Statutory is on (gratuity
+    /// lives under it). A payroll-off / statutory-off company never sees the Gratuity fields (ER-13).</summary>
+    public bool ShowGratuityConfig => PayrollStatutoryEnabled;
+
+    /// <summary>The read-only display of the gratuity wage basis (only Basic + DA today).</summary>
+    public string GratuityWageBasisText => "Last-drawn Basic + Dearness Allowance (15 / 26 formula)";
+
+    /// <summary>The provision-population picker options (all active / vested-only).</summary>
+    public ObservableCollection<GratuityPopulationOption> GratuityPopulations { get; } = new();
+
+    // ---- Statutory Bonus (Phase 8 slice 9; F11 Payroll Statutory → Bonus; RQ-15) ----------------------------
+    // The establishment's statutory-bonus policy the deterministic computation reads (Payment of Bonus Act 1965):
+    // the §10–§11 rate (8.33%–20%; default 8.33%), the §12 ₹7,000 calc ceiling, the state minimum wage and whether a
+    // mid-year joiner's bonus is prorated. Only meaningful (and only shown) while PayrollStatutoryEnabled is on;
+    // enrolling sets Company.BonusConfig via the engine, disabling clears it. Byte-identical when never enrolled (ER-13).
+
+    /// <summary>Whether the establishment computes statutory Bonus (the "Enable Bonus" toggle; applied via
+    /// <see cref="ApplyBonus"/>). Non-<c>null</c> <see cref="Company.BonusConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _bonusEnabled;
+
+    /// <summary>The bonus rate as a percent (clamped to the §10–§11 8.33%–20% band on Apply; default 8.33%).</summary>
+    [ObservableProperty] private string _bonusRatePercentText = "8.33";
+
+    /// <summary>The §12 monthly calculation ceiling in whole rupees (default ₹7,000).</summary>
+    [ObservableProperty] private string _bonusCalculationCeilingText = "7000";
+
+    /// <summary>The applicable state minimum wage per month (default ₹0 ⇒ the ceiling falls back to ₹7,000).</summary>
+    [ObservableProperty] private string _bonusMinimumWageText = "0";
+
+    /// <summary>Whether a mid-year joiner's annual bonus is prorated by the months actually worked (default true).</summary>
+    [ObservableProperty] private bool _bonusProrate = true;
+
+    /// <summary>The Bonus Enable/disable result message (kept separate from the other statutory messages).</summary>
+    [ObservableProperty] private string? _bonusMessage;
+
+    /// <summary>True iff the Bonus configuration block should render — only while Payroll Statutory is on (bonus lives
+    /// under it). A payroll-off / statutory-off company never sees the Bonus fields (ER-13).</summary>
+    public bool ShowBonusConfig => PayrollStatutoryEnabled;
+
+    private static string FyLabel(int startYear) => $"{startYear}-{(startYear + 1) % 100:00}";
 
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
@@ -211,6 +452,22 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         foreach (var opt in TdsTcsDisplay.DeductorTypeOptions())
             DeductorTypes.Add(opt);
 
+        // PT state picker: None + the seeded states (Maharashtra 27 / Karnataka 29 / West Bengal 19). PT is
+        // state-configurable; the seeded set is the DP default (any state is addable via its own slab table).
+        PtStateOptions.Add(new PtStateOption { Code = null, Display = "None (no Professional Tax)" });
+        foreach (var code in new[] { "27", "29", "19" })
+        {
+            var st = IndianState.FromCode(code);
+            if (st is not null) PtStateOptions.Add(new PtStateOption { Code = st.Code, Display = $"{st.Code} — {st.Name}" });
+        }
+
+        // §192 salary deductor category (92B private default / 92A govt / 92C union-govt) — shared with the reports.
+        foreach (var opt in SalarySectionCodeOption.All) SalarySectionCodes.Add(opt);
+
+        // Gratuity provision-population picker (all active [default] / vested-only).
+        GratuityPopulations.Add(new GratuityPopulationOption { Value = GratuityProvisionPopulation.AllActiveEmployees, Display = "All active employees (accrue pre-vesting)" });
+        GratuityPopulations.Add(new GratuityPopulationOption { Value = GratuityProvisionPopulation.VestedOnly, Display = "Vested only (≥ 5 years' service)" });
+
         LoadFromCompany();
     }
 
@@ -224,6 +481,14 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         DefineBomComponentType = _company.DefineBomComponentType;
         EnableMultiplePriceLevels = _company.EnableMultiplePriceLevels;
         EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
+        PayrollEnabled = _company.PayrollEnabled;
+        PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        LoadPfFromCompany();
+        LoadEsiFromCompany();
+        LoadPtFromCompany();
+        LoadSalaryTdsFromCompany();
+        LoadGratuityFromCompany();
+        LoadBonusFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -256,6 +521,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SurchargeApplicable = tds?.SurchargeApplicable ?? tcs?.SurchargeApplicable ?? false;
         CessApplicable = tds?.CessApplicable ?? tcs?.CessApplicable ?? false;
         RefreshTdsTcsLedgers();
+        OnPropertyChanged(nameof(SalaryTdsDeductorText)); // §192 reuses the just-loaded deductor identity
     }
 
     /// <summary>
@@ -370,6 +636,538 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
         _onChanged();
     }
+
+    /// <summary>
+    /// Applies the "Maintain Payroll" F11 toggle to the live company the moment it changes (Phase 8 slice 1; RQ-1),
+    /// through the engine's idempotent <see cref="PayrollService.EnablePayroll"/> /
+    /// <see cref="PayrollService.DisablePayroll"/>, so the Payroll Masters section surfaces (or hides) immediately,
+    /// and persists the company. Enabling preserves the current statutory sub-toggle; disabling also clears
+    /// statutory (it is meaningless without Payroll) and reflects that in the UI. Errors are surfaced without
+    /// crashing and the toggle reverts to the company's real state. Independent of GST.
+    /// </summary>
+    partial void OnPayrollEnabledChanged(bool value)
+    {
+        try
+        {
+            var service = new PayrollService(_company);
+            if (value) service.EnablePayroll(enableStatutory: PayrollStatutoryEnabled);
+            else service.DisablePayroll();
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (PayrollEnabled != _company.PayrollEnabled)
+                PayrollEnabled = _company.PayrollEnabled;
+            return;
+        }
+        // DisablePayroll turns statutory off too — keep the sub-toggle in sync with the persisted state.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        OnPropertyChanged(nameof(ShowPfConfig));
+        OnPropertyChanged(nameof(ShowEsiConfig));
+        OnPropertyChanged(nameof(ShowPtConfig));
+        OnPropertyChanged(nameof(ShowSalaryTdsConfig));
+        OnPropertyChanged(nameof(ShowGratuityConfig));
+        OnPropertyChanged(nameof(ShowBonusConfig));
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Payroll Statutory" F11 sub-toggle to the live company (Phase 8 slice 1; RQ-1) and
+    /// persists. Only shown while <see cref="PayrollEnabled"/> is on; surfaces the Company Payroll Statutory
+    /// Details in the later statutory slices. Errors are surfaced without crashing and the toggle reverts.
+    /// </summary>
+    partial void OnPayrollStatutoryEnabledChanged(bool value)
+    {
+        _company.PayrollStatutoryEnabled = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+                PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+            return;
+        }
+        OnPropertyChanged(nameof(ShowPfConfig)); // the PF block appears/hides with the statutory sub-toggle
+        OnPropertyChanged(nameof(ShowEsiConfig)); // the ESI block appears/hides with the statutory sub-toggle
+        OnPropertyChanged(nameof(ShowPtConfig)); // the PT block appears/hides with the statutory sub-toggle
+        OnPropertyChanged(nameof(ShowSalaryTdsConfig)); // the §192 salary-TDS block appears/hides with the sub-toggle
+        OnPropertyChanged(nameof(ShowGratuityConfig)); // the Gratuity block appears/hides with the sub-toggle
+        OnPropertyChanged(nameof(ShowBonusConfig)); // the Bonus block appears/hides with the sub-toggle
+        _onChanged();
+    }
+
+    /// <summary>Seeds the PF form from the company's current <see cref="Company.PfConfig"/> (defaults for a
+    /// never-enrolled company: 12% rate, no code, cap-at-ceiling on).</summary>
+    private void LoadPfFromCompany()
+    {
+        var pf = _company.PfConfig;
+        PfEnabled = pf is not null;
+        PfReducedRate = pf?.EpfRateBasisPoints == PfConfig.ReducedEpfRateBasisPoints;
+        PfEstablishmentCode = pf?.EstablishmentCode ?? string.Empty;
+        PfCapWagesAtCeiling = pf?.CapWagesAtCeiling ?? true;
+    }
+
+    /// <summary>
+    /// Applies the "Enable Provident Fund" toggle (F11 → Payroll Statutory; Phase 8 slice 4; RQ-9), mirroring
+    /// <see cref="Apply"/>/<see cref="ApplyTds"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableProvidentFund"/> (EPF 12% / 10%, the establishment code and the cap flag) —
+    /// which also turns Payroll Statutory on — and persist. On disable: clear <see cref="Company.PfConfig"/> and
+    /// persist (per-employee PF details are retained, inert). Any domain error is surfaced to
+    /// <see cref="PfMessage"/> without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyPf()
+    {
+        PfMessage = null;
+
+        if (!PfEnabled)
+        {
+            _company.PfConfig = null; // enrolment cleared; per-employee PF details retained (harmless, inert)
+            if (!TrySave(m => PfMessage = m)) { RevertPfToggle(); return false; }
+            PfMessage = "Provident Fund is now OFF for this company. Employee PF details are unchanged.";
+            _onChanged();
+            return true;
+        }
+
+        var rate = PfReducedRate ? PfConfig.ReducedEpfRateBasisPoints : PfConfig.DefaultEpfRateBasisPoints;
+        var code = BlankToNull(PfEstablishmentCode);
+        try
+        {
+            new PayrollService(_company).EnableProvidentFund(rate, code, PfCapWagesAtCeiling);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            PfMessage = ex.Message;
+            RevertPfToggle();
+            return false;
+        }
+
+        // EnableProvidentFund flips Payroll Statutory on — keep the sibling toggle + the PF block in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var rateLabel = PfReducedRate ? "10%" : "12%";
+        PfMessage = $"Provident Fund enabled for {_company.Name} (EPF {rateLabel}; EPS 8.33% / EDLI 0.5% / admin 0.5%).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="PfEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertPfToggle()
+    {
+        var real = _company.PfConfig is not null;
+        if (PfEnabled != real) PfEnabled = real;
+    }
+
+    /// <summary>Seeds the ESI form from the company's current <see cref="Company.EsiConfig"/> (defaults for a
+    /// never-enrolled company: 0.75%/3.25% rates, no employer code).</summary>
+    private void LoadEsiFromCompany()
+    {
+        var esi = _company.EsiConfig;
+        EsiEnabled = esi is not null;
+        EsiEmployerCode = esi?.EmployerCode ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Applies the "Enable ESI" toggle (F11 → Payroll Statutory; Phase 8 slice 5; RQ-10), mirroring
+    /// <see cref="ApplyPf"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableEsi"/> (EE 0.75% / ER 3.25% defaults + the optional 17-digit ESIC employer
+    /// code, structurally validated) — which also turns Payroll Statutory on — and persist. On disable: clear
+    /// <see cref="Company.EsiConfig"/> and persist (per-employee ESI details are retained, inert). Any domain error
+    /// is surfaced to <see cref="EsiMessage"/> without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyEsi()
+    {
+        EsiMessage = null;
+
+        if (!EsiEnabled)
+        {
+            _company.EsiConfig = null; // enrolment cleared; per-employee ESI details retained (harmless, inert)
+            if (!TrySave(m => EsiMessage = m)) { RevertEsiToggle(); return false; }
+            EsiMessage = "Employees' State Insurance is now OFF for this company. Employee ESI details are unchanged.";
+            _onChanged();
+            return true;
+        }
+
+        var code = BlankToNull(EsiEmployerCode);
+        try
+        {
+            new PayrollService(_company).EnableEsi(employerCode: code);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            EsiMessage = ex.Message;
+            RevertEsiToggle();
+            return false;
+        }
+
+        // EnableEsi flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        EsiMessage = $"Employees' State Insurance enabled for {_company.Name} (employee 0.75% / employer 3.25%; "
+                     + "coverage ceiling ₹21,000 gross, ₹25,000 for a person with disability).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="EsiEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertEsiToggle()
+    {
+        var real = _company.EsiConfig is not null;
+        if (EsiEnabled != real) EsiEnabled = real;
+    }
+
+    // =========================================================== Professional Tax (Phase 8 slice 6)
+
+    /// <summary>Seeds the PT form from the company's current <see cref="Company.PtConfig"/> (defaults for a
+    /// never-enrolled company: not enabled, "None" state, blank enrolment number) and rebuilds the slab preview.</summary>
+    private void LoadPtFromCompany()
+    {
+        var pt = _company.PtConfig;
+        PtEnabled = pt is not null;
+        PtRegistrationNumber = pt?.RegistrationNumber ?? string.Empty;
+        SelectedPtState = PtStateOptions.FirstOrDefault(o => o.Code == pt?.StateCode) ?? PtStateOptions.FirstOrDefault();
+        RebuildSlabBands();
+    }
+
+    /// <summary>The active PT state changed — refresh the read-only slab preview so the selected state's bands show.</summary>
+    partial void OnSelectedPtStateChanged(PtStateOption? value) => RebuildSlabBands();
+
+    /// <summary>
+    /// Applies the "Enable Professional Tax" toggle (F11 → Payroll Statutory; Phase 8 slice 6; RQ-11), mirroring
+    /// <see cref="ApplyEsi"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableProfessionalTax"/> (seeds the editable state slab tables — Maharashtra
+    /// men/women, Karnataka, West Bengal) when not yet enrolled, or update the active state + enrolment number on the
+    /// existing config (preserving its slab tables) — which also turns Payroll Statutory on — and persist. On disable:
+    /// clear <see cref="Company.PtConfig"/> and persist. Any domain error is surfaced to <see cref="PtMessage"/>
+    /// without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyPt()
+    {
+        PtMessage = null;
+
+        if (!PtEnabled)
+        {
+            _company.PtConfig = null; // enrolment cleared; the company is byte-identical to a pre-v35 company (ER-13)
+            if (!TrySave(m => PtMessage = m)) { RevertPtToggle(); return false; }
+            PtMessage = "Professional Tax is now OFF for this company.";
+            RebuildSlabBands();
+            _onChanged();
+            return true;
+        }
+
+        var stateCode = SelectedPtState?.Code;
+        var registration = BlankToNull(PtRegistrationNumber);
+        try
+        {
+            if (_company.PtConfig is { } existing)
+            {
+                // Already enrolled — switch the active state + enrolment number in place (keeps the slab tables the
+                // company may have edited); mirror EnableProfessionalTax's Payroll-Statutory-on invariant.
+                new PayrollService(_company).SetProfessionalTaxState(stateCode);
+                existing.RegistrationNumber = registration;
+                _company.PayrollStatutoryEnabled = true;
+            }
+            else
+            {
+                new PayrollService(_company).EnableProfessionalTax(stateCode, registration);
+            }
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            PtMessage = ex.Message;
+            RevertPtToggle();
+            return false;
+        }
+
+        // EnableProfessionalTax flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var stateName = stateCode is null ? "None" : (IndianState.FromCode(stateCode)?.Name ?? stateCode);
+        PtMessage = $"Professional Tax enabled for {_company.Name} (state {stateName}; annual cap ₹2,500 per person).";
+        RebuildSlabBands();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="PtEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertPtToggle()
+    {
+        var real = _company.PtConfig is not null;
+        if (PtEnabled != real) PtEnabled = real;
+    }
+
+    /// <summary>Rebuilds the read-only slab preview for the selected PT state: the seeded bands of the active state's
+    /// tables (Maharashtra shows its Men + Women tables; Karnataka / West Bengal one gender-agnostic table). Reads the
+    /// company's live tables when enrolled, else the seed preview; "None" ⇒ empty.</summary>
+    private void RebuildSlabBands()
+    {
+        PtSlabBands.Clear();
+        var state = SelectedPtState?.Code;
+        if (state is null) return;
+
+        var tables = _company.PtConfig is { } cfg
+            ? cfg.SlabTables
+            : ProfessionalTax.SeedSlabTables();
+
+        foreach (var table in tables.Where(t => string.Equals(t.StateCode, state, StringComparison.Ordinal))
+                                     .OrderBy(t => (int)t.GenderScope))
+        {
+            foreach (var band in table.Bands)
+            {
+                var feb = band.MonthOverrides.FirstOrDefault(o => o.Month == ProfessionalTax.FebruaryOverrideMonth);
+                PtSlabBands.Add(new PtSlabRow
+                {
+                    AppliesTo = GenderScopeLabel(table.GenderScope),
+                    FromText = IndianFormat.RupeesAlways(band.FromWage.Amount),
+                    ToText = band.ToWage is { } t ? IndianFormat.RupeesAlways(t.Amount) : "and above",
+                    MonthlyText = IndianFormat.RupeesAlways(band.MonthlyAmount.Amount),
+                    FebText = feb is null ? "—" : IndianFormat.RupeesAlways(feb.Amount.Amount),
+                });
+            }
+        }
+        OnPropertyChanged(nameof(HasPtSlabBands));
+        OnPropertyChanged(nameof(PtStateHasNoSlab));
+    }
+
+    private static string GenderScopeLabel(PtGenderScope scope) => scope switch
+    {
+        PtGenderScope.Male => "Men",
+        PtGenderScope.Female => "Women",
+        _ => "All employees",
+    };
+
+    // =========================================================== §192 Salary TDS (Phase 8 slice 7)
+
+    /// <summary>Seeds the §192 form from the company's current <see cref="Company.SalaryTdsEnabled"/> (defaults for a
+    /// never-enabled company: not enabled, deductor category 92B private).</summary>
+    private void LoadSalaryTdsFromCompany()
+    {
+        SalaryTdsEnabled = _company.SalaryTdsEnabled;
+        SelectedSalarySectionCode ??= SalarySectionCodes.FirstOrDefault(o => o.Code == "92B")
+                                      ?? SalarySectionCodes.FirstOrDefault();
+        OnPropertyChanged(nameof(SalaryTdsDeductorText));
+    }
+
+    /// <summary>
+    /// Applies the "Enable Salary TDS" toggle (F11 → Payroll Statutory; Phase 8 slice 7; RQ-12), mirroring
+    /// <see cref="ApplyPt"/>. On enable: turn on §192 salary-TDS via the engine's idempotent
+    /// <see cref="PayrollService.EnableSalaryTds"/> (which also turns Payroll Statutory on) and persist. On disable:
+    /// <see cref="PayrollService.DisableSalaryTds"/> + persist (per-employee tax declarations are retained, inert).
+    /// Any domain error is surfaced to <see cref="SalaryTdsMessage"/> without crashing, and the toggle reverts.
+    /// </summary>
+    public bool ApplySalaryTds()
+    {
+        SalaryTdsMessage = null;
+
+        try
+        {
+            var service = new PayrollService(_company);
+            if (SalaryTdsEnabled) service.EnableSalaryTds();
+            else service.DisableSalaryTds();
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            SalaryTdsMessage = ex.Message;
+            RevertSalaryTdsToggle();
+            return false;
+        }
+
+        // EnableSalaryTds flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var category = SelectedSalarySectionCode?.Code ?? "92B";
+        SalaryTdsMessage = SalaryTdsEnabled
+            ? $"§192 salary TDS enabled for {_company.Name} (average-rate monthly withholding; deductor {category}; "
+              + $"AY {SalaryTdsAssessmentYearLabel})."
+            : "§192 salary TDS is now OFF for this company. Employee tax declarations are unchanged.";
+        OnPropertyChanged(nameof(SalaryTdsDeductorText));
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="SalaryTdsEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertSalaryTdsToggle()
+    {
+        if (SalaryTdsEnabled != _company.SalaryTdsEnabled) SalaryTdsEnabled = _company.SalaryTdsEnabled;
+    }
+
+    // =========================================================== Gratuity (Phase 8 slice 9)
+
+    /// <summary>Seeds the Gratuity form from the company's current <see cref="Company.GratuityConfig"/> (defaults for a
+    /// never-enrolled company: ₹20,00,000 cap, Basic + DA basis, all-active population).</summary>
+    private void LoadGratuityFromCompany()
+    {
+        var g = _company.GratuityConfig;
+        GratuityEnabled = g is not null;
+        GratuityCapText = ((long)(g?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount)).ToString(CultureInfo.InvariantCulture);
+        var population = g?.Population ?? GratuityProvisionPopulation.AllActiveEmployees;
+        SelectedGratuityPopulation = GratuityPopulations.FirstOrDefault(o => o.Value == population)
+                                     ?? GratuityPopulations.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Gratuity" toggle (F11 → Payroll Statutory; Phase 8 slice 9; RQ-14), mirroring
+    /// <see cref="ApplyPf"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableGratuity"/> (the ₹20,00,000 §4(3) cap, Basic + DA basis, the chosen population)
+    /// — which also turns Payroll Statutory on — and persist. On disable: clear <see cref="Company.GratuityConfig"/>
+    /// and persist (the company is byte-identical to a pre-v37 company, ER-13). A negative / non-numeric cap is
+    /// surfaced to <see cref="GratuityMessage"/> without crashing and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyGratuity()
+    {
+        GratuityMessage = null;
+
+        if (!GratuityEnabled)
+        {
+            _company.GratuityConfig = null; // enrolment cleared; byte-identical to a pre-v37 company (ER-13)
+            if (!TrySave(m => GratuityMessage = m)) { RevertGratuityToggle(); return false; }
+            GratuityMessage = "Gratuity provisioning is now OFF for this company.";
+            _onChanged();
+            return true;
+        }
+
+        if (!TryParseWholeRupees(GratuityCapText, out var cap) || cap < 0m)
+        {
+            GratuityMessage = "The gratuity cap must be a non-negative whole-rupee amount (e.g. 2000000).";
+            RevertGratuityToggle();
+            return false;
+        }
+        var population = SelectedGratuityPopulation?.Value ?? GratuityProvisionPopulation.AllActiveEmployees;
+        try
+        {
+            new PayrollService(_company).EnableGratuity(new Money(cap),
+                GratuityWageBasis.BasicAndDearnessAllowance, population);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            GratuityMessage = ex.Message;
+            RevertGratuityToggle();
+            return false;
+        }
+
+        // EnableGratuity flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var popLabel = population == GratuityProvisionPopulation.VestedOnly ? "vested-only (≥ 5 years)" : "all active employees";
+        GratuityMessage = $"Gratuity enabled for {_company.Name} (15 / 26 formula on Basic + DA; cap "
+                          + $"₹{IndianFormat.RupeesAlways(cap)}; accrue for {popLabel}).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="GratuityEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertGratuityToggle()
+    {
+        var real = _company.GratuityConfig is not null;
+        if (GratuityEnabled != real) GratuityEnabled = real;
+    }
+
+    // =========================================================== Statutory Bonus (Phase 8 slice 9)
+
+    /// <summary>Seeds the Bonus form from the company's current <see cref="Company.BonusConfig"/> (defaults for a
+    /// never-enrolled company: 8.33% rate, ₹7,000 calc ceiling, ₹0 minimum wage, prorate on).</summary>
+    private void LoadBonusFromCompany()
+    {
+        var b = _company.BonusConfig;
+        BonusEnabled = b is not null;
+        var bp = b?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints;
+        BonusRatePercentText = (bp / 100m).ToString("0.##", CultureInfo.InvariantCulture);
+        BonusCalculationCeilingText = ((long)(b?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling)).ToString(CultureInfo.InvariantCulture);
+        BonusMinimumWageText = ((long)(b?.MinimumWage.Amount ?? 0m)).ToString(CultureInfo.InvariantCulture);
+        BonusProrate = b?.Prorate ?? true;
+    }
+
+    /// <summary>
+    /// Applies the "Enable Bonus" toggle (F11 → Payroll Statutory; Phase 8 slice 9; RQ-15), mirroring
+    /// <see cref="ApplyGratuity"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableStatutoryBonus"/> (the rate clamped to the §10–§11 8.33%–20% band, the §12
+    /// ₹7,000 calc ceiling, the state minimum wage, the prorate flag) — which also turns Payroll Statutory on — and
+    /// persist. On disable: clear <see cref="Company.BonusConfig"/> and persist (byte-identical, ER-13). A
+    /// non-numeric rate / ceiling is surfaced to <see cref="BonusMessage"/> without crashing and the toggle reverts.
+    /// </summary>
+    public bool ApplyBonus()
+    {
+        BonusMessage = null;
+
+        if (!BonusEnabled)
+        {
+            _company.BonusConfig = null; // enrolment cleared; byte-identical to a pre-v37 company (ER-13)
+            if (!TrySave(m => BonusMessage = m)) { RevertBonusToggle(); return false; }
+            BonusMessage = "Statutory Bonus is now OFF for this company.";
+            _onChanged();
+            return true;
+        }
+
+        if (!TryParsePercent(BonusRatePercentText, out var percent) || percent < 0m)
+        {
+            BonusMessage = "The bonus rate must be a percent between 8.33 and 20 (e.g. 8.33).";
+            RevertBonusToggle();
+            return false;
+        }
+        if (!TryParseWholeRupees(BonusCalculationCeilingText, out var ceiling) || ceiling < 0m)
+        {
+            BonusMessage = "The calculation ceiling must be a non-negative whole-rupee amount (e.g. 7000).";
+            RevertBonusToggle();
+            return false;
+        }
+        if (!TryParseWholeRupees(BonusMinimumWageText, out var minWage) || minWage < 0m)
+        {
+            BonusMessage = "The minimum wage must be a non-negative whole-rupee amount (0 ⇒ ceiling ₹7,000).";
+            RevertBonusToggle();
+            return false;
+        }
+
+        // Percent → basis points (100 bp = 1%); the engine clamps to the §10–§11 band on construction.
+        var basisPoints = (int)Math.Round(percent * 100m, 0, MidpointRounding.AwayFromZero);
+        try
+        {
+            new PayrollService(_company).EnableStatutoryBonus(basisPoints, new Money(ceiling), new Money(minWage), BonusProrate);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            BonusMessage = ex.Message;
+            RevertBonusToggle();
+            return false;
+        }
+
+        // EnableStatutoryBonus flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var appliedBp = _company.BonusConfig?.RateBasisPoints ?? basisPoints;
+        BonusMessage = $"Statutory Bonus enabled for {_company.Name} (rate {(appliedBp / 100m).ToString("0.##", CultureInfo.InvariantCulture)}%; "
+                       + $"eligibility ≤ ₹21,000 · calc ceiling ₹{IndianFormat.RupeesAlways(ceiling)}).";
+        // Reflect the clamped rate back into the field so the user sees the applied value.
+        BonusRatePercentText = (appliedBp / 100m).ToString("0.##", CultureInfo.InvariantCulture);
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="BonusEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertBonusToggle()
+    {
+        var real = _company.BonusConfig is not null;
+        if (BonusEnabled != real) BonusEnabled = real;
+    }
+
+    /// <summary>Parses a whole-rupee amount (grouping commas tolerated); false on a non-numeric value.</summary>
+    private static bool TryParseWholeRupees(string? text, out decimal value) =>
+        decimal.TryParse((text ?? string.Empty).Replace(",", string.Empty).Trim(),
+            NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+
+    /// <summary>Parses a percent value (e.g. "8.33"); false on a non-numeric value.</summary>
+    private static bool TryParsePercent(string? text, out decimal value) =>
+        decimal.TryParse((text ?? string.Empty).Trim(),
+            NumberStyles.Number, CultureInfo.InvariantCulture, out value);
 
     /// <summary>
     /// Applies the "Define type of component for BOM" F12 toggle to the live company (RQ-10) and persists, so the
@@ -653,6 +1451,25 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             ApplyTds();
         if (TcsEnabled != _company.TcsEnabled)
             ApplyTcs();
+        // Commit the PF enrolment whenever the toggle differs from the persisted state (or PF is on, to persist
+        // edited rate/code/cap), mirroring the auto-applying sibling feature toggles on the same panel.
+        if (ShowPfConfig && (PfEnabled != (_company.PfConfig is not null) || PfEnabled))
+            ApplyPf();
+        // Commit the ESI enrolment on the same rule (toggle changed, or ESI on to persist an edited employer code).
+        if (ShowEsiConfig && (EsiEnabled != (_company.EsiConfig is not null) || EsiEnabled))
+            ApplyEsi();
+        // Commit the PT enrolment on the same rule (toggle changed, or PT on to persist an edited state / enrolment no.).
+        if (ShowPtConfig && (PtEnabled != (_company.PtConfig is not null) || PtEnabled))
+            ApplyPt();
+        // Commit the §192 salary-TDS switch whenever the toggle differs from the persisted state.
+        if (ShowSalaryTdsConfig && SalaryTdsEnabled != _company.SalaryTdsEnabled)
+            ApplySalaryTds();
+        // Commit the Gratuity enrolment (toggle changed, or gratuity on to persist an edited cap / population).
+        if (ShowGratuityConfig && (GratuityEnabled != (_company.GratuityConfig is not null) || GratuityEnabled))
+            ApplyGratuity();
+        // Commit the Bonus enrolment (toggle changed, or bonus on to persist an edited rate / ceiling / prorate).
+        if (ShowBonusConfig && (BonusEnabled != (_company.BonusConfig is not null) || BonusEnabled))
+            ApplyBonus();
     }
 
     /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>

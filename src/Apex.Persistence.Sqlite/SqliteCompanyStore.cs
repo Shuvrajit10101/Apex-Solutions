@@ -706,6 +706,203 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 29;
         }
 
+        // v29 → v30: apply the Payroll masters + F11-config schema (two additive companies columns + five new
+        // master tables + indexes), then bump the marker. Existing v29 data survives untouched (ALTER … ADD COLUMN
+        // DEFAULT 0 + CREATE TABLE/INDEX only; no row rewrites — Phase 8 slice 1). ER-13 byte-identical when Payroll
+        // is never enabled (the flags default 0, the new tables stay empty).
+        if (version == 29)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV29ToV30;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 30);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 30;
+        }
+
+        // v30 → v31: apply the Pay Heads + dated Salary Structures schema (five new tables + indexes), then bump the
+        // marker. Existing v30 data survives untouched (CREATE TABLE/INDEX only; no ALTER, no companies column, no row
+        // rewrites — Phase 8 slice 2). ER-13 byte-identical when Payroll is never used (the new tables stay empty).
+        if (version == 30)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV30ToV31;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 31);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 31;
+        }
+
+        // v31 → v32: apply the Attendance + Payroll-voucher engine schema (one additive pay_heads column + two new
+        // tables — attendance_entries + payroll_lines — with indexes), then bump the marker. Existing v31 data
+        // survives untouched (ALTER … ADD COLUMN NULL + CREATE TABLE/INDEX only; no row rewrites — Phase 8 slice 3).
+        // ER-13 byte-identical when Payroll is never run (the new column defaults NULL, the new tables stay empty).
+        if (version == 31)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV31ToV32;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 32);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 32;
+        }
+
+        // v32 → v33: apply the Provident-Fund schema (four additive companies columns for the establishment PF
+        // config, three additive employees columns for the per-employee PF details, two additive pay_heads columns
+        // for the PF statutory role + PF-wage flag), then bump the marker. Existing v32 data survives untouched
+        // (ALTER … ADD COLUMN only; no new tables, no row rewrites — Phase 8 slice 4). ER-13 byte-identical when the
+        // establishment never enrols for PF (pf_config_enabled defaults 0, the per-employee/pay-head flags default 0).
+        if (version == 32)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV32ToV33;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 33);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 33;
+        }
+
+        // v33 → v34: apply the Employees'-State-Insurance schema (four additive companies columns for the
+        // establishment ESI config, one additive employees column for per-employee ESI applicability, three additive
+        // pay_heads columns for the ESI statutory role + ESI-wage flag + overtime marker), then bump the marker.
+        // Existing v33 data survives untouched (ALTER … ADD COLUMN only; no new tables, no row rewrites — Phase 8
+        // slice 5). ER-13 byte-identical when the establishment never enrols for ESI (esi_config_enabled defaults 0,
+        // the per-employee/pay-head flags default 0).
+        if (version == 33)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV33ToV34;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 34);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 34;
+        }
+
+        // v34 → v35: apply the Professional-Tax schema (four additive companies columns for the establishment PT
+        // config, one additive pay_heads column for the PT statutory role, one new pt_slab_bands table + index for the
+        // editable per-state slab bands), then bump the marker. Existing v34 data survives untouched (ALTER … ADD
+        // COLUMN + a new empty table; no row rewrites — Phase 8 slice 6). ER-13 byte-identical when the establishment
+        // never enrols for PT (pt_config_enabled defaults 0, pt_slab_bands starts empty).
+        if (version == 34)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV34ToV35;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 35);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 35;
+        }
+
+        // v35 → v36: apply the §192 salary-TDS schema (one additive companies column for the establishment salary-TDS
+        // toggle, one new employee_tax_declarations table + index for the per-employee Form-12BB declaration), then
+        // bump the marker. Existing v35 data survives untouched (ALTER … ADD COLUMN + a new empty table; no row
+        // rewrites — Phase 8 slice 7). ER-13 byte-identical when the establishment never deducts salary-TDS
+        // (salary_tds_enabled defaults 0, employee_tax_declarations starts empty).
+        if (version == 35)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV35ToV36;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 36);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 36;
+        }
+
+        // v36 → v37: apply the Gratuity + statutory-Bonus schema (nine additive companies columns for the
+        // establishment gratuity config [enrolled/cap/wage-basis/population] and bonus config [enrolled/rate/
+        // calc-ceiling/minimum-wage/prorate]), then bump the marker. Existing v36 data survives untouched (ALTER …
+        // ADD COLUMN only; no new tables, no row rewrites — Phase 8 slice 9). ER-13 byte-identical when the
+        // establishment provisions neither (both *_config_enabled default 0, the rest carry statutory defaults).
+        if (version == 36)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV36ToV37;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 37);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 37;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -727,7 +924,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing,
                    tds_enabled, tcs_enabled, tan, deductor_type, responsible_person_name, responsible_person_pan,
                    responsible_person_designation, responsible_person_address, surcharge_applicable,
-                   cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from
+                   cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from,
+                   payroll_enabled, payroll_statutory_enabled,
+                   pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
+                   esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
+                   pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
+                   salary_tds_enabled,
+                   gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
+                   bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -760,6 +964,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 EnableMultiplePriceLevels = r.GetInt64(23) != 0,
                 // v24 (RQ-45): F11 "Enable Job Order Processing" — a plain persisted toggle, read verbatim.
                 EnableJobOrderProcessing = r.GetInt64(24) != 0,
+                // v30 (Phase 8 slice 1): Payroll F11 toggles — plain persisted flags, read verbatim (default 0 — ER-13).
+                PayrollEnabled = r.GetInt64(38) != 0,
+                PayrollStatutoryEnabled = r.GetInt64(39) != 0,
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -809,6 +1016,52 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     SurchargeApplicable = surcharge, CessApplicable = cess, Periodicity = periodicity,
                     ApplicableFrom = r.IsDBNull(37) ? (DateOnly?)null : ParseDate(r.GetString(37)),
                 };
+
+            // v33 (Phase 8 slice 4): establishment Provident-Fund config. Present iff pf_config_enabled = 1; when
+            // off (default for a company not enrolled for PF) PfConfig stays null and no PF path activates (ER-13).
+            if (r.GetInt64(40) != 0)
+                company.PfConfig = new PfConfig(
+                    (int)r.GetInt64(41),
+                    r.IsDBNull(42) ? null : r.GetString(42),
+                    r.GetInt64(43) != 0);
+
+            // v34 (Phase 8 slice 5): establishment ESI config. Present iff esi_config_enabled = 1; when off (default
+            // for a company not enrolled for ESI) EsiConfig stays null and no ESI path activates (ER-13).
+            if (r.GetInt64(44) != 0)
+                company.EsiConfig = new EsiConfig(
+                    (int)r.GetInt64(45),
+                    (int)r.GetInt64(46),
+                    r.IsDBNull(47) ? null : r.GetString(47));
+
+            // v35 (Phase 8 slice 6): establishment Professional-Tax config. Present iff pt_config_enabled = 1; when off
+            // (default for a company not enrolled for PT) PtConfig stays null and no PT path activates (ER-13). The
+            // per-state slab tables are hydrated from pt_slab_bands below.
+            if (r.GetInt64(48) != 0)
+                company.PtConfig = new PtConfig(
+                    r.IsDBNull(49) ? null : r.GetString(49),
+                    r.IsDBNull(50) ? null : r.GetString(50),
+                    (PtWageBasis)(int)r.GetInt64(51));
+
+            // v36 (Phase 8 slice 7): establishment §192 salary-TDS toggle. Off (default) for a company that never
+            // deducts salary-TDS (ER-13); per-employee declarations are hydrated from employee_tax_declarations below.
+            company.SalaryTdsEnabled = r.GetInt64(52) != 0;
+
+            // v37 (Phase 8 slice 9): establishment Gratuity config. Present iff gratuity_config_enabled = 1; when off
+            // (default for a company that does not provision) GratuityConfig stays null and no gratuity path activates (ER-13).
+            if (r.GetInt64(53) != 0)
+                company.GratuityConfig = new GratuityConfig(
+                    new Money(r.GetInt64(54) / 100m),
+                    (GratuityWageBasis)(int)r.GetInt64(55),
+                    (GratuityProvisionPopulation)(int)r.GetInt64(56));
+
+            // v37 (Phase 8 slice 9): establishment statutory-Bonus config. Present iff bonus_config_enabled = 1; when
+            // off (default) BonusConfig stays null and no bonus path activates (ER-13).
+            if (r.GetInt64(57) != 0)
+                company.BonusConfig = new BonusConfig(
+                    (int)r.GetInt64(58),
+                    new Money(r.GetInt64(59) / 100m),
+                    new Money(r.GetInt64(60) / 100m),
+                    r.GetInt64(61) != 0);
         }
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
@@ -823,6 +1076,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (company.Tcs is not null)
             foreach (var nature in ReadNaturesOfGoods(companyId))
                 company.Tcs.AddNatureOfGoods(nature);
+
+        // v35 PT slab tables (only present when PT was enrolled). Bands are grouped by (slab_id) into PtSlab tables.
+        if (company.PtConfig is not null)
+            foreach (var slab in ReadPtSlabTables(companyId))
+                company.PtConfig.AddSlabTable(slab);
+
+        // v36 per-employee §192 income-tax declarations (empty for a company with no declarations — ER-13).
+        foreach (var declaration in ReadTaxDeclarations(companyId))
+            company.AddTaxDeclaration(declaration);
 
         // Groups: the reserved P&L head (is_pl_head = 1) is registered via SetProfitAndLossHead and
         // kept OUT of Company.Groups; the 28 (and any custom) groups go into Company.Groups. Load
@@ -920,7 +1182,52 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var (challanId, voucherId) in ReadTcsChallanVoucherLinks(companyId))
             company.LinkTcsChallanToVoucher(challanId, voucherId);
 
+        // Payroll masters (Phase 8 slice 1). Order: categories + groups + payroll units first, then attendance
+        // types (reference payroll units) and employees (reference groups + categories). Empty when Payroll off.
+        foreach (var cat in ReadEmployeeCategories(companyId))
+            company.AddEmployeeCategory(cat);
+        foreach (var g in ReadEmployeeGroups(companyId))
+            company.AddEmployeeGroup(g);
+        foreach (var u in ReadPayrollUnits(companyId))
+            company.AddPayrollUnit(u);
+        foreach (var a in ReadAttendanceTypes(companyId))
+            company.AddAttendanceType(a);
+        foreach (var e in ReadEmployees(companyId))
+            company.AddEmployee(e);
+
+        // Pay heads (Phase 8 slice 2): the master rows first, then their computed-on basis + slab child rows are
+        // folded in by ReadPayHeads. Then dated salary structures (+ their lines), which FK pay heads.
+        foreach (var ph in ReadPayHeads(companyId))
+            company.AddPayHead(ph);
+        foreach (var s in ReadSalaryStructures(companyId))
+            company.AddSalaryStructure(s);
+
+        // Attendance entries (Phase 8 slice 3): recorded attendance/production values, FK employees + attendance types.
+        foreach (var a in ReadAttendanceEntries(companyId))
+            company.AddAttendanceEntry(a);
+
         return company;
+    }
+
+    private IEnumerable<AttendanceEntry> ReadAttendanceEntries(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, employee_id, attendance_type_id, from_date, to_date, value_micro
+            FROM attendance_entries WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<AttendanceEntry>();
+        while (r.Read())
+            list.Add(new AttendanceEntry(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                Guid.Parse(r.GetString(2)),
+                ParseDate(r.GetString(3)),
+                ParseDate(r.GetString(4)),
+                r.GetInt64(5) / 1_000_000m));
+        return list;
     }
 
     private IEnumerable<TdsChallan> ReadTdsChallans(Guid companyId)
@@ -1063,6 +1370,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertTdsChallans(tx, company);
         // TCS deposit challans + their voucher links (Phase 7 slice 6): the exact sibling of the TDS challan set.
         InsertTcsChallans(tx, company);
+        // Payroll masters (Phase 8 slice 1). Categories + groups + payroll units first; then attendance types
+        // (FK payroll_units) and employees (FK employee_groups + employee_categories). Hierarchical/compound
+        // masters are inserted parents-before-children so their self-FK resolves.
+        InsertEmployeeCategories(tx, company);
+        InsertEmployeeGroups(tx, company);
+        InsertPayrollUnits(tx, company);
+        InsertAttendanceTypes(tx, company);
+        InsertEmployees(tx, company);
+        // Pay heads (Phase 8 slice 2): all master rows first (they FK groups/ledgers/attendance_types, inserted
+        // above), then the computed-on basis + slab child rows (which FK pay_heads on both ends), then dated salary
+        // structures + their lines (FK pay_heads). Inserting every pay-head row before any computation row means a
+        // computed-on reference to another pay head is always already present.
+        InsertPayHeads(tx, company);
+        InsertSalaryStructures(tx, company);
+        // Attendance entries (Phase 8 slice 3): recorded attendance/production values — FK employees + attendance
+        // types (both inserted above). The Payroll voucher's payroll_lines are written by InsertVouchers above.
+        InsertAttendanceEntries(tx, company);
 
         tx.Commit();
     }
@@ -1406,6 +1730,106 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
+    /// <summary>v35: reads the PT slab bands for a company and groups them (by <c>slab_id</c>, ordered by
+    /// <c>band_order</c>) into <see cref="PtSlab"/> tables, preserving each table's state + gender scope. No rows ⇒ an
+    /// empty list.</summary>
+    private IEnumerable<PtSlab> ReadPtSlabTables(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT slab_id, state_code, gender_scope, from_wage_paisa, to_wage_paisa, monthly_amount_paisa, month_overrides
+            FROM pt_slab_bands WHERE company_id = $cid ORDER BY band_order, rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+
+        // Group by slab_id preserving first-seen order. Ordered by the WRITTEN band_order (low band to high) — the
+        // documented key — so band order is robust to any future in-place edit that leaves rowid and band_order out of
+        // step (F2); rowid is only a deterministic tie-break across slabs (band_order is unique within a slab), which
+        // keeps each slab's first-seen position stable = its saved SlabTables order.
+        var order = new List<Guid>();
+        var byId = new Dictionary<Guid, (string State, PtGenderScope Scope, List<PtSlabBand> Bands)>();
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+            {
+                var slabId = Guid.Parse(r.GetString(0));
+                if (!byId.TryGetValue(slabId, out var table))
+                {
+                    table = (r.GetString(1), (PtGenderScope)(int)r.GetInt64(2), new List<PtSlabBand>());
+                    byId[slabId] = table;
+                    order.Add(slabId);
+                }
+                var from = new Money(r.GetInt64(3) / 100m);
+                Money? to = r.IsDBNull(4) ? null : new Money(r.GetInt64(4) / 100m);
+                var amount = new Money(r.GetInt64(5) / 100m);
+                var overrides = ParsePtMonthOverrides(r.GetString(6));
+                table.Bands.Add(new PtSlabBand(from, to, amount, overrides));
+            }
+
+        var list = new List<PtSlab>(order.Count);
+        foreach (var id in order)
+        {
+            var t = byId[id];
+            list.Add(new PtSlab(id, t.State, t.Scope, t.Bands));
+        }
+        return list;
+    }
+
+    /// <summary>v36: reads the per-employee §192 income-tax declarations (Form 12BB) for a company. No rows ⇒ an
+    /// empty list (ER-13). All money is stored as integer paisa.</summary>
+    private IEnumerable<TaxDeclaration> ReadTaxDeclarations(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT employee_id, section_80c_paisa, section_80d_paisa, section_80ccd1b_paisa,
+                   section_80ccd2_employer_paisa, hra_exempt_paisa, home_loan_interest_paisa, other_income_paisa,
+                   prev_employer_salary_paisa, prev_employer_tds_paisa
+            FROM employee_tax_declarations WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+
+        var list = new List<TaxDeclaration>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            list.Add(new TaxDeclaration
+            {
+                EmployeeId = Guid.Parse(r.GetString(0)),
+                Section80C = new Money(r.GetInt64(1) / 100m),
+                Section80D = new Money(r.GetInt64(2) / 100m),
+                Section80CCD1B = new Money(r.GetInt64(3) / 100m),
+                Section80CCD2Employer = new Money(r.GetInt64(4) / 100m),
+                HouseRentAllowanceExempt = new Money(r.GetInt64(5) / 100m),
+                HomeLoanInterest24b = new Money(r.GetInt64(6) / 100m),
+                OtherIncome = new Money(r.GetInt64(7) / 100m),
+                PreviousEmployerSalary = new Money(r.GetInt64(8) / 100m),
+                PreviousEmployerTds = new Money(r.GetInt64(9) / 100m),
+            });
+        return list;
+    }
+
+    /// <summary>Parses the compact PT month-override column ("month:paisa" pairs joined by ';', "" = none).</summary>
+    private static IReadOnlyList<PtMonthOverride> ParsePtMonthOverrides(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return Array.Empty<PtMonthOverride>();
+        var result = new List<PtMonthOverride>();
+        foreach (var part in text.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split(':', 2);
+            var month = int.Parse(kv[0], System.Globalization.CultureInfo.InvariantCulture);
+            var paisa = long.Parse(kv[1], System.Globalization.CultureInfo.InvariantCulture);
+            result.Add(new PtMonthOverride(month, new Money(paisa / 100m)));
+        }
+        return result;
+    }
+
+    /// <summary>Formats a PT band's month overrides into the compact "month:paisa" column ("" = none).</summary>
+    private static string FormatPtMonthOverrides(IReadOnlyList<PtMonthOverride> overrides)
+    {
+        if (overrides.Count == 0) return string.Empty;
+        return string.Join(';', overrides.Select(o =>
+            $"{o.Month.ToString(System.Globalization.CultureInfo.InvariantCulture)}:" +
+            $"{((long)(o.Amount.Amount * 100m)).ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+    }
+
     /// <summary>v25: a threshold stored as rupees × 1,000,000 ("micros") → exact <see cref="Money"/> (rupees).</summary>
     private static Money? MicroToMoney(object? micro) =>
         micro is null ? null : new Money(Convert.ToInt64(micro) / 1_000_000m);
@@ -1575,6 +1999,282 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 conversionDenominator: r.IsDBNull(9) ? (int?)null : (int)r.GetInt64(9)));
         }
         return list;
+    }
+
+    private IEnumerable<EmployeeCategory> ReadEmployeeCategories(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, allocate_revenue, allocate_non_revenue, is_predefined
+            FROM employee_categories WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<EmployeeCategory>();
+        while (r.Read())
+            list.Add(new EmployeeCategory(
+                Guid.Parse(r.GetString(0)), r.GetString(1),
+                allocateRevenueItems: r.GetInt64(2) != 0,
+                allocateNonRevenueItems: r.GetInt64(3) != 0,
+                isPredefined: r.GetInt64(4) != 0));
+        return list;
+    }
+
+    private IEnumerable<EmployeeGroup> ReadEmployeeGroups(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, parent_id, alias, define_salary_details
+            FROM employee_groups WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<EmployeeGroup>();
+        while (r.Read())
+            list.Add(new EmployeeGroup(
+                Guid.Parse(r.GetString(0)), r.GetString(1),
+                parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
+                alias: r.IsDBNull(3) ? null : r.GetString(3),
+                defineSalaryDetails: r.GetInt64(4) != 0));
+        return list;
+    }
+
+    private IEnumerable<PayrollUnit> ReadPayrollUnits(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, symbol, formal_name, is_compound, decimal_places,
+                   first_unit_id, tail_unit_id, conversion_numerator, conversion_denominator
+            FROM payroll_units WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<PayrollUnit>();
+        while (r.Read())
+            list.Add(PayrollUnit.FromStorage(
+                Guid.Parse(r.GetString(0)), r.GetString(1), r.GetString(2),
+                isCompound: r.GetInt64(3) != 0,
+                decimalPlaces: (int)r.GetInt64(4),
+                firstUnitId: r.IsDBNull(5) ? (Guid?)null : Guid.Parse(r.GetString(5)),
+                tailUnitId: r.IsDBNull(6) ? (Guid?)null : Guid.Parse(r.GetString(6)),
+                conversionNumerator: r.IsDBNull(7) ? (int?)null : (int)r.GetInt64(7),
+                conversionDenominator: r.IsDBNull(8) ? (int?)null : (int)r.GetInt64(8)));
+        return list;
+    }
+
+    private IEnumerable<AttendanceType> ReadAttendanceTypes(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, parent_id, kind, payroll_unit_id
+            FROM attendance_types WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<AttendanceType>();
+        while (r.Read())
+            list.Add(new AttendanceType(
+                Guid.Parse(r.GetString(0)), r.GetString(1),
+                (AttendanceTypeKind)(int)r.GetInt64(3),
+                parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
+                payrollUnitId: r.IsDBNull(4) ? (Guid?)null : Guid.Parse(r.GetString(4))));
+        return list;
+    }
+
+    private IEnumerable<Employee> ReadEmployees(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, employee_group_id, employee_category_id, employee_number,
+                   date_of_joining, date_of_leaving, designation, function, location, gender, date_of_birth,
+                   pan, aadhaar, uan, pf_account_number, esi_number,
+                   bank_account_number, bank_name, bank_ifsc, tax_regime,
+                   pf_applicable, pf_higher_wages, pf_join_date,
+                   esi_applicable, esi_person_with_disability
+            FROM employees WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Employee>();
+        while (r.Read())
+            list.Add(new Employee(Guid.Parse(r.GetString(0)), r.GetString(1), Guid.Parse(r.GetString(2)))
+            {
+                EmployeeCategoryId = r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                EmployeeNumber = r.IsDBNull(4) ? null : r.GetString(4),
+                DateOfJoining = r.IsDBNull(5) ? (DateOnly?)null : ParseDate(r.GetString(5)),
+                DateOfLeaving = r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6)),
+                Designation = r.IsDBNull(7) ? null : r.GetString(7),
+                Function = r.IsDBNull(8) ? null : r.GetString(8),
+                Location = r.IsDBNull(9) ? null : r.GetString(9),
+                Gender = r.IsDBNull(10) ? null : r.GetString(10),
+                DateOfBirth = r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11)),
+                Pan = r.IsDBNull(12) ? null : r.GetString(12),
+                Aadhaar = r.IsDBNull(13) ? null : r.GetString(13),
+                Uan = r.IsDBNull(14) ? null : r.GetString(14),
+                PfAccountNumber = r.IsDBNull(15) ? null : r.GetString(15),
+                EsiNumber = r.IsDBNull(16) ? null : r.GetString(16),
+                BankAccountNumber = r.IsDBNull(17) ? null : r.GetString(17),
+                BankName = r.IsDBNull(18) ? null : r.GetString(18),
+                BankIfsc = r.IsDBNull(19) ? null : r.GetString(19),
+                ApplicableTaxRegime = (TaxRegime)(int)r.GetInt64(20),
+                // v33 (Phase 8 slice 4): per-employee PF details (default off — ER-13).
+                PfApplicable = r.GetInt64(21) != 0,
+                PfContributeOnHigherWages = r.GetInt64(22) != 0,
+                PfJoinDate = r.IsDBNull(23) ? (DateOnly?)null : ParseDate(r.GetString(23)),
+                // v34 (Phase 8 slice 5): per-employee ESI applicability + person-with-disability (default off — ER-13).
+                EsiApplicable = r.GetInt64(24) != 0,
+                IsPersonWithDisability = r.GetInt64(25) != 0,
+            });
+        return list;
+    }
+
+    private IEnumerable<PayHead> ReadPayHeads(Guid companyId)
+    {
+        // 1) the computed-on basis components + slab bands, grouped by pay head, so we can attach a Computation.
+        var components = new Dictionary<Guid, List<PayHeadComputationComponent>>();
+        using (var cc = _connection.CreateCommand())
+        {
+            cc.CommandText = """
+                SELECT c.pay_head_id, c.component_pay_head_id, c.is_subtraction
+                FROM pay_head_computation c
+                JOIN pay_heads p ON p.id = c.pay_head_id
+                WHERE p.company_id = $cid
+                ORDER BY c.pay_head_id, c.ord, c.id;
+                """;
+            cc.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cc.ExecuteReader();
+            while (r.Read())
+            {
+                var owner = Guid.Parse(r.GetString(0));
+                if (!components.TryGetValue(owner, out var list)) components[owner] = list = new();
+                list.Add(new PayHeadComputationComponent(Guid.Parse(r.GetString(1)), isSubtraction: r.GetInt64(2) != 0));
+            }
+        }
+
+        var slabs = new Dictionary<Guid, List<PayHeadComputationSlab>>();
+        using (var cs = _connection.CreateCommand())
+        {
+            cs.CommandText = """
+                SELECT s.pay_head_id, s.from_amount_paisa, s.to_amount_paisa, s.slab_type, s.rate_basis_points, s.value_paisa
+                FROM pay_head_computation_slabs s
+                JOIN pay_heads p ON p.id = s.pay_head_id
+                WHERE p.company_id = $cid
+                ORDER BY s.pay_head_id, s.ord, s.id;
+                """;
+            cs.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = cs.ExecuteReader();
+            while (r.Read())
+            {
+                var owner = Guid.Parse(r.GetString(0));
+                if (!slabs.TryGetValue(owner, out var list)) slabs[owner] = list = new();
+                list.Add(new PayHeadComputationSlab(
+                    (PayHeadComputationSlabType)(int)r.GetInt64(3),
+                    rateBasisPoints: (int)r.GetInt64(4),
+                    value: Paisa.ToMoney(r.GetInt64(5)),
+                    fromAmount: r.IsDBNull(1) ? (Money?)null : Paisa.ToMoney(r.GetInt64(1)),
+                    toAmount: r.IsDBNull(2) ? (Money?)null : Paisa.ToMoney(r.GetInt64(2))));
+            }
+        }
+
+        // 2) the pay-head master rows.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
+                   under_group_id, ledger_id, income_tax_component, use_for_gratuity,
+                   rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
+                   employer_expense_ledger_id, pf_component, part_of_pf_wages,
+                   esi_component, part_of_esi_wages, is_overtime, pt_component
+            FROM pay_heads WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var pr = cmd.ExecuteReader();
+        var list2 = new List<PayHead>();
+        while (pr.Read())
+        {
+            var id = Guid.Parse(pr.GetString(0));
+            var payHead = new PayHead(
+                id, pr.GetString(1),
+                (PayHeadType)(int)pr.GetInt64(3),
+                (PayHeadCalculationType)(int)pr.GetInt64(4))
+            {
+                DisplayName = pr.IsDBNull(2) ? null : pr.GetString(2),
+                AffectsNetSalary = pr.GetInt64(5) != 0,
+                UnderGroupId = pr.IsDBNull(6) ? (Guid?)null : Guid.Parse(pr.GetString(6)),
+                LedgerId = pr.IsDBNull(7) ? (Guid?)null : Guid.Parse(pr.GetString(7)),
+                IncomeTaxComponent = (IncomeTaxComponent)(int)pr.GetInt64(8),
+                UseForGratuity = pr.GetInt64(9) != 0,
+                RoundingMethod = (PayHeadRoundingMethod)(int)pr.GetInt64(10),
+                RoundingLimit = Paisa.ToMoney(pr.GetInt64(11)),
+                CalculationPeriod = (PayHeadCalculationPeriod)(int)pr.GetInt64(12),
+                AttendanceTypeId = pr.IsDBNull(13) ? (Guid?)null : Guid.Parse(pr.GetString(13)),
+                PerDayCalculationBasisDays = pr.IsDBNull(14) ? (int?)null : (int)pr.GetInt64(14),
+                EmployerExpenseLedgerId = pr.IsDBNull(15) ? (Guid?)null : Guid.Parse(pr.GetString(15)),
+                // v33 (Phase 8 slice 4): PF statutory role + PF-wage flag (default None/false — ER-13).
+                PfComponent = (PfStatutoryComponent)(int)pr.GetInt64(16),
+                PartOfPfWages = pr.GetInt64(17) != 0,
+                // v34 (Phase 8 slice 5): ESI statutory role + ESI-wage flag + overtime marker (default None/false — ER-13).
+                EsiComponent = (EsiStatutoryComponent)(int)pr.GetInt64(18),
+                PartOfEsiWages = pr.GetInt64(19) != 0,
+                IsOvertime = pr.GetInt64(20) != 0,
+                // v35 (Phase 8 slice 6): PT statutory role (default None — ER-13).
+                PtComponent = (PtStatutoryComponent)(int)pr.GetInt64(21),
+            };
+            var hasComponents = components.TryGetValue(id, out var comps);
+            var hasSlabs = slabs.TryGetValue(id, out var slabList);
+            if (hasComponents || hasSlabs)
+                payHead.Computation = new PayHeadComputation(
+                    comps ?? Enumerable.Empty<PayHeadComputationComponent>(),
+                    slabList ?? Enumerable.Empty<PayHeadComputationSlab>());
+            list2.Add(payHead);
+        }
+        return list2;
+    }
+
+    private IEnumerable<SalaryStructure> ReadSalaryStructures(Guid companyId)
+    {
+        var lines = new Dictionary<Guid, List<SalaryStructureLine>>();
+        using (var lc = _connection.CreateCommand())
+        {
+            lc.CommandText = """
+                SELECT l.salary_structure_id, l.pay_head_id, l.ord, l.amount_paisa
+                FROM salary_structure_lines l
+                JOIN salary_structures s ON s.id = l.salary_structure_id
+                WHERE s.company_id = $cid
+                ORDER BY l.salary_structure_id, l.ord, l.id;
+                """;
+            lc.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var r = lc.ExecuteReader();
+            while (r.Read())
+            {
+                var owner = Guid.Parse(r.GetString(0));
+                if (!lines.TryGetValue(owner, out var list)) lines[owner] = list = new();
+                list.Add(new SalaryStructureLine(
+                    Guid.Parse(r.GetString(1)), (int)r.GetInt64(2),
+                    amount: r.IsDBNull(3) ? (Money?)null : Paisa.ToMoney(r.GetInt64(3))));
+            }
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, scope, scope_id, effective_from, start_type
+            FROM salary_structures WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var sr = cmd.ExecuteReader();
+        var result = new List<SalaryStructure>();
+        while (sr.Read())
+        {
+            var id = Guid.Parse(sr.GetString(0));
+            var structLines = lines.TryGetValue(id, out var l) ? l : new List<SalaryStructureLine>();
+            result.Add(new SalaryStructure(
+                id,
+                (SalaryStructureScope)(int)sr.GetInt64(1),
+                Guid.Parse(sr.GetString(2)),
+                ParseDate(sr.GetString(3)),
+                (SalaryStructureStartType)(int)sr.GetInt64(4),
+                structLines));
+        }
+        return result;
     }
 
     private IEnumerable<StockGroup> ReadStockGroups(Guid companyId)
@@ -2350,6 +3050,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var bankAlloc = ReadBankAllocation(id);
             var tds = ReadTdsLine(id); // v26: TDS withholding detail (null for a non-TDS line)
             var tcs = ReadTcsLine(id); // v28: TCS collection detail (null for a non-TCS line)
+            var payroll = ReadPayrollLine(id); // v32: payroll detail (null for a non-payroll line)
             lines.Add(new EntryLine(
                 ledgerId,
                 Paisa.ToMoney(amountPaisa),
@@ -2360,9 +3061,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 forex,
                 gst,
                 tds,
-                tcs));
+                tcs,
+                payroll));
         }
         return lines;
+    }
+
+    /// <summary>v32: reads the payroll detail hung off an entry line, or <c>null</c> for a non-payroll line.</summary>
+    private PayrollLineDetail? ReadPayrollLine(long entryLineId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT employee_id, pay_head_id, category, amount_micro
+            FROM payroll_lines WHERE entry_line_id = $lid LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new PayrollLineDetail(
+            Guid.Parse(r.GetString(0)),
+            r.IsDBNull(1) ? (Guid?)null : Guid.Parse(r.GetString(1)),
+            (PayrollLineCategory)(int)r.GetInt64(2),
+            new Money(r.GetInt64(3) / 1_000_000m));
     }
 
     /// <summary>v28: reads the TCS collection detail hung off an entry line, or <c>null</c> for a non-TCS line.</summary>
@@ -2544,6 +3264,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 JOIN vouchers v ON v.id = el.voucher_id
                 WHERE v.company_id = $cid);
             """, ("$cid", cid));
+        // v32 payroll detail FKs the entry line → delete before entry_lines (Phase 8 slice 3).
+        ExecTx(tx, """
+            DELETE FROM payroll_lines WHERE entry_line_id IN (
+                SELECT el.id FROM entry_lines el
+                JOIN vouchers v ON v.id = el.voucher_id
+                WHERE v.company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM entry_lines WHERE voucher_id IN (SELECT id FROM vouchers WHERE company_id = $cid);", ("$cid", cid));
         ExecTx(tx, "DELETE FROM vouchers WHERE company_id = $cid;", ("$cid", cid));
         // Inventory & order vouchers: child lines FK the header; the header FKs voucher_types + a party ledger
@@ -2597,6 +3324,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id FROM price_lists WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM price_lists WHERE company_id = $cid;", ("$cid", cid));
+        // v31 Payroll pay heads + salary structures (Phase 8 slice 2): child rows first, then pay_heads — all before
+        // ledgers/groups/attendance_types (which pay_heads FK) are dropped below. salary_structure_lines FK
+        // pay_heads + salary_structures; pay_head_computation(_slabs) FK pay_heads.
+        ExecTx(tx, """
+            DELETE FROM salary_structure_lines WHERE salary_structure_id IN (
+                SELECT id FROM salary_structures WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM salary_structures WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM pay_head_computation_slabs WHERE pay_head_id IN (
+                SELECT id FROM pay_heads WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM pay_head_computation WHERE pay_head_id IN (
+                SELECT id FROM pay_heads WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, "DELETE FROM pay_heads WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
         ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));
@@ -2629,9 +3373,25 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         // v13 GST rate slabs FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM gst_rate_slabs WHERE company_id = $cid;", ("$cid", cid));
+        // v35 PT slab bands FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
+        // v36 §192 tax declarations FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM employee_tax_declarations WHERE company_id = $cid;", ("$cid", cid));
         // v25 TDS/TCS masters FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM nature_of_payment WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM nature_of_goods WHERE company_id = $cid;", ("$cid", cid));
+        // v30 Payroll masters (Phase 8 slice 1): cross-table FK order — employees (FK employee_groups +
+        // employee_categories) first, then attendance_types (FK payroll_units), then payroll_units, then
+        // employee_groups, then employee_categories. Each is a single-statement delete, so the self-FK
+        // (employee_groups.parent_id / attendance_types.parent_id / payroll_units.first/tail) is transiently
+        // violated then cleared within the same statement (net-zero at statement end), as for stock_groups.
+        // v32 attendance entries FK employees + attendance_types → delete before both (Phase 8 slice 3).
+        ExecTx(tx, "DELETE FROM attendance_entries WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM employees WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM attendance_types WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM payroll_units WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM employee_groups WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM employee_categories WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
 
@@ -2649,14 +3409,28 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  use_separate_actual_billed_qty, enable_multiple_price_levels, enable_job_order_processing,
                  tds_enabled, tcs_enabled, tan, deductor_type, responsible_person_name, responsible_person_pan,
                  responsible_person_designation, responsible_person_address, surcharge_applicable,
-                 cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from)
+                 cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from,
+                 payroll_enabled, payroll_statutory_enabled,
+                 pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
+                 esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
+                 pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
+                 salary_tds_enabled,
+                 gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
+                 bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
                  $gsten, $gstin, $gsthome, $gstreg, $gstfrom, $gstper,
                  $abqty, $empl, $ejop,
                  $tdsen, $tcsen, $tan, $dedtype, $rpname, $rppan, $rpdesig, $rpaddr, $surch, $cess, $tdsper,
-                 $tdsfrom, $tcsfrom);
+                 $tdsfrom, $tcsfrom,
+                 $payen, $paystat,
+                 $pfen, $pfrate, $pfcode, $pfcap,
+                 $esien, $esieerate, $esiererate, $esicode,
+                 $pten, $ptstate, $ptreg, $ptbasis,
+                 $salarytds,
+                 $graten, $gratcap, $gratbasis, $gratpop,
+                 $bonusen, $bonusrate, $bonusceil, $bonusminwage, $bonusprorate);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -2708,7 +3482,100 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             tds is not null ? (int)tds.Periodicity : tcs is not null ? (int)tcs.Periodicity : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$tdsfrom", tds?.ApplicableFrom is { } tf ? FormatDate(tf) : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$tcsfrom", tcs?.ApplicableFrom is { } cf ? FormatDate(cf) : (object)DBNull.Value);
+        // v30 (Phase 8 slice 1): the Payroll F11 toggles, written verbatim (default 0 for an existing company — ER-13).
+        cmd.Parameters.AddWithValue("$payen", c.PayrollEnabled ? 1 : 0);
+        cmd.Parameters.AddWithValue("$paystat", c.PayrollStatutoryEnabled ? 1 : 0);
+        // v33 (Phase 8 slice 4): the establishment PF config. NULL/defaults for a company not enrolled for PF (ER-13).
+        var pf = c.PfConfig;
+        cmd.Parameters.AddWithValue("$pfen", pf is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$pfrate", pf?.EpfRateBasisPoints ?? PfConfig.DefaultEpfRateBasisPoints);
+        cmd.Parameters.AddWithValue("$pfcode", (object?)pf?.EstablishmentCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$pfcap", (pf?.CapWagesAtCeiling ?? true) ? 1 : 0);
+        // v34 (Phase 8 slice 5): the establishment ESI config. NULL/defaults for a company not enrolled for ESI (ER-13).
+        var esi = c.EsiConfig;
+        cmd.Parameters.AddWithValue("$esien", esi is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$esieerate", esi?.EmployeeRateBasisPoints ?? EsiConfig.DefaultEmployeeRateBasisPoints);
+        cmd.Parameters.AddWithValue("$esiererate", esi?.EmployerRateBasisPoints ?? EsiConfig.DefaultEmployerRateBasisPoints);
+        cmd.Parameters.AddWithValue("$esicode", (object?)esi?.EmployerCode ?? DBNull.Value);
+        // v35 (Phase 8 slice 6): the establishment PT config. NULL/defaults for a company not enrolled for PT (ER-13).
+        var pt = c.PtConfig;
+        cmd.Parameters.AddWithValue("$pten", pt is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$ptstate", (object?)pt?.StateCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ptreg", (object?)pt?.RegistrationNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ptbasis", (int)(pt?.WageBasis ?? PtWageBasis.GrossEarnings));
+        // v36 (Phase 8 slice 7): the establishment §192 salary-TDS toggle, written verbatim (default 0 — ER-13).
+        cmd.Parameters.AddWithValue("$salarytds", c.SalaryTdsEnabled ? 1 : 0);
+        // v37 (Phase 8 slice 9): the establishment Gratuity config. NULL/defaults for a company not provisioning (ER-13).
+        var gratuity = c.GratuityConfig;
+        cmd.Parameters.AddWithValue("$graten", gratuity is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$gratcap", (long)((gratuity?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount) * 100m));
+        cmd.Parameters.AddWithValue("$gratbasis", (int)(gratuity?.WageBasis ?? GratuityWageBasis.BasicAndDearnessAllowance));
+        cmd.Parameters.AddWithValue("$gratpop", (int)(gratuity?.Population ?? GratuityProvisionPopulation.AllActiveEmployees));
+        // v37 (Phase 8 slice 9): the establishment statutory-Bonus config. NULL/defaults for a company not enrolled (ER-13).
+        var bonus = c.BonusConfig;
+        cmd.Parameters.AddWithValue("$bonusen", bonus is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$bonusrate", bonus?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints);
+        cmd.Parameters.AddWithValue("$bonusceil", (long)((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling) * 100m));
+        cmd.Parameters.AddWithValue("$bonusminwage", (long)((bonus?.MinimumWage.Amount ?? 0m) * 100m));
+        cmd.Parameters.AddWithValue("$bonusprorate", (bonus?.Prorate ?? true) ? 1 : 0);
         cmd.ExecuteNonQuery();
+
+        // v36 per-employee §192 income-tax declarations (only for employees that declared figures). All money in
+        // integer paisa. One row per declaration; a company with none writes nothing (ER-13).
+        foreach (var declaration in c.TaxDeclarations)
+        {
+            using var s = _connection.CreateCommand();
+            s.Transaction = tx;
+            s.CommandText = """
+                INSERT INTO employee_tax_declarations
+                    (employee_id, company_id, section_80c_paisa, section_80d_paisa, section_80ccd1b_paisa,
+                     section_80ccd2_employer_paisa, hra_exempt_paisa, home_loan_interest_paisa, other_income_paisa,
+                     prev_employer_salary_paisa, prev_employer_tds_paisa)
+                VALUES ($eid, $cid, $c80, $d80, $ccd1b, $ccd2, $hra, $loan, $other, $prevsal, $prevtds);
+                """;
+            s.Parameters.AddWithValue("$eid", declaration.EmployeeId.ToString("D"));
+            s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            s.Parameters.AddWithValue("$c80", (long)(declaration.Section80C.Amount * 100m));
+            s.Parameters.AddWithValue("$d80", (long)(declaration.Section80D.Amount * 100m));
+            s.Parameters.AddWithValue("$ccd1b", (long)(declaration.Section80CCD1B.Amount * 100m));
+            s.Parameters.AddWithValue("$ccd2", (long)(declaration.Section80CCD2Employer.Amount * 100m));
+            s.Parameters.AddWithValue("$hra", (long)(declaration.HouseRentAllowanceExempt.Amount * 100m));
+            s.Parameters.AddWithValue("$loan", (long)(declaration.HomeLoanInterest24b.Amount * 100m));
+            s.Parameters.AddWithValue("$other", (long)(declaration.OtherIncome.Amount * 100m));
+            s.Parameters.AddWithValue("$prevsal", (long)(declaration.PreviousEmployerSalary.Amount * 100m));
+            s.Parameters.AddWithValue("$prevtds", (long)(declaration.PreviousEmployerTds.Amount * 100m));
+            s.ExecuteNonQuery();
+        }
+
+        // v35 PT slab bands (only when PT is enrolled), hung off the PT config like the GST slabs. Each band is one
+        // row keyed to its PtSlab (slab_id) with its state + gender scope, ordered low-to-high.
+        if (pt is not null)
+            foreach (var slab in pt.SlabTables)
+            {
+                var bandOrder = 0;
+                foreach (var band in slab.Bands)
+                {
+                    using var s = _connection.CreateCommand();
+                    s.Transaction = tx;
+                    s.CommandText = """
+                        INSERT INTO pt_slab_bands
+                            (id, company_id, slab_id, state_code, gender_scope, band_order,
+                             from_wage_paisa, to_wage_paisa, monthly_amount_paisa, month_overrides)
+                        VALUES ($id, $cid, $slab, $state, $scope, $ord, $from, $to, $amt, $ovr);
+                        """;
+                    s.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+                    s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                    s.Parameters.AddWithValue("$slab", slab.Id.ToString("D"));
+                    s.Parameters.AddWithValue("$state", slab.StateCode);
+                    s.Parameters.AddWithValue("$scope", (int)slab.GenderScope);
+                    s.Parameters.AddWithValue("$ord", bandOrder++);
+                    s.Parameters.AddWithValue("$from", (long)(band.FromWage.Amount * 100m));
+                    s.Parameters.AddWithValue("$to", band.ToWage is { } tw ? (long)(tw.Amount * 100m) : (object)DBNull.Value);
+                    s.Parameters.AddWithValue("$amt", (long)(band.MonthlyAmount.Amount * 100m));
+                    s.Parameters.AddWithValue("$ovr", FormatPtMonthOverrides(band.MonthOverrides));
+                    s.ExecuteNonQuery();
+                }
+            }
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
         if (gst is not null)
@@ -3176,6 +4043,303 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tail", (object?)u.TailUnitId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$num", (object?)u.ConversionNumerator ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$den", (object?)u.ConversionDenominator ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertEmployeeCategories(SqliteTransaction tx, Company c)
+    {
+        foreach (var cat in c.EmployeeCategories)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO employee_categories (id, company_id, name, allocate_revenue, allocate_non_revenue, is_predefined)
+                VALUES ($id, $cid, $name, $rev, $nonrev, $pre);
+                """;
+            cmd.Parameters.AddWithValue("$id", cat.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", cat.Name);
+            cmd.Parameters.AddWithValue("$rev", cat.AllocateRevenueItems ? 1 : 0);
+            cmd.Parameters.AddWithValue("$nonrev", cat.AllocateNonRevenueItems ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pre", cat.IsPredefined ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertEmployeeGroups(SqliteTransaction tx, Company c)
+    {
+        // Self-FK (parent_id → id): insert parents before children (a cycle throws a clean domain exception).
+        var ordered = HierarchyOrdering.ParentsBeforeChildren(
+            c.EmployeeGroups, g => g.Id, g => g.ParentId, "Employee group");
+        foreach (var g in ordered)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO employee_groups (id, company_id, name, parent_id, alias, define_salary_details)
+                VALUES ($id, $cid, $name, $parent, $alias, $salary);
+                """;
+            cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", g.Name);
+            cmd.Parameters.AddWithValue("$parent", (object?)g.ParentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$salary", g.DefineSalaryDetails ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertPayrollUnits(SqliteTransaction tx, Company c)
+    {
+        // Self-FK (first/tail → id): simple units before compound (a compound references two simple units).
+        var ordered = c.PayrollUnits.Where(u => !u.IsCompound).Concat(c.PayrollUnits.Where(u => u.IsCompound));
+        foreach (var u in ordered)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO payroll_units
+                    (id, company_id, symbol, formal_name, is_compound, decimal_places,
+                     first_unit_id, tail_unit_id, conversion_numerator, conversion_denominator)
+                VALUES ($id, $cid, $sym, $fn, $comp, $dp, $first, $tail, $num, $den);
+                """;
+            cmd.Parameters.AddWithValue("$id", u.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$sym", u.Symbol);
+            cmd.Parameters.AddWithValue("$fn", u.FormalName);
+            cmd.Parameters.AddWithValue("$comp", u.IsCompound ? 1 : 0);
+            cmd.Parameters.AddWithValue("$dp", u.DecimalPlaces);
+            cmd.Parameters.AddWithValue("$first", (object?)u.FirstUnitId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$tail", (object?)u.TailUnitId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$num", (object?)u.ConversionNumerator ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$den", (object?)u.ConversionDenominator ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertAttendanceTypes(SqliteTransaction tx, Company c)
+    {
+        // Self-FK (parent_id → id): insert parents before children.
+        var ordered = HierarchyOrdering.ParentsBeforeChildren(
+            c.AttendanceTypes, a => a.Id, a => a.ParentId, "Attendance type");
+        foreach (var a in ordered)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO attendance_types (id, company_id, name, parent_id, kind, payroll_unit_id)
+                VALUES ($id, $cid, $name, $parent, $kind, $unit);
+                """;
+            cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", a.Name);
+            cmd.Parameters.AddWithValue("$parent", (object?)a.ParentId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$kind", (int)a.Kind);
+            cmd.Parameters.AddWithValue("$unit", (object?)a.PayrollUnitId?.ToString("D") ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertEmployees(SqliteTransaction tx, Company c)
+    {
+        foreach (var e in c.Employees)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO employees
+                    (id, company_id, name, employee_group_id, employee_category_id, employee_number,
+                     date_of_joining, date_of_leaving, designation, function, location, gender, date_of_birth,
+                     pan, aadhaar, uan, pf_account_number, esi_number,
+                     bank_account_number, bank_name, bank_ifsc, tax_regime,
+                     pf_applicable, pf_higher_wages, pf_join_date,
+                     esi_applicable, esi_person_with_disability)
+                VALUES ($id, $cid, $name, $grp, $cat, $num,
+                        $doj, $dol, $desig, $func, $loc, $gender, $dob,
+                        $pan, $aadhaar, $uan, $pfacc, $esi,
+                        $bankacc, $bankname, $ifsc, $regime,
+                        $pfapp, $pfhigh, $pfjoin,
+                        $esiapp, $esidis);
+                """;
+            cmd.Parameters.AddWithValue("$id", e.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", e.Name);
+            cmd.Parameters.AddWithValue("$grp", e.EmployeeGroupId.ToString("D"));
+            cmd.Parameters.AddWithValue("$cat", (object?)e.EmployeeCategoryId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$num", (object?)e.EmployeeNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$doj", e.DateOfJoining is { } j ? FormatDate(j) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$dol", e.DateOfLeaving is { } lv ? FormatDate(lv) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$desig", (object?)e.Designation ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$func", (object?)e.Function ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$loc", (object?)e.Location ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$gender", (object?)e.Gender ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dob", e.DateOfBirth is { } d ? FormatDate(d) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$pan", (object?)e.Pan ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$aadhaar", (object?)e.Aadhaar ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$uan", (object?)e.Uan ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pfacc", (object?)e.PfAccountNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$esi", (object?)e.EsiNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bankacc", (object?)e.BankAccountNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bankname", (object?)e.BankName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ifsc", (object?)e.BankIfsc ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$regime", (int)e.ApplicableTaxRegime);
+            // v33 (Phase 8 slice 4): per-employee PF details (default off — ER-13).
+            cmd.Parameters.AddWithValue("$pfapp", e.PfApplicable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pfhigh", e.PfContributeOnHigherWages ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pfjoin", e.PfJoinDate is { } pfj ? FormatDate(pfj) : (object)DBNull.Value);
+            // v34 (Phase 8 slice 5): per-employee ESI applicability + person-with-disability (default off — ER-13).
+            cmd.Parameters.AddWithValue("$esiapp", e.EsiApplicable ? 1 : 0);
+            cmd.Parameters.AddWithValue("$esidis", e.IsPersonWithDisability ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void InsertPayHeads(SqliteTransaction tx, Company c)
+    {
+        // All master rows first (no pay-head→pay-head row-level FK), then the computed-on + slab child rows.
+        foreach (var p in c.PayHeads)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO pay_heads
+                    (id, company_id, name, display_name, pay_head_type, calculation_type, affects_net_salary,
+                     under_group_id, ledger_id, income_tax_component, use_for_gratuity,
+                     rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
+                     employer_expense_ledger_id, pf_component, part_of_pf_wages,
+                     esi_component, part_of_esi_wages, is_overtime, pt_component)
+                VALUES ($id, $cid, $name, $disp, $type, $calc, $anet,
+                        $grp, $led, $itc, $grat,
+                        $rm, $rl, $cp, $atid, $pdb,
+                        $eeled, $pfcomp, $pfwage,
+                        $esicomp, $esiwage, $ot, $ptcomp);
+                """;
+            cmd.Parameters.AddWithValue("$id", p.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$name", p.Name);
+            cmd.Parameters.AddWithValue("$disp", (object?)p.DisplayName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$type", (int)p.Type);
+            cmd.Parameters.AddWithValue("$calc", (int)p.CalculationType);
+            cmd.Parameters.AddWithValue("$anet", p.AffectsNetSalary ? 1 : 0);
+            cmd.Parameters.AddWithValue("$grp", (object?)p.UnderGroupId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$led", (object?)p.LedgerId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$itc", (int)p.IncomeTaxComponent);
+            cmd.Parameters.AddWithValue("$grat", p.UseForGratuity ? 1 : 0);
+            cmd.Parameters.AddWithValue("$rm", (int)p.RoundingMethod);
+            cmd.Parameters.AddWithValue("$rl", Paisa.FromMoney(p.RoundingLimit));
+            cmd.Parameters.AddWithValue("$cp", (int)p.CalculationPeriod);
+            cmd.Parameters.AddWithValue("$atid", (object?)p.AttendanceTypeId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$pdb", (object?)p.PerDayCalculationBasisDays ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$eeled", (object?)p.EmployerExpenseLedgerId?.ToString("D") ?? DBNull.Value);
+            // v33 (Phase 8 slice 4): PF statutory role + PF-wage flag (default None/false — ER-13).
+            cmd.Parameters.AddWithValue("$pfcomp", (int)p.PfComponent);
+            cmd.Parameters.AddWithValue("$pfwage", p.PartOfPfWages ? 1 : 0);
+            // v34 (Phase 8 slice 5): ESI statutory role + ESI-wage flag + overtime marker (default None/false — ER-13).
+            cmd.Parameters.AddWithValue("$esicomp", (int)p.EsiComponent);
+            cmd.Parameters.AddWithValue("$esiwage", p.PartOfEsiWages ? 1 : 0);
+            cmd.Parameters.AddWithValue("$ot", p.IsOvertime ? 1 : 0);
+            // v35 (Phase 8 slice 6): PT statutory role (default None — ER-13).
+            cmd.Parameters.AddWithValue("$ptcomp", (int)p.PtComponent);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var p in c.PayHeads)
+        {
+            if (p.Computation is not { } comp) continue;
+            var ord = 0;
+            foreach (var component in comp.BasisComponents)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO pay_head_computation (pay_head_id, component_pay_head_id, is_subtraction, ord)
+                    VALUES ($ph, $comp, $sub, $ord);
+                    """;
+                cmd.Parameters.AddWithValue("$ph", p.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$comp", component.PayHeadId.ToString("D"));
+                cmd.Parameters.AddWithValue("$sub", component.IsSubtraction ? 1 : 0);
+                cmd.Parameters.AddWithValue("$ord", ord++);
+                cmd.ExecuteNonQuery();
+            }
+
+            ord = 0;
+            foreach (var slab in comp.Slabs)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO pay_head_computation_slabs
+                        (pay_head_id, from_amount_paisa, to_amount_paisa, slab_type, rate_basis_points, value_paisa, ord)
+                    VALUES ($ph, $from, $to, $st, $rate, $val, $ord);
+                    """;
+                cmd.Parameters.AddWithValue("$ph", p.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$from", slab.FromAmount is { } f ? Paisa.FromMoney(f) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$to", slab.ToAmount is { } t ? Paisa.FromMoney(t) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$st", (int)slab.SlabType);
+                cmd.Parameters.AddWithValue("$rate", slab.RateBasisPoints);
+                cmd.Parameters.AddWithValue("$val", Paisa.FromMoney(slab.Value));
+                cmd.Parameters.AddWithValue("$ord", ord++);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private void InsertSalaryStructures(SqliteTransaction tx, Company c)
+    {
+        foreach (var s in c.SalaryStructures)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO salary_structures (id, company_id, scope, scope_id, effective_from, start_type)
+                    VALUES ($id, $cid, $scope, $sid, $eff, $start);
+                    """;
+                cmd.Parameters.AddWithValue("$id", s.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$scope", (int)s.Scope);
+                cmd.Parameters.AddWithValue("$sid", s.ScopeId.ToString("D"));
+                cmd.Parameters.AddWithValue("$eff", FormatDate(s.EffectiveFrom));
+                cmd.Parameters.AddWithValue("$start", (int)s.StartType);
+                cmd.ExecuteNonQuery();
+            }
+
+            foreach (var line in s.Lines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO salary_structure_lines (salary_structure_id, pay_head_id, ord, amount_paisa)
+                    VALUES ($sid, $ph, $ord, $amt);
+                    """;
+                cmd.Parameters.AddWithValue("$sid", s.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$ph", line.PayHeadId.ToString("D"));
+                cmd.Parameters.AddWithValue("$ord", line.Order);
+                cmd.Parameters.AddWithValue("$amt", line.Amount is { } m ? Paisa.FromMoney(m) : (object)DBNull.Value);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private void InsertAttendanceEntries(SqliteTransaction tx, Company c)
+    {
+        foreach (var a in c.AttendanceEntries)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO attendance_entries
+                    (id, company_id, employee_id, attendance_type_id, from_date, to_date, value_micro)
+                VALUES ($id, $cid, $emp, $atid, $from, $to, $val);
+                """;
+            cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$emp", a.EmployeeId.ToString("D"));
+            cmd.Parameters.AddWithValue("$atid", a.AttendanceTypeId.ToString("D"));
+            cmd.Parameters.AddWithValue("$from", FormatDate(a.FromDate));
+            cmd.Parameters.AddWithValue("$to", FormatDate(a.ToDate));
+            cmd.Parameters.AddWithValue("$val", (long)(a.Value * 1_000_000m));
             cmd.ExecuteNonQuery();
         }
     }
@@ -3825,10 +4989,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             InsertBankAllocation(tx, lineId, line);
             InsertTdsLine(tx, lineId, line);
             InsertTcsLine(tx, lineId, line);
+            InsertPayrollLine(tx, lineId, line);
         }
 
         InsertVoucherInventoryLines(tx, v);
         InsertPosTenderAllocations(tx, v);
+    }
+
+    /// <summary>v32: persists an entry line's payroll detail (catalog §14; Phase 8 slice 3) to <c>payroll_lines</c>.
+    /// A non-payroll line carries none, so nothing is written — byte-identical (ER-13). Money is stored as
+    /// rupees × 1,000,000 ("micros"), exact for a paisa-exact amount.</summary>
+    private void InsertPayrollLine(SqliteTransaction tx, long entryLineId, EntryLine line)
+    {
+        if (line.Payroll is not { } p) return;
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO payroll_lines
+                (entry_line_id, employee_id, pay_head_id, category, amount_micro)
+            VALUES ($lid, $emp, $ph, $cat, $amt);
+            """;
+        cmd.Parameters.AddWithValue("$lid", entryLineId);
+        cmd.Parameters.AddWithValue("$emp", p.EmployeeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$ph", (object?)p.PayHeadId?.ToString("D") ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$cat", (int)p.Category);
+        cmd.Parameters.AddWithValue("$amt", (long)(p.Amount.Amount * 1_000_000m));
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>v26: persists an entry line's TDS withholding detail (catalog §13; Phase 7 slice 2) to

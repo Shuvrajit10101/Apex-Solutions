@@ -303,6 +303,19 @@ public sealed class BoolToWeightConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+/// <summary>Maps a bool (IsNumeric) to a text alignment: Right for a numeric/money column, Left otherwise.
+/// Used by the Phase-8 payroll matrix so each cell aligns to its column without a per-cell template switch.</summary>
+public sealed class BoolToTextAlignmentConverter : IValueConverter
+{
+    public static readonly BoolToTextAlignmentConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? TextAlignment.Right : TextAlignment.Left;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>Maps a bool (IsSelected) to the ink foreground when selected, else navy.</summary>
 public sealed class SelectedToForegroundConverter : IValueConverter
 {

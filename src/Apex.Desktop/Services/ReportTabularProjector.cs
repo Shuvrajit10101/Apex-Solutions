@@ -25,11 +25,64 @@ public static class ReportTabularProjector
     {
         System.ArgumentNullException.ThrowIfNull(vm);
 
+        // Phase 8 slice 8 payroll reports carry their data outside the generic Col1..Col8 rows: a wide tabular
+        // payroll report projects its dynamic matrix (money columns typed Number so a spreadsheet sums them); the
+        // Payslip projects its earning/deduction detail.
+        if (vm.IsPayrollMatrix) return ProjectPayrollMatrix(vm);
+        if (vm.IsPayslipReport) return ProjectPayslip(vm);
+
         var columns = BuildColumns(vm);
         var rows = new List<TabularRow>(vm.Rows.Count);
         foreach (var r in vm.Rows)
             rows.Add(ProjectRow(vm, r, columns.Count));
 
+        return new TabularExport(vm.Title, columns, rows);
+    }
+
+    /// <summary>Projects a wide tabular payroll report from its dynamic matrix: a Number column for each numeric
+    /// (money/day) column so the spreadsheet stores real numbers; the label/text columns stay Text.</summary>
+    private static TabularExport ProjectPayrollMatrix(ReportsViewModel vm)
+    {
+        var columns = new List<TabularColumn>(vm.PayrollColumns.Count);
+        foreach (var c in vm.PayrollColumns)
+            columns.Add(new TabularColumn(c.Header, c.IsNumeric ? CellType.Number : CellType.Text));
+
+        var rows = new List<TabularRow>(vm.PayrollRows.Count);
+        foreach (var r in vm.PayrollRows)
+        {
+            var cells = new TabularCell[r.Cells.Count];
+            for (int i = 0; i < r.Cells.Count; i++)
+            {
+                var cell = r.Cells[i];
+                cells[i] = cell.IsNumeric && TryParseAmount(cell.Text, out var v)
+                    ? TabularCell.Number(v)
+                    : TabularCell.Text(cell.Text);
+            }
+            rows.Add(new TabularRow(cells, isTotal: r.IsTotal));
+        }
+
+        return new TabularExport(vm.Title, columns, rows);
+    }
+
+    /// <summary>Projects the Payslip as a two-column Particulars | Amount export (earnings, gross, deductions,
+    /// net, employer contributions) with the amounts typed Number so the spreadsheet sums them.</summary>
+    private static TabularExport ProjectPayslip(ReportsViewModel vm)
+    {
+        var columns = new[] { new TabularColumn("Particulars", CellType.Text), new TabularColumn("Amount", CellType.Number) };
+        var rows = new List<TabularRow>();
+        rows.Add(TabularRow.Header(TabularCell.Text(vm.PayslipEmployee), TabularCell.Empty));
+        rows.Add(TabularRow.Header(TabularCell.Text("Earnings"), TabularCell.Empty));
+        foreach (var e in vm.PayslipEarnings) rows.Add(TabularRow.Of(TabularCell.Text(e.Name), MoneyCell(e.Amount)));
+        rows.Add(TabularRow.Total(TabularCell.Text("Gross Earnings"), MoneyCell(vm.PayslipGross)));
+        rows.Add(TabularRow.Header(TabularCell.Text("Deductions"), TabularCell.Empty));
+        foreach (var d in vm.PayslipDeductions) rows.Add(TabularRow.Of(TabularCell.Text(d.Name), MoneyCell(d.Amount)));
+        rows.Add(TabularRow.Total(TabularCell.Text("Total Deductions"), MoneyCell(vm.PayslipTotalDeductions)));
+        rows.Add(TabularRow.Total(TabularCell.Text("Net Pay"), MoneyCell(vm.PayslipNet)));
+        if (vm.PayslipEmployerContributions.Count > 0)
+        {
+            rows.Add(TabularRow.Header(TabularCell.Text("Employer Contributions (not part of net pay)"), TabularCell.Empty));
+            foreach (var c in vm.PayslipEmployerContributions) rows.Add(TabularRow.Of(TabularCell.Text(c.Name), MoneyCell(c.Amount)));
+        }
         return new TabularExport(vm.Title, columns, rows);
     }
 

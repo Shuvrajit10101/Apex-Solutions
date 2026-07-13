@@ -1276,6 +1276,513 @@ culture (Phase 11). (f) S5 multi-below-threshold-TCS only first nature persisted
 green + user go-ahead to merge**; `main` NOT touched. After merge → **PAUSE for Phase 7→8 go-ahead.** **PHASE 7 COMPLETE
 (pending merge).**
 
+### Phase 8 slice 1 — Payroll masters + F11 config (2026-07-11) — schema v30
+First Phase-8 (Payroll) slice: the **masters foundation** — the employee/organisation master set plus the F11 gate,
+mirroring how each prior module opened (GST/TDS S1). No vouchers or pay computation yet. Delivered:
+- **Masters domain** (`src/Apex.Ledger/Domain/`) — **EmployeeGroup** (hierarchical, **parent-cycle-guarded**),
+  **EmployeeCategory** (parallel/independent axis), **Employee** (identity + statutory + bank + DOB / PAN / UAN / ESI /
+  Aadhaar / PF-a/c + `TaxRegime`), **PayrollUnit** (simple + compound), **AttendanceType** (`AttendanceTypeKind` =
+  Attendance / Leave-with-pay / Production / user-defined).
+- **`PayrollService`** (`src/Apex.Ledger/Services/PayrollService.cs`) — enable/disable **idempotent**; name
+  **uniqueness**; parent-cycle prevention via the shared **HierarchyOrdering**; **delete-if-referenced** guards; PAN / UAN /
+  ESI **structural validation**.
+- **F11 flags on `Company`** — **Maintain Payroll** + **Enable Payroll Statutory** (`Company.cs`), the master gate for the
+  whole module (module hidden/inert when off; turning off never deletes payroll data).
+- **Schema v29→v30 — additive** (`Schema.cs` `CurrentVersion = 30`): **5 new tables** (`employee_categories`,
+  `employee_groups`, `payroll_units`, `attendance_types`, `employees`) + indexes + **2 company columns**
+  (`payroll_enabled`, `payroll_statutory_enabled`), added to **BOTH `CreateV1` AND `MigrateV29ToV30`** (no create-vs-migrate
+  drift). **`SchemaMigrationEquivalenceTests` green at v30** (v1→v30 == fresh-v30). `SqliteCompanyStore` persists all five
+  masters (`PayrollSchemaTests`, `PayrollRoundTripTests`).
+- **Io canonical fold-in** — all masters folded into the `Apex.Ledger.Io` model (`CanonicalModel`/`CanonicalMapper`/
+  `CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa- and count-exact JSON+XML lossless
+  round-trip**; a payroll-off company **drops nothing** and stays byte-identical (**ER-13**). `CanonicalPayrollRoundTripTests`.
+- **UI** — **Payroll Masters** nav (nested, **gated** on Maintain Payroll) + **5 keyboard-first create screens** (Employee
+  Category / Group / Employee / Payroll Unit / Attendance Type VMs) + the two **F11 toggles** on the Company Features screen
+  (`GstConfigViewModel`/`MainWindowViewModel`/`MainWindow.axaml`/`.axaml.cs`).
+- **A10 adversarial review** — 2 lenses **clean**; the 3rd found **3 findings, all fixed** — notably a **MED**: the Employee
+  create screen was not capturing all the statutory/bank/DOB/Aadhaar fields the model persists (now complete). The engine
+  gate additionally caught + fixed a **downgrade-helper regression**.
+Gate fully green in Release: **Ledger 716 · Io 186 · Sqlite 116 · Desktop 600 = 1618 total, 0 failures**, de-branded,
+working tree clean (only P8-S1 files: masters domain + `PayrollService` + `Company` F11 flags + Schema/SqliteCompanyStore
+v30 + Io canonical + 5 master VMs + Gateway/MainWindow wiring + tests).
+**Carry-forwards (documented, non-blocking):** (a) **auto-create payroll payable ledgers** (Salary / PF / ESI / PT / NPS)
+on enable is **DEFERRED to P8-S3**, where they are first posted; (b) **UAN(12) / ESI(17)** digit-lengths are
+**structural-only** validation — **A14 to web-confirm** the exact statutory formats at a statutory slice.
+Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 1 — payroll masters … schema v30` + `docs(memory): Phase 8
+slice 1 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR
+at the phase boundary). **Next = P8-S2 (Pay Heads + dated Salary Structures, schema v31).**
+
+### Phase 8 slice 2 — Pay Heads + dated Salary Structures (2026-07-11) — schema v31
+Second Phase-8 (Payroll) slice: the **Pay Head masters** plus the **dated Salary Structure** (Salary Details) that binds
+pay heads to an employee/group. **Still pure model — no pay computation** (that is P8-S3). Delivered:
+- **PayHead domain** (`src/Apex.Ledger/Domain/`) — **5 calculation types** (`PayHeadCalculationType` = **OnAttendance /
+  FlatRate / AsComputedValue / OnProduction / AsUserDefinedValue**) + **10 Tally pay-head types** (`PayHeadType`:
+  Earnings / Deductions / EmployeesStatutoryDeductions / EmployerStatutoryContributions / Gratuity/ Bonus / LoansAndAdvances /
+  ReimbursementToEmployees / NotApplicable etc.). **`AsComputedValue` computation model** = a **basis** (the computed-on
+  components) × **slabs** (`PayHeadComputationSlabType` = **percentage-bp** or **flat value**), which expresses e.g.
+  40%-of-Basic. **`UnderGroupId`** gives the accounting classification + a **forward-compat nullable `LedgerId`** reserved
+  for S3 posting; **rounding method/limit** (`PayHeadRoundingMethod`), **income-tax component** (`IncomeTaxComponent`),
+  **use-for-gratuity** flag, **calculation period** (`PayHeadCalculationPeriod`). No computation logic yet (deferred S3).
+- **Dated SalaryStructure** (`SalaryStructure.cs`, "Salary Details") per **employee or group** (`SalaryStructureScope`)
+  with an **`EffectiveFrom` revision** model: **`InForceOn(date)` = the latest structure ≤ date**. Line-level guards match
+  each line's **value vs the pay head's calc type** (a FlatRate line needs a value; an AsComputedValue line must not carry a
+  literal, etc.). `SalaryStructureStartType`.
+- **`PayHeadService` / `SalaryStructureService`** guards — name uniqueness, delete-if-referenced, and critically the
+  **computed-on integrity**: reject **self-reference**, **cycles**, and **dangling references** in the AsComputedValue
+  basis graph.
+- **Schema v30→v31 — additive** (`Schema.cs` `CurrentVersion = 31`): **5 new tables** (pay heads + their computation
+  components + slabs, salary structures + their lines) + indexes, added to **BOTH `CreateV1` AND `MigrateV30ToV31`** (no
+  create-vs-migrate drift). **`SchemaMigrationEquivalenceTests` green at v31** (v1→v31 == fresh-v31). `SqliteCompanyStore`
+  persists all of it (`PayHeadSchemaTests`, `PayHeadRoundTripTests`).
+- **Io canonical fold-in** — pay heads + salary structures folded into the `Apex.Ledger.Io` model (`CanonicalModel`/
+  `CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa- and count-exact JSON+XML
+  lossless round-trip (ER-13)**. `CanonicalPayHeadRoundTripTests`.
+- **UI** — **Pay Head** + **Salary Structure** create screens (`PayHeadMasterViewModel` / `SalaryStructureMasterViewModel`
+  + Gateway/MainWindow wiring), keyboard-first, gated on Maintain Payroll.
+- **A10 adversarial review — caught + fixed a MED**: the **Io import path bypassed** the engine's computed-on
+  **cycle / self-reference** and **line-vs-calc-type** guards (import could inject a corrupt pay-head graph the engine would
+  never accept). Fix **mirrors those guards into `CompanyImportService`**, **all-or-nothing** (a bad graph rejects the whole
+  import, nothing partially applied), **regression-locked** (`CanonicalPayHeadIntegrityImportTests`).
+Gate fully green in Release: **Ledger 733 · Io 199 · Sqlite 120 · Desktop 614 = 1666 total, 0 failures**, de-branded,
+TestAppBuilder clean, no stray files, working tree exclusively P8-S2. Release build sanity check: **0 warnings, 0 errors**.
+**Minor R6 deviation (recorded):** the plan implied one computation table; I **split it into components + slabs** (a pay
+head's computed-on basis is a set of components, each carrying an ordered set of slabs) — cleaner normal form, same
+behavior.
+Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 2 — Pay Heads … schema v31` + `docs(memory): Phase 8 slice 2
+log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR at the
+phase boundary). **Next = P8-S3 (attendance + payroll voucher + salary-computation engine + integrated ledger posting +
+auto-create payroll payable ledgers [the S1/S2 carry-forward], schema v32).**
+
+### Phase 8 slice 3 — Payroll voucher + salary computation + posting (2026-07-11) — schema v32
+Third Phase-8 (Payroll) slice — the one that **makes payroll real money**: the **salary-computation engine**, the
+**attendance + payroll vouchers**, and the **integrated balanced accounting posting** that lands payroll on the Balance
+Sheet / P&L (BALANCE-SHEET-CRITICAL). **S3 was paused (user request) then REBUILT FRESH from the clean `dcb9623`
+checkpoint** — the earlier aborted WIP in the stash was never trusted (it never passed a gate). Delivered:
+- **`PayrollComputationService`** (`src/Apex.Ledger/Services/`) — pure, framework/DB/clock-free evaluation of a payslip
+  over the **`InForceOn(date)` dated salary structure** (S2) + the **period attendance** (this slice). Handles **all 5
+  calc types**: **FlatRate** (structure value); **AsComputedValue** (basis → **marginal-% (bp) / value slabs**, evaluated
+  in **dependency order** over the computed-on graph so a head can be computed on already-computed heads); **OnAttendance**
+  (**pro-rated by the clipped attendance overlap** — present days ÷ period days, clipped to the payroll period);
+  **OnProduction** (production units × rate); **AsUserDefinedValue** (per-voucher entered value). **Per-head rounding**
+  (S2 `PayHeadRoundingMethod`). **Critically RESPECTS `AffectsNetSalary`** — a head with `AffectsNetSalary = false` is
+  **computed and shown on the payslip but EXCLUDED from net salary and from the posting** (informational heads don't move
+  cash). `PayrollComputationTests` incl. the golden payslip.
+- **Attendance / production voucher** — `PayrollAttendanceService` + `AttendanceEntry` domain (stored rows: employee,
+  attendance/production type, value, period) persisted as data (no ledger effect); the input the OnAttendance / OnProduction
+  calc types read.
+- **Payroll voucher = integrated BALANCED accounting voucher** — `PayrollVoucherService` posts **Dr earnings** /
+  **Cr net Salary-Payable + Cr each deduction payable**; **employer contributions** post a **Dr expense / Cr payable**
+  pair (the `employer_expense_ledger_id`). Posting is **atomic** — **pre-validate the whole voucher, then a rollback
+  scope** so a mid-post failure leaves nothing partially applied — and **auto-creates the payroll ledgers
+  non-destructively** under the pay head's `UnderGroupId` (an existing ledger is reused, never overwritten) — this
+  **resolves the S1/S2 auto-payroll-ledger carry-forward**. `PayrollVoucherPostingTests`.
+- **New `Payroll` voucher base type** — audited across **all exhaustive switches** in `VoucherEffects` and the reports:
+  it **hits P&L + Balance Sheet** and is **correctly skipped by GST / TDS / TCS / stock** (no double-count). The payload
+  rides `EntryLine` (`PayrollLineDetail` per posted line) + `PayrollLineCategory`.
+- **Schema v31→v32 — additive** (`Schema.cs` `CurrentVersion = 32`): **`employer_expense_ledger_id` column** on the pay
+  head + **`attendance_entries`** + **`payroll_lines`** tables, added to **BOTH `CreateV1` AND `MigrateV31ToV32`** (no
+  create-vs-migrate drift); **`SchemaMigrationEquivalenceTests` green at v32**; the **downgrade helpers**
+  (`InventoryVoucherRoundTripTests` / `ItemInvoiceRoundTripTests` DowngradeTo* DROP the new tables) updated.
+  `SqliteCompanyStore` persists it all (`AttendancePayrollSchemaTests`, `PayrollVoucherRoundTripTests`).
+- **Io canonical fold-in** — attendance + payroll lines folded into `Apex.Ledger.Io` (`CanonicalModel`/`CanonicalMapper`/
+  `CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa- and count-exact JSON+XML lossless
+  round-trip** (`CanonicalPayrollVoucherRoundTripTests`), with **import pre-flight reference validation** — a payroll
+  voucher referencing a missing employee / pay head / ledger **rejects the whole import, all-or-nothing**
+  (`CanonicalPayrollVoucherIntegrityImportTests`).
+- **GOLDEN payslip** (hand-derived, regression-locked): **Basic 30k (flat) + HRA 40%-of-Basic = 12k (AsComputedValue) +
+  Advance 2k (flat deduction) → gross 42k / net 40k**, posted **Dr 42k == Cr 42k paisa-exact**, plus an **employer PF
+  3,600 Dr-expense/Cr-payable pair**. (Statutory-specific PF split / ESI / PT / §192 are S4–S7, so this S3 golden uses
+  non-statutory heads.)
+- **UI** — `AttendanceVoucherEntryViewModel` + `PayrollVoucherEntryViewModel` + Gateway/MainWindow wiring
+  (`MainWindow.axaml`/`.axaml.cs`/`MainWindowViewModel`), keyboard-first, gated on Maintain Payroll.
+  `PayrollVoucherViewModelTests`.
+- **A10 adversarial review — 3 lenses, posting-balance-weighted** (run **separately after the workflow's review agents hit
+  a session limit**): caught + fixed **HIGH — `AffectsNetSalary` was ignored** (non-affecting heads were leaking into net
+  + posting); **3 MED** — **non-atomic post** (partial legs on failure → now pre-validate + rollback scope),
+  **attendance straddling-entry drop** (an attendance row straddling the period boundary was dropped instead of clipped),
+  **import pre-flight gaps** (missing-reference payroll import wasn't rejected); **+ 4 LOW**. All **regression-locked**.
+  **Mid-period salary revision** (a structure revision inside a payroll period) is **documented** as computed off the
+  single `InForceOn(period-end)` structure (no intra-period proration of the revision) — an accepted, recorded limitation.
+Gate fully green in Release: **Ledger 767 · Io 208 · Sqlite 123 · Desktop 627 = 1725 total, 0 failures**, de-branded,
+TestAppBuilder clean, no stray files, working tree exclusively P8-S3. Release build sanity check: **0 warnings, 0 errors**.
+**Minor R6 deviation (recorded):** `PayrollLineCategory` is a **5-value** enum (earnings / employee-deduction /
+employer-contribution / net-payable / informational) — a cleaner split than the plan implied, so the posting side can
+route each line to the right Dr/Cr leg; same behavior.
+Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 3 — Payroll voucher … schema v32` + `docs(memory): Phase 8
+slice 3 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to `main` with the Phase-8 PR
+at the phase boundary). The superseded P8-S3 WIP stash was dropped. **Next = P8-S4 (PF — computed EPS/EPF split + EDLI +
+admin charges + ECR, schema v33; A14 must web-verify PF admin/EDLI exact figures + the ₹15k ceiling).**
+
+### Phase 8 slice 4 — Provident Fund (EPF/EPS/EDLI/Admin/ECR) (2026-07-12) — schema v33
+Fourth Phase-8 (Payroll) slice — the first **statutory** payroll head: **Provident Fund**, computed and posted through
+the S3 balanced/atomic voucher. **A14 web-verified against primary EPFO sources** the exact figures, ceilings, and
+account splits. Delivered:
+- **`PfContribution`** (`src/Apex.Ledger/Services/PfContribution.cs`) — pure, framework/DB/clock-free PF computation over
+  **PF wages = Basic + DA** (HRA and other heads **excluded**, driven by a **per-pay-head PF-wage flag** so the wage base
+  is data, not hardcoded). Computation order (all **round half-up**): **EE_EPF = round(12% × EPFwages)**;
+  **EPS = round(8.33% × min(wages, ₹15,000))** capped **₹1,250**; **ER_EPF = EE_EPF − EPS** — the **anti-3.67%-hardcode
+  invariant** `EPS + ER_EPF == EE_EPF` (employer share is EPF-minus-EPS by construction, never a separate 3.67% figure);
+  **EDLI (A/c21) = round(0.5% × min(wages, ₹15,000))** capped **₹75**; **A/c2 admin = max(Σ 0.5% × EPFwages, ₹500)** at the
+  **ESTABLISHMENT level** (the **₹500 monthly minimum / ₹75 zero-member floor**, computed on the establishment total not
+  per-employee); **A/c22 NIL** (subsumed). **₹15,000 statutory ceiling**; the **12%/10% rate toggle** and a
+  **cap-wages-at-ceiling** switch are per-company config. `PfComputationTests` incl. the golden.
+- **Config surface** — **per-company `PfConfig`** (`src/Apex.Ledger/Domain/PfConfig.cs`: 12/10 rate toggle, establishment
+  code, cap-at-ceiling flag) on `Company`; **per-employee PF details** on `Employee` (PF-applicable, higher-wage opt-in,
+  PF join date). **`PfStatutoryComponent`** carries the computed A/c-wise breakup.
+- **Posting integration into the S3 balanced/atomic voucher** — **employee EPF reduces net** (Cr PF-payable, like any
+  employee deduction); **employer EPF / EPS / EDLI / admin** each post a **balanced Dr-expense / Cr-payable pair**; the
+  whole PF contribution rides the same **pre-validate → rollback-scope atomic** post and **non-destructive auto-create**
+  of the PF payable/expense ledgers from S3. `PfVoucherPostingTests`.
+- **ECR 2.0 offline flat-file** — **`EcrWriter`** (`src/Apex.Ledger.Io/EcrWriter.cs`) emits the hand-rolled **`#~#`
+  11-field member lines** (`PfEcr` report, `src/Apex.Ledger/Reports/PfEcr.cs`) + the **challan totals A/c1 / 2 / 10 / 21 /
+  22**. Deterministic, byte-stable, de-branded, offline emulation only. `EcrWriterTests`.
+- **Schema v32→v33 — additive** (`Schema.cs` `CurrentVersion = 33`): PfConfig columns on the company + the PF-wage flag on
+  the pay head + per-employee PF columns, added to **BOTH `CreateV1` AND `MigrateV32ToV33`** (no create-vs-migrate drift);
+  **`SchemaMigrationEquivalenceTests` green at v33**. `SqliteCompanyStore` persists it all (`PfSchemaTests`).
+- **Io canonical fold-in** — PfConfig + per-employee PF + the PF-wage flag folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** (`CanonicalPfRoundTripTests`).
+- **GOLDEN** (hand-derived, regression-locked): **EPFwages ₹15,000 → EE_EPF 1,800 / EPS 1,250 / ER_EPF 550 / EDLI 75 /
+  admin 500 / A/c22 0**; the posted PF voucher **Dr == Cr == ₹17,375** with **net ₹13,200**; the invariant
+  **EPS + ER_EPF == EE_EPF** (1,250 + 550 == 1,800) holds. (Statutory ESI / PT / §192 are S5–S7, so this golden is PF-only.)
+- **UI** — F11 payroll config VM gains the PfConfig surface (+ `MainWindow`); **`PfEcrReportViewModel`** drives the ECR /
+  challan report pane. `PfConfigReportViewModelTests`.
+- **A10 adversarial review — posting-balance-weighted** (3 lenses): caught + fixed **HIGH — the ECR CHALLAN trailer line
+  broke EPFO per-line validation** (the challan-totals line, appended after the member lines, failed the portal's
+  every-line-is-a-member-record check → now **member-lines-only**, challan totals surfaced separately in the report, not
+  in the uploaded file); **MED — the `CapWagesAtCeiling` flag was ignored by the computation** (wages weren't clipped to
+  ₹15k when the switch was on → now honoured). Both regression-locked.
+Gate fully green in Release: **Ledger 781 · Io 220 · Sqlite 126 · Desktop 634 = 1761 total, 0 failures**, schema v33,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S4. Release build sanity check: **0 warnings,
+0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 4 — Provident Fund … schema v33` +
+`docs(memory): Phase 8 slice 4 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary). **Next = P8-S5 (ESI — employee 0.75% + employer 3.25%, ₹21,000 wage
+ceiling, Apr–Sep / Oct–Mar contribution periods with benefit-period continuation, monthly ESI return; schema v34; A14 to
+web-verify ESI rates / ceiling / period rules).**
+
+### Phase 8 slice 5 — Employees' State Insurance (ESI) (2026-07-12) — schema v34
+Fifth Phase-8 (Payroll) slice — the second **statutory** payroll head: **Employees' State Insurance**, computed and posted
+through the S3 balanced/atomic voucher. **A14 web-verified against primary ESIC sources** the rates, ceiling, rounding, and
+contribution-period rules. Delivered:
+- **`EsiContribution`** (`src/Apex.Ledger/Services/EsiContribution.cs`) — pure, framework/DB/clock-free ESI computation.
+  Rates: **employee 0.75% + employer 3.25%**, each **CEIL (round UP) to the whole rupee INDEPENDENTLY** — deliberately
+  **different from PF's nearest-rupee round-half-up** (ESIC Reg. 40 rounds each contribution up). **Coverage ceiling
+  ₹21,000 gross** (**₹25,000 for a person with disability** — now **reachable** via a new `IsPersonWithDisability` flag,
+  previously dead/unreachable code); **NO ₹21k cap on the contribution BASE** (once covered, both shares compute on the
+  full gross, not on the clipped ceiling). **₹176/day average-daily-wage floor → the employee 0.75% share is WAIVED but
+  the employer 3.25% still pays** (ESIC exemption for the low-wage worker). `EsiComputationTests` incl. the golden.
+- **Two wage figures (the ESI asymmetry)** — the **coverage test uses gross EXCLUDING overtime**, but the **contribution
+  base INCLUDES overtime** (ESIC: OT can't push you *into* coverage, but once covered OT is contributory). **HRA is
+  included** in both. Encoded as two distinct wage rollups so OT never leaks into the ₹21k coverage test.
+- **Contribution-period CONTINUATION** — the two contribution periods **CP1 Apr–Sep / CP2 Oct–Mar**; **coverage is frozen
+  at the START of the contribution period for the whole period** (an IP covered at CP start stays covered every month of
+  that CP even if wages later cross ₹21k), and a **mid-CP joiner is frozen at their FIRST payroll** in that CP. Drives the
+  benefit-period guarantee ESIC promises the worker.
+- **Config surface** — **per-company `EsiConfig`** (`src/Apex.Ledger/Domain/EsiConfig.cs`: applicability, establishment
+  ESI code, rates/ceilings as data); **per-employee ESI fields** on `Employee` (ESI-applicable, **10-digit IP number**,
+  `IsPersonWithDisability`); the **per-pay-head ESI-wage flags** on `PayHead` (contributory / overtime) so the wage base is
+  data, not hardcoded. **`EsiStatutoryComponent`** (`src/Apex.Ledger/Domain/EsiStatutoryComponent.cs`) carries the computed
+  employee/employer breakup + the frozen-coverage decision.
+- **Posting integration into the S3 balanced/atomic voucher** — **employee ESI reduces net** (Cr ESI-payable, like any
+  employee deduction); **employer ESI posts a balanced Dr-expense / Cr-payable pair**; rides the same **pre-validate →
+  rollback-scope atomic** post and **non-destructive auto-create** of the ESI payable/expense ledgers from S3 — **no
+  voucher-service change**. `EsiVoucherPostingTests`.
+- **Monthly per-IP contribution file** — **`EsiContributionWriter`** (`src/Apex.Ledger.Io/EsiContributionWriter.cs`) emits
+  the monthly member/IP contribution lines (`EsiContribution` report, `src/Apex.Ledger/Reports/EsiContribution.cs`).
+  Deterministic, byte-stable, de-branded, offline emulation only. `EsiContributionWriterTests`.
+- **Schema v33→v34 — additive** (`Schema.cs` `CurrentVersion = 34`): EsiConfig columns on the company + the ESI-wage flags
+  on the pay head + per-employee ESI columns, added to **BOTH `CreateV1` AND `MigrateV33ToV34`** (no create-vs-migrate
+  drift); **`SchemaMigrationEquivalenceTests` green at v34**. `SqliteCompanyStore` persists it all (`EsiSchemaTests`).
+- **Io canonical fold-in** — EsiConfig + per-employee ESI + the ESI-wage flags folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** (`CanonicalEsiRoundTripTests`).
+- **CORRECTED the S1 IP-length bug** — the **per-employee Insurance Number (IP) is 10 digits, not 17**; **17 is the
+  establishment employer code**. Fixed the validation on `Employee` + the F11/Employee master VMs; **3 pre-existing tests
+  updated** for the corrected length (`PayrollServiceTests`, `CanonicalPayrollRoundTripTests`, `PayrollRoundTripTests`).
+- **GOLDEN** (hand-derived, regression-locked): **gross ₹20,000 → EE 150 / ER 650**, posted ESI voucher **Dr == Cr ==
+  ₹20,650** with **net ₹19,850**; **gross ₹17,500 → EE 132 / ER 569** (proves the independent **round-UP** each side —
+  0.75%×17,500 = 131.25→132, 3.25%×17,500 = 568.75→569).
+- **UI** — F11 payroll config VM gains the EsiConfig surface + the Employee master VM gains the ESI/IP/disability fields
+  (+ `MainWindow`); **`EsiContributionReportViewModel`** drives the monthly ESI contribution report pane.
+  `EsiConfigReportViewModelTests`.
+- **A10 adversarial review — posting-balance-weighted, CLEAN on balance.** ⚠️ the **workflow's review phase died on a
+  session limit** (the recurring habit — S3/S4/S8), so I (orchestrator) **ran the 3 A10 lenses SEPARATELY** before A12
+  committed. Caught + fixed **2 MED** — (1) the **disability ₹25,000 ceiling was unreachable dead code** (no flag ever set
+  it → added `IsPersonWithDisability` so the higher ceiling is actually reachable); (2) **contribution-period continuation
+  was broken for a mid-CP joiner** (coverage wasn't frozen at their first payroll → they could flip out of coverage
+  mid-CP; now frozen at first payroll). Plus **2 LOW** — the **₹176/day denominator was inflated by overtime** (used the
+  contribution base incl. OT instead of the coverage wage → now the OT-excluded wage); a **stale comment**. All
+  regression-locked.
+Gate fully green in Release: **Ledger 802 · Io 232 · Sqlite 130 · Desktop 642 = 1806 total, 0 failures**, schema v34,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S5. Release build sanity check: **0 warnings,
+0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 5 — Employees' State Insurance … schema v34` +
+`docs(memory): Phase 8 slice 5 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary). **Next = P8-S6 (Professional Tax — state-configurable slabs seeded
+MH + KA + WB + None, PT deduction + payment; schema v35; A14 to web-verify per-state PT bands + the ₹2,500/yr
+constitutional cap).**
+
+### Phase 8 slice 6 — Professional Tax (PT) (2026-07-12) — schema v35
+Sixth Phase-8 (Payroll) slice — the **third statutory** payroll head: **Professional Tax**, a **state-levied** tax on
+employment, computed and posted through the S3 balanced/atomic voucher. **A14 web-verified the per-state PT bands and the
+constitutional cap.** PT differs structurally from PF/ESI: it is **flat-amount-by-wage-band (a slab lookup), not a
+percentage**, and the schedule is **state-specific and editable**. Delivered:
+- **`ProfessionalTax`** (`src/Apex.Ledger/Services/ProfessionalTax.cs`) — pure, framework/DB/clock-free PT computation. A
+  monthly wage falls into exactly one **band** of the active state's slab and pays that band's **flat rupee amount** (not a
+  rate). **₹2,500/yr constitutional HARD CAP (Art. 276(2))** on **cumulative FY PT** — the year-to-date PT is **derived
+  from posted payroll history** (like the TCS §206C(1H) / GSTR-1 YTD projection), and the current month is clamped so the
+  FY total never exceeds ₹2,500. **Per-band February override** — a band may carry a distinct **February amount** (e.g.
+  Maharashtra charges ₹300 in Feb vs ₹200 the other months) so the ₹200×11 + ₹300 schedule lands **exactly** on the
+  ₹2,500 cap. **Maharashtra gender dimension** — a band may be scoped to a gender (`PtGenderScope`); MH **women are exempt
+  at/below ₹25,000** monthly wages. `PtComputationTests` incl. the goldens.
+- **State-configurable slab engine, seeded + editable** — **`ProfessionalTaxSlab`** / band rows
+  (`src/Apex.Ledger/Domain/ProfessionalTaxSlab.cs`) are **data, not code**: a per-company slab set seeded **MH (men +
+  women schedules), KA, WB, and None**, then **editable per company**. **`PtConfig`**
+  (`src/Apex.Ledger/Domain/PtConfig.cs`) carries the per-company PT applicability + active state + registration; wage basis
+  is data (`PtWageBasis`). The verified seed (band-for-band, A14): **MH men** ≤₹7,500 ₹0 / ₹7,501–10,000 ₹175 / >₹10,000
+  ₹200 (₹300 in Feb); **MH women** exempt ≤₹25,000 then the men schedule; **KA** ≤₹24,999 ₹0 / ≥₹25,000 ₹200; **WB**
+  banded to ₹110 at ₹15,000; **None** = no PT.
+- **`PtStatutoryComponent`** (`src/Apex.Ledger/Domain/PtStatutoryComponent.cs`) carries the computed monthly PT + the
+  selected band + the applied cap/Feb-override decision; the **per-pay-head `PtComponent`** role tags the PT deduction head.
+- **Posting integration into the S3 balanced/atomic voucher** — PT is a pure **employee deduction**: it **reduces net**
+  (Cr **Professional Tax Payable**), **no employer side** (unlike PF/ESI). Rides the same **pre-validate → rollback-scope
+  atomic** post and **non-destructive auto-create** of the PT-payable ledger from S3 — **no voucher-service change**.
+  `PtVoucherPostingTests`.
+- **Register** — **`ProfessionalTaxRegister`** (`src/Apex.Ledger/Reports/ProfessionalTaxRegister.cs`) projects the
+  per-employee monthly PT (band, amount, Feb override, YTD-vs-cap) for the state remittance; `ProfessionalTaxRegisterViewModel`
+  drives the pane. `PtConfigReportViewModelTests`.
+- **Schema v34→v35 — additive** (`Schema.cs` `CurrentVersion = 35`): the **`pt_slab_bands` table** (per-company slab bands)
+  + `companies` **pt_* columns** (applicability/state/registration) + **`pay_heads.pt_component`**, added to **BOTH
+  `CreateV1` AND `MigrateV34ToV35`** (no create-vs-migrate drift); the **downgrade helpers DROP `pt_slab_bands`**;
+  **`SchemaMigrationEquivalenceTests` green at v35**. `SqliteCompanyStore` persists it all (`PtSchemaTests`).
+- **Io canonical fold-in** — PtConfig + the slab bands + the pay-head PtComponent folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** with a **full import pre-flight ref guard** (`CanonicalPtRoundTripTests`).
+- **GOLDEN** (hand-derived, regression-locked): **MH man ₹12,000 → ₹200/mo + ₹300 Feb = ₹2,500/yr** (lands exactly on the
+  Art. 276 cap); **MH woman ₹12,000 → ₹0** (women exempt); **KA ₹30,000 → ₹200/mo**; **WB ₹15,000 → ₹110/mo**.
+- **A10 adversarial review — posting-balance CLEAN, seed verified band-for-band.** ⚠️ the **workflow's review phase again
+  died on a session limit** (the recurring S3/S4/S5/S8 habit), so I (orchestrator) **ran the 3 A10 lenses SEPARATELY**
+  before A12 committed. Fixed **3 LOW**: (1) **band selection now half-up** so the picked band matches the register; (2)
+  **`pt_slab_bands` read by `band_order`** (deterministic band sequencing, not insertion order); (3) a **UNIFORM
+  role-based statutory-component guard (PF/ESI/PT)** in `PayHeadService` **and** the Io import pre-flight — hardening the
+  recurring **Io-import-bypassing-engine-guards** class so a PT/PF/ESI role can't be double-assigned or imported past the
+  engine invariant.
+Gate fully green in Release: **Ledger 831 · Io 239 · Sqlite 134 · Desktop 649 = 1853 total, 0 failures**, schema v35,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S6. Release build sanity check: **0 warnings,
+0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 6 — Professional Tax … schema v35` +
+`docs(memory): Phase 8 slice 6 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary). **Next = P8-S7 (§192 Salary TDS + Form 24Q — REUSES the Phase-7
+`TdsService`; FY2025-26 new-regime default with a per-employee old-regime toggle, standard deduction ₹75k, §87A nil ≤₹12L,
+surcharge/cess; Annexure I all quarters + Annexure II in Q4 → Form 16; offline FVU; likely no/additive schema; A14 to
+web-verify the FY2025-26 §192 slabs & rebate).**
+
+### Phase 8 slice 7 — §192 Salary-TDS + Form 24Q + Form 16 (2026-07-13) — schema v36
+Seventh Phase-8 (Payroll) slice — the **fourth statutory** payroll head and the payroll-side income-tax return:
+**§192 salary TDS** (tax-deducted-at-source on salary), computed and posted through the S3 balanced/atomic voucher, then
+filed as **Form 24Q** and certified as **Form 16**. **A14 web-verified the FY2025-26 both-regime slabs, §87A rebate,
+surcharge/cess, and §206AA no-PAN floor.** §192 differs structurally from PF/ESI/PT: the deduction is not a flat rate on
+the month's wage but an **average-rate spreading of the *annual* estimated tax across the remaining pay periods**, trued
+up to actuals as the year progresses. Delivered:
+- **`SalaryIncomeTax`** (`src/Apex.Ledger/Services/SalaryIncomeTax.cs`) — pure, framework/DB/clock-free FY2025-26 §192
+  income-tax engine. **NEW regime** (default, DP): slabs **0 / 4 / 8 / 12 / 16 / 20 / 24L**, **₹75k standard deduction**,
+  **§87A nil ≤₹12L taxable + a marginal-relief band above ₹12L** (rebate capped ₹60k) so ₹12,10,000 pays only the excess
+  over ₹12L, surcharge **10/15/25 (NEW capped at 25%)**. **OLD regime** (per-employee toggle, DP): slabs **2.5 / 5 / 10L**,
+  **₹50k standard deduction**, **§87A ≤₹5L cliff**, **senior (₹3L) / super-senior (₹5L) basic-exemption**, surcharge up
+  to **37%**, and the Chapter-VI-A / HRA / housing-interest deductions off the Form-12BB declaration. Both regimes then add
+  **surcharge marginal relief** + **4% health-&-education cess**; **§206AA / no-PAN forces the higher of the computed rate
+  or a 20% floor**. `SalaryIncomeTaxTests`.
+- **§192 average-rate spreading with a paid-to-date + projected true-up** — the monthly TDS is **annual estimated tax ÷
+  remaining pay periods**, where the annual estimate = **tax already deducted year-to-date (paid-to-date, off posted
+  payroll history)** + **projected tax on the remaining months**; as actual pay/deductions land, the estimate re-trues so
+  the year foots to the real liability (**fix for the A10 HIGH — the naive ×12 estimate over/under-withheld; replaced with
+  the paid-to-date+projected true-up**). Mirrors the TCS/GSTR-1 YTD-projection pattern used across Phases 5–8.
+- **Per-employee Form-12BB tax declaration** — **`TaxDeclaration`** (`src/Apex.Ledger/Domain/TaxDeclaration.cs`) carries
+  the employee's regime choice + declared Chapter-VI-A investments / HRA / housing-loan interest / other-income, feeding
+  the OLD-regime taxable-income build. Persisted per employee (`employee_tax_declarations`), editable in the UI.
+- **Posting integration into the S3 balanced/atomic voucher** — salary TDS is a pure **employee statutory deduction**: it
+  **reduces net** (Cr **TDS on Salary Payable**), **no employer side**. Rides the same **pre-validate → rollback-scope
+  atomic** post and **non-destructive auto-create** of the payable ledger from S3 — no voucher-service change.
+  `SalaryTdsVoucherPostingTests` (incl. the **cancelled-voucher guard** MED fix — a cancelled payroll voucher no longer
+  contributes to paid-to-date).
+- **Form 24Q** (`src/Apex.Ledger/Reports/Form24Q.cs`) — the quarterly salary-TDS return, **reusing the Phase-7 deductor
+  identity + FVU framing**: **Annexure I every quarter** (per-employee deduction detail per the quarter's payroll) +
+  **Annexure II in Q4** (the annual salary/tax reconciliation per employee). A **new Form24Q FVU writer**
+  (`FvuWriter.cs` Form24Q overload, `Fvu24QWriterTests`) emits the caret-delimited FH→BH→CD→per-employee salary-detail→FT
+  layout with **control totals derived from the records actually written** (the S4/S6 counted-totals discipline);
+  **no-PAN employees force the Annexure II 20% floor** (MED fix). `Form24QForm16Tests`.
+- **Form 16** (`src/Apex.Ledger/Reports/Form16.cs`) — the employee's salary-TDS certificate, **Part A** (deductor/employee
+  identity + quarterly deducted/deposited summary) + **Part B** (the salary breakup, deductions, and tax computation),
+  reconciling to Form 24Q by construction. `Form24QForm16Tests`.
+- **Schema v35→v36 — additive** (`Schema.cs` `CurrentVersion = 36`): **`companies.salary_tds_enabled`** + the
+  **`employee_tax_declarations` table**, added to **BOTH `CreateV1` AND `MigrateV35ToV36`** (no create-vs-migrate drift);
+  the **downgrade helpers DROP `employee_tax_declarations`**; **`SchemaMigrationEquivalenceTests` green at v36**.
+  `SqliteCompanyStore` persists it all (`SalaryTdsSchemaTests`).
+- **Io canonical fold-in** — the salary-TDS flag + the per-employee tax declarations folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** with a **full import pre-flight ref guard** (`CanonicalSalaryTdsRoundTripTests`).
+- **UI** — F11 **§192 config** toggle (`GstConfigViewModel` F11 pane) + **Income Tax Declaration**
+  (`TaxDeclarationViewModel`) + **Form 24Q** (`Form24QViewModel`) + **Form 16** (`Form16ViewModel`) panes, plus the
+  `SalaryTdsOptions` VM, wired into `MainWindowViewModel`/`MainWindow.axaml(.cs)`. `SalaryTdsUiViewModelTests`.
+- **GOLDEN** (hand-derived, A14-matched, regression-locked): **NEW ₹15L → ₹97,500 annual / ₹8,125 monthly**; **NEW taxable
+  ₹12L → ₹0** (§87A full rebate); **NEW ₹12,10,000 → ₹10,400** (marginal-relief band); **OLD ₹15L + 80C + 80D →
+  ₹2,02,800 / ₹16,900**.
+- **A10 adversarial review — fixed HIGH + 3 MED + 2 LOW.** HIGH: the §192 estimate used a naive **×12** annualization →
+  systematic over/under-withholding → replaced with the **paid-to-date + projected-remaining true-up**. MED: (1)
+  **cancelled-voucher guard** on paid-to-date; (2) **no-PAN Annexure II 20% floor** in Form 24Q; (3) the **Form 24Q FVU
+  writer** control-total derivation. Plus 2 LOW. **⚠️ CRITICAL WORKFLOW ANOMALY + LESSON:** the S7 build workflow's
+  **ENGINE agent returned GARBAGE** — an injected 'memory-retrieval' instruction block (disregarded as data, not
+  instructions; it wrote no report) — so the downstream **UI + review agents CORRECTLY refused/flagged 'S7 not built'**
+  (the on-disk tree was still v35 at that moment). The **FIX-phase agent then improvised the FULL engine build** (24 files
+  → schema v36) on top, producing a complete-*looking* engine that **never got a proper review pass and had no UI**. I
+  (orchestrator) **SALVAGED it**: verified the gate + that the 4 goldens matched the A14 brief, then **ran the 3 A10
+  review lenses SEPARATELY**, built the UI, and ran a proper fix pass on the final on-disk code. **LESSON: a workflow can
+  silently build a whole slice (under a *later* phase) after an engine failure — always verify WHAT actually landed on
+  disk (git status + schema version) vs which agent claims to have produced it, and run the adversarial review on the
+  final on-disk code regardless of which agent wrote it.** (Extends the recurring S3/S4/S5/S6/S8 "review phase may die on
+  a session limit — verify it ran" habit.)
+Gate fully green in Release: **Ledger 864 · Io 249 · Sqlite 137 · Desktop 658 = 1908 total, 0 failures**, schema v36,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S7. Release build sanity check: **0
+warnings, 0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 7 — §192 salary TDS … schema v36`
+(`c019a7f`) + `docs(memory): Phase 8 slice 7 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched**
+(rides to `main` with the Phase-8 PR at the phase boundary).
+**CARRY-FORWARD (documented, non-blocking):** salary TDS credits a **separate 'TDS on Salary' payable** and is **NOT yet
+depositable via the Phase-7 stat-payment / challan path** — routing it there would pollute **Form 26Q** (which keys on
+`TdsLineTax`). Form 24Q is a complete, self-consistent RETURN, but the **salary-TDS deposit/challan integration is
+deferred** to a later refinement / the S10 exit gate.
+**Next = P8-S8 (payslips + Pay Sheet / Payroll Register / Attendance / Payment Advice reports; no schema change).**
+
+### Phase 8 slice 8 — Payslips + payroll reports (2026-07-13) — no schema change
+Eighth Phase-8 (Payroll) slice — the **presentation half**: the five payroll outputs Tally ships, all **pure
+projections over the already-POSTED payroll voucher data** (no compute, no schema, no Io-canonical change; `Schema.cs`
+stays `CurrentVersion = 36`). Delivered:
+- **`PayrollReportSupport`** (`src/Apex.Ledger/Reports/PayrollReportSupport.cs`) — the shared projection layer
+  (`PostedPayrollByEmployee`) that reads each employee's pay-head figures **off the posted `PayrollLineDetail` on the
+  payroll voucher**, so every report **reconciles to the voucher by construction** and **excludes cancelled / never-posted
+  months**. This is the KEY design choice of the slice (see the HIGH fix below).
+- **Payslip** (`src/Apex.Ledger/Reports/Payslip.cs`) — the per-employee earnings/deductions/net statement for a month,
+  + a **hand-rolled payslip PDF** (`src/Apex.Ledger.Io/PayslipPdf.cs`) reusing the bespoke deterministic `PdfWriter` +
+  the **Indian amount-in-words** helper; byte-stable, de-branded, no NuGet. `PayslipPdfTests`.
+- **Pay Sheet** (`src/Apex.Ledger/Reports/PaySheet.cs`) — the **employee × pay-head matrix** for a period; **foots both
+  ways** (per-employee net across the row, per-pay-head total down the column).
+- **Payroll Register** (`src/Apex.Ledger/Reports/PayrollRegister.cs`) — the period register of payroll vouchers with
+  gross / deductions / net per employee.
+- **Attendance Register** (`src/Apex.Ledger/Reports/AttendanceRegister.cs`) — the period attendance/production summary
+  per employee off the posted attendance entries.
+- **Payment (bank) Advice** (`src/Apex.Ledger/Reports/PaymentAdvice.cs`) — the per-employee net-pay bank-transfer advice
+  for the disbursement run.
+- **UI** — a nested **Reports → Payroll Reports** section (gated on the payroll feature), with a shared
+  **horizontally-scrolling matrix** view (Pay Sheet / Register / Attendance / Payment Advice) + a bespoke **payslip**
+  view; **Print → PayslipPdf** + **Export**, wired through `ReportsViewModel` / `MainWindowViewModel` /
+  `MainWindow.axaml` / `Converters` / `ReportPrintProjector` / `ReportTabularProjector` / `PrintPreviewViewModel`.
+  `PayrollReportsViewModelTests`.
+- **A10 adversarial review — fixed 1 HIGH + 2 MED.** **HIGH:** the reports originally **recomputed pay-head figures from
+  the masters** rather than reading the posted voucher — an employee paid via an **As-User-Defined-Value** pay head (a
+  value that lives only on the voucher, not derivable from the salary structure) was **silently dropped** from the Pay
+  Sheet / Payroll Register / **Payment Advice**, i.e. a **paid person was omitted from the bank advice** → fixed by
+  projecting every report over the posted `PayrollLineDetail` (`PostedPayrollByEmployee`). **MED (1):** a **cancelled /
+  never-posted** month rendered **phantom full salary** (masters still resolved a structure) → the posted-line projection
+  excludes it. **MED (2):** `PriorFinancialYearProfessionalTax` (`PayrollComputationService.cs`, ~:478) lacked the
+  **cancelled-voucher guard** the other statutory paid-to-date reads have → a cancelled payroll voucher **wrongly
+  consumed the ₹2,500 annual PT cap**, under-charging later months → guard added (`PtVoucherPostingTests`). **⚠️ The S8
+  build workflow's FIX phase died on a session limit** — consistent with the recurring S3/S4/S5/S6/S7 "review/fix phase
+  may die — verify it ran" habit — so I ran the three A10 lenses + the fixes **separately** on the final on-disk code.
+Gate fully green (verified by the orchestrator before this commit): **Ledger 875 · Io 252 · Sqlite 137 · Desktop 665 =
+1929 total, 0 failures**, **schema v36 UNCHANGED**, de-branded, TestAppBuilder clean, no stray files, working tree
+exclusively P8-S8 (5 reports + PayrollReportSupport + PayslipPdf + report/UI/PDF tests + Reports.cs /
+PayrollComputationService.cs [PT cancelled guard] + ReportsViewModel / MainWindowViewModel / MainWindow.axaml /
+Converters / ReportPrintProjector / ReportTabularProjector / PrintPreviewViewModel; **NO Schema.cs / Sqlite file**).
+Release build sanity: **0 warnings, 0 errors.** Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 8 —
+payslips (PDF) + Pay Sheet / Payroll Register / Attendance / Payment Advice reports (no schema)` (`d762567`) +
+`docs(memory): Phase 8 slice 8 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary).
+**Next = P8-S9 (PF/ESI/PT statutory reports + Gratuity provision + statutory Bonus; likely additive schema v37 for the
+gratuity/bonus config; A14 to web-verify the gratuity formula [(Basic+DA)×15×completed-years/26, cap ₹20L] + the
+Payment of Bonus Act [8.33%–20%, eligibility wage ₹21k, calc ceiling ₹7,000]).**
+
+### Phase 8 slice 9 — Gratuity provision + statutory Bonus + statutory-report consolidation (2026-07-13) — schema v37
+Ninth Phase-8 (Payroll) slice — the two remaining year-end statutory provisions plus the consolidated statutory
+landing. Additive **schema v36→v37** (9 company-config columns; **no new tables**), all folded into the Io canonical
+model. Delivered:
+- **Gratuity** (`src/Apex.Ledger/Services/Gratuity.cs` + `Domain/GratuityConfig.cs` / `GratuityWageBasis.cs` /
+  `GratuityProvisionPopulation.cs`) — **A14-verified** Payment of Gratuity Act formula
+  **(Basic+DA via `UseForGratuity`) × 15 × completed-years / 26**; **cap ₹20,00,000** (Act ceiling, configurable);
+  a **≥6-month year rounds up** to the next completed year; **vesting at 60 months** (5 completed years) — below that a
+  provision may still be accrued per policy but the payable is not yet vested; **accrue-all-active** default population.
+- **Gratuity provision posting** (`src/Apex.Ledger/Services/GratuityProvision.cs`) — the accrual is booked as a
+  **balanced Journal for the DELTA over the prior book balance**: **Dr Gratuity Expense / Cr Gratuity Provision** when
+  the accrued liability rises, and the **reverse pair when it falls** (over-provision release). The prior book balance
+  is **derived from the ledger, inclusive of same-date postings**, so re-running the provision on the same date books
+  **only the incremental delta** rather than double-counting the already-posted amount (see the A10 fix).
+- **Statutory Bonus** (`src/Apex.Ledger/Services/StatutoryBonus.cs` + `Domain/BonusConfig.cs`) — **A14-verified**
+  Payment of Bonus Act: **eligible when Basic+DA ≤ ₹21,000** and **≥ 30 days worked**; the **calc ceiling = max(₹7,000,
+  minimum wage)**; the **rate is clamped 8.33%–20%** (statutory floor/ceiling, default **8.33%**); **prorated by months
+  worked**; the **minimum bonus is payable even without allocable profit** (min-bonus obligation).
+- **Registers** — **Gratuity Provision register** (`src/Apex.Ledger/Reports/GratuityProvisionRegister.cs`) and
+  **Bonus register** (`src/Apex.Ledger/Reports/BonusRegister.cs`).
+- **Consolidated Statutory Reports (Payroll)** nav — a single landing linking **PF-ECR / ESI / PT / Gratuity / Bonus**
+  (register + config VMs: `GratuityProvisionRegisterViewModel` / `BonusRegisterViewModel`; F11 gratuity/bonus config +
+  register UI through `MainWindowViewModel` / `MainWindow.axaml`).
+- **Schema v37** — the 9 gratuity/bonus config columns added to **BOTH `CreateV1` AND `MigrateV36ToV37`** (equivalence
+  test green; no new tables); **Io fold-in lossless** (`CanonicalModel` / `CanonicalMapper` / `CanonicalXml` /
+  `ApplyJournal`) + **import pre-flight ref checks** in `CompanyImportService` / `ImportPlan`.
+- **Goldens** — gratuity **26,000 × 15 × 10 / 26 = ₹1,50,000**; bonus **₹18,000 → capped ₹7,000 → 8.33% = ₹6,997/yr**.
+- **A10 adversarial review — all 3 lenses ran** (no session-limit death this slice) — caught + fixed a **same-date
+  provision re-post double-counting the prior**: the prior book balance now reads the ledger **inclusive of same-date**,
+  so a same-date re-run posts only the delta (regression-locked in `GratuityProvisionPostingTests`).
+- **DP defaults adopted (confirm at the gate): U1** Act cap **₹20,00,000**; **U2** gratuity population **accrue-all-active**;
+  **U3** bonus minimum wage default **0 → falls back to ₹7,000** calc ceiling; **U4** bonus **prorated by months worked**;
+  **U5** bonus rate default **8.33%**.
+Gate fully green (verified by the orchestrator before this commit): **Ledger 919 · Io 258 · Sqlite 140 · Desktop 680 =
+1997 total, 0 failures**, **schema v37**, de-branded, TestAppBuilder clean, no stray files, working tree exclusively
+P8-S9. Release build sanity: **0 warnings, 0 errors.** Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 9 —
+Gratuity provision + statutory Bonus + PF/ESI/PT report consolidation, SQLite schema v37` (`d26010a`) +
+`docs(memory): Phase 8 slice 9 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary).
+**Next = P8-S10 (EXIT GATE — golden end-to-end payslip with all statutory [PF/ESI/PT/§192] reconciled; migration chain
+v29→v37; Io losslessness; de-brand sweep; RUN THE REAL APP + headless-render the payroll screens; 3-OS CI
+cross-platform audit; resolve the carry-forwards incl. the S7 salary-TDS deposit-path; then A12 opens a PR
+recursing→main + merges once 3-OS CI green; PAUSE for Phase 8→9 go-ahead).**
+
+### Phase 8 slice 10 — EXIT GATE (2026-07-13) — no schema change
+Tenth and **final** Phase-8 slice — the exit gate: a **golden end-to-end payroll reconciliation** plus the four
+phase-close audits and a set of culture/doc tidies. **No schema change** (stays **v37**); nothing new is persisted.
+Delivered:
+- **`Phase8GoldenPayrollTests`** (`tests/Apex.Ledger.Tests/`) — **2 employees** exercising the whole statutory stack
+  (**PF EPS/EPF-split + EDLI + admin, ESI 0.75%/3.25%, Professional Tax state slab, §192 salary-TDS**). The posted
+  payroll voucher **balances Dr==Cr==₹1,47,835 paisa-exact**, and asserts the **anti-3.67% invariant** (employer PF is
+  EE−EPS, never a flat 3.67%). **Every downstream surface reconciles off the same posted data**: payslip, payroll
+  register, payment advice, **PF ECR**, **ESI monthly**, **PT register**, **Form 24Q Annexure I**, gratuity provision,
+  and bonus register all tie to the voucher — the single golden that proves the phase hangs together end-to-end.
+- **The 4 phase-close audits — all clean.** (1) **De-brand**: 0 must-fix; no "Tally" in any shipped code/UI/PDF surface.
+  (2) **Migration v29→v37**: the full additive chain is sound and covered — `SchemaMigrationEquivalenceTests` still
+  proves `CreateV1` == step-migrate parity across every Phase-8 version bump. (3) **Io losslessness**: complete — every
+  Phase-8 persisted surface round-trips paisa/count-exact through JSON+XML, and the **import-bypass class is closed**
+  (`CompanyImportService` mirrors the engine guards, all-or-nothing pre-flight ref checks). (4) **3-OS CI**: no
+  path-separator or byte-order hazard — deterministic byte-stable writers, culture-invariant formatting (see tidies).
+- **6 exit-gate tidies** (culture + docs) — `InvariantCulture` pinned on **(a)** the ESI last-working-day date
+  (`Reports/EsiContribution.cs`), **(b)** the Bonus register **MMM** month label (`ViewModels/BonusRegisterViewModel.cs`),
+  and **(c)** the CsvCanonicalBridge FY dates (`Io/CsvCanonicalBridge.cs`) — so a non-en culture CI leg can't drift the
+  formatting; **(d)** `CanonicalMapper.SchemaVersion` bumped **32→37** (had lagged the schema); **(e)** `Schema.cs` and
+  **(f)** `SchemaMigrationEquivalenceTests` docstrings refreshed to **v37**.
+- **RAN THE REAL APP** — launched clean; **16 payroll screens headless-rendered de-branded with no text overlap**; the
+  **payslip visually confirmed net ₹40,000**. TestAppBuilder probe reverted afterwards (no stray files).
+- **Gate: 2002 tests green** (Ledger 924 · Io 258 · Sqlite 140 · Desktop 680), schema **v37**, de-branded, Release build
+  0 warnings / 0 errors, working tree exclusively the 7 S10 files. Committed + pushed by A12 (R4):
+  `test(payroll): Phase 8 slice 10 exit gate — golden end-to-end payroll reconciliation + cross-platform/culture + doc
+  tidies` (`77835bc`) + `docs(memory): Phase 8 slice 10 exit-gate log`. Branch `claude/recursing-swirles-3138c6` pushed;
+  A12 opens the **Phase-8 PR recursing→main** (do NOT merge yet — awaits 3-OS CI + the Phase 8→9 go-ahead).
+- **✅ PHASE 8 (PAYROLL) COMPLETE — S1–S10, SQLite schema v29→v37, 2002 tests green.** Full Indian payroll: masters +
+  pay-heads (5 calc types) + dated salary structures; attendance + payroll voucher with balanced integrated posting;
+  **PF** (EPS/EPF split + EDLI + admin + ECR), **ESI** (0.75%/3.25% + contribution-period continuation), **Professional
+  Tax** (state slabs + ₹2,500 cap), **§192** salary-TDS (both regimes + 87A/surcharge marginal relief) + **Form 24Q** +
+  **Form 16**; payslips + payroll registers; **gratuity** provision + statutory **bonus**; consolidated PF/ESI/PT reports.
+- **CARRY-FORWARDS (documented, non-blocking — confirm/park at the pause):** (a) **S7 salary-TDS deposit-path** — the
+  §192 TDS is computed + shown + booked, but its *deposit* still rides a separate ledger, **not yet routed through the
+  Phase-7 challan/ITNS-281 stat-payment flow**; wire it in a later slice. (b) **Wide-matrix single-frame layout** — the
+  Payroll Register and Payment Advice use their **intended horizontal scroll** for the wide statutory columns (not a
+  layout defect). (c) The **DP defaults U1–U5** (gratuity cap ₹20L / accrue-all-active / bonus ₹7,000 calc ceiling /
+  prorate-by-months / 8.33% rate) plus the **inherited Phase-7 carry-forwards** (recon-report cash-in-window,
+  OutstandingPayable section-awareness, FIFO backdating) all await the user's confirmation at the Phase 8→9 pause.
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure

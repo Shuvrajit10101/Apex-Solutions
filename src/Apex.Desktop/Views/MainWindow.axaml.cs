@@ -182,6 +182,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+F4 opens the Payroll voucher (Transactions → Vouchers → Payroll → Payroll; Phase 8 slice 3; RQ-7) —
+        // the advertised Payroll accelerator. Intercepted here (before the bare F4 = Contra case) so Ctrl+F4 never
+        // misfires as Contra; a no-op unless Payroll is enabled, so a non-payroll company is unaffected (ER-13).
+        if (e.Key == Key.F4 && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is { PayrollEnabled: true } && !IsTyping(e))
+        {
+            vm.ShowPayrollVoucher();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B on the Form 26Q return (Phase 7 slice 4) SAVES the FVU flat file and RETURNS to the menu. Scoped to
         // the Form 26Q screen so it never collides with the inventory-voucher Alt+B (batch allocation) below; not
         // while typing in a field.
@@ -202,6 +213,30 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.Form27EQ && !IsTyping(e))
         {
             vm.SaveReturnForm27EQ();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on the PF ECR / Challan report (Phase 8 slice 4) SAVES the ECR 2.0 flat file and RETURNS to the
+        // menu — the PF mirror of the Form 26Q / 27EQ Alt+B above. Scoped to the PF ECR screen so it never collides
+        // with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.PfEcrReport && !IsTyping(e))
+        {
+            vm.SaveReturnPfEcr();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+B on the PT Deduction Register report (Phase 8 slice 6) SAVES the register CSV and RETURNS to the menu —
+        // the PT mirror of the PF ECR / ESI Alt+B above. Scoped to the PT register screen so it never collides with
+        // the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.ProfessionalTaxRegister && !IsTyping(e))
+        {
+            vm.SaveReturnProfessionalTax();
             e.Handled = true;
             return;
         }
@@ -710,11 +745,137 @@ public partial class MainWindow : Window
     private void OnApplyTcsClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.ApplyTcs();
 
+    // Provident Fund (Phase 8 slice 4) — F11 Enable Provident Fund + the PF ECR export / save-return actions.
+    private void OnApplyPfClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyPf();
+
+    private void OnExportEcrClick(object? sender, RoutedEventArgs e)
+        => Vm?.PfEcrReport?.ExportEcr();
+
+    private void OnSaveReturnPfEcrClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnPfEcr();
+
+    // Employees' State Insurance (Phase 8 slice 5) — F11 Enable ESI + the ESI contribution export / save-return.
+    private void OnApplyEsiClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyEsi();
+
+    private void OnExportEsiContributionClick(object? sender, RoutedEventArgs e)
+        => Vm?.EsiContributionReport?.ExportReturn();
+
+    private void OnSaveReturnEsiContributionClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnEsiContribution();
+
+    // Professional Tax (Phase 8 slice 6) — F11 Enable Professional Tax + the PT register export / save-return actions.
+    private void OnApplyPtClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyPt();
+
+    private void OnExportProfessionalTaxClick(object? sender, RoutedEventArgs e)
+        => Vm?.ProfessionalTaxRegister?.ExportRegister();
+
+    private void OnSaveReturnProfessionalTaxClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnProfessionalTax();
+
+    // Gratuity + statutory Bonus (Phase 8 slice 9) — F11 Enable Gratuity / Enable Bonus + the Gratuity provision post.
+    private void OnApplyGratuityClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyGratuity();
+
+    private void OnApplyBonusClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyBonus();
+
+    private void OnPostGratuityProvisionClick(object? sender, RoutedEventArgs e)
+        => Vm?.GratuityProvisionRegister?.PostProvision();
+
+    // §192 salary TDS (Phase 8 slice 7) — F11 Enable Salary TDS, the Form-12BB declaration save, and the
+    // Form 24Q / Form 16 export + save-return actions.
+    private void OnApplySalaryTdsClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplySalaryTds();
+
+    private void OnSaveTaxDeclarationClick(object? sender, RoutedEventArgs e)
+        => Vm?.TaxDeclarationMaster?.Save();
+
+    private void OnExportForm24QClick(object? sender, RoutedEventArgs e)
+        => Vm?.Form24Q?.ExportFvu();
+
+    private void OnSaveReturnForm24QClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm24Q();
+
+    private void OnExportForm16Click(object? sender, RoutedEventArgs e)
+        => Vm?.Form16?.ExportPdf();
+
+    private void OnSaveReturnForm16Click(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnForm16();
+
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfPaymentMaster?.Create();
 
     private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfGoodsMaster?.Create();
+
+    // Payroll masters (Phase 8 slice 1) — the five Create actions + the Payroll-Unit Simple/Compound toggle.
+    private void OnCreateEmployeeCategoryClick(object? sender, RoutedEventArgs e)
+        => Vm?.EmployeeCategoryMaster?.Create();
+
+    private void OnCreateEmployeeGroupClick(object? sender, RoutedEventArgs e)
+        => Vm?.EmployeeGroupMaster?.Create();
+
+    private void OnCreateEmployeeClick(object? sender, RoutedEventArgs e)
+        => Vm?.EmployeeMaster?.Create();
+
+    private void OnCreatePayrollUnitClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayrollUnitMaster?.Create();
+
+    private void OnPayrollUnitSimpleClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = false;
+    }
+
+    private void OnPayrollUnitCompoundClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayrollUnitMaster is { } m) m.IsCompound = true;
+    }
+
+    private void OnCreateAttendanceTypeClick(object? sender, RoutedEventArgs e)
+        => Vm?.AttendanceTypeMaster?.Create();
+
+    // Pay Head master (Phase 8 slice 2) — the Create action + the computation basis/slab editor add/remove.
+    private void OnCreatePayHeadClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayHeadMaster?.Create();
+
+    private void OnAddBasisComponentClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayHeadMaster?.AddBasisComponent();
+
+    private void OnRemoveBasisComponentClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayHeadMaster is { } m && (sender as Control)?.DataContext is PayHeadBasisRow row)
+            m.RemoveBasisComponent(row);
+    }
+
+    private void OnAddSlabClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayHeadMaster?.AddSlab();
+
+    private void OnRemoveSlabClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.PayHeadMaster is { } m && (sender as Control)?.DataContext is PayHeadSlabRow row)
+            m.RemoveSlab(row);
+    }
+
+    // Salary Details / structure master (Phase 8 slice 2) — the Save action.
+    private void OnSaveSalaryStructureClick(object? sender, RoutedEventArgs e)
+        => Vm?.SalaryDetails?.Save();
+
+    // Attendance / Production voucher (Phase 8 slice 3) — add a line + record the entries.
+    private void OnAddAttendanceLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AttendanceVoucher?.AddBlankRow();
+
+    private void OnRecordAttendanceClick(object? sender, RoutedEventArgs e)
+        => Vm?.AttendanceVoucher?.Accept();
+
+    // Payroll voucher (Phase 8 slice 3) — compute the salary breakdown, then post the balanced voucher.
+    private void OnComputePayrollClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayrollVoucher?.Compute();
+
+    private void OnPostPayrollClick(object? sender, RoutedEventArgs e)
+        => Vm?.PayrollVoucher?.Accept();
 
     private void OnDepositTdsStatPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.TdsStatPayment?.Deposit();

@@ -33,6 +33,15 @@ public sealed class Company
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
+    private readonly List<EmployeeCategory> _employeeCategories = new();
+    private readonly List<EmployeeGroup> _employeeGroups = new();
+    private readonly List<Employee> _employees = new();
+    private readonly List<PayrollUnit> _payrollUnits = new();
+    private readonly List<AttendanceType> _attendanceTypes = new();
+    private readonly List<PayHead> _payHeads = new();
+    private readonly List<SalaryStructure> _salaryStructures = new();
+    private readonly List<AttendanceEntry> _attendanceEntries = new();
+    private readonly List<TaxDeclaration> _taxDeclarations = new();
 
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
@@ -225,6 +234,83 @@ public sealed class Company
     /// </summary>
     public bool EnableJobOrderProcessing { get; set; }
 
+    /// <summary>
+    /// Company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). Master gate
+    /// for the whole Payroll module: the employee/pay-head masters, the Attendance/Payroll voucher types and the
+    /// payroll reports are all hidden/inert when it is off.
+    /// <para>
+    /// Like <see cref="EnableJobOrderProcessing"/> (a pure persisted user toggle that cannot be inferred — a
+    /// company may enable it before defining any employee), it is a plain persisted <c>get; set;</c> backed by a
+    /// real <c>companies</c> column (v30). Defaults to <c>false</c>, so every existing company is byte-identical
+    /// and carries no payroll masters (ER-13).
+    /// </para>
+    /// </summary>
+    public bool PayrollEnabled { get; set; }
+
+    /// <summary>
+    /// Company feature flag <b>"Enable Payroll Statutory"</b> (F11 Company Features; Phase 8 slice 1; RQ-1) —
+    /// surfaces the Company Payroll Statutory Details screen (PF/ESI/NPS/IT codes) in the later statutory slices.
+    /// A pure persisted toggle backed by a real <c>companies</c> column (v30); defaults to <c>false</c> (ER-13).
+    /// Only meaningful while <see cref="PayrollEnabled"/> is on.
+    /// </summary>
+    public bool PayrollStatutoryEnabled { get; set; }
+
+    /// <summary>
+    /// The establishment's <b>Provident-Fund configuration</b> (Phase 8 slice 4; catalog §14) — EPF rate toggle,
+    /// establishment code, default cap flag. Non-<c>null</c> once the establishment is enrolled for PF; the
+    /// dedicated <c>PfContribution</c> engine reads the rate + cap from here, and the payroll voucher posts the
+    /// establishment EPF-admin charge only when it is present. Defaults <c>null</c>, so a company that never enrols
+    /// for PF serialises byte-identically to a pre-v33 company (ER-13).
+    /// </summary>
+    public PfConfig? PfConfig { get; set; }
+
+    /// <summary>
+    /// The establishment's <b>Employees'-State-Insurance configuration</b> (Phase 8 slice 5; catalog §14) — EE/ER
+    /// rate defaults + the 17-digit employer code. Non-<c>null</c> once the establishment is enrolled for ESI; the
+    /// dedicated <c>EsiContribution</c> engine reads the rates from here, and the payroll voucher posts the ESI legs
+    /// only when it is present. Defaults <c>null</c>, so a company that never enrols for ESI serialises
+    /// byte-identically to a pre-v34 company (ER-13).
+    /// </summary>
+    public EsiConfig? EsiConfig { get; set; }
+
+    /// <summary>
+    /// The establishment's <b>Professional-Tax configuration</b> (Phase 8 slice 6; catalog §14) — the active PT
+    /// state, enrolment number, wage basis and the editable per-state slab tables. Non-<c>null</c> once the
+    /// establishment is enrolled for PT; the dedicated <c>ProfessionalTax</c> engine resolves the slab table from
+    /// the config's state + the employee's gender and the payroll voucher posts the PT deduction only when it is
+    /// present. Defaults <c>null</c>, so a company that never enrols for PT serialises byte-identically to a pre-v35
+    /// company (ER-13).
+    /// </summary>
+    public PtConfig? PtConfig { get; set; }
+
+    /// <summary>
+    /// Whether the establishment deducts <b>§192 salary TDS</b> (Phase 8 slice 7; catalog §14; F11 Payroll
+    /// Statutory). When <c>true</c> the payroll voucher computes the average-rate monthly TDS for each employee whose
+    /// structure carries a §192 income-tax deduction head. Additive, defaults <c>false</c> so a company that never
+    /// enables salary-TDS is byte-identical to a pre-v36 company (ER-13). The deductor/TAN/responsible-person facts
+    /// reuse the Phase-7 <c>TdsConfig</c> (no parallel deductor config).
+    /// </summary>
+    public bool SalaryTdsEnabled { get; set; }
+
+    /// <summary>
+    /// The establishment's <b>Gratuity configuration</b> (Phase 8 slice 9; catalog §14) — the statutory cap, wage
+    /// basis and provision population the deterministic gratuity accrual reads. Non-<c>null</c> once the establishment
+    /// provisions for gratuity; the <c>GratuityProvision</c> service posts the period-end provision voucher (Dr
+    /// Gratuity Expense / Cr Gratuity Provision, the increase over the prior balance) only when it is present. Defaults
+    /// <c>null</c>, so a company that never provisions for gratuity serialises byte-identically to a pre-v37 company
+    /// (ER-13).
+    /// </summary>
+    public GratuityConfig? GratuityConfig { get; set; }
+
+    /// <summary>
+    /// The establishment's <b>statutory-Bonus configuration</b> (Phase 8 slice 9; catalog §14) — the bonus rate, §12
+    /// calculation ceiling, state minimum wage and prorate flag the deterministic bonus computation reads.
+    /// Non-<c>null</c> once the establishment computes statutory bonus; the bonus register projects the per-employee
+    /// eligible/capped base + annual bonus only when it is present. Defaults <c>null</c>, so a company that never
+    /// computes bonus serialises byte-identically to a pre-v37 company (ER-13).
+    /// </summary>
+    public BonusConfig? BonusConfig { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 
@@ -318,6 +404,36 @@ public sealed class Company
     /// <summary>Links between a <see cref="TcsChallan"/> and the Stat-Payment voucher that booked its deposit
     /// (Phase 7 slice 6; the <c>tcs_challan_voucher_links</c> set — a TCS-specific sibling of the TDS one).</summary>
     public IReadOnlyList<ChallanVoucherLink> TcsChallanVoucherLinks => _tcsChallanVoucherLinks;
+
+    /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
+    /// unless Payroll is used.</summary>
+    public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
+
+    /// <summary>Employee groups (Phase 8 slice 1; RQ-2): the hierarchical department/division tree.</summary>
+    public IReadOnlyList<EmployeeGroup> EmployeeGroups => _employeeGroups;
+
+    /// <summary>Employees (Phase 8 slice 1; RQ-2): the workforce masters, under a group + optional category.</summary>
+    public IReadOnlyList<Employee> Employees => _employees;
+
+    /// <summary>Per-employee income-tax declarations (Phase 8 slice 7; RQ-12; Form 12BB): the §80C/§80D/HRA/24(b)/
+    /// other-income/previous-employer figures the §192 engine estimates the salary TDS from. Empty until a
+    /// declaration is captured (a new-regime employee needs none), so a company without declarations is
+    /// byte-identical (ER-13).</summary>
+    public IReadOnlyList<TaxDeclaration> TaxDeclarations => _taxDeclarations;
+
+    /// <summary>Payroll units (Phase 8 slice 1; RQ-3): simple + compound units for attendance/production.</summary>
+    public IReadOnlyList<PayrollUnit> PayrollUnits => _payrollUnits;
+
+    /// <summary>Attendance/Production types (Phase 8 slice 1; RQ-3): the attendance/leave/production calendar
+    /// types, hierarchical.</summary>
+    public IReadOnlyList<AttendanceType> AttendanceTypes => _attendanceTypes;
+
+    /// <summary>Pay heads (Phase 8 slice 2; RQ-4): the salary-structure building blocks (earnings/deductions/
+    /// contributions) with their calculation type + computation formula. Empty unless Payroll is used.</summary>
+    public IReadOnlyList<PayHead> PayHeads => _payHeads;
+
+    /// <summary>Salary structures (Phase 8 slice 2; RQ-5): the dated per-employee / per-group pay-head assignments.</summary>
+    public IReadOnlyList<SalaryStructure> SalaryStructures => _salaryStructures;
 
     /// <summary>The seeded default godown ("Main Location"), or <c>null</c> if none is seeded yet.</summary>
     public Godown? MainLocation => _godowns.FirstOrDefault(g => g.IsMainLocation);
@@ -453,6 +569,113 @@ public sealed class Company
     /// <summary>The TCS challan ids linked to a given voucher (Phase 7 slice 6).</summary>
     public IEnumerable<Guid> TcsChallansLinkedToVoucher(Guid voucherId) =>
         _tcsChallanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
+
+    // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
+
+    /// <summary>Adds an employee category (uniqueness guard lives in <c>PayrollService</c>).</summary>
+    public void AddEmployeeCategory(EmployeeCategory category) => _employeeCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
+    /// <summary>Removes an employee category (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveEmployeeCategory(EmployeeCategory category) => _employeeCategories.Remove(category);
+
+    /// <summary>Adds an employee group (uniqueness/parent guards live in <c>PayrollService</c>).</summary>
+    public void AddEmployeeGroup(EmployeeGroup group) => _employeeGroups.Add(group ?? throw new ArgumentNullException(nameof(group)));
+    /// <summary>Removes an employee group (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveEmployeeGroup(EmployeeGroup group) => _employeeGroups.Remove(group);
+
+    /// <summary>Adds an employee (uniqueness/reference guards live in <c>PayrollService</c>).</summary>
+    public void AddEmployee(Employee employee) => _employees.Add(employee ?? throw new ArgumentNullException(nameof(employee)));
+    /// <summary>Removes an employee (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveEmployee(Employee employee) => _employees.Remove(employee);
+
+    /// <summary>Adds a per-employee income-tax declaration (Phase 8 slice 7; also used by the store/import
+    /// rehydration). Replaces any existing declaration for the same employee (one declaration per employee).</summary>
+    public void AddTaxDeclaration(TaxDeclaration declaration)
+    {
+        ArgumentNullException.ThrowIfNull(declaration);
+        _taxDeclarations.RemoveAll(d => d.EmployeeId == declaration.EmployeeId);
+        _taxDeclarations.Add(declaration);
+    }
+    /// <summary>Removes a tax declaration (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveTaxDeclaration(TaxDeclaration declaration) => _taxDeclarations.Remove(declaration);
+    /// <summary>Finds an employee's income-tax declaration (Phase 8 slice 7), or <c>null</c> when none is captured
+    /// (⇒ the §192 engine treats every declared figure as ₹0 — correct for a new-regime employee).</summary>
+    public TaxDeclaration? FindTaxDeclaration(Guid employeeId) =>
+        _taxDeclarations.FirstOrDefault(d => d.EmployeeId == employeeId);
+
+    /// <summary>Adds a payroll unit (uniqueness guard lives in <c>PayrollService</c>).</summary>
+    public void AddPayrollUnit(PayrollUnit unit) => _payrollUnits.Add(unit ?? throw new ArgumentNullException(nameof(unit)));
+    /// <summary>Removes a payroll unit (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemovePayrollUnit(PayrollUnit unit) => _payrollUnits.Remove(unit);
+
+    /// <summary>Adds an attendance/production type (uniqueness/parent guards live in <c>PayrollService</c>).</summary>
+    public void AddAttendanceType(AttendanceType type) => _attendanceTypes.Add(type ?? throw new ArgumentNullException(nameof(type)));
+    /// <summary>Removes an attendance/production type (delete-guards live in <c>PayrollService</c>; also used by import roll-back).</summary>
+    public bool RemoveAttendanceType(AttendanceType type) => _attendanceTypes.Remove(type);
+
+    /// <summary>Finds an employee category by its id, or <c>null</c>.</summary>
+    public EmployeeCategory? FindEmployeeCategory(Guid id) => _employeeCategories.FirstOrDefault(c => c.Id == id);
+    /// <summary>Finds an employee category by its name (case-insensitive), or <c>null</c>.</summary>
+    public EmployeeCategory? FindEmployeeCategoryByName(string name) =>
+        _employeeCategories.FirstOrDefault(c => string.Equals(c.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds an employee group by its id, or <c>null</c>.</summary>
+    public EmployeeGroup? FindEmployeeGroup(Guid id) => _employeeGroups.FirstOrDefault(g => g.Id == id);
+    /// <summary>Finds an employee group by its name or alias (case-insensitive), or <c>null</c>.</summary>
+    public EmployeeGroup? FindEmployeeGroupByName(string name) =>
+        _employeeGroups.FirstOrDefault(g =>
+            string.Equals(g.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            (g.Alias is not null && string.Equals(g.Alias, name?.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Finds an employee by its id, or <c>null</c>.</summary>
+    public Employee? FindEmployee(Guid id) => _employees.FirstOrDefault(e => e.Id == id);
+    /// <summary>Finds an employee by its name (case-insensitive), or <c>null</c>.</summary>
+    public Employee? FindEmployeeByName(string name) =>
+        _employees.FirstOrDefault(e => string.Equals(e.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds a payroll unit by its id, or <c>null</c>.</summary>
+    public PayrollUnit? FindPayrollUnit(Guid id) => _payrollUnits.FirstOrDefault(u => u.Id == id);
+    /// <summary>Finds a payroll unit by its symbol or formal name (case-insensitive), or <c>null</c>.</summary>
+    public PayrollUnit? FindPayrollUnitByName(string name) =>
+        _payrollUnits.FirstOrDefault(u =>
+            string.Equals(u.Symbol, name?.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(u.FormalName, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Finds an attendance type by its id, or <c>null</c>.</summary>
+    public AttendanceType? FindAttendanceType(Guid id) => _attendanceTypes.FirstOrDefault(a => a.Id == id);
+    /// <summary>Finds an attendance type by its name (case-insensitive), or <c>null</c>.</summary>
+    public AttendanceType? FindAttendanceTypeByName(string name) =>
+        _attendanceTypes.FirstOrDefault(a => string.Equals(a.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // ---- Pay heads + salary structures (Phase 8 slice 2; guards live in PayHeadService / SalaryStructureService) ----
+
+    /// <summary>Adds a pay head (uniqueness/reference/cycle guards live in <c>PayHeadService</c>).</summary>
+    public void AddPayHead(PayHead payHead) => _payHeads.Add(payHead ?? throw new ArgumentNullException(nameof(payHead)));
+    /// <summary>Removes a pay head (delete-guards live in <c>PayHeadService</c>; also used by import roll-back).</summary>
+    public bool RemovePayHead(PayHead payHead) => _payHeads.Remove(payHead);
+    /// <summary>Finds a pay head by its id, or <c>null</c>.</summary>
+    public PayHead? FindPayHead(Guid id) => _payHeads.FirstOrDefault(p => p.Id == id);
+    /// <summary>Finds a pay head by its name (case-insensitive), or <c>null</c>.</summary>
+    public PayHead? FindPayHeadByName(string name) =>
+        _payHeads.FirstOrDefault(p => string.Equals(p.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Adds a salary structure (validity/uniqueness guards live in <c>SalaryStructureService</c>).</summary>
+    public void AddSalaryStructure(SalaryStructure structure) => _salaryStructures.Add(structure ?? throw new ArgumentNullException(nameof(structure)));
+    /// <summary>Removes a salary structure (delete-guards live in <c>SalaryStructureService</c>; also used by import roll-back).</summary>
+    public bool RemoveSalaryStructure(SalaryStructure structure) => _salaryStructures.Remove(structure);
+    /// <summary>Finds a salary structure by its id, or <c>null</c>.</summary>
+    public SalaryStructure? FindSalaryStructure(Guid id) => _salaryStructures.FirstOrDefault(s => s.Id == id);
+
+    // ---- Attendance entries (Phase 8 slice 3; recorded by PayrollAttendanceService, read by the computation engine) ----
+
+    /// <summary>Recorded attendance / production values (Phase 8 slice 3; RQ-6). Empty unless Payroll is used (ER-13).</summary>
+    public IReadOnlyList<AttendanceEntry> AttendanceEntries => _attendanceEntries;
+
+    /// <summary>Adds an attendance entry (guards live in <c>PayrollAttendanceService</c>; also used by import).</summary>
+    public void AddAttendanceEntry(AttendanceEntry entry) => _attendanceEntries.Add(entry ?? throw new ArgumentNullException(nameof(entry)));
+    /// <summary>Removes an attendance entry (also used by import roll-back).</summary>
+    public bool RemoveAttendanceEntry(AttendanceEntry entry) => _attendanceEntries.Remove(entry);
+    /// <summary>Finds an attendance entry by its id, or <c>null</c>.</summary>
+    public AttendanceEntry? FindAttendanceEntry(Guid id) => _attendanceEntries.FirstOrDefault(a => a.Id == id);
 
     /// <summary>Removes a stock opening-balance allocation (used when re-editing an item's opening stock).</summary>
     public bool RemoveStockOpeningBalance(StockOpeningBalance balance) => _stockOpeningBalances.Remove(balance);

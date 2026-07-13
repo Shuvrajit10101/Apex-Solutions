@@ -178,6 +178,21 @@ public sealed class CompanyImportService
         MapMasters(model.Payload.StockItems, i => i.Name, name => _target.FindStockItemByName(name) is not null,
             plan.StockItemTargets, policy, errors, "stock item");
 
+        // ---- Payroll masters (Phase 8 slice 1) ----
+        MapMasters(model.Payload.EmployeeCategories, x => x.Name, name => _target.FindEmployeeCategoryByName(name) is not null,
+            plan.EmployeeCategoryTargets, policy, errors, "employee category");
+        MapMasters(model.Payload.EmployeeGroups, x => x.Name, name => _target.FindEmployeeGroupByName(name) is not null,
+            plan.EmployeeGroupTargets, policy, errors, "employee group");
+        MapMasters(model.Payload.PayrollUnits, x => x.Symbol, name => _target.FindPayrollUnitByName(name) is not null,
+            plan.PayrollUnitTargets, policy, errors, "payroll unit");
+        MapMasters(model.Payload.AttendanceTypes, x => x.Name, name => _target.FindAttendanceTypeByName(name) is not null,
+            plan.AttendanceTypeTargets, policy, errors, "attendance type");
+        MapMasters(model.Payload.Employees, x => x.Name, name => _target.FindEmployeeByName(name) is not null,
+            plan.EmployeeTargets, policy, errors, "employee");
+        // Pay heads (Phase 8 slice 2): name-deduped. Salary structures have no name key → always re-created (no map).
+        MapMasters(model.Payload.PayHeads, x => x.Name, name => _target.FindPayHeadByName(name) is not null,
+            plan.PayHeadTargets, policy, errors, "pay head");
+
         if (errors.Count > 0) return plan; // don't attempt reference/voucher checks on an already-broken batch
 
         // ---- Cross-reference resolvability (every FK must resolve to a mapped or existing master) ----
@@ -248,6 +263,12 @@ public sealed class CompanyImportService
         CurrencyDto cur => cur.Id,
         BudgetDto bd => bd.Id,
         ScenarioDto scn => scn.Id,
+        EmployeeCategoryDto eca => eca.Id,
+        EmployeeGroupDto egr => egr.Id,
+        PayrollUnitDto pu => pu.Id,
+        AttendanceTypeDto at => at.Id,
+        EmployeeDto emp => emp.Id,
+        PayHeadDto ph => ph.Id,
         _ => throw new InvalidOperationException($"Unsupported master DTO {typeof(TDto).Name}."),
     };
 
@@ -327,6 +348,190 @@ public sealed class CompanyImportService
             if (!plan.CanResolveCurrency(r.CurrencyId, _target))
                 errors.Add("An exchange rate references a currency that is neither imported nor present.");
 
+        // Payroll masters (Phase 8 slice 1): employee group → parent; attendance type → parent + payroll unit;
+        // payroll unit → first/tail components; employee → group + optional category.
+        foreach (var eg in model.Payload.EmployeeGroups)
+            if (eg.ParentId is { } pid && !plan.CanResolveEmployeeGroup(pid, _target))
+                errors.Add($"Employee group '{eg.Name}' references a parent group that is neither imported nor present.");
+        foreach (var pu in model.Payload.PayrollUnits.Where(u => u.IsCompound))
+        {
+            if (pu.FirstUnitId is not { } fid || !plan.CanResolvePayrollUnit(fid, _target))
+                errors.Add($"Compound payroll unit '{pu.Symbol}' references a first unit that is neither imported nor present.");
+            if (pu.TailUnitId is not { } tid || !plan.CanResolvePayrollUnit(tid, _target))
+                errors.Add($"Compound payroll unit '{pu.Symbol}' references a tail unit that is neither imported nor present.");
+        }
+        foreach (var at in model.Payload.AttendanceTypes)
+        {
+            if (at.ParentId is { } pid && !plan.CanResolveAttendanceType(pid, _target))
+                errors.Add($"Attendance type '{at.Name}' references a parent type that is neither imported nor present.");
+            if (at.PayrollUnitId is { } uid && !plan.CanResolvePayrollUnit(uid, _target))
+                errors.Add($"Attendance type '{at.Name}' references a payroll unit that is neither imported nor present.");
+        }
+        foreach (var em in model.Payload.Employees)
+        {
+            if (!plan.CanResolveEmployeeGroup(em.EmployeeGroupId, _target))
+                errors.Add($"Employee '{em.Name}' references an employee group that is neither imported nor present.");
+            if (em.EmployeeCategoryId is { } cid && !plan.CanResolveEmployeeCategory(cid, _target))
+                errors.Add($"Employee '{em.Name}' references an employee category that is neither imported nor present.");
+            // Mirror the domain guard (Phase 8 slice 4; PayrollService.SetEmployeePfDetails / CreateEmployee.ValidateUan):
+            // a PF-applicable member MUST carry a valid 12-digit UAN. The direct-construction import path bypasses the
+            // service, so re-run the guard here or reject the whole batch — otherwise a hand-edited export could load a
+            // PF member the domain would never allow, which the PF ECR/Challan report then throws on or mis-emits.
+            if (em.PfApplicable && !IsValid12DigitUan(em.Uan))
+                errors.Add($"Employee '{em.Name}' is PF-applicable but has no valid 12-digit UAN.");
+            // Mirror the ESI domain guard (Phase 8 slice 5; PayrollService.SetEmployeeEsiDetails): an ESI-applicable
+            // member MUST carry a valid 10-digit IP number (esi_number) — the monthly contribution file keys on it.
+            if (em.EsiApplicable && !IsValid10DigitIp(em.EsiNumber))
+                errors.Add($"Employee '{em.Name}' is ESI-applicable but has no valid 10-digit ESI IP number.");
+        }
+
+        // Professional-Tax config (Phase 8 slice 6): the direct-construction import (ImportPlan.BuildPtConfig) builds
+        // the domain PtSlab/PtSlabBand/PtMonthOverride, whose constructors throw on a malformed band. Re-run the guards
+        // here so a hand-edited export is rejected cleanly at pre-flight rather than throwing mid-Apply.
+        if (model.Company.Pt is { } pt)
+        {
+            if (!string.IsNullOrWhiteSpace(pt.StateCode) && !IndianState.IsValidCode(pt.StateCode.Trim()))
+                errors.Add($"Professional-Tax config references an invalid state code '{pt.StateCode}'.");
+            if (!Enum.TryParse<PtWageBasis>(pt.WageBasis, out _))
+                errors.Add($"Professional-Tax config has an unknown wage basis '{pt.WageBasis}'.");
+            foreach (var slab in pt.SlabTables)
+            {
+                if (string.IsNullOrWhiteSpace(slab.StateCode))
+                    errors.Add("A Professional-Tax slab table has no state code.");
+                if (!Enum.TryParse<PtGenderScope>(slab.GenderScope, out _))
+                    errors.Add($"Professional-Tax slab table (state '{slab.StateCode}') has an unknown gender scope '{slab.GenderScope}'.");
+                foreach (var b in slab.Bands)
+                {
+                    if (b.FromWagePaisa < 0 || b.MonthlyAmountPaisa < 0)
+                        errors.Add($"Professional-Tax slab band (state '{slab.StateCode}') has a negative wage/amount.");
+                    if (b.ToWagePaisa is { } to && to < b.FromWagePaisa)
+                        errors.Add($"Professional-Tax slab band (state '{slab.StateCode}') has an upper bound below its lower bound.");
+                    foreach (var o in b.MonthOverrides)
+                        if (o.Month is < 1 or > 12 || o.AmountPaisa < 0)
+                            errors.Add($"Professional-Tax slab band (state '{slab.StateCode}') has an invalid month override (month {o.Month}).");
+                }
+            }
+        }
+
+        // Gratuity config (Phase 8 slice 9): the direct-construction import (ImportPlan) builds the domain
+        // GratuityConfig, whose constructor throws on a negative cap. Re-run the guards here so a hand-edited export is
+        // rejected cleanly at pre-flight rather than throwing mid-Apply.
+        if (model.Company.Gratuity is { } gr)
+        {
+            if (gr.CapPaisa < 0)
+                errors.Add("Gratuity config has a negative cap.");
+            if (!Enum.TryParse<GratuityWageBasis>(gr.WageBasis, out _))
+                errors.Add($"Gratuity config has an unknown wage basis '{gr.WageBasis}'.");
+            if (!Enum.TryParse<GratuityProvisionPopulation>(gr.Population, out _))
+                errors.Add($"Gratuity config has an unknown provision population '{gr.Population}'.");
+        }
+
+        // Statutory-Bonus config (Phase 8 slice 9): the calc ceiling / minimum wage cannot be negative (the domain
+        // BonusConfig constructor throws). The rate is clamped to the §10–§11 band on construction, so it is never
+        // rejected here.
+        if (model.Company.Bonus is { } bo)
+        {
+            if (bo.CalculationCeilingPaisa < 0)
+                errors.Add("Statutory-Bonus config has a negative calculation ceiling.");
+            if (bo.MinimumWagePaisa < 0)
+                errors.Add("Statutory-Bonus config has a negative minimum wage.");
+        }
+
+        // Pay heads (Phase 8 slice 2): under-group + ledger + attendance-type + computed-on component references.
+        foreach (var ph in model.Payload.PayHeads)
+        {
+            if (ph.UnderGroupId is { } gid && !plan.CanResolveGroup(gid, _target))
+                errors.Add($"Pay head '{ph.Name}' references an under-group that is neither imported nor present.");
+            if (ph.LedgerId is { } lid && !plan.CanResolveLedger(lid, _target))
+                errors.Add($"Pay head '{ph.Name}' references a ledger that is neither imported nor present.");
+            if (ph.EmployerExpenseLedgerId is { } elid && !plan.CanResolveLedger(elid, _target))
+                errors.Add($"Pay head '{ph.Name}' references an employer-contribution expense ledger that is neither imported nor present.");
+            if (ph.AttendanceTypeId is { } aid && !plan.CanResolveAttendanceType(aid, _target))
+                errors.Add($"Pay head '{ph.Name}' references an attendance type that is neither imported nor present.");
+            foreach (var comp in ph.ComputationComponents)
+                if (!plan.CanResolvePayHead(comp.PayHeadId, _target))
+                    errors.Add($"Pay head '{ph.Name}' computes on a pay head that is neither imported nor present.");
+
+            // Mirror the PayHeadService statutory-component role guard (F3): the direct-construction import path
+            // bypasses the service, so a hand-edited export pairing a statutory component with a wrong-side pay-head
+            // type (e.g. a Professional-Tax head typed as an employer contribution) would load a phantom, self-balancing
+            // employer/deduction pair. Reject it at pre-flight so nothing is applied.
+            if (Enum.TryParse<PayHeadType>(ph.PayHeadType, out var phType)
+                && Enum.TryParse<PtStatutoryComponent>(ph.PtComponent, out var phPt)
+                && Enum.TryParse<PfStatutoryComponent>(ph.PfComponent, out var phPf)
+                && Enum.TryParse<EsiStatutoryComponent>(ph.EsiComponent, out var phEsi)
+                && Enum.TryParse<IncomeTaxComponent>(ph.IncomeTaxComponent, out var phItc)
+                && PayrollComputationService.RequiredStatutoryRole(phPt, phPf, phEsi, phItc) is { } requiredRole
+                && PayrollComputationService.RoleOf(phType) != requiredRole)
+                errors.Add(
+                    $"Pay head '{ph.Name}' carries a statutory component that must post as {requiredRole}, but its " +
+                    $"pay-head type '{phType}' posts as {PayrollComputationService.RoleOf(phType)}.");
+        }
+
+        // Pay-head computed-on integrity (the direct-construction import path bypasses PayHeadService, so re-run
+        // its guards here or reject the batch — otherwise a hand-edited export could load a graph slice 3 cannot
+        // compute: a cycle, a self-reference, a slab-less computed head, or a non-computed head with a formula).
+        ValidatePayHeadComputationIntegrity(model, plan, errors);
+
+        // Salary structures (Phase 8 slice 2): scope target (employee or group) + each line's pay head, plus the
+        // SalaryStructureService.ValidateLines integrity guards the direct-construction import path bypasses
+        // (≥1 line; dense ordering from 0; no duplicate pay head; each line's value matches its pay head's
+        // calculation type). A valid export always satisfies these; only a hand-edited file can violate them.
+        foreach (var ss in model.Payload.SalaryStructures)
+        {
+            var scopeOk = ss.Scope == nameof(Apex.Ledger.Domain.SalaryStructureScope.Employee)
+                ? plan.CanResolveEmployee(ss.ScopeId, _target)
+                : plan.CanResolveEmployeeGroup(ss.ScopeId, _target);
+            if (!scopeOk)
+                errors.Add($"A salary structure references a {ss.Scope.ToLowerInvariant()} scope that is neither imported nor present.");
+
+            if (ss.Lines.Count == 0)
+                errors.Add("A salary structure must carry at least one pay-head line.");
+
+            var seenLinePayHeads = new HashSet<Guid>();
+            for (var i = 0; i < ss.Lines.Count; i++)
+            {
+                var line = ss.Lines[i];
+                if (!plan.CanResolvePayHead(line.PayHeadId, _target))
+                {
+                    errors.Add("A salary structure line references a pay head that is neither imported nor present.");
+                    continue;
+                }
+                if (line.Order != i)
+                    errors.Add($"A salary structure has non-dense line ordering (line {i} carries order {line.Order}).");
+                if (!seenLinePayHeads.Add(line.PayHeadId))
+                    errors.Add("A salary structure references the same pay head on more than one line.");
+
+                if (ResolvePayHeadCalcType(line.PayHeadId, model, plan) is { } calc)
+                {
+                    var needsAmount = calc is PayHeadCalculationType.FlatRate
+                        or PayHeadCalculationType.OnAttendance or PayHeadCalculationType.OnProduction;
+                    if (needsAmount && line.AmountPaisa is null)
+                        errors.Add($"A salary structure line for a {calc} pay head needs a per-employee amount.");
+                    else if (needsAmount && line.AmountPaisa is < 0)
+                        errors.Add("A salary structure line has a negative amount.");
+                    else if (!needsAmount && line.AmountPaisa is not null)
+                        errors.Add($"A salary structure line for a {calc} pay head must not carry an amount (it is computed / entered at the voucher).");
+                }
+            }
+        }
+
+        // Attendance entries (Phase 8 slice 3): employee + attendance-type refs. A dangling ref would otherwise
+        // only surface as a generic post-apply rollback when ImportPlan re-maps the entry (F4).
+        foreach (var ae in model.Payload.AttendanceEntries)
+        {
+            if (!plan.CanResolveEmployee(ae.EmployeeId, _target))
+                errors.Add("An attendance entry references an employee that is neither imported nor present.");
+            if (!plan.CanResolveAttendanceType(ae.AttendanceTypeId, _target))
+                errors.Add("An attendance entry references an attendance type that is neither imported nor present.");
+        }
+
+        // §192 income-tax declarations (Phase 8 slice 7): each references an employee — a dangling ref would
+        // otherwise only surface as a generic post-apply rollback when ImportPlan re-maps the declaration (F4).
+        foreach (var td in model.Payload.TaxDeclarations)
+            if (!plan.CanResolveEmployee(td.EmployeeId, _target))
+                errors.Add("A tax declaration references an employee that is neither imported nor present.");
+
         // Budget → under-group + each line's group/ledger.
         foreach (var bd in model.Payload.Budgets)
         {
@@ -397,6 +602,100 @@ public sealed class CompanyImportService
         }
     }
 
+    /// <summary>
+    /// Re-runs the <see cref="PayHeadService"/> computed-on integrity guards that the direct-construction import
+    /// path (which news up pay heads and assigns <c>Computation</c> without the service) would otherwise bypass:
+    /// calc-type ↔ computation consistency, no self-reference, no duplicate basis component, a slab-backed
+    /// computed head, and — the key adversarial rule — no computed-on cycle. Only pay heads that will actually be
+    /// CREATED are checked (a duplicate-name head resolves to an existing, already-validated head whose incoming
+    /// computation the import discards). A cycle that touches an imported head is necessarily confined to the
+    /// to-be-created heads: an existing target head predates the import and cannot reference a brand-new head, so
+    /// following an edge into a duplicate/existing head is terminal.
+    /// </summary>
+    private static void ValidatePayHeadComputationIntegrity(CanonicalModel model, ImportPlan plan, List<string> errors)
+    {
+        var byId = model.Payload.PayHeads.ToDictionary(p => p.Id);
+        var toCreate = model.Payload.PayHeads
+            .Where(p => plan.PayHeadTargets.TryGetValue(p.Id, out var t) && !t.IsDuplicate)
+            .Select(p => p.Id)
+            .ToHashSet();
+
+        foreach (var ph in model.Payload.PayHeads)
+        {
+            if (!toCreate.Contains(ph.Id)) continue;   // duplicate ⇒ its incoming computation is discarded on apply
+
+            var isComputed = ph.CalculationType == nameof(PayHeadCalculationType.AsComputedValue);
+            var hasFormula = ph.ComputationComponents.Count > 0 || ph.ComputationSlabs.Count > 0;
+
+            if (isComputed)
+            {
+                if (ph.ComputationComponents.Count == 0)
+                    errors.Add($"As-Computed-Value pay head '{ph.Name}' must compute on at least one pay head.");
+                if (ph.ComputationSlabs.Count == 0)
+                    errors.Add($"As-Computed-Value pay head '{ph.Name}' must carry at least one slab (a percentage or a value) to turn its basis into an amount.");
+            }
+            else if (hasFormula)
+            {
+                errors.Add($"Pay head '{ph.Name}' is not As-Computed-Value and must not carry a computation formula.");
+            }
+
+            var selfRef = false;
+            var seen = new HashSet<Guid>();
+            foreach (var comp in ph.ComputationComponents)
+            {
+                if (comp.PayHeadId == ph.Id)
+                {
+                    errors.Add($"Pay head '{ph.Name}' cannot compute on itself.");
+                    selfRef = true;
+                }
+                else if (!seen.Add(comp.PayHeadId))
+                {
+                    errors.Add($"Pay head '{ph.Name}' references the same computation component more than once.");
+                }
+            }
+
+            if (isComputed && !selfRef && ph.ComputationComponents.Count > 0 &&
+                ClosesComputedOnCycle(ph.Id, byId, toCreate))
+                errors.Add($"Pay head '{ph.Name}' would form a computed-on cycle (a pay head cannot, directly or transitively, be computed on itself).");
+        }
+    }
+
+    /// <summary>Resolves the effective calculation type of the pay head a salary-structure line references (by its
+    /// source DTO id): the DTO's own type when the head is being created, the existing target head's type when the
+    /// DTO name-resolves to a duplicate, or the existing target's type when the id is a pre-existing head; null when
+    /// it cannot be resolved (a dangling reference already flagged elsewhere).</summary>
+    private PayHeadCalculationType? ResolvePayHeadCalcType(Guid payHeadDtoId, CanonicalModel model, ImportPlan plan)
+    {
+        var dto = model.Payload.PayHeads.FirstOrDefault(p => p.Id == payHeadDtoId);
+        if (dto is not null)
+        {
+            if (plan.PayHeadTargets.TryGetValue(dto.Id, out var t) && t.IsDuplicate)
+                return _target.FindPayHeadByName(t.Name)?.CalculationType;
+            return Enum.TryParse<PayHeadCalculationType>(dto.CalculationType, out var ct) ? ct : null;
+        }
+        return _target.FindPayHead(payHeadDtoId)?.CalculationType;
+    }
+
+    /// <summary>Walks the computed-on graph from <paramref name="start"/>'s basis, following edges only into other
+    /// to-be-created heads (an existing/duplicate head is terminal); returns true iff the walk returns to
+    /// <paramref name="start"/>. Mirrors <c>PayHeadService.EnsureNoCycle</c>.</summary>
+    private static bool ClosesComputedOnCycle(Guid start, IReadOnlyDictionary<Guid, PayHeadDto> byId, HashSet<Guid> toCreate)
+    {
+        var visited = new HashSet<Guid>();
+        var stack = new Stack<Guid>();
+        foreach (var comp in byId[start].ComputationComponents) stack.Push(comp.PayHeadId);
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            if (current == start) return true;
+            if (!visited.Add(current)) continue;
+            if (toCreate.Contains(current) && byId.TryGetValue(current, out var dto))
+                foreach (var comp in dto.ComputationComponents) stack.Push(comp.PayHeadId);
+        }
+        return false;
+    }
+
     private void ValidateVoucher(VoucherDto v, ImportPlan plan, List<string> errors)
     {
         var label = $"Voucher #{v.Number} dated {v.Date}";
@@ -418,6 +717,22 @@ public sealed class CompanyImportService
             if (string.Equals(line.Side, nameof(DrCr.Debit), StringComparison.Ordinal)) dr += line.AmountPaisa;
             else if (string.Equals(line.Side, nameof(DrCr.Credit), StringComparison.Ordinal)) cr += line.AmountPaisa;
             else errors.Add($"{label} has a line with an unknown side '{line.Side}'.");
+
+            // A payroll detail's amount must equal its entry line amount (the payslip/register read it back as the
+            // ledger posting). A hand-edited file can balance in paisa yet carry a divergent payroll detail amount —
+            // reject it here at pre-flight so nothing is applied (the domain EntryLine enforces the same invariant).
+            if (line.Payroll is { } pl)
+            {
+                if (pl.AmountPaisa != line.AmountPaisa)
+                    errors.Add($"{label} has a payroll line whose detail amount {pl.AmountPaisa} paisa does not equal " +
+                               $"the entry line amount {line.AmountPaisa} paisa.");
+                // Its employee + pay-head refs must resolve, else ImportPlan's re-mapping throws a generic post-apply
+                // rollback instead of a clean per-record error (F4). The net Salary-Payable line carries no pay head.
+                if (!plan.CanResolveEmployee(pl.EmployeeId, _target))
+                    errors.Add($"{label} has a payroll line referencing an employee that is neither imported nor present.");
+                if (pl.PayHeadId is { } phid && !plan.CanResolvePayHead(phid, _target))
+                    errors.Add($"{label} has a payroll line referencing a pay head that is neither imported nor present.");
+            }
         }
 
         // Σ Dr == Σ Cr, in exact integer paisa (RQ-21).
@@ -447,6 +762,28 @@ public sealed class CompanyImportService
             : throw new FormatException($"Date '{iso}' is not a valid ISO yyyy-MM-dd value.");
     internal static DateOnly? ParseDateOpt(string? iso) => string.IsNullOrEmpty(iso) ? null : ParseDate(iso);
     internal static TEnum ParseEnum<TEnum>(string name) where TEnum : struct, Enum => Enum.Parse<TEnum>(name);
+
+    /// <summary>Whether <paramref name="uan"/> is a valid 12-digit UAN (<c>^\d{12}$</c>) — the same rule the domain
+    /// enforces at the master-save boundary (<c>PayrollService</c>), mirrored here for the import pre-flight.</summary>
+    private static bool IsValid12DigitUan(string? uan)
+    {
+        if (uan is null) return false;
+        var trimmed = uan.Trim();
+        if (trimmed.Length != 12) return false;
+        foreach (var ch in trimmed) if (ch is < '0' or > '9') return false;
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="ip"/> is a valid 10-digit ESI IP number (<c>^\d{10}$</c>) — the same rule the
+    /// domain enforces at the master-save boundary (<c>PayrollService</c>), mirrored here for the import pre-flight.</summary>
+    private static bool IsValid10DigitIp(string? ip)
+    {
+        if (ip is null) return false;
+        var trimmed = ip.Trim();
+        if (trimmed.Length != 10) return false;
+        foreach (var ch in trimmed) if (ch is < '0' or > '9') return false;
+        return true;
+    }
 }
 
 /// <summary>How a single incoming master resolves against the target: its name and whether it is a duplicate.</summary>

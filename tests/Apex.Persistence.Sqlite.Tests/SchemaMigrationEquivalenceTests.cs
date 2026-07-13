@@ -25,8 +25,8 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// straight to the current version — there is no "create v1 only" path), so the frozen v1 baseline schema is
 /// reproduced verbatim in <see cref="BaselineV1Ddl"/> below: exactly the seven v1 tables and their five core
 /// indexes, with every column definition copied from the current create DDL minus the columns that later
-/// migrations add. Starting from v1 exercises the ENTIRE migration chain (v1→…→v29), giving the widest possible
-/// divergence coverage.</para>
+/// migrations add. Starting from v1 exercises the ENTIRE migration chain (v1→…→<see cref="Schema.CurrentVersion"/>),
+/// giving the widest possible divergence coverage.</para>
 /// </summary>
 public sealed class SchemaMigrationEquivalenceTests
 {

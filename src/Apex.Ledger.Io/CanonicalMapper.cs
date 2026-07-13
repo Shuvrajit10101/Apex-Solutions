@@ -16,8 +16,9 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v29).</summary>
-    public const int SchemaVersion = 29;
+    /// <summary>The persistence schema version this export targets (SQLite schema v37). Metadata only — the canonical
+    /// round-trip is faithful regardless and this constant is not validated on import.</summary>
+    public const int SchemaVersion = 37;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -71,6 +72,69 @@ public static class CanonicalMapper
         UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity,
         EnableMultiplePriceLevels = c.EnableMultiplePriceLevels,
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
+        PayrollEnabled = c.PayrollEnabled,
+        PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
+        SalaryTdsEnabled = c.SalaryTdsEnabled,
+        Pf = c.PfConfig is { } pf ? MapPfConfig(pf) : null,
+        Esi = c.EsiConfig is { } esi ? MapEsiConfig(esi) : null,
+        Pt = c.PtConfig is { } pt ? MapPtConfig(pt) : null,
+        Gratuity = c.GratuityConfig is { } gr ? MapGratuityConfig(gr) : null,
+        Bonus = c.BonusConfig is { } bo ? MapBonusConfig(bo) : null,
+    };
+
+    private static GratuityConfigDto MapGratuityConfig(GratuityConfig gr) => new()
+    {
+        CapPaisa = MoneyCodec.ToPaisa(gr.CapAmount),
+        WageBasis = gr.WageBasis.ToString(),
+        Population = gr.Population.ToString(),
+    };
+
+    private static BonusConfigDto MapBonusConfig(BonusConfig bo) => new()
+    {
+        RateBasisPoints = bo.RateBasisPoints,
+        CalculationCeilingPaisa = MoneyCodec.ToPaisa(bo.CalculationCeiling),
+        MinimumWagePaisa = MoneyCodec.ToPaisa(bo.MinimumWage),
+        Prorate = bo.Prorate,
+    };
+
+    private static PtConfigDto MapPtConfig(PtConfig pt) => new()
+    {
+        StateCode = pt.StateCode,
+        RegistrationNumber = pt.RegistrationNumber,
+        WageBasis = pt.WageBasis.ToString(),
+        SlabTables = pt.SlabTables.Select(MapPtSlab).ToList(),
+    };
+
+    private static PtSlabDto MapPtSlab(PtSlab s) => new()
+    {
+        Id = s.Id,
+        StateCode = s.StateCode,
+        GenderScope = s.GenderScope.ToString(),
+        Bands = s.Bands.Select(MapPtSlabBand).ToList(),
+    };
+
+    private static PtSlabBandDto MapPtSlabBand(PtSlabBand b) => new()
+    {
+        FromWagePaisa = MoneyCodec.ToPaisa(b.FromWage),
+        ToWagePaisa = b.ToWage is { } t ? MoneyCodec.ToPaisa(t) : null,
+        MonthlyAmountPaisa = MoneyCodec.ToPaisa(b.MonthlyAmount),
+        MonthOverrides = b.MonthOverrides
+            .Select(o => new PtMonthOverrideDto { Month = o.Month, AmountPaisa = MoneyCodec.ToPaisa(o.Amount) })
+            .ToList(),
+    };
+
+    private static PfConfigDto MapPfConfig(PfConfig pf) => new()
+    {
+        EpfRateBasisPoints = pf.EpfRateBasisPoints,
+        EstablishmentCode = pf.EstablishmentCode,
+        CapWagesAtCeiling = pf.CapWagesAtCeiling,
+    };
+
+    private static EsiConfigDto MapEsiConfig(EsiConfig esi) => new()
+    {
+        EmployeeRateBasisPoints = esi.EmployeeRateBasisPoints,
+        EmployerRateBasisPoints = esi.EmployerRateBasisPoints,
+        EmployerCode = esi.EmployerCode,
     };
 
     private static PayloadDto MapPayload(Company c) => new()
@@ -115,6 +179,25 @@ public static class CanonicalMapper
         ReorderDefinitions = c.ReorderDefinitions
             .OrderBy(d => d.Scope).ThenBy(d => d.TargetId).ThenBy(d => d.Id)
             .Select(MapReorderDefinition).ToList(),
+        // Payroll masters (Phase 8 slice 1) — each ordered by name/symbol then id so the byte stream is stable.
+        EmployeeCategories = OrderById(c.EmployeeCategories, x => x.Name, x => x.Id).Select(MapEmployeeCategory).ToList(),
+        EmployeeGroups = OrderById(c.EmployeeGroups, x => x.Name, x => x.Id).Select(MapEmployeeGroup).ToList(),
+        PayrollUnits = OrderById(c.PayrollUnits, x => x.Symbol, x => x.Id).Select(MapPayrollUnit).ToList(),
+        AttendanceTypes = OrderById(c.AttendanceTypes, x => x.Name, x => x.Id).Select(MapAttendanceType).ToList(),
+        Employees = OrderById(c.Employees, x => x.Name, x => x.Id).Select(MapEmployee).ToList(),
+        // Pay heads ordered by name (byte-stable); salary structures (no name) by scope/scopeId/effective-from/id.
+        PayHeads = OrderById(c.PayHeads, x => x.Name, x => x.Id).Select(MapPayHead).ToList(),
+        SalaryStructures = c.SalaryStructures
+            .OrderBy(x => (int)x.Scope).ThenBy(x => x.ScopeId).ThenBy(x => x.EffectiveFrom).ThenBy(x => x.Id)
+            .Select(MapSalaryStructure).ToList(),
+        // Attendance entries — ordered by (from date, employee, attendance type, id) so the stream is deterministic.
+        AttendanceEntries = c.AttendanceEntries
+            .OrderBy(a => a.FromDate).ThenBy(a => a.EmployeeId).ThenBy(a => a.AttendanceTypeId).ThenBy(a => a.Id)
+            .Select(MapAttendanceEntry).ToList(),
+        // §192 income-tax declarations — ordered by employee for a deterministic stream (Phase 8 slice 7).
+        TaxDeclarations = c.TaxDeclarations
+            .OrderBy(d => d.EmployeeId)
+            .Select(MapTaxDeclaration).ToList(),
         // Vouchers — ordered by (date, number, id) so the stream is deterministic and human-legible.
         Vouchers = c.Vouchers
             .OrderBy(v => v.Date).ThenBy(v => v.Number).ThenBy(v => v.Id)
@@ -217,6 +300,101 @@ public static class CanonicalMapper
     private static CostCentreDto MapCostCentre(CostCentre x) => new()
     {
         Id = x.Id, Name = x.Name, CategoryId = x.CategoryId, ParentId = x.ParentId, Alias = x.Alias,
+    };
+
+    // ------------------------------------------------------------- payroll masters (Phase 8 slice 1)
+
+    private static EmployeeCategoryDto MapEmployeeCategory(EmployeeCategory x) => new()
+    {
+        Id = x.Id, Name = x.Name, AllocateRevenueItems = x.AllocateRevenueItems,
+        AllocateNonRevenueItems = x.AllocateNonRevenueItems, IsPredefined = x.IsPredefined,
+    };
+
+    private static EmployeeGroupDto MapEmployeeGroup(EmployeeGroup x) => new()
+    {
+        Id = x.Id, Name = x.Name, ParentId = x.ParentId, Alias = x.Alias, DefineSalaryDetails = x.DefineSalaryDetails,
+    };
+
+    private static PayrollUnitDto MapPayrollUnit(PayrollUnit u) => new()
+    {
+        Id = u.Id, Symbol = u.Symbol, FormalName = u.FormalName, IsCompound = u.IsCompound,
+        DecimalPlaces = u.DecimalPlaces, FirstUnitId = u.FirstUnitId, TailUnitId = u.TailUnitId,
+        ConversionNumerator = u.ConversionNumerator, ConversionDenominator = u.ConversionDenominator,
+    };
+
+    private static AttendanceTypeDto MapAttendanceType(AttendanceType a) => new()
+    {
+        Id = a.Id, Name = a.Name, ParentId = a.ParentId, Kind = a.Kind.ToString(), PayrollUnitId = a.PayrollUnitId,
+    };
+
+    private static EmployeeDto MapEmployee(Employee e) => new()
+    {
+        Id = e.Id, Name = e.Name, EmployeeGroupId = e.EmployeeGroupId, EmployeeCategoryId = e.EmployeeCategoryId,
+        EmployeeNumber = e.EmployeeNumber, DateOfJoining = Iso(e.DateOfJoining), DateOfLeaving = Iso(e.DateOfLeaving),
+        Designation = e.Designation, Function = e.Function, Location = e.Location, Gender = e.Gender,
+        DateOfBirth = Iso(e.DateOfBirth), Pan = e.Pan, Aadhaar = e.Aadhaar, Uan = e.Uan,
+        PfAccountNumber = e.PfAccountNumber, EsiNumber = e.EsiNumber, BankAccountNumber = e.BankAccountNumber,
+        BankName = e.BankName, BankIfsc = e.BankIfsc, ApplicableTaxRegime = e.ApplicableTaxRegime.ToString(),
+        PfApplicable = e.PfApplicable, PfContributeOnHigherWages = e.PfContributeOnHigherWages,
+        PfJoinDate = Iso(e.PfJoinDate),
+        EsiApplicable = e.EsiApplicable, IsPersonWithDisability = e.IsPersonWithDisability,
+    };
+
+    private static PayHeadDto MapPayHead(PayHead p) => new()
+    {
+        Id = p.Id, Name = p.Name, DisplayName = p.DisplayName, PayHeadType = p.Type.ToString(),
+        CalculationType = p.CalculationType.ToString(), AffectsNetSalary = p.AffectsNetSalary,
+        UnderGroupId = p.UnderGroupId, LedgerId = p.LedgerId, EmployerExpenseLedgerId = p.EmployerExpenseLedgerId,
+        IncomeTaxComponent = p.IncomeTaxComponent.ToString(),
+        UseForGratuity = p.UseForGratuity, RoundingMethod = p.RoundingMethod.ToString(),
+        RoundingLimitPaisa = MoneyCodec.ToPaisa(p.RoundingLimit), CalculationPeriod = p.CalculationPeriod.ToString(),
+        AttendanceTypeId = p.AttendanceTypeId, PerDayCalculationBasisDays = p.PerDayCalculationBasisDays,
+        PfComponent = p.PfComponent.ToString(), PartOfPfWages = p.PartOfPfWages,
+        EsiComponent = p.EsiComponent.ToString(), PartOfEsiWages = p.PartOfEsiWages, IsOvertime = p.IsOvertime,
+        PtComponent = p.PtComponent.ToString(),
+        ComputationComponents = p.Computation is { } c1
+            ? c1.BasisComponents.Select(x => new PayHeadComputationComponentDto { PayHeadId = x.PayHeadId, IsSubtraction = x.IsSubtraction }).ToList()
+            : [],
+        ComputationSlabs = p.Computation is { } c2
+            ? c2.Slabs.Select(MapPayHeadSlab).ToList()
+            : [],
+    };
+
+    private static PayHeadComputationSlabDto MapPayHeadSlab(PayHeadComputationSlab s) => new()
+    {
+        SlabType = s.SlabType.ToString(), RateBasisPoints = s.RateBasisPoints,
+        ValuePaisa = MoneyCodec.ToPaisa(s.Value),
+        FromAmountPaisa = MoneyCodec.ToPaisa(s.FromAmount), ToAmountPaisa = MoneyCodec.ToPaisa(s.ToAmount),
+    };
+
+    private static SalaryStructureDto MapSalaryStructure(SalaryStructure s) => new()
+    {
+        Id = s.Id, Scope = s.Scope.ToString(), ScopeId = s.ScopeId, EffectiveFrom = Iso(s.EffectiveFrom),
+        StartType = s.StartType.ToString(),
+        Lines = s.Lines.Select(l => new SalaryStructureLineDto
+        {
+            PayHeadId = l.PayHeadId, Order = l.Order, AmountPaisa = MoneyCodec.ToPaisa(l.Amount),
+        }).ToList(),
+    };
+
+    private static AttendanceEntryDto MapAttendanceEntry(AttendanceEntry a) => new()
+    {
+        Id = a.Id, EmployeeId = a.EmployeeId, AttendanceTypeId = a.AttendanceTypeId,
+        FromDate = Iso(a.FromDate), ToDate = Iso(a.ToDate), ValueMicro = ToMicro(a.Value),
+    };
+
+    private static TaxDeclarationDto MapTaxDeclaration(TaxDeclaration d) => new()
+    {
+        EmployeeId = d.EmployeeId,
+        Section80CPaisa = MoneyCodec.ToPaisa(d.Section80C),
+        Section80DPaisa = MoneyCodec.ToPaisa(d.Section80D),
+        Section80CCD1BPaisa = MoneyCodec.ToPaisa(d.Section80CCD1B),
+        Section80CCD2EmployerPaisa = MoneyCodec.ToPaisa(d.Section80CCD2Employer),
+        HraExemptPaisa = MoneyCodec.ToPaisa(d.HouseRentAllowanceExempt),
+        HomeLoanInterestPaisa = MoneyCodec.ToPaisa(d.HomeLoanInterest24b),
+        OtherIncomePaisa = MoneyCodec.ToPaisa(d.OtherIncome),
+        PrevEmployerSalaryPaisa = MoneyCodec.ToPaisa(d.PreviousEmployerSalary),
+        PrevEmployerTdsPaisa = MoneyCodec.ToPaisa(d.PreviousEmployerTds),
     };
 
     private static CurrencyDto MapCurrency(Currency x) => new()
@@ -484,6 +662,13 @@ public static class CanonicalMapper
         Gst = l.Gst is { } g ? MapGstLineTax(g) : null,
         Tds = l.Tds is { } t ? MapTdsLineTax(t) : null,
         Tcs = l.Tcs is { } tc ? MapTcsLineTax(tc) : null,
+        Payroll = l.Payroll is { } pr ? MapPayrollLine(pr) : null,
+    };
+
+    private static PayrollLineDto MapPayrollLine(PayrollLineDetail p) => new()
+    {
+        EmployeeId = p.EmployeeId, PayHeadId = p.PayHeadId, Category = p.Category.ToString(),
+        AmountPaisa = MoneyCodec.ToPaisa(p.Amount),
     };
 
     private static TdsLineTaxDto MapTdsLineTax(TdsLineTax t) => new()

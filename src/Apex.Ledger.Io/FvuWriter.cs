@@ -34,6 +34,9 @@ public static class FvuWriter
     /// <summary>The TCS statement (form) type.</summary>
     private const string FormType27EQ = "27EQ";
 
+    /// <summary>The §192 salary-TDS statement (form) type.</summary>
+    private const string FormType24Q = "24Q";
+
     /// <summary>The record-field delimiter (caret) and the record separator (LF) of the flat file.</summary>
     private const char Delimiter = '^';
     private const string RecordSeparator = "\n";
@@ -94,6 +97,57 @@ public static class FvuWriter
             "FT", Int(ddRecordCount), Int(totals.ChallanRecordCount),
             Money(ddTotalTds), Money(ddTotalPaid),
             Money(totals.TotalDepositedAsPerChallans));
+
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    /// <summary>Serializes a <see cref="Form24Q"/> §192 salary-TDS return to FVU-compatible flat-file bytes (UTF-8,
+    /// no BOM). Pure, deterministic and byte-stable for a fixed return, sharing the 26Q/27EQ FH/BH/DD/FT record
+    /// framing and field encoders (this <b>extends</b> the one writer — it does not fork a parallel serializer;
+    /// Phase 8 slice 7, F4). Salary-TDS has no Phase-7 challan/deposit block yet (that integration is a documented
+    /// carry-forward), so the file carries the Annexure I deductee rows <b>directly</b> — no CD (challan) record — with
+    /// the trailer's control totals derived from the DD rows ACTUALLY written, so the file trailer's total §192 TDS
+    /// equals the Annexure I control total by construction. Every free-text field is de-branded (ER-11). An empty
+    /// return still yields a valid header-only file.</summary>
+    public static byte[] Write(Form24Q return24Q)
+    {
+        ArgumentNullException.ThrowIfNull(return24Q);
+
+        var sb = new StringBuilder();
+        var d = return24Q.Deductor;
+
+        int ddRecordCount = return24Q.Deductees.Count;
+        var ddTotalTds = new Money(return24Q.Deductees.Sum(r => r.TdsAmount.Amount));
+
+        // ---- File Header (FH): record type, form 24Q, pinned version, TAN, FY, quarter, deductor type, total records.
+        int totalRecords = 2 + ddRecordCount + 1; // FH + BH + DD* + FT
+        WriteRecord(sb,
+            "FH", FormType24Q, FvuVersion, Text(d.Tan),
+            return24Q.FinancialYearLabel, return24Q.QuarterLabel,
+            d.DeductorType.ToString(), Int(totalRecords));
+
+        // ---- Batch / deductor Header (BH): the person-responsible identity from F11; no challan block (0).
+        WriteRecord(sb,
+            "BH", Text(d.Tan), Text(d.ResponsiblePersonName), Text(d.ResponsiblePersonPan),
+            Text(d.ResponsiblePersonDesignation), Text(d.ResponsiblePersonAddress),
+            Int(0), Int(ddRecordCount));
+
+        // ---- Annexure I: one salary Deductee Detail (DD) per §192 withholding — PAN, name, section, date, TDS.
+        int seq = 0;
+        foreach (var row in return24Q.Deductees)
+        {
+            seq++;
+            WriteRecord(sb,
+                "DD", Int(seq), Text(row.Pan), Text(row.EmployeeName),
+                Text(row.SectionCode), Date(row.DeductionDate), Money(row.TdsAmount));
+        }
+
+        // ---- File Trailer (FT): the file's own control totals — deductee record count, Σ §192 TDS (== the Annexure I
+        // control total), and the Q4 Annexure II record count + tax deducted — so the trailer describes the file.
+        var totals = return24Q.ControlTotals;
+        WriteRecord(sb,
+            "FT", Int(ddRecordCount), Money(ddTotalTds),
+            Int(totals.AnnexureIIRecordCount), Money(totals.AnnexureIITaxDeducted));
 
         return Encoding.UTF8.GetBytes(sb.ToString());
     }

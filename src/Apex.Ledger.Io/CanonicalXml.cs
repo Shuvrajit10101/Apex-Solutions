@@ -58,10 +58,18 @@ public static class CanonicalXml
             Attr("decimalPlaces", c.DecimalPlaces), Opt("decimalUnitName", c.DecimalUnitName),
             Attr("useSeparateActualBilledQuantity", c.UseSeparateActualBilledQuantity),
             Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
-            Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing));
+            Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing),
+            Attr("payrollEnabled", c.PayrollEnabled),
+            Attr("payrollStatutoryEnabled", c.PayrollStatutoryEnabled),
+            Attr("salaryTdsEnabled", c.SalaryTdsEnabled));
         if (c.Gst is { } gst) company.Add(BuildGstConfig(gst));
         if (c.Tds is { } tds) company.Add(BuildTdsConfig(tds));
         if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
+        if (c.Pf is { } pf) company.Add(BuildPfConfig(pf));
+        if (c.Esi is { } esi) company.Add(BuildEsiConfig(esi));
+        if (c.Pt is { } pt) company.Add(BuildPtConfig(pt));
+        if (c.Gratuity is { } gr) company.Add(BuildGratuityConfig(gr));
+        if (c.Bonus is { } bo) company.Add(BuildBonusConfig(bo));
         root.Add(company);
 
         var p = m.Payload;
@@ -86,6 +94,15 @@ public static class CanonicalXml
             List("priceLevels", "priceLevel", p.PriceLevels, BuildPriceLevel),
             List("priceLists", "priceList", p.PriceLists, BuildPriceList),
             List("reorderDefinitions", "reorderDefinition", p.ReorderDefinitions, BuildReorderDefinition),
+            List("employeeCategories", "employeeCategory", p.EmployeeCategories, BuildEmployeeCategory),
+            List("employeeGroups", "employeeGroup", p.EmployeeGroups, BuildEmployeeGroup),
+            List("payrollUnits", "payrollUnit", p.PayrollUnits, BuildPayrollUnit),
+            List("attendanceTypes", "attendanceType", p.AttendanceTypes, BuildAttendanceType),
+            List("employees", "employee", p.Employees, BuildEmployee),
+            List("payHeads", "payHead", p.PayHeads, BuildPayHead),
+            List("salaryStructures", "salaryStructure", p.SalaryStructures, BuildSalaryStructure),
+            List("attendanceEntries", "attendanceEntry", p.AttendanceEntries, BuildAttendanceEntry),
+            List("taxDeclarations", "taxDeclaration", p.TaxDeclarations, BuildTaxDeclaration),
             List("vouchers", "voucher", p.Vouchers, BuildVoucher),
             List("inventoryVouchers", "inventoryVoucher", p.InventoryVouchers, BuildInventoryVoucher),
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
@@ -185,6 +202,91 @@ public static class CanonicalXml
     private static XElement BuildCostCentre(CostCentreDto x) => new("costCentre",
         Attr("id", x.Id), Attr("name", x.Name), Attr("categoryId", x.CategoryId),
         OptId("parentId", x.ParentId), Opt("alias", x.Alias));
+
+    // ---- payroll masters (Phase 8 slice 1) ----
+
+    private static XElement BuildEmployeeCategory(EmployeeCategoryDto x) => new("employeeCategory",
+        Attr("id", x.Id), Attr("name", x.Name), Attr("allocateRevenueItems", x.AllocateRevenueItems),
+        Attr("allocateNonRevenueItems", x.AllocateNonRevenueItems), Attr("isPredefined", x.IsPredefined));
+
+    private static XElement BuildEmployeeGroup(EmployeeGroupDto x) => new("employeeGroup",
+        Attr("id", x.Id), Attr("name", x.Name), OptId("parentId", x.ParentId), Opt("alias", x.Alias),
+        Attr("defineSalaryDetails", x.DefineSalaryDetails));
+
+    private static XElement BuildPayrollUnit(PayrollUnitDto u) => new("payrollUnit",
+        Attr("id", u.Id), Attr("symbol", u.Symbol), Attr("formalName", u.FormalName),
+        Attr("isCompound", u.IsCompound), Attr("decimalPlaces", u.DecimalPlaces),
+        OptId("firstUnitId", u.FirstUnitId), OptId("tailUnitId", u.TailUnitId),
+        OptInt("conversionNumerator", u.ConversionNumerator), OptInt("conversionDenominator", u.ConversionDenominator));
+
+    private static XElement BuildAttendanceType(AttendanceTypeDto a) => new("attendanceType",
+        Attr("id", a.Id), Attr("name", a.Name), OptId("parentId", a.ParentId), Attr("kind", a.Kind),
+        OptId("payrollUnitId", a.PayrollUnitId));
+
+    private static XElement BuildEmployee(EmployeeDto e) => new("employee",
+        Attr("id", e.Id), Attr("name", e.Name), Attr("employeeGroupId", e.EmployeeGroupId),
+        OptId("employeeCategoryId", e.EmployeeCategoryId), Opt("employeeNumber", e.EmployeeNumber),
+        Opt("dateOfJoining", e.DateOfJoining), Opt("dateOfLeaving", e.DateOfLeaving),
+        Opt("designation", e.Designation), Opt("function", e.Function), Opt("location", e.Location),
+        Opt("gender", e.Gender), Opt("dateOfBirth", e.DateOfBirth), Opt("pan", e.Pan), Opt("aadhaar", e.Aadhaar),
+        Opt("uan", e.Uan), Opt("pfAccountNumber", e.PfAccountNumber), Opt("esiNumber", e.EsiNumber),
+        Opt("bankAccountNumber", e.BankAccountNumber), Opt("bankName", e.BankName), Opt("bankIfsc", e.BankIfsc),
+        Attr("applicableTaxRegime", e.ApplicableTaxRegime),
+        Attr("pfApplicable", e.PfApplicable), Attr("pfContributeOnHigherWages", e.PfContributeOnHigherWages),
+        Opt("pfJoinDate", e.PfJoinDate), Attr("esiApplicable", e.EsiApplicable),
+        Attr("isPersonWithDisability", e.IsPersonWithDisability));
+
+    private static XElement BuildPayHead(PayHeadDto p)
+    {
+        var el = new XElement("payHead",
+            Attr("id", p.Id), Attr("name", p.Name), Opt("displayName", p.DisplayName),
+            Attr("payHeadType", p.PayHeadType), Attr("calculationType", p.CalculationType),
+            Attr("affectsNetSalary", p.AffectsNetSalary), OptId("underGroupId", p.UnderGroupId),
+            OptId("ledgerId", p.LedgerId), OptId("employerExpenseLedgerId", p.EmployerExpenseLedgerId),
+            Attr("incomeTaxComponent", p.IncomeTaxComponent),
+            Attr("useForGratuity", p.UseForGratuity), Attr("roundingMethod", p.RoundingMethod),
+            Attr("roundingLimitPaisa", p.RoundingLimitPaisa), Attr("calculationPeriod", p.CalculationPeriod),
+            OptId("attendanceTypeId", p.AttendanceTypeId),
+            OptInt("perDayCalculationBasisDays", p.PerDayCalculationBasisDays),
+            Attr("pfComponent", p.PfComponent), Attr("partOfPfWages", p.PartOfPfWages),
+            Attr("esiComponent", p.EsiComponent), Attr("partOfEsiWages", p.PartOfEsiWages),
+            Attr("isOvertime", p.IsOvertime), Attr("ptComponent", p.PtComponent));
+        var comps = new XElement("computationComponents");
+        foreach (var c in p.ComputationComponents)
+            comps.Add(new XElement("component", Attr("payHeadId", c.PayHeadId), Attr("isSubtraction", c.IsSubtraction)));
+        var slabs = new XElement("computationSlabs");
+        foreach (var s in p.ComputationSlabs)
+            slabs.Add(new XElement("slab", Attr("slabType", s.SlabType), Attr("rateBasisPoints", s.RateBasisPoints),
+                Attr("valuePaisa", s.ValuePaisa), OptLong("fromAmountPaisa", s.FromAmountPaisa),
+                OptLong("toAmountPaisa", s.ToAmountPaisa)));
+        el.Add(comps, slabs);
+        return el;
+    }
+
+    private static XElement BuildSalaryStructure(SalaryStructureDto s)
+    {
+        var el = new XElement("salaryStructure",
+            Attr("id", s.Id), Attr("scope", s.Scope), Attr("scopeId", s.ScopeId),
+            Attr("effectiveFrom", s.EffectiveFrom), Attr("startType", s.StartType));
+        var lines = new XElement("lines");
+        foreach (var l in s.Lines)
+            lines.Add(new XElement("line", Attr("payHeadId", l.PayHeadId), Attr("order", l.Order),
+                OptLong("amountPaisa", l.AmountPaisa)));
+        el.Add(lines);
+        return el;
+    }
+
+    private static XElement BuildAttendanceEntry(AttendanceEntryDto a) => new("attendanceEntry",
+        Attr("id", a.Id), Attr("employeeId", a.EmployeeId), Attr("attendanceTypeId", a.AttendanceTypeId),
+        Attr("fromDate", a.FromDate), Attr("toDate", a.ToDate), Attr("valueMicro", a.ValueMicro));
+
+    private static XElement BuildTaxDeclaration(TaxDeclarationDto d) => new("taxDeclaration",
+        Attr("employeeId", d.EmployeeId),
+        Attr("section80CPaisa", d.Section80CPaisa), Attr("section80DPaisa", d.Section80DPaisa),
+        Attr("section80CCD1BPaisa", d.Section80CCD1BPaisa), Attr("section80CCD2EmployerPaisa", d.Section80CCD2EmployerPaisa),
+        Attr("hraExemptPaisa", d.HraExemptPaisa), Attr("homeLoanInterestPaisa", d.HomeLoanInterestPaisa),
+        Attr("otherIncomePaisa", d.OtherIncomePaisa), Attr("prevEmployerSalaryPaisa", d.PrevEmployerSalaryPaisa),
+        Attr("prevEmployerTdsPaisa", d.PrevEmployerTdsPaisa));
 
     private static XElement BuildCurrency(CurrencyDto x) => new("currency",
         Attr("id", x.Id), Attr("symbol", x.Symbol), Attr("formalName", x.FormalName),
@@ -325,6 +427,50 @@ public static class CanonicalXml
         return el;
     }
 
+    private static XElement BuildPfConfig(PfConfigDto pf) => new("pf",
+        Attr("epfRateBasisPoints", pf.EpfRateBasisPoints), Opt("establishmentCode", pf.EstablishmentCode),
+        Attr("capWagesAtCeiling", pf.CapWagesAtCeiling));
+
+    private static XElement BuildEsiConfig(EsiConfigDto esi) => new("esi",
+        Attr("employeeRateBasisPoints", esi.EmployeeRateBasisPoints),
+        Attr("employerRateBasisPoints", esi.EmployerRateBasisPoints), Opt("employerCode", esi.EmployerCode));
+
+    private static XElement BuildPtConfig(PtConfigDto pt)
+    {
+        var el = new XElement("pt",
+            Opt("stateCode", pt.StateCode), Opt("registrationNumber", pt.RegistrationNumber),
+            Attr("wageBasis", pt.WageBasis));
+        var tables = new XElement("slabTables");
+        foreach (var s in pt.SlabTables)
+        {
+            var table = new XElement("slab",
+                Attr("id", s.Id), Attr("stateCode", s.StateCode), Attr("genderScope", s.GenderScope));
+            var bands = new XElement("bands");
+            foreach (var b in s.Bands)
+            {
+                var band = new XElement("band",
+                    Attr("fromWagePaisa", b.FromWagePaisa), OptLong("toWagePaisa", b.ToWagePaisa),
+                    Attr("monthlyAmountPaisa", b.MonthlyAmountPaisa));
+                var overrides = new XElement("monthOverrides");
+                foreach (var o in b.MonthOverrides)
+                    overrides.Add(new XElement("override", Attr("month", o.Month), Attr("amountPaisa", o.AmountPaisa)));
+                band.Add(overrides);
+                bands.Add(band);
+            }
+            table.Add(bands);
+            tables.Add(table);
+        }
+        el.Add(tables);
+        return el;
+    }
+
+    private static XElement BuildGratuityConfig(GratuityConfigDto gr) => new("gratuity",
+        Attr("capPaisa", gr.CapPaisa), Attr("wageBasis", gr.WageBasis), Attr("population", gr.Population));
+
+    private static XElement BuildBonusConfig(BonusConfigDto bo) => new("bonus",
+        Attr("rateBasisPoints", bo.RateBasisPoints), Attr("calculationCeilingPaisa", bo.CalculationCeilingPaisa),
+        Attr("minimumWagePaisa", bo.MinimumWagePaisa), Attr("prorate", bo.Prorate));
+
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
         Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
 
@@ -436,6 +582,9 @@ public static class CanonicalXml
                 Attr("assessableValuePaisa", tc.AssessableValuePaisa), Attr("rateBasisPoints", tc.RateBasisPoints),
                 Attr("tcsAmountPaisa", tc.TcsAmountPaisa), Attr("collecteeLedgerId", tc.CollecteeLedgerId),
                 Attr("panApplied", tc.PanApplied)));
+        if (l.Payroll is { } pr)
+            el.Add(new XElement("payroll", Attr("employeeId", pr.EmployeeId), OptId("payHeadId", pr.PayHeadId),
+                Attr("category", pr.Category), Attr("amountPaisa", pr.AmountPaisa)));
         return el;
     }
 
@@ -608,6 +757,11 @@ public static class CanonicalXml
         var gstEl = e.Element("gst");
         var tdsEl = e.Element("tds");
         var tcsEl = e.Element("tcs");
+        var pfEl = e.Element("pf");
+        var esiEl = e.Element("esi");
+        var ptEl = e.Element("pt");
+        var gratuityEl = e.Element("gratuity");
+        var bonusEl = e.Element("bonus");
         return new CompanyDto
         {
             Id = id,
@@ -629,8 +783,69 @@ public static class CanonicalXml
             UseSeparateActualBilledQuantity = Bool(e, "useSeparateActualBilledQuantity"),
             EnableMultiplePriceLevels = Bool(e, "enableMultiplePriceLevels"),
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
+            PayrollEnabled = Bool(e, "payrollEnabled"),
+            PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
+            SalaryTdsEnabled = Bool(e, "salaryTdsEnabled"),
+            Pf = pfEl is null ? null : ReadPfConfig(pfEl),
+            Esi = esiEl is null ? null : ReadEsiConfig(esiEl),
+            Pt = ptEl is null ? null : ReadPtConfig(ptEl),
+            Gratuity = gratuityEl is null ? null : ReadGratuityConfig(gratuityEl),
+            Bonus = bonusEl is null ? null : ReadBonusConfig(bonusEl),
         };
     }
+
+    private static GratuityConfigDto ReadGratuityConfig(XElement e) => new()
+    {
+        CapPaisa = Long(e, "capPaisa"),
+        WageBasis = Str(e, "wageBasis") ?? nameof(Apex.Ledger.Domain.GratuityWageBasis.BasicAndDearnessAllowance),
+        Population = Str(e, "population") ?? nameof(Apex.Ledger.Domain.GratuityProvisionPopulation.AllActiveEmployees),
+    };
+
+    private static BonusConfigDto ReadBonusConfig(XElement e) => new()
+    {
+        RateBasisPoints = Int(e, "rateBasisPoints"),
+        CalculationCeilingPaisa = Long(e, "calculationCeilingPaisa"),
+        MinimumWagePaisa = Long(e, "minimumWagePaisa"),
+        Prorate = Bool(e, "prorate"),
+    };
+
+    private static PfConfigDto ReadPfConfig(XElement e) => new()
+    {
+        EpfRateBasisPoints = Int(e, "epfRateBasisPoints"),
+        EstablishmentCode = Str(e, "establishmentCode"),
+        CapWagesAtCeiling = Bool(e, "capWagesAtCeiling"),
+    };
+
+    private static EsiConfigDto ReadEsiConfig(XElement e) => new()
+    {
+        EmployeeRateBasisPoints = Int(e, "employeeRateBasisPoints"),
+        EmployerRateBasisPoints = Int(e, "employerRateBasisPoints"),
+        EmployerCode = Str(e, "employerCode"),
+    };
+
+    private static PtConfigDto ReadPtConfig(XElement e) => new()
+    {
+        StateCode = Str(e, "stateCode"),
+        RegistrationNumber = Str(e, "registrationNumber"),
+        WageBasis = Str(e, "wageBasis") ?? nameof(Apex.Ledger.Domain.PtWageBasis.GrossEarnings),
+        SlabTables = (e.Element("slabTables")?.Elements("slab") ?? Enumerable.Empty<XElement>())
+            .Select(s => new PtSlabDto
+            {
+                Id = Guid(s, "id"),
+                StateCode = Str(s, "stateCode")!,
+                GenderScope = Str(s, "genderScope") ?? nameof(Apex.Ledger.Domain.PtGenderScope.Any),
+                Bands = (s.Element("bands")?.Elements("band") ?? Enumerable.Empty<XElement>())
+                    .Select(b => new PtSlabBandDto
+                    {
+                        FromWagePaisa = Long(b, "fromWagePaisa"),
+                        ToWagePaisa = OptLong(b, "toWagePaisa"),
+                        MonthlyAmountPaisa = Long(b, "monthlyAmountPaisa"),
+                        MonthOverrides = (b.Element("monthOverrides")?.Elements("override") ?? Enumerable.Empty<XElement>())
+                            .Select(o => new PtMonthOverrideDto { Month = Int(o, "month"), AmountPaisa = Long(o, "amountPaisa") })
+                            .ToList(),
+                    }).ToList(),
+            }).ToList(),
+    };
 
     private static PayloadDto? ReadPayload(XElement root, List<string> errors)
     {
@@ -658,6 +873,15 @@ public static class CanonicalXml
                 PriceLevels = ReadList(root, "priceLevels", "priceLevel", ReadPriceLevel),
                 PriceLists = ReadList(root, "priceLists", "priceList", ReadPriceList),
                 ReorderDefinitions = ReadList(root, "reorderDefinitions", "reorderDefinition", ReadReorderDefinition),
+                EmployeeCategories = ReadList(root, "employeeCategories", "employeeCategory", ReadEmployeeCategory),
+                EmployeeGroups = ReadList(root, "employeeGroups", "employeeGroup", ReadEmployeeGroup),
+                PayrollUnits = ReadList(root, "payrollUnits", "payrollUnit", ReadPayrollUnit),
+                AttendanceTypes = ReadList(root, "attendanceTypes", "attendanceType", ReadAttendanceType),
+                Employees = ReadList(root, "employees", "employee", ReadEmployee),
+                PayHeads = ReadList(root, "payHeads", "payHead", ReadPayHead),
+                SalaryStructures = ReadList(root, "salaryStructures", "salaryStructure", ReadSalaryStructure),
+                AttendanceEntries = ReadList(root, "attendanceEntries", "attendanceEntry", ReadAttendanceEntry),
+                TaxDeclarations = ReadList(root, "taxDeclarations", "taxDeclaration", ReadTaxDeclaration),
                 Vouchers = ReadList(root, "vouchers", "voucher", ReadVoucher),
                 InventoryVouchers = ReadList(root, "inventoryVouchers", "inventoryVoucher", ReadInventoryVoucher),
                 TdsChallans = ReadList(root, "tdsChallans", "tdsChallan", ReadTdsChallan),
@@ -758,6 +982,108 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), Name = Str(e, "name")!, CategoryId = Guid(e, "categoryId"),
         ParentId = OptGuid(e, "parentId"), Alias = Str(e, "alias"),
+    };
+
+    // ---- payroll masters (Phase 8 slice 1) ----
+
+    private static EmployeeCategoryDto ReadEmployeeCategory(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!,
+        AllocateRevenueItems = Bool(e, "allocateRevenueItems"),
+        AllocateNonRevenueItems = Bool(e, "allocateNonRevenueItems"), IsPredefined = Bool(e, "isPredefined"),
+    };
+
+    private static EmployeeGroupDto ReadEmployeeGroup(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, ParentId = OptGuid(e, "parentId"),
+        Alias = Str(e, "alias"), DefineSalaryDetails = Bool(e, "defineSalaryDetails"),
+    };
+
+    private static PayrollUnitDto ReadPayrollUnit(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Symbol = Str(e, "symbol")!, FormalName = Str(e, "formalName")!,
+        IsCompound = Bool(e, "isCompound"), DecimalPlaces = Int(e, "decimalPlaces"),
+        FirstUnitId = OptGuid(e, "firstUnitId"), TailUnitId = OptGuid(e, "tailUnitId"),
+        ConversionNumerator = OptInt(e, "conversionNumerator"), ConversionDenominator = OptInt(e, "conversionDenominator"),
+    };
+
+    private static AttendanceTypeDto ReadAttendanceType(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, ParentId = OptGuid(e, "parentId"),
+        Kind = Str(e, "kind")!, PayrollUnitId = OptGuid(e, "payrollUnitId"),
+    };
+
+    private static EmployeeDto ReadEmployee(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, EmployeeGroupId = Guid(e, "employeeGroupId"),
+        EmployeeCategoryId = OptGuid(e, "employeeCategoryId"), EmployeeNumber = Str(e, "employeeNumber"),
+        DateOfJoining = Str(e, "dateOfJoining"), DateOfLeaving = Str(e, "dateOfLeaving"),
+        Designation = Str(e, "designation"), Function = Str(e, "function"), Location = Str(e, "location"),
+        Gender = Str(e, "gender"), DateOfBirth = Str(e, "dateOfBirth"), Pan = Str(e, "pan"), Aadhaar = Str(e, "aadhaar"),
+        Uan = Str(e, "uan"), PfAccountNumber = Str(e, "pfAccountNumber"), EsiNumber = Str(e, "esiNumber"),
+        BankAccountNumber = Str(e, "bankAccountNumber"), BankName = Str(e, "bankName"), BankIfsc = Str(e, "bankIfsc"),
+        ApplicableTaxRegime = Str(e, "applicableTaxRegime") ?? nameof(Apex.Ledger.Domain.TaxRegime.New),
+        PfApplicable = Bool(e, "pfApplicable"), PfContributeOnHigherWages = Bool(e, "pfContributeOnHigherWages"),
+        PfJoinDate = Str(e, "pfJoinDate"), EsiApplicable = Bool(e, "esiApplicable"),
+        IsPersonWithDisability = Bool(e, "isPersonWithDisability"),
+    };
+
+    private static PayHeadDto ReadPayHead(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Name = Str(e, "name")!, DisplayName = Str(e, "displayName"),
+        PayHeadType = Str(e, "payHeadType")!, CalculationType = Str(e, "calculationType")!,
+        AffectsNetSalary = Bool(e, "affectsNetSalary"), UnderGroupId = OptGuid(e, "underGroupId"),
+        LedgerId = OptGuid(e, "ledgerId"), EmployerExpenseLedgerId = OptGuid(e, "employerExpenseLedgerId"),
+        IncomeTaxComponent = Str(e, "incomeTaxComponent")!,
+        UseForGratuity = Bool(e, "useForGratuity"), RoundingMethod = Str(e, "roundingMethod")!,
+        RoundingLimitPaisa = Long(e, "roundingLimitPaisa"), CalculationPeriod = Str(e, "calculationPeriod")!,
+        AttendanceTypeId = OptGuid(e, "attendanceTypeId"),
+        PerDayCalculationBasisDays = OptInt(e, "perDayCalculationBasisDays"),
+        PfComponent = Str(e, "pfComponent") ?? nameof(Apex.Ledger.Domain.PfStatutoryComponent.None),
+        PartOfPfWages = Bool(e, "partOfPfWages"),
+        EsiComponent = Str(e, "esiComponent") ?? nameof(Apex.Ledger.Domain.EsiStatutoryComponent.None),
+        PartOfEsiWages = Bool(e, "partOfEsiWages"), IsOvertime = Bool(e, "isOvertime"),
+        PtComponent = Str(e, "ptComponent") ?? nameof(Apex.Ledger.Domain.PtStatutoryComponent.None),
+        ComputationComponents = (e.Element("computationComponents")?.Elements("component") ?? Enumerable.Empty<XElement>())
+            .Select(c => new PayHeadComputationComponentDto
+            {
+                PayHeadId = Guid(c, "payHeadId"), IsSubtraction = Bool(c, "isSubtraction"),
+            }).ToList(),
+        ComputationSlabs = (e.Element("computationSlabs")?.Elements("slab") ?? Enumerable.Empty<XElement>())
+            .Select(s => new PayHeadComputationSlabDto
+            {
+                SlabType = Str(s, "slabType")!, RateBasisPoints = Int(s, "rateBasisPoints"),
+                ValuePaisa = Long(s, "valuePaisa"),
+                FromAmountPaisa = OptLong(s, "fromAmountPaisa"), ToAmountPaisa = OptLong(s, "toAmountPaisa"),
+            }).ToList(),
+    };
+
+    private static SalaryStructureDto ReadSalaryStructure(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Scope = Str(e, "scope")!, ScopeId = Guid(e, "scopeId"),
+        EffectiveFrom = Str(e, "effectiveFrom") ?? string.Empty, StartType = Str(e, "startType")!,
+        Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>())
+            .Select(l => new SalaryStructureLineDto
+            {
+                PayHeadId = Guid(l, "payHeadId"), Order = Int(l, "order"), AmountPaisa = OptLong(l, "amountPaisa"),
+            }).ToList(),
+    };
+
+    private static AttendanceEntryDto ReadAttendanceEntry(XElement e) => new()
+    {
+        Id = Guid(e, "id"), EmployeeId = Guid(e, "employeeId"), AttendanceTypeId = Guid(e, "attendanceTypeId"),
+        FromDate = Str(e, "fromDate") ?? string.Empty, ToDate = Str(e, "toDate") ?? string.Empty,
+        ValueMicro = Long(e, "valueMicro"),
+    };
+
+    private static TaxDeclarationDto ReadTaxDeclaration(XElement e) => new()
+    {
+        EmployeeId = Guid(e, "employeeId"),
+        Section80CPaisa = Long(e, "section80CPaisa"), Section80DPaisa = Long(e, "section80DPaisa"),
+        Section80CCD1BPaisa = Long(e, "section80CCD1BPaisa"), Section80CCD2EmployerPaisa = Long(e, "section80CCD2EmployerPaisa"),
+        HraExemptPaisa = Long(e, "hraExemptPaisa"), HomeLoanInterestPaisa = Long(e, "homeLoanInterestPaisa"),
+        OtherIncomePaisa = Long(e, "otherIncomePaisa"), PrevEmployerSalaryPaisa = Long(e, "prevEmployerSalaryPaisa"),
+        PrevEmployerTdsPaisa = Long(e, "prevEmployerTdsPaisa"),
     };
 
     private static CurrencyDto ReadCurrency(XElement e) => new()
@@ -1038,6 +1364,11 @@ public static class CanonicalXml
             AssessableValuePaisa = Long(tc, "assessableValuePaisa"), RateBasisPoints = Int(tc, "rateBasisPoints"),
             TcsAmountPaisa = Long(tc, "tcsAmountPaisa"), CollecteeLedgerId = Guid(tc, "collecteeLedgerId"),
             PanApplied = Bool(tc, "panApplied"),
+        } : null,
+        Payroll = e.Element("payroll") is { } pr ? new PayrollLineDto
+        {
+            EmployeeId = Guid(pr, "employeeId"), PayHeadId = OptGuid(pr, "payHeadId"),
+            Category = Str(pr, "category")!, AmountPaisa = Long(pr, "amountPaisa"),
         } : null,
     };
 

@@ -279,6 +279,29 @@ public sealed class ItemInvoiceRoundTripTests
         // v25 (TDS/TCS) master tables — drop so re-migrating v11→v25 does not hit "table already exists".
         Exec(conn, "DROP TABLE IF EXISTS nature_of_payment;");
         Exec(conn, "DROP TABLE IF EXISTS nature_of_goods;");
+        // v35 PT slab-band table (+ its index) — drop so the reopen's v34→v35 CREATE TABLE does not collide (the
+        // companies rebuild below strips the v35 pt_* columns back to the v12 shape).
+        Exec(conn, "DROP INDEX IF EXISTS ix_pt_slab_bands_company;");
+        Exec(conn, "DROP TABLE IF EXISTS pt_slab_bands;");
+        // v36 §192 tax-declaration table (+ its index) — drop so the reopen's v35→v36 CREATE TABLE does not collide
+        // (the companies rebuild below strips the v36 salary_tds_enabled column back to the v12 shape).
+        Exec(conn, "DROP INDEX IF EXISTS ix_employee_tax_declarations_company;");
+        Exec(conn, "DROP TABLE IF EXISTS employee_tax_declarations;");
+        // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
+        Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");
+        Exec(conn, "DROP TABLE IF EXISTS salary_structure_lines;");
+        Exec(conn, "DROP TABLE IF EXISTS salary_structures;");
+        Exec(conn, "DROP TABLE IF EXISTS pay_head_computation_slabs;");
+        Exec(conn, "DROP TABLE IF EXISTS pay_head_computation;");
+        Exec(conn, "DROP TABLE IF EXISTS pay_heads;");
+        // v30 Payroll master tables — drop so the reopen's v29→v30 CREATE TABLE does not collide (the companies
+        // rebuild below strips the v30 payroll_enabled/payroll_statutory_enabled columns back to the v12 shape).
+        Exec(conn, "DROP TABLE IF EXISTS employees;");
+        Exec(conn, "DROP TABLE IF EXISTS attendance_types;");
+        Exec(conn, "DROP TABLE IF EXISTS payroll_units;");
+        Exec(conn, "DROP TABLE IF EXISTS employee_groups;");
+        Exec(conn, "DROP TABLE IF EXISTS employee_categories;");
         // Drop the v17 Bill-of-Materials tables + their indexes so the reopen's v16→v17 CREATE TABLE does not
         // collide with a table a fresh save at the current version already created.
         Exec(conn, "DROP INDEX IF EXISTS ix_bom_lines_bom;");

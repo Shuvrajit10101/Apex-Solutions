@@ -232,6 +232,21 @@ public sealed class TcsStatPaymentViewModelTests : IDisposable
         Assert.NotNull(recon.Message);
     }
 
+    [Fact]
+    public void Recon_report_carries_the_cash_basis_clarifying_note()
+    {
+        // The recon windows deposits by challan deposit date (cash basis), so a compliant cross-FY deposit can
+        // read as outstanding here. The page must surface a clarifying note pointing at the period-attributed views.
+        var vm = TcsCompany("Note Co");
+        var recon = new TcsChallanReconciliationViewModel(vm.Company!);
+
+        Assert.False(string.IsNullOrWhiteSpace(recon.BasisNote));
+        Assert.Contains("cash basis", recon.BasisNote);
+        Assert.Contains("challan deposit date", recon.BasisNote);
+        Assert.Contains("Form 27EQ", recon.BasisNote);
+        Assert.Contains("TCS Outstandings", recon.BasisNote);
+    }
+
     // ---- (3) the challan fields persist (round-trip through storage) ----
 
     [Fact]
