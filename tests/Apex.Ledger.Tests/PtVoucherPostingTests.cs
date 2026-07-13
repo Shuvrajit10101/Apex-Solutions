@@ -216,6 +216,34 @@ public sealed class PtVoucherPostingTests
         Assert.Equal(2500m, total);
     }
 
+    // ---------------------------------------------------------------- F3: a cancelled prior month must not consume the cap
+
+    [Fact]
+    public void A_cancelled_prior_month_pt_does_not_consume_the_annual_cap()
+    {
+        // F3: PriorFinancialYearProfessionalTax must skip cancelled vouchers (like its §192/paid-to-date siblings).
+        // MH man ₹12,000 = ₹200/mo (₹300 Feb), FY cap ₹2,500. Post Apr..Jan clean (₹2,000), then post February,
+        // CANCEL it (a voided run) and re-post February (₹300 ⇒ real cumulative ₹2,300). March has ₹200 of head-room
+        // left, so its PT is ₹200 — it must NOT be trimmed to ₹0 by the cancelled February's ₹300 (which would push
+        // the counted cumulative to ₹2,600 and exhaust the cap).
+        var (c, empId, heads) = Build(MH, basic: 12000m);
+        foreach (var (y, m) in new[]
+                 { (2025, 4), (2025, 5), (2025, 6), (2025, 7), (2025, 8), (2025, 9),
+                   (2025, 10), (2025, 11), (2025, 12), (2026, 1) })
+            PostMonth(c, empId, y, m); // Apr..Jan: 10 × ₹200 = ₹2,000
+
+        var febVoided = PostMonth(c, empId, 2026, 2);
+        febVoided.Cancelled = true;                      // the February run is voided …
+        var febGood = PostMonth(c, empId, 2026, 2);      // … and re-posted (real cumulative now ₹2,300)
+        Assert.Equal(300m, PtAmount(febGood, heads));
+
+        var march = PostMonth(c, empId, 2026, 3);
+        Assert.Equal(200m, PtAmount(march, heads));       // ₹200 head-room, NOT trimmed to ₹0 by the cancelled Feb
+    }
+
+    private static decimal PtAmount(Voucher v, PtHeads heads) =>
+        v.Lines.Where(l => l.Payroll?.PayHeadId == heads.Pt && l.Side == DrCr.Credit).Sum(l => l.Amount.Amount);
+
     // ---------------------------------------------------------------- register reconciles to the posting
 
     [Fact]

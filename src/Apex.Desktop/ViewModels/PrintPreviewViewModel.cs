@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using Apex.Desktop.Services;
 using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
@@ -22,15 +23,17 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
-    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10) or a tax invoice (RQ-11).
-    /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
-    public enum PrintKind { Report, Voucher, Invoice, Receipt }
+    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice (RQ-11),
+    /// a POS receipt, or a payroll Payslip (RQ-16). The document mode selects the Io renderer and the F12 config
+    /// knobs that apply.</summary>
+    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
     private readonly PrintReport? _report;
     private readonly VoucherPrintData? _voucher;
     private readonly InvoicePrintData? _invoice;
     private readonly PosReceiptData? _receipt;
+    private readonly Payslip? _payslip;
 
     /// <summary>The page config the preview + PDF are rendered with. Rebuilt (and the document re-rendered) when
     /// the size/orientation is changed via the toggles below.</summary>
@@ -86,6 +89,17 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     public PrintPreviewViewModel(ReportsViewModel reportVm)
         : this(ReportPrintProjector.Project(reportVm), reportVm?.Title ?? string.Empty) { }
+
+    /// <summary>Preview a payroll Payslip (RQ-16) via <c>PayslipPdf</c> — the same deterministic, de-branded PDF
+    /// pipeline as the tax invoice / TDS certificates. A fixed payslip layout: the F12 knobs do not apply.</summary>
+    public PrintPreviewViewModel(Payslip payslip, string reportTitle)
+    {
+        _payslip = payslip ?? throw new ArgumentNullException(nameof(payslip));
+        Kind = PrintKind.Payslip;
+        ReportTitle = reportTitle ?? string.Empty;
+        _config = BuildConfig();
+        Render();
+    }
 
     /// <summary>Testable ctor: preview a pre-built report print model directly (RQ-9).</summary>
     public PrintPreviewViewModel(PrintReport report, string reportTitle)
@@ -159,6 +173,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.Voucher => VoucherPdf.Render(_voucher!, BuildPrintConfig(), _config),
             PrintKind.Invoice => InvoicePdf.Render(_invoice!, BuildPrintConfig(), _config),
             PrintKind.Receipt => PosReceiptPdf.Render(_receipt!, _config),
+            PrintKind.Payslip => PayslipPdf.Render(_payslip!, _config),
             _ => ReportPdf.Render(_report!, _config),
         };
         OnPropertyChanged(nameof(PdfBytes));
@@ -168,6 +183,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.Voucher => BuildVoucherPreviewReport(),
             PrintKind.Invoice => BuildInvoicePreviewReport(),
             PrintKind.Receipt => BuildReceiptPreviewReport(),
+            PrintKind.Payslip => BuildPayslipPreviewReport(),
             _ => _report!,
         };
 
@@ -403,6 +419,37 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             {
                 new PrintColumn("Particulars", 4, CellAlign.Left),
                 new PrintColumn(string.Empty, 1, CellAlign.Right),
+                new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
+            Rows = rows,
+        };
+    }
+
+    /// <summary>A lightweight on-screen text mirror of the Payslip PDF (the authoritative bytes come from
+    /// <c>PayslipPdf</c>): the identity line, the earnings, the deductions, the net pay and the amount in words.</summary>
+    private PrintReport BuildPayslipPreviewReport()
+    {
+        var s = _payslip!;
+        var rows = new List<PrintRow>
+        {
+            PrintRow.Header($"{s.EmployeeName}  ({(string.IsNullOrEmpty(s.EmployeeNumber) ? "-" : s.EmployeeNumber)})", string.Empty),
+            PrintRow.Header("Earnings", string.Empty),
+        };
+        foreach (var e in s.Earnings) rows.Add(new PrintRow(ReportPrintProjector.Ascii(e.Name), IndianFormat.AmountAlways(e.Amount)));
+        rows.Add(PrintRow.Total("Gross Earnings", IndianFormat.AmountAlways(s.GrossEarnings)));
+        rows.Add(PrintRow.Header("Deductions", string.Empty));
+        foreach (var d in s.Deductions) rows.Add(new PrintRow(ReportPrintProjector.Ascii(d.Name), IndianFormat.AmountAlways(d.Amount)));
+        rows.Add(PrintRow.Total("Total Deductions", IndianFormat.AmountAlways(s.TotalDeductions)));
+        rows.Add(PrintRow.Total("Net Pay", IndianFormat.AmountAlways(s.NetPayable)));
+        rows.Add(PrintRow.Header("Net Pay (in words): " + ReportPrintProjector.Ascii(IndianAmountInWords.Convert(s.NetPayable.Amount)), string.Empty));
+
+        return new PrintReport
+        {
+            Title = "Payslip",
+            Subtitle = ReportPrintProjector.Ascii(s.EmployerName),
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 3, CellAlign.Left),
                 new PrintColumn("Amount", 1.5, CellAlign.Right),
             },
             Rows = rows,

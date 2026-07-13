@@ -470,13 +470,17 @@ public sealed class PayrollComputationService
         /// <summary>The PT this member has already had deducted <b>this financial year</b> (Apr–Mar) up to but
         /// excluding the current period — the running total the ₹2,500 cap trims against. Derived (pure) from posted
         /// Payroll vouchers: the PT-component deduction lines for this employee dated in <c>[FY-start, periodFrom)</c>.
-        /// Needs no persisted running total; the cap re-derives from the books.</summary>
+        /// Needs no persisted running total; the cap re-derives from the books. A cancelled voucher's PT was never
+        /// paid over, so it is excluded (F3) — mirroring <see cref="PaidToDateTaxableGross"/> /
+        /// <see cref="PriorFinancialYearSalaryTds"/>; counting it would wrongly exhaust the cap and under-deduct the
+        /// remaining months.</summary>
         private Money PriorFinancialYearProfessionalTax()
         {
             var fyStart = ProfessionalTax.FinancialYearStart(_to);
             decimal sum = 0m;
             foreach (var v in _company.Vouchers)
             {
+                if (v.Cancelled) continue;                          // a cancelled deduction never reached the state (F3)
                 if (v.Date < fyStart || v.Date >= _from) continue; // FY-to-date, strictly before this period
                 foreach (var line in v.Lines)
                 {

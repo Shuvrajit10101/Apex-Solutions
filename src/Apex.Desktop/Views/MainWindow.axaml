@@ -25,6 +25,7 @@
         <conv:SelectedActiveToBrushConverter x:Key="SelActiveBrush"/>
         <conv:SelectedToForegroundConverter x:Key="SelFore"/>
         <conv:BoolToWeightConverter x:Key="BoolWeight"/>
+        <conv:BoolToTextAlignmentConverter x:Key="NumAlign"/>
         <conv:DrCrLabelConverter x:Key="DrCrLabel"/>
         <conv:BalancedToBrushConverter x:Key="BalancedBrush"/>
         <conv:UpperConverter x:Key="Upper"/>
@@ -277,6 +278,38 @@
                                     SelectedItem="{Binding SelectedScenario, Mode=TwoWay}">
                             <ComboBox.ItemTemplate>
                               <DataTemplate x:DataType="vm:ScenarioOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
+                        <!-- Payroll wage-month + employee picker (Phase 8 slice 8): every payroll report is scoped to
+                             one wage month; the Payslip is additionally scoped to a single employee. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowPayrollMonthPicker}">
+                          <TextBlock Grid.Column="0" Text="Wage Month" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" Width="150" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding PayrollMonths}"
+                                    SelectedItem="{Binding SelectedPayrollMonth, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:PayrollMonthOption">
+                                <TextBlock Text="{Binding Label}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                          <TextBlock Grid.Column="2" Text="Employee" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="18,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"
+                                     IsVisible="{Binding ShowPayrollEmployeePicker}"/>
+                          <ComboBox Grid.Column="3" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding PayrollEmployees}"
+                                    SelectedItem="{Binding SelectedPayrollEmployee, Mode=TwoWay}"
+                                    IsVisible="{Binding ShowPayrollEmployeePicker}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:PayrollEmployeeOption">
                                 <TextBlock Text="{Binding Display}"/>
                               </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -1415,6 +1448,178 @@
                               </ItemsControl.ItemTemplate>
                             </ItemsControl>
                           </ScrollViewer>
+                        </Grid>
+
+                        <!-- ============ PAYROLL matrix reports (Phase 8 slice 8): Pay Sheet / Payroll Register /
+                             Attendance Register / Payment Advice ============
+                             Every wide payroll grid is rendered through the SAME dynamic matrix (columns + rows carry
+                             their own per-column widths + numeric/text alignment), scrolling HORIZONTALLY so a wide
+                             sheet (Payroll Register = 10 columns; a many-head Pay Sheet) never clips. The header band
+                             scrolls in lock-step with the body (its offset mirrors the body scroller). De-branded. -->
+                        <Grid Grid.Row="3" Grid.RowSpan="2" x:Name="PayrollMatrixPane"
+                              RowDefinitions="Auto,*" IsVisible="{Binding IsPayrollMatrix}">
+                          <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                            <ScrollViewer HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                                          Offset="{Binding #PayrollBodyScroller.Offset, Mode=OneWay}">
+                              <ItemsControl ItemsSource="{Binding PayrollColumns}">
+                                <ItemsControl.ItemsPanel>
+                                  <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PayrollMatrixColumnVm">
+                                    <TextBlock Text="{Binding Header}" Classes="colHdr" Width="{Binding Width}"
+                                               TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Border>
+                          <ScrollViewer Grid.Row="1" x:Name="PayrollBodyScroller" Background="White"
+                                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                              <ItemsControl ItemsSource="{Binding PayrollRows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PayrollMatrixRowVm">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            TextElement.FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}">
+                                      <ItemsControl ItemsSource="{Binding Cells}" Height="24">
+                                        <ItemsControl.ItemsPanel>
+                                          <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:PayrollMatrixCellVm">
+                                            <!-- Padding (NOT Margin) so each cell's total width EQUALS its column
+                                                 Width and stays aligned with the header band in the horizontal
+                                                 StackPanel; Margin would add outside Width and shift columns right. -->
+                                            <TextBlock Text="{Binding Text}" Width="{Binding Width}"
+                                                       VerticalAlignment="Center" FontSize="12.5" Padding="8,0,8,0"
+                                                       TextAlignment="{Binding IsNumeric, Converter={StaticResource NumAlign}}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                              <TextBlock Text="{Binding PayrollEmptyNote}" IsVisible="{Binding IsPayrollEmpty}"
+                                         Margin="12" FontSize="12.5" Foreground="#777"/>
+                            </StackPanel>
+                          </ScrollViewer>
+                        </Grid>
+
+                        <!-- ============ PAYSLIP (Phase 8 slice 8): single-employee detail ============
+                             The employee identity, side-by-side Earnings / Deductions tables footing to gross / total
+                             deductions, the net pay + amount-in-words, the informational employer contributions and the
+                             attendance + YTD summary. P / Ctrl+P prints the dedicated de-branded PayslipPdf. -->
+                        <Grid Grid.Row="3" Grid.RowSpan="2" IsVisible="{Binding IsPayslipReport}">
+                          <ScrollViewer Background="White">
+                            <StackPanel Margin="14,8" Spacing="6" IsVisible="{Binding !IsPayslipEmpty}">
+                              <TextBlock Text="{Binding PayslipEmployee}" FontSize="15" FontWeight="Bold"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <TextBlock Text="{Binding PayslipPeriodText}" FontSize="12" Foreground="#555555"/>
+                              <TextBlock Text="{Binding PayslipMeta}" FontSize="11.5" Foreground="#555555" TextWrapping="Wrap"/>
+                              <TextBlock Text="{Binding PayslipMeta2}" FontSize="11.5" Foreground="#555555" TextWrapping="Wrap"/>
+
+                              <Grid ColumnDefinitions="*,16,*" Margin="0,6,0,0">
+                                <!-- Earnings -->
+                                <StackPanel Grid.Column="0">
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="*,120">
+                                      <TextBlock Text="Earnings" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding PayslipEarnings}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PayslipLineVm">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="*,120" Height="23">
+                                            <TextBlock Text="{Binding Name}" Margin="8,0" VerticalAlignment="Center"
+                                                       FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Amount}" TextAlignment="Right"
+                                                       Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                  <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                                    <Grid ColumnDefinitions="*,120" Height="24">
+                                      <TextBlock Text="Gross Earnings" Margin="8,0" VerticalAlignment="Center"
+                                                 FontWeight="Bold" FontSize="12"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding PayslipGross}" TextAlignment="Right"
+                                                 Margin="0,0,8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"/>
+                                    </Grid>
+                                  </Border>
+                                </StackPanel>
+                                <!-- Deductions -->
+                                <StackPanel Grid.Column="2">
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="*,120">
+                                      <TextBlock Text="Deductions" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding PayslipDeductions}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PayslipLineVm">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="*,120" Height="23">
+                                            <TextBlock Text="{Binding Name}" Margin="8,0" VerticalAlignment="Center"
+                                                       FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Amount}" TextAlignment="Right"
+                                                       Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                  <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                                    <Grid ColumnDefinitions="*,120" Height="24">
+                                      <TextBlock Text="Total Deductions" Margin="8,0" VerticalAlignment="Center"
+                                                 FontWeight="Bold" FontSize="12"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding PayslipTotalDeductions}" TextAlignment="Right"
+                                                 Margin="0,0,8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"/>
+                                    </Grid>
+                                  </Border>
+                                </StackPanel>
+                              </Grid>
+
+                              <Border Background="#EEF2F8" Padding="10,7" Margin="0,8,0,0">
+                                <Grid ColumnDefinitions="*,150">
+                                  <TextBlock Text="Net Pay" FontSize="14" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"/>
+                                  <TextBlock Grid.Column="1" Text="{Binding PayslipNet}" FontSize="14" FontWeight="Bold"
+                                             TextAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                              </Border>
+                              <TextBlock Text="{Binding PayslipNetWords}" FontSize="11.5" FontStyle="Italic"
+                                         Foreground="#555555" TextWrapping="Wrap"/>
+
+                              <StackPanel IsVisible="{Binding HasPayslipEmployerContributions}" Margin="0,8,0,0">
+                                <TextBlock Text="Employer Contributions (not part of net pay)" FontWeight="SemiBold"
+                                           FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                                <ItemsControl ItemsSource="{Binding PayslipEmployerContributions}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PayslipLineVm">
+                                      <Grid ColumnDefinitions="*,150" Height="22">
+                                        <TextBlock Text="{Binding Name}" Margin="8,0" VerticalAlignment="Center" FontSize="12"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Amount}" TextAlignment="Right"
+                                                   Margin="0,0,8,0" VerticalAlignment="Center" FontSize="12"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+
+                              <TextBlock Text="{Binding PayslipAttendance}" FontSize="11.5" Foreground="#555555" Margin="0,8,0,0"/>
+                              <TextBlock Text="{Binding PayslipYtd}" FontSize="11.5" Foreground="#555555"/>
+                            </StackPanel>
+                          </ScrollViewer>
+                          <TextBlock Text="{Binding Subtitle}" IsVisible="{Binding IsPayslipEmpty}"
+                                     Margin="14" FontSize="12.5" Foreground="#777777" TextWrapping="Wrap"/>
                         </Grid>
 
                         </Grid>

@@ -24,6 +24,13 @@ public static class ReportPrintProjector
     {
         System.ArgumentNullException.ThrowIfNull(vm);
 
+        // Phase 8 slice 8 payroll reports carry their data in dedicated collections, not the generic Col1..Col8
+        // rows: a wide tabular payroll report (Pay Sheet / Payroll Register / Attendance / Payment Advice) projects
+        // its dynamic matrix; the Payslip projects its earning/deduction detail (its Print path also renders the
+        // dedicated PayslipPdf, but a plain report projection keeps Export working).
+        if (vm.IsPayrollMatrix) return ProjectPayrollMatrix(vm);
+        if (vm.IsPayslipReport) return ProjectPayslip(vm);
+
         var columns = BuildColumns(vm);
         var rows = new List<PrintRow>(vm.Rows.Count);
         foreach (var r in vm.Rows)
@@ -34,6 +41,59 @@ public static class ReportPrintProjector
             Title = Ascii(vm.Title),
             Subtitle = Ascii(vm.Subtitle),
             Columns = columns,
+            Rows = rows,
+        };
+    }
+
+    /// <summary>Projects a wide tabular payroll report from its dynamic matrix: one column per
+    /// <see cref="ReportsViewModel.PayrollColumns"/> entry (numeric columns right-aligned, the label column left),
+    /// one row per <see cref="ReportsViewModel.PayrollRows"/> entry. Figures are already formatted on the cells.</summary>
+    private static PrintReport ProjectPayrollMatrix(ReportsViewModel vm)
+    {
+        var columns = new List<PrintColumn>(vm.PayrollColumns.Count);
+        foreach (var c in vm.PayrollColumns)
+            columns.Add(new PrintColumn(Ascii(c.Header), c.IsNumeric ? 1.3 : 2.4,
+                c.IsNumeric ? CellAlign.Right : CellAlign.Left));
+
+        var rows = new List<PrintRow>(vm.PayrollRows.Count);
+        foreach (var r in vm.PayrollRows)
+        {
+            var cells = new string[r.Cells.Count];
+            for (int i = 0; i < r.Cells.Count; i++) cells[i] = Ascii(r.Cells[i].Text);
+            rows.Add(new PrintRow { Cells = cells, IsTotal = r.IsTotal });
+        }
+
+        return new PrintReport { Title = Ascii(vm.Title), Subtitle = Ascii(vm.Subtitle), Columns = columns, Rows = rows };
+    }
+
+    /// <summary>Projects the Payslip as a two-column Particulars | Amount report (earnings, gross, deductions, net,
+    /// employer contributions) — used for the Export path; Print renders the dedicated PayslipPdf.</summary>
+    private static PrintReport ProjectPayslip(ReportsViewModel vm)
+    {
+        var rows = new List<PrintRow>();
+        rows.Add(PrintRow.Header(Ascii(vm.PayslipEmployee), string.Empty));
+        rows.Add(PrintRow.Header("Earnings", string.Empty));
+        foreach (var e in vm.PayslipEarnings) rows.Add(new PrintRow(Ascii(e.Name), Ascii(e.Amount)));
+        rows.Add(PrintRow.Total("Gross Earnings", Ascii(vm.PayslipGross)));
+        rows.Add(PrintRow.Header("Deductions", string.Empty));
+        foreach (var d in vm.PayslipDeductions) rows.Add(new PrintRow(Ascii(d.Name), Ascii(d.Amount)));
+        rows.Add(PrintRow.Total("Total Deductions", Ascii(vm.PayslipTotalDeductions)));
+        rows.Add(PrintRow.Total("Net Pay", Ascii(vm.PayslipNet)));
+        if (vm.PayslipEmployerContributions.Count > 0)
+        {
+            rows.Add(PrintRow.Header("Employer Contributions (not part of net pay)", string.Empty));
+            foreach (var c in vm.PayslipEmployerContributions) rows.Add(new PrintRow(Ascii(c.Name), Ascii(c.Amount)));
+        }
+
+        return new PrintReport
+        {
+            Title = Ascii(vm.Title),
+            Subtitle = Ascii(vm.Subtitle),
+            Columns = new[]
+            {
+                new PrintColumn("Particulars", 3, CellAlign.Left),
+                new PrintColumn("Amount", 1.5, CellAlign.Right),
+            },
             Rows = rows,
         };
     }

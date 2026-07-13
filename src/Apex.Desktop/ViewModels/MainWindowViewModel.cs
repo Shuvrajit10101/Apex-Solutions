@@ -148,6 +148,10 @@ public enum GatewayMenu
     // Reports → Statutory Reports → Payroll (PF) (Phase 8 slice 4): the PF ECR / Challan report, nested under a
     // Payroll sub-group only when Payroll Statutory is enabled.
     PayrollStatutoryReports,
+
+    // Reports → Payroll Reports (Phase 8 slice 8): the payslip + pay sheet + payroll register + attendance register +
+    // payment advice, a group under the Reports root shown only when Payroll is enabled.
+    PayrollReports,
 }
 
 /// <summary>
@@ -708,6 +712,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Inventory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("GST Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Exception Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
+        // Payroll Reports (Phase 8 slice 8; RQ-16; catalog §14) — the payslip + pay sheet + payroll register +
+        // attendance register + payment advice. Surfaced only when the F11 feature "Maintain Payroll" is on (ER-13),
+        // so a company that never enables Payroll is byte-identical to the pre-slice Reports menu.
+        if (Company is { PayrollEnabled: true })
+            col.Add(new MenuItemViewModel("Payroll Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports and, from
         // Phase 8 slice 4, the Payroll (PF) statutory reports. Surfaced only when the F11 feature enables TDS, TCS
@@ -1483,6 +1493,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Gateway of Apex Solutions — Payroll");
     }
 
+    /// <summary>Builds the "Payroll Reports" submenu column (Reports → Payroll Reports; Phase 8 slice 8; RQ-16;
+    /// catalog §14): the Payslip (single-employee detail + PDF), the Pay Sheet (employees × pay heads), the Payroll
+    /// Register/Statement (columnar salary summary), the Attendance Register (employees × attendance types) and the
+    /// Payment/Bank Advice (net-pay-per-employee bank list) — all pure projections over the posted payroll data.</summary>
+    private GatewayColumn BuildPayrollReportsColumn()
+    {
+        var col = new GatewayColumn("Payroll Reports");
+        col.Add(MenuItemViewModel.Header("Payroll Reports"));
+        col.Add(new MenuItemViewModel("Payslip", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Pay Sheet", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Payroll Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Attendance Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Payment Advice", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Payroll Reports" submenu column directly (Phase 8 slice 8; RQ-16) — the public
+    /// entry a hotkey/test uses. A no-op when Payroll is off (the group is not surfaced).</summary>
+    public void ShowPayrollReportsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (Company is not { PayrollEnabled: true }) return;   // group hidden when Payroll is off (ER-13)
+        SelectRootItem("Payroll Reports");
+        OpenSubmenuColumn(BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
+            "Gateway of Apex Solutions — Payroll Reports");
+    }
+
     /// <summary>
     /// Opens the "Vouchers" submenu column directly (Transactions → Vouchers). Rebuilds the cascade to
     /// [root → Vouchers] and focuses the Vouchers column — the public entry the F-keys/tests use.
@@ -1973,6 +2010,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PrintPreviewViewModel preview;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
             preview = vd.BuildPrintPreview();
+        // A Payslip prints the dedicated de-branded PayslipPdf (RQ-16) — the same PDF pipeline as the tax invoice /
+        // TDS certificates — rather than the generic report grid; a payslip with no employee/structure is a no-op.
+        else if (Reports is { IsPayslipReport: true, CurrentPayslip: { } slip })
+            preview = new PrintPreviewViewModel(slip, Reports.Title);
+        else if (Reports is { IsPayslipReport: true })
+            return;                               // payslip with no employee/structure — nothing to print
         else if (Reports is not null)
             preview = new PrintPreviewViewModel(Reports);
         else
@@ -4136,6 +4179,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — TCS Reports"),
             "Payroll" => (BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
                 "Gateway of Apex Solutions — Payroll"),
+            "Payroll Reports" => (BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
+                "Gateway of Apex Solutions — Payroll Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
                 "Gateway of Apex Solutions — Outstandings"),
             "Cost Centres" => (BuildCostCentresColumn(), GatewayMenu.CostCentres,
@@ -4263,6 +4308,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
             case "Form 24Q": OpenForm24Q(); break;
             case "Form 16": OpenForm16(); break;
+            // Payroll presentation reports (Phase 8 slice 8) — under Reports → Payroll Reports.
+            case "Payslip": OpenReport(ReportKind.Payslip); break;
+            case "Pay Sheet": OpenReport(ReportKind.PaySheet); break;
+            case "Payroll Register": OpenReport(ReportKind.PayrollRegister); break;
+            case "Attendance Register": OpenReport(ReportKind.AttendanceRegister); break;
+            case "Payment Advice": OpenReport(ReportKind.PaymentAdvice); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;
@@ -4412,6 +4463,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "TDS Reports" => GatewayMenu.TdsReports,
                     "TCS Reports" => GatewayMenu.TcsReports,
                     "Payroll" => GatewayMenu.PayrollStatutoryReports,
+                    "Payroll Reports" => GatewayMenu.PayrollReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,
                     "Bank Book" => GatewayMenu.BankBook,
