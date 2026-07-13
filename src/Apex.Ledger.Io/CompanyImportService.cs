@@ -413,6 +413,30 @@ public sealed class CompanyImportService
             }
         }
 
+        // Gratuity config (Phase 8 slice 9): the direct-construction import (ImportPlan) builds the domain
+        // GratuityConfig, whose constructor throws on a negative cap. Re-run the guards here so a hand-edited export is
+        // rejected cleanly at pre-flight rather than throwing mid-Apply.
+        if (model.Company.Gratuity is { } gr)
+        {
+            if (gr.CapPaisa < 0)
+                errors.Add("Gratuity config has a negative cap.");
+            if (!Enum.TryParse<GratuityWageBasis>(gr.WageBasis, out _))
+                errors.Add($"Gratuity config has an unknown wage basis '{gr.WageBasis}'.");
+            if (!Enum.TryParse<GratuityProvisionPopulation>(gr.Population, out _))
+                errors.Add($"Gratuity config has an unknown provision population '{gr.Population}'.");
+        }
+
+        // Statutory-Bonus config (Phase 8 slice 9): the calc ceiling / minimum wage cannot be negative (the domain
+        // BonusConfig constructor throws). The rate is clamped to the §10–§11 band on construction, so it is never
+        // rejected here.
+        if (model.Company.Bonus is { } bo)
+        {
+            if (bo.CalculationCeilingPaisa < 0)
+                errors.Add("Statutory-Bonus config has a negative calculation ceiling.");
+            if (bo.MinimumWagePaisa < 0)
+                errors.Add("Statutory-Bonus config has a negative minimum wage.");
+        }
+
         // Pay heads (Phase 8 slice 2): under-group + ledger + attendance-type + computed-on component references.
         foreach (var ph in model.Payload.PayHeads)
         {

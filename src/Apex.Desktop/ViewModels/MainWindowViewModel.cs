@@ -95,6 +95,11 @@ public enum Screen
     EsiContributionReport,
     ProfessionalTaxRegister,
 
+    // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — under Reports → Statutory
+    // Reports → Payroll, each gated on its own enrolment (GratuityConfig / BonusConfig).
+    GratuityProvisionRegister,
+    BonusRegister,
+
     // §192 salary-TDS (Phase 8 slice 7; RQ-12/RQ-13) — the per-employee Form-12BB declaration master + the Form 24Q
     // return and Form 16 certificate reports, all gated on the F11 "Enable Salary TDS" switch.
     TaxDeclarationMaster,
@@ -373,6 +378,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// open.</summary>
     [ObservableProperty] private ProfessionalTaxRegisterViewModel? _professionalTaxRegister;
 
+    /// <summary>The Gratuity Provision register (Phase 8 slice 9; RQ-14), non-null only while that page column is open.</summary>
+    [ObservableProperty] private GratuityProvisionRegisterViewModel? _gratuityProvisionRegister;
+
+    /// <summary>The statutory-Bonus register (Phase 8 slice 9; RQ-15), non-null only while that page column is open.</summary>
+    [ObservableProperty] private BonusRegisterViewModel? _bonusRegister;
+
     /// <summary>The per-employee Income-Tax Declaration (Form 12BB) master (Phase 8 slice 7; RQ-12), non-null only
     /// while that page column is open.</summary>
     [ObservableProperty] private TaxDeclarationViewModel? _taxDeclarationMaster;
@@ -451,6 +462,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && PayHeadMaster is null && SalaryDetails is null
         && AttendanceVoucher is null && PayrollVoucher is null && PfEcrReport is null
         && EsiContributionReport is null && ProfessionalTaxRegister is null
+        && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
@@ -519,6 +531,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPfEcrReportChanged(PfEcrReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEsiContributionReportChanged(EsiContributionReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnProfessionalTaxRegisterChanged(ProfessionalTaxRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGratuityProvisionRegisterChanged(GratuityProvisionRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBonusRegisterChanged(BonusRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTaxDeclarationMasterChanged(TaxDeclarationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm24QChanged(Form24QViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnForm16Changed(Form16ViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1419,6 +1433,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Gratuity provision + statutory Bonus registers (Phase 8 slice 9; RQ-14/RQ-15) — each surfaced only when the
+        // establishment is enrolled for that statute (GratuityConfig / BonusConfig), so a company that uses neither is
+        // byte-identical to the pre-slice Payroll submenu (ER-13).
+        if (Company is { GratuityConfig: not null })
+            col.Add(new MenuItemViewModel("Gratuity Provision", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        if (Company is { BonusConfig: not null })
+            col.Add(new MenuItemViewModel("Bonus Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // §192 salary-TDS return + certificate (Phase 8 slice 7; RQ-13) — surfaced only when the F11 feature
         // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
         if (Company is { SalaryTdsEnabled: true })
@@ -3097,6 +3118,53 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BackFromPage();
     }
 
+    /// <summary>
+    /// Opens the <b>Gratuity Provision</b> register page (Reports → Statutory Reports → Payroll → Gratuity Provision;
+    /// Phase 8 slice 9; RQ-14) as a page column: the per-employee accrual as-on a chosen provision date (completed
+    /// years, vested flag, Basic + DA, accrued gratuity) + the total liability / prior balance / delta, with a
+    /// <b>Post Provision</b> action (Ctrl+A) that posts the delta voucher. A no-op unless the establishment is enrolled
+    /// for gratuity (the menu item + the open path are gated on <see cref="Company.GratuityConfig"/>), so a non-gratuity
+    /// company never reaches it (ER-13).
+    /// </summary>
+    public void OpenGratuityProvisionRegister()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true, GratuityConfig: not null }) return;
+
+        var page = new GratuityProvisionRegisterViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Gratuity Provision", page), Screen.GratuityProvisionRegister,
+            "Gratuity Provision Register", () => GratuityProvisionRegister = page);
+    }
+
+    /// <summary>True while the Gratuity Provision register page is the active screen (drives its keyboard actions).</summary>
+    public bool IsGratuityProvisionRegisterScreen => CurrentScreen == Screen.GratuityProvisionRegister && GratuityProvisionRegister is not null;
+
+    /// <summary>Ctrl+A on the Gratuity Provision screen — posts the period-end provision voucher for the delta over the
+    /// prior balance (the screen's primary command). A no-op off that screen.</summary>
+    public void PostGratuityProvision()
+    {
+        if (!IsGratuityProvisionRegisterScreen || GratuityProvisionRegister is null) return;
+        GratuityProvisionRegister.PostProvision();
+    }
+
+    /// <summary>
+    /// Opens the <b>Bonus</b> register page (Reports → Statutory Reports → Payroll → Bonus Register; Phase 8 slice 9;
+    /// RQ-15) as a page column: the per-employee statutory-bonus figures for a chosen accounting year (eligibility,
+    /// actual Basic + DA, capped base, rate, annual bonus) + the total bonus. A no-op unless the establishment is
+    /// enrolled for statutory bonus (the menu item + the open path are gated on <see cref="Company.BonusConfig"/>), so a
+    /// non-bonus company never reaches it (ER-13).
+    /// </summary>
+    public void OpenBonusRegister()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true, BonusConfig: not null }) return;
+
+        var page = new BonusRegisterViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Bonus Register", page), Screen.BonusRegister,
+            "Statutory Bonus Register", () => BonusRegister = page);
+    }
+
+    /// <summary>True while the Bonus register page is the active screen.</summary>
+    public bool IsBonusRegisterScreen => CurrentScreen == Screen.BonusRegister && BonusRegister is not null;
+
     // =============================================================== §192 salary TDS (Phase 8 slice 7)
 
     /// <summary>
@@ -3606,6 +3674,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PfEcrReport = null;
         EsiContributionReport = null;
         ProfessionalTaxRegister = null;
+        GratuityProvisionRegister = null;
+        BonusRegister = null;
         TaxDeclarationMaster = null;
         Form24Q = null;
         Form16 = null;
@@ -4060,6 +4130,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.ProfessionalTaxRegister:
                 ProfessionalTaxRegister?.ExportRegister(); // Ctrl+A exports the PT register CSV (the page's primary action)
                 return;
+            case Screen.GratuityProvisionRegister:
+                GratuityProvisionRegister?.PostProvision(); // Ctrl+A posts the period-end gratuity provision (the page's primary action)
+                return;
+            case Screen.BonusRegister:
+                return; // read-only register — Ctrl+A/Enter is a safe no-op
+
             case Screen.TaxDeclarationMaster:
                 TaxDeclarationMaster?.Save(); // Ctrl+A saves the per-employee Form-12BB declaration
                 return;
@@ -4305,6 +4381,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "PF ECR / Challan": OpenPfEcrReport(); break;
             case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
             case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
+            // Gratuity provision + statutory Bonus registers (Phase 8 slice 9) — under Reports → Statutory Reports → Payroll.
+            case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
+            case "Bonus Register": OpenBonusRegister(); break;
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
             case "Form 24Q": OpenForm24Q(); break;
             case "Form 16": OpenForm16(); break;

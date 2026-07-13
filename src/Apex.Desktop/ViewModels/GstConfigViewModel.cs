@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
+using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
@@ -57,6 +59,14 @@ public sealed class PtSlabRow
     public string ToText { get; init; } = string.Empty;
     public string MonthlyText { get; init; } = string.Empty;
     public string FebText { get; init; } = string.Empty;
+}
+
+/// <summary>A gratuity provision-population picker option (Phase 8 slice 9): which employees a provision run accrues
+/// for — all active (the recommended default, liability builds pre-vesting) or vested-only (≥ 5 years).</summary>
+public sealed class GratuityPopulationOption
+{
+    public GratuityProvisionPopulation Value { get; init; }
+    public string Display { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -282,6 +292,65 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The salary deductor-category options (92B private / 92A govt / 92C union-govt), shared with the reports.</summary>
     public ObservableCollection<SalarySectionCodeOption> SalarySectionCodes { get; } = new();
 
+    // ---- Gratuity (Phase 8 slice 9; F11 Payroll Statutory → Gratuity; RQ-14) --------------------------------
+    // The establishment's gratuity-provision policy the deterministic accrual reads (Payment of Gratuity Act 1972):
+    // the ₹20,00,000 §4(3) cap, the Basic + DA wage basis and which employees a run accrues for. Only meaningful
+    // (and only shown) while PayrollStatutoryEnabled is on; enrolling sets Company.GratuityConfig via the engine,
+    // disabling clears it. A company that never enrols for gratuity is byte-identical to a pre-v37 company (ER-13).
+
+    /// <summary>Whether the establishment provisions for Gratuity (the "Enable Gratuity" toggle; applied via
+    /// <see cref="ApplyGratuity"/>). Non-<c>null</c> <see cref="Company.GratuityConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _gratuityEnabled;
+
+    /// <summary>The statutory gratuity ceiling in whole rupees (§4(3); default ₹20,00,000). Configurable so a revised
+    /// government notification is a data change, not a code change.</summary>
+    [ObservableProperty] private string _gratuityCapText = "2000000";
+
+    /// <summary>Which employees a provision run accrues for (all active [default] / vested-only ≥ 5 years).</summary>
+    [ObservableProperty] private GratuityPopulationOption? _selectedGratuityPopulation;
+
+    /// <summary>The Gratuity Enable/disable result message (kept separate from the other statutory messages).</summary>
+    [ObservableProperty] private string? _gratuityMessage;
+
+    /// <summary>True iff the Gratuity configuration block should render — only while Payroll Statutory is on (gratuity
+    /// lives under it). A payroll-off / statutory-off company never sees the Gratuity fields (ER-13).</summary>
+    public bool ShowGratuityConfig => PayrollStatutoryEnabled;
+
+    /// <summary>The read-only display of the gratuity wage basis (only Basic + DA today).</summary>
+    public string GratuityWageBasisText => "Last-drawn Basic + Dearness Allowance (15 / 26 formula)";
+
+    /// <summary>The provision-population picker options (all active / vested-only).</summary>
+    public ObservableCollection<GratuityPopulationOption> GratuityPopulations { get; } = new();
+
+    // ---- Statutory Bonus (Phase 8 slice 9; F11 Payroll Statutory → Bonus; RQ-15) ----------------------------
+    // The establishment's statutory-bonus policy the deterministic computation reads (Payment of Bonus Act 1965):
+    // the §10–§11 rate (8.33%–20%; default 8.33%), the §12 ₹7,000 calc ceiling, the state minimum wage and whether a
+    // mid-year joiner's bonus is prorated. Only meaningful (and only shown) while PayrollStatutoryEnabled is on;
+    // enrolling sets Company.BonusConfig via the engine, disabling clears it. Byte-identical when never enrolled (ER-13).
+
+    /// <summary>Whether the establishment computes statutory Bonus (the "Enable Bonus" toggle; applied via
+    /// <see cref="ApplyBonus"/>). Non-<c>null</c> <see cref="Company.BonusConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _bonusEnabled;
+
+    /// <summary>The bonus rate as a percent (clamped to the §10–§11 8.33%–20% band on Apply; default 8.33%).</summary>
+    [ObservableProperty] private string _bonusRatePercentText = "8.33";
+
+    /// <summary>The §12 monthly calculation ceiling in whole rupees (default ₹7,000).</summary>
+    [ObservableProperty] private string _bonusCalculationCeilingText = "7000";
+
+    /// <summary>The applicable state minimum wage per month (default ₹0 ⇒ the ceiling falls back to ₹7,000).</summary>
+    [ObservableProperty] private string _bonusMinimumWageText = "0";
+
+    /// <summary>Whether a mid-year joiner's annual bonus is prorated by the months actually worked (default true).</summary>
+    [ObservableProperty] private bool _bonusProrate = true;
+
+    /// <summary>The Bonus Enable/disable result message (kept separate from the other statutory messages).</summary>
+    [ObservableProperty] private string? _bonusMessage;
+
+    /// <summary>True iff the Bonus configuration block should render — only while Payroll Statutory is on (bonus lives
+    /// under it). A payroll-off / statutory-off company never sees the Bonus fields (ER-13).</summary>
+    public bool ShowBonusConfig => PayrollStatutoryEnabled;
+
     private static string FyLabel(int startYear) => $"{startYear}-{(startYear + 1) % 100:00}";
 
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
@@ -395,6 +464,10 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // §192 salary deductor category (92B private default / 92A govt / 92C union-govt) — shared with the reports.
         foreach (var opt in SalarySectionCodeOption.All) SalarySectionCodes.Add(opt);
 
+        // Gratuity provision-population picker (all active [default] / vested-only).
+        GratuityPopulations.Add(new GratuityPopulationOption { Value = GratuityProvisionPopulation.AllActiveEmployees, Display = "All active employees (accrue pre-vesting)" });
+        GratuityPopulations.Add(new GratuityPopulationOption { Value = GratuityProvisionPopulation.VestedOnly, Display = "Vested only (≥ 5 years' service)" });
+
         LoadFromCompany();
     }
 
@@ -414,6 +487,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         LoadEsiFromCompany();
         LoadPtFromCompany();
         LoadSalaryTdsFromCompany();
+        LoadGratuityFromCompany();
+        LoadBonusFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -593,6 +668,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowEsiConfig));
         OnPropertyChanged(nameof(ShowPtConfig));
         OnPropertyChanged(nameof(ShowSalaryTdsConfig));
+        OnPropertyChanged(nameof(ShowGratuityConfig));
+        OnPropertyChanged(nameof(ShowBonusConfig));
         _onChanged();
     }
 
@@ -619,6 +696,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowEsiConfig)); // the ESI block appears/hides with the statutory sub-toggle
         OnPropertyChanged(nameof(ShowPtConfig)); // the PT block appears/hides with the statutory sub-toggle
         OnPropertyChanged(nameof(ShowSalaryTdsConfig)); // the §192 salary-TDS block appears/hides with the sub-toggle
+        OnPropertyChanged(nameof(ShowGratuityConfig)); // the Gratuity block appears/hides with the sub-toggle
+        OnPropertyChanged(nameof(ShowBonusConfig)); // the Bonus block appears/hides with the sub-toggle
         _onChanged();
     }
 
@@ -920,6 +999,176 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         if (SalaryTdsEnabled != _company.SalaryTdsEnabled) SalaryTdsEnabled = _company.SalaryTdsEnabled;
     }
 
+    // =========================================================== Gratuity (Phase 8 slice 9)
+
+    /// <summary>Seeds the Gratuity form from the company's current <see cref="Company.GratuityConfig"/> (defaults for a
+    /// never-enrolled company: ₹20,00,000 cap, Basic + DA basis, all-active population).</summary>
+    private void LoadGratuityFromCompany()
+    {
+        var g = _company.GratuityConfig;
+        GratuityEnabled = g is not null;
+        GratuityCapText = ((long)(g?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount)).ToString(CultureInfo.InvariantCulture);
+        var population = g?.Population ?? GratuityProvisionPopulation.AllActiveEmployees;
+        SelectedGratuityPopulation = GratuityPopulations.FirstOrDefault(o => o.Value == population)
+                                     ?? GratuityPopulations.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Applies the "Enable Gratuity" toggle (F11 → Payroll Statutory; Phase 8 slice 9; RQ-14), mirroring
+    /// <see cref="ApplyPf"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableGratuity"/> (the ₹20,00,000 §4(3) cap, Basic + DA basis, the chosen population)
+    /// — which also turns Payroll Statutory on — and persist. On disable: clear <see cref="Company.GratuityConfig"/>
+    /// and persist (the company is byte-identical to a pre-v37 company, ER-13). A negative / non-numeric cap is
+    /// surfaced to <see cref="GratuityMessage"/> without crashing and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyGratuity()
+    {
+        GratuityMessage = null;
+
+        if (!GratuityEnabled)
+        {
+            _company.GratuityConfig = null; // enrolment cleared; byte-identical to a pre-v37 company (ER-13)
+            if (!TrySave(m => GratuityMessage = m)) { RevertGratuityToggle(); return false; }
+            GratuityMessage = "Gratuity provisioning is now OFF for this company.";
+            _onChanged();
+            return true;
+        }
+
+        if (!TryParseWholeRupees(GratuityCapText, out var cap) || cap < 0m)
+        {
+            GratuityMessage = "The gratuity cap must be a non-negative whole-rupee amount (e.g. 2000000).";
+            RevertGratuityToggle();
+            return false;
+        }
+        var population = SelectedGratuityPopulation?.Value ?? GratuityProvisionPopulation.AllActiveEmployees;
+        try
+        {
+            new PayrollService(_company).EnableGratuity(new Money(cap),
+                GratuityWageBasis.BasicAndDearnessAllowance, population);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            GratuityMessage = ex.Message;
+            RevertGratuityToggle();
+            return false;
+        }
+
+        // EnableGratuity flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var popLabel = population == GratuityProvisionPopulation.VestedOnly ? "vested-only (≥ 5 years)" : "all active employees";
+        GratuityMessage = $"Gratuity enabled for {_company.Name} (15 / 26 formula on Basic + DA; cap "
+                          + $"₹{IndianFormat.RupeesAlways(cap)}; accrue for {popLabel}).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="GratuityEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertGratuityToggle()
+    {
+        var real = _company.GratuityConfig is not null;
+        if (GratuityEnabled != real) GratuityEnabled = real;
+    }
+
+    // =========================================================== Statutory Bonus (Phase 8 slice 9)
+
+    /// <summary>Seeds the Bonus form from the company's current <see cref="Company.BonusConfig"/> (defaults for a
+    /// never-enrolled company: 8.33% rate, ₹7,000 calc ceiling, ₹0 minimum wage, prorate on).</summary>
+    private void LoadBonusFromCompany()
+    {
+        var b = _company.BonusConfig;
+        BonusEnabled = b is not null;
+        var bp = b?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints;
+        BonusRatePercentText = (bp / 100m).ToString("0.##", CultureInfo.InvariantCulture);
+        BonusCalculationCeilingText = ((long)(b?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling)).ToString(CultureInfo.InvariantCulture);
+        BonusMinimumWageText = ((long)(b?.MinimumWage.Amount ?? 0m)).ToString(CultureInfo.InvariantCulture);
+        BonusProrate = b?.Prorate ?? true;
+    }
+
+    /// <summary>
+    /// Applies the "Enable Bonus" toggle (F11 → Payroll Statutory; Phase 8 slice 9; RQ-15), mirroring
+    /// <see cref="ApplyGratuity"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableStatutoryBonus"/> (the rate clamped to the §10–§11 8.33%–20% band, the §12
+    /// ₹7,000 calc ceiling, the state minimum wage, the prorate flag) — which also turns Payroll Statutory on — and
+    /// persist. On disable: clear <see cref="Company.BonusConfig"/> and persist (byte-identical, ER-13). A
+    /// non-numeric rate / ceiling is surfaced to <see cref="BonusMessage"/> without crashing and the toggle reverts.
+    /// </summary>
+    public bool ApplyBonus()
+    {
+        BonusMessage = null;
+
+        if (!BonusEnabled)
+        {
+            _company.BonusConfig = null; // enrolment cleared; byte-identical to a pre-v37 company (ER-13)
+            if (!TrySave(m => BonusMessage = m)) { RevertBonusToggle(); return false; }
+            BonusMessage = "Statutory Bonus is now OFF for this company.";
+            _onChanged();
+            return true;
+        }
+
+        if (!TryParsePercent(BonusRatePercentText, out var percent) || percent < 0m)
+        {
+            BonusMessage = "The bonus rate must be a percent between 8.33 and 20 (e.g. 8.33).";
+            RevertBonusToggle();
+            return false;
+        }
+        if (!TryParseWholeRupees(BonusCalculationCeilingText, out var ceiling) || ceiling < 0m)
+        {
+            BonusMessage = "The calculation ceiling must be a non-negative whole-rupee amount (e.g. 7000).";
+            RevertBonusToggle();
+            return false;
+        }
+        if (!TryParseWholeRupees(BonusMinimumWageText, out var minWage) || minWage < 0m)
+        {
+            BonusMessage = "The minimum wage must be a non-negative whole-rupee amount (0 ⇒ ceiling ₹7,000).";
+            RevertBonusToggle();
+            return false;
+        }
+
+        // Percent → basis points (100 bp = 1%); the engine clamps to the §10–§11 band on construction.
+        var basisPoints = (int)Math.Round(percent * 100m, 0, MidpointRounding.AwayFromZero);
+        try
+        {
+            new PayrollService(_company).EnableStatutoryBonus(basisPoints, new Money(ceiling), new Money(minWage), BonusProrate);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            BonusMessage = ex.Message;
+            RevertBonusToggle();
+            return false;
+        }
+
+        // EnableStatutoryBonus flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var appliedBp = _company.BonusConfig?.RateBasisPoints ?? basisPoints;
+        BonusMessage = $"Statutory Bonus enabled for {_company.Name} (rate {(appliedBp / 100m).ToString("0.##", CultureInfo.InvariantCulture)}%; "
+                       + $"eligibility ≤ ₹21,000 · calc ceiling ₹{IndianFormat.RupeesAlways(ceiling)}).";
+        // Reflect the clamped rate back into the field so the user sees the applied value.
+        BonusRatePercentText = (appliedBp / 100m).ToString("0.##", CultureInfo.InvariantCulture);
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="BonusEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertBonusToggle()
+    {
+        var real = _company.BonusConfig is not null;
+        if (BonusEnabled != real) BonusEnabled = real;
+    }
+
+    /// <summary>Parses a whole-rupee amount (grouping commas tolerated); false on a non-numeric value.</summary>
+    private static bool TryParseWholeRupees(string? text, out decimal value) =>
+        decimal.TryParse((text ?? string.Empty).Replace(",", string.Empty).Trim(),
+            NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+
+    /// <summary>Parses a percent value (e.g. "8.33"); false on a non-numeric value.</summary>
+    private static bool TryParsePercent(string? text, out decimal value) =>
+        decimal.TryParse((text ?? string.Empty).Trim(),
+            NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+
     /// <summary>
     /// Applies the "Define type of component for BOM" F12 toggle to the live company (RQ-10) and persists, so the
     /// By-Product/Co-Product/Scrap line-type picker on the BOM master surfaces (or hides) immediately.
@@ -1215,6 +1464,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // Commit the §192 salary-TDS switch whenever the toggle differs from the persisted state.
         if (ShowSalaryTdsConfig && SalaryTdsEnabled != _company.SalaryTdsEnabled)
             ApplySalaryTds();
+        // Commit the Gratuity enrolment (toggle changed, or gratuity on to persist an edited cap / population).
+        if (ShowGratuityConfig && (GratuityEnabled != (_company.GratuityConfig is not null) || GratuityEnabled))
+            ApplyGratuity();
+        // Commit the Bonus enrolment (toggle changed, or bonus on to persist an edited rate / ceiling / prorate).
+        if (ShowBonusConfig && (BonusEnabled != (_company.BonusConfig is not null) || BonusEnabled))
+            ApplyBonus();
     }
 
     /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>

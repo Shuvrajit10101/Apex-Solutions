@@ -77,6 +77,23 @@ public static class CanonicalMapper
         Pf = c.PfConfig is { } pf ? MapPfConfig(pf) : null,
         Esi = c.EsiConfig is { } esi ? MapEsiConfig(esi) : null,
         Pt = c.PtConfig is { } pt ? MapPtConfig(pt) : null,
+        Gratuity = c.GratuityConfig is { } gr ? MapGratuityConfig(gr) : null,
+        Bonus = c.BonusConfig is { } bo ? MapBonusConfig(bo) : null,
+    };
+
+    private static GratuityConfigDto MapGratuityConfig(GratuityConfig gr) => new()
+    {
+        CapPaisa = MoneyCodec.ToPaisa(gr.CapAmount),
+        WageBasis = gr.WageBasis.ToString(),
+        Population = gr.Population.ToString(),
+    };
+
+    private static BonusConfigDto MapBonusConfig(BonusConfig bo) => new()
+    {
+        RateBasisPoints = bo.RateBasisPoints,
+        CalculationCeilingPaisa = MoneyCodec.ToPaisa(bo.CalculationCeiling),
+        MinimumWagePaisa = MoneyCodec.ToPaisa(bo.MinimumWage),
+        Prorate = bo.Prorate,
     };
 
     private static PtConfigDto MapPtConfig(PtConfig pt) => new()

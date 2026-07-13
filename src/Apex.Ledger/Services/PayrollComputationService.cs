@@ -878,6 +878,22 @@ public sealed class PayrollComputationResult
         }
     }
 
+    /// <summary>The member's <b>gratuity/bonus wage basis</b> (Phase 8 slice 9): the Σ of the evaluated earning lines
+    /// flagged <see cref="PayHead.UseForGratuity"/> (Basic + DA; HRA / overtime / other allowances excluded) — the
+    /// Payment-of-Gratuity-Act "wages" for the 15/26 accrual and the Payment-of-Bonus-Act "salary or wage" (Basic +
+    /// DA) the bonus base caps against. Exposed so the gratuity provision + bonus register read the same Basic + DA the
+    /// payroll structure defines.</summary>
+    public Money GratuityWages
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines)
+                if (l.Role == PayHeadPostingRole.Earning && l.PayHead.UseForGratuity) sum += l.Amount.Amount;
+            return new Money(sum);
+        }
+    }
+
     /// <summary>The member's <b>ESI contribution wage basis</b> (Phase 8 slice 5): the Σ of the evaluated earning
     /// lines flagged <see cref="PayHead.PartOfEsiWages"/> (basic + DA + HRA + overtime) — the actual, uncapped ESI
     /// base the ESI engine charges on, exposed so the monthly contribution report reads the same figure the payroll

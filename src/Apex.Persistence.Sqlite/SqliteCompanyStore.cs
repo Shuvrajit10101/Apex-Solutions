@@ -878,6 +878,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 36;
         }
 
+        // v36 → v37: apply the Gratuity + statutory-Bonus schema (nine additive companies columns for the
+        // establishment gratuity config [enrolled/cap/wage-basis/population] and bonus config [enrolled/rate/
+        // calc-ceiling/minimum-wage/prorate]), then bump the marker. Existing v36 data survives untouched (ALTER …
+        // ADD COLUMN only; no new tables, no row rewrites — Phase 8 slice 9). ER-13 byte-identical when the
+        // establishment provisions neither (both *_config_enabled default 0, the rest carry statutory defaults).
+        if (version == 36)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV36ToV37;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 37);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 37;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -904,7 +929,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
                    esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
                    pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
-                   salary_tds_enabled
+                   salary_tds_enabled,
+                   gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
+                   bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1018,6 +1045,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             // v36 (Phase 8 slice 7): establishment §192 salary-TDS toggle. Off (default) for a company that never
             // deducts salary-TDS (ER-13); per-employee declarations are hydrated from employee_tax_declarations below.
             company.SalaryTdsEnabled = r.GetInt64(52) != 0;
+
+            // v37 (Phase 8 slice 9): establishment Gratuity config. Present iff gratuity_config_enabled = 1; when off
+            // (default for a company that does not provision) GratuityConfig stays null and no gratuity path activates (ER-13).
+            if (r.GetInt64(53) != 0)
+                company.GratuityConfig = new GratuityConfig(
+                    new Money(r.GetInt64(54) / 100m),
+                    (GratuityWageBasis)(int)r.GetInt64(55),
+                    (GratuityProvisionPopulation)(int)r.GetInt64(56));
+
+            // v37 (Phase 8 slice 9): establishment statutory-Bonus config. Present iff bonus_config_enabled = 1; when
+            // off (default) BonusConfig stays null and no bonus path activates (ER-13).
+            if (r.GetInt64(57) != 0)
+                company.BonusConfig = new BonusConfig(
+                    (int)r.GetInt64(58),
+                    new Money(r.GetInt64(59) / 100m),
+                    new Money(r.GetInt64(60) / 100m),
+                    r.GetInt64(61) != 0);
         }
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
@@ -3370,7 +3414,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
                  esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
                  pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
-                 salary_tds_enabled)
+                 salary_tds_enabled,
+                 gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
+                 bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3382,7 +3428,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $pfen, $pfrate, $pfcode, $pfcap,
                  $esien, $esieerate, $esiererate, $esicode,
                  $pten, $ptstate, $ptreg, $ptbasis,
-                 $salarytds);
+                 $salarytds,
+                 $graten, $gratcap, $gratbasis, $gratpop,
+                 $bonusen, $bonusrate, $bonusceil, $bonusminwage, $bonusprorate);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -3457,6 +3505,19 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$ptbasis", (int)(pt?.WageBasis ?? PtWageBasis.GrossEarnings));
         // v36 (Phase 8 slice 7): the establishment §192 salary-TDS toggle, written verbatim (default 0 — ER-13).
         cmd.Parameters.AddWithValue("$salarytds", c.SalaryTdsEnabled ? 1 : 0);
+        // v37 (Phase 8 slice 9): the establishment Gratuity config. NULL/defaults for a company not provisioning (ER-13).
+        var gratuity = c.GratuityConfig;
+        cmd.Parameters.AddWithValue("$graten", gratuity is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$gratcap", (long)((gratuity?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount) * 100m));
+        cmd.Parameters.AddWithValue("$gratbasis", (int)(gratuity?.WageBasis ?? GratuityWageBasis.BasicAndDearnessAllowance));
+        cmd.Parameters.AddWithValue("$gratpop", (int)(gratuity?.Population ?? GratuityProvisionPopulation.AllActiveEmployees));
+        // v37 (Phase 8 slice 9): the establishment statutory-Bonus config. NULL/defaults for a company not enrolled (ER-13).
+        var bonus = c.BonusConfig;
+        cmd.Parameters.AddWithValue("$bonusen", bonus is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$bonusrate", bonus?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints);
+        cmd.Parameters.AddWithValue("$bonusceil", (long)((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling) * 100m));
+        cmd.Parameters.AddWithValue("$bonusminwage", (long)((bonus?.MinimumWage.Amount ?? 0m) * 100m));
+        cmd.Parameters.AddWithValue("$bonusprorate", (bonus?.Prorate ?? true) ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v36 per-employee §192 income-tax declarations (only for employees that declared figures). All money in

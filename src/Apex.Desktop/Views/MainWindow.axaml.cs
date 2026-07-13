@@ -775,6 +775,16 @@ public partial class MainWindow : Window
     private void OnSaveReturnProfessionalTaxClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnProfessionalTax();
 
+    // Gratuity + statutory Bonus (Phase 8 slice 9) — F11 Enable Gratuity / Enable Bonus + the Gratuity provision post.
+    private void OnApplyGratuityClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyGratuity();
+
+    private void OnApplyBonusClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyBonus();
+
+    private void OnPostGratuityProvisionClick(object? sender, RoutedEventArgs e)
+        => Vm?.GratuityProvisionRegister?.PostProvision();
+
     // §192 salary TDS (Phase 8 slice 7) — F11 Enable Salary TDS, the Form-12BB declaration save, and the
     // Form 24Q / Form 16 export + save-return actions.
     private void OnApplySalaryTdsClick(object? sender, RoutedEventArgs e)

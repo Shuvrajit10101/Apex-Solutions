@@ -79,7 +79,7 @@ public static class Schema
     /// migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>: any
     /// table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the
     /// migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 36;
+    public const int CurrentVersion = 37;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -180,7 +180,21 @@ public static class Schema
             -- company, so a company that never deducts salary-TDS is byte-identical (ER-13). The deductor/TAN facts
             -- reuse the Phase-7 tds columns above; only this toggle is new. Per-employee Form-12BB declarations live in
             -- the employee_tax_declarations table below.
-            salary_tds_enabled             INTEGER NOT NULL DEFAULT 0   -- 0/1 (§192 salary-TDS enabled)
+            salary_tds_enabled             INTEGER NOT NULL DEFAULT 0,  -- 0/1 (§192 salary-TDS enabled)
+            -- v37 (Phase 8 slice 9): establishment Gratuity + statutory-Bonus config. Both *_enabled default 0 for
+            -- every existing company, so a company that provisions neither is byte-identical (ER-13); the other
+            -- columns carry statutory defaults. Money is integer paisa (NFR-3): gratuity cap ₹20,00,000 = 200000000
+            -- paisa; bonus calc ceiling ₹7,000 = 700000 paisa. gratuity_wage_basis = GratuityWageBasis ordinal
+            -- (0 = Basic+DA); gratuity_population = GratuityProvisionPopulation ordinal (0 = all active).
+            gratuity_config_enabled        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (Gratuity provisioning enrolled)
+            gratuity_cap_paisa             INTEGER NOT NULL DEFAULT 200000000, -- §4(3) cap, paisa (₹20,00,000)
+            gratuity_wage_basis            INTEGER NOT NULL DEFAULT 0,  -- GratuityWageBasis ordinal (0 = Basic+DA)
+            gratuity_population            INTEGER NOT NULL DEFAULT 0,  -- GratuityProvisionPopulation ordinal (0 = all active)
+            bonus_config_enabled           INTEGER NOT NULL DEFAULT 0,  -- 0/1 (statutory Bonus enrolled)
+            bonus_rate_bp                  INTEGER NOT NULL DEFAULT 833, -- bonus rate basis points (833 = 8.33%), clamped [833,2000]
+            bonus_calc_ceiling_paisa       INTEGER NOT NULL DEFAULT 700000, -- §12 calc ceiling, paisa (₹7,000)
+            bonus_minimum_wage_paisa       INTEGER NOT NULL DEFAULT 0,  -- state minimum wage, paisa (0 = fall back to ₹7,000)
+            bonus_prorate                  INTEGER NOT NULL DEFAULT 1   -- 0/1 (prorate mid-year joiner by months worked)
         );
 
         CREATE TABLE nature_of_payment (
@@ -2532,5 +2546,28 @@ public static class Schema
             prev_employer_tds_paisa       INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
+        """;
+
+    /// <summary>
+    /// v36 → v37 (Phase 8 slice 9; Gratuity provision + statutory Bonus): additive — nine <c>ALTER TABLE companies ADD
+    /// COLUMN</c> for the establishment Gratuity config (enrolled flag, §4(3) cap paisa, wage basis, provision
+    /// population) and statutory-Bonus config (enrolled flag, rate bp, §12 calc-ceiling paisa, minimum-wage paisa,
+    /// prorate flag) — run inside a transaction that bumps <c>schema_version</c> to 37. <b>No new tables, no row
+    /// rewrites, no data backfill</b> — an existing v36 database keeps every row untouched, the enrolled flags default
+    /// off (0) and the other columns carry statutory defaults, so a company that provisions neither serialises
+    /// byte-identically to a v36 company (ER-13). Each added column is byte-identical to its counterpart in
+    /// <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped straight to v37 via
+    /// <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV36ToV37 = """
+        ALTER TABLE companies ADD COLUMN gratuity_config_enabled  INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gratuity_cap_paisa       INTEGER NOT NULL DEFAULT 200000000;
+        ALTER TABLE companies ADD COLUMN gratuity_wage_basis      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gratuity_population      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN bonus_config_enabled     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN bonus_rate_bp            INTEGER NOT NULL DEFAULT 833;
+        ALTER TABLE companies ADD COLUMN bonus_calc_ceiling_paisa INTEGER NOT NULL DEFAULT 700000;
+        ALTER TABLE companies ADD COLUMN bonus_minimum_wage_paisa INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN bonus_prorate            INTEGER NOT NULL DEFAULT 1;
         """;
 }

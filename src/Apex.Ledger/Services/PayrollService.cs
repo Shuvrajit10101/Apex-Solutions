@@ -204,6 +204,54 @@ public sealed class PayrollService
     /// <summary>Disables §192 salary TDS (Phase 8 slice 7) — a payroll run then computes no salary-TDS.</summary>
     public void DisableSalaryTds() => _company.SalaryTdsEnabled = false;
 
+    // ------------------------------------------------------------------ Gratuity config (Phase 8 slice 9)
+
+    /// <summary>
+    /// Enrols the establishment for <b>Gratuity provisioning</b> (Phase 8 slice 9; RQ-14), setting
+    /// <see cref="Company.GratuityConfig"/>, <b>idempotently</b>. Turns on Payroll Statutory (gratuity lives under it).
+    /// The <paramref name="cap"/> defaults to the ₹20,00,000 Act ceiling (§4(3)); the accrual is on Basic + DA
+    /// (<paramref name="wageBasis"/>) and, by default, for <b>all active employees</b>
+    /// (<paramref name="population"/>). Once enrolled a provision run posts the period-end Dr Gratuity Expense / Cr
+    /// Gratuity Provision for the increase over the prior balance; before enrolment no gratuity is computed and the
+    /// company is byte-identical (ER-13).
+    /// </summary>
+    public GratuityConfig EnableGratuity(
+        Money? cap = null,
+        GratuityWageBasis wageBasis = GratuityWageBasis.BasicAndDearnessAllowance,
+        GratuityProvisionPopulation population = GratuityProvisionPopulation.AllActiveEmployees)
+    {
+        var capAmount = cap ?? new Money(GratuityConfig.DefaultCapAmount);
+        if (capAmount.Amount < 0m)
+            throw new InvalidOperationException("Gratuity cap cannot be negative.");
+        _company.PayrollStatutoryEnabled = true;
+        var config = new GratuityConfig(capAmount, wageBasis, population);
+        _company.GratuityConfig = config;
+        return config;
+    }
+
+    // ------------------------------------------------------------------ Statutory Bonus config (Phase 8 slice 9)
+
+    /// <summary>
+    /// Enrols the establishment for <b>statutory Bonus</b> (Phase 8 slice 9; RQ-15), setting
+    /// <see cref="Company.BonusConfig"/>, <b>idempotently</b>. Turns on Payroll Statutory (bonus lives under it). The
+    /// <paramref name="rateBasisPoints"/> is clamped to the §10–§11 band (8.33%–20%; default 8.33%); the §12
+    /// <paramref name="calculationCeiling"/> defaults to ₹7,000/month and the <paramref name="minimumWage"/> to ₹0
+    /// (⇒ the ceiling falls back to ₹7,000); <paramref name="prorate"/> (default true) prorates a mid-year joiner's
+    /// bonus by months worked. Once enrolled the bonus register projects each eligible member's annual bonus; before
+    /// enrolment no bonus is computed and the company is byte-identical (ER-13).
+    /// </summary>
+    public BonusConfig EnableStatutoryBonus(
+        int rateBasisPoints = BonusConfig.DefaultRateBasisPoints,
+        Money? calculationCeiling = null,
+        Money? minimumWage = null,
+        bool prorate = true)
+    {
+        _company.PayrollStatutoryEnabled = true;
+        var config = new BonusConfig(rateBasisPoints, calculationCeiling, minimumWage, prorate);
+        _company.BonusConfig = config;
+        return config;
+    }
+
     // ------------------------------------------------------------------ Employee categories
 
     /// <summary>Creates an employee category; name unique within the company, allocating revenue and/or

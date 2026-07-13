@@ -292,6 +292,25 @@ public sealed class Company
     /// </summary>
     public bool SalaryTdsEnabled { get; set; }
 
+    /// <summary>
+    /// The establishment's <b>Gratuity configuration</b> (Phase 8 slice 9; catalog §14) — the statutory cap, wage
+    /// basis and provision population the deterministic gratuity accrual reads. Non-<c>null</c> once the establishment
+    /// provisions for gratuity; the <c>GratuityProvision</c> service posts the period-end provision voucher (Dr
+    /// Gratuity Expense / Cr Gratuity Provision, the increase over the prior balance) only when it is present. Defaults
+    /// <c>null</c>, so a company that never provisions for gratuity serialises byte-identically to a pre-v37 company
+    /// (ER-13).
+    /// </summary>
+    public GratuityConfig? GratuityConfig { get; set; }
+
+    /// <summary>
+    /// The establishment's <b>statutory-Bonus configuration</b> (Phase 8 slice 9; catalog §14) — the bonus rate, §12
+    /// calculation ceiling, state minimum wage and prorate flag the deterministic bonus computation reads.
+    /// Non-<c>null</c> once the establishment computes statutory bonus; the bonus register projects the per-employee
+    /// eligible/capped base + annual bonus only when it is present. Defaults <c>null</c>, so a company that never
+    /// computes bonus serialises byte-identically to a pre-v37 company (ER-13).
+    /// </summary>
+    public BonusConfig? BonusConfig { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

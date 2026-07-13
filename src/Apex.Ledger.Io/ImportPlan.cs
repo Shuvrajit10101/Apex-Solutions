@@ -985,6 +985,23 @@ internal sealed class ImportPlan
         // ids/bands/overrides.
         t.PtConfig = c.Pt is { } pt ? BuildPtConfig(pt) : null;
 
+        // Phase 8 slice 9 Gratuity config — plain data holder, captured by the header snapshot for rollback.
+        t.GratuityConfig = c.Gratuity is { } gr
+            ? new GratuityConfig(
+                MoneyCodec.FromPaisa(gr.CapPaisa),
+                ParseEnum<GratuityWageBasis>(gr.WageBasis),
+                ParseEnum<GratuityProvisionPopulation>(gr.Population))
+            : null;
+
+        // Phase 8 slice 9 statutory-Bonus config — plain data holder, captured by the header snapshot for rollback.
+        t.BonusConfig = c.Bonus is { } bo
+            ? new BonusConfig(
+                bo.RateBasisPoints,
+                MoneyCodec.FromPaisa(bo.CalculationCeilingPaisa),
+                MoneyCodec.FromPaisa(bo.MinimumWagePaisa),
+                bo.Prorate)
+            : null;
+
         // Enable Job Order Processing through the engine (slice 8; RQ-45) so the seeded Material In/Out + Job Work
         // Order voucher types get their IsActive / UseForJobWork / AllowConsumption flags stamped exactly as the app
         // does — the export captures those stamped flags, so a reused seeded type reconciles without an overlay. The

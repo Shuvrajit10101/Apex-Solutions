@@ -100,6 +100,14 @@ public sealed record CompanyDto
     /// <summary>The establishment Professional-Tax config (Phase 8 slice 6); null when the establishment is not
     /// enrolled for PT (a PT-off company is byte-identical — ER-13).</summary>
     public PtConfigDto? Pt { get; init; }
+
+    /// <summary>The establishment Gratuity config (Phase 8 slice 9); null when the establishment does not provision for
+    /// gratuity (a gratuity-off company is byte-identical — ER-13).</summary>
+    public GratuityConfigDto? Gratuity { get; init; }
+
+    /// <summary>The establishment statutory-Bonus config (Phase 8 slice 9); null when the establishment does not
+    /// compute statutory bonus (a bonus-off company is byte-identical — ER-13).</summary>
+    public BonusConfigDto? Bonus { get; init; }
 }
 
 /// <summary>The company Provident-Fund config (Phase 8 slice 4), mirroring the domain <c>PfConfig</c>.</summary>
@@ -174,6 +182,37 @@ public sealed record PtMonthOverrideDto
 
     /// <summary>The PT amount charged in that month, in paisa.</summary>
     public long AmountPaisa { get; init; }
+}
+
+/// <summary>The company Gratuity config (Phase 8 slice 9), mirroring the domain <c>GratuityConfig</c>. Money is integer
+/// paisa.</summary>
+public sealed record GratuityConfigDto
+{
+    /// <summary>The §4(3) cap in paisa (default 200000000 = ₹20,00,000).</summary>
+    public long CapPaisa { get; init; } = 200_000_000L;
+
+    /// <summary>The wage basis (<c>GratuityWageBasis</c> name); default "BasicAndDearnessAllowance".</summary>
+    public string WageBasis { get; init; } = nameof(Apex.Ledger.Domain.GratuityWageBasis.BasicAndDearnessAllowance);
+
+    /// <summary>The provision population (<c>GratuityProvisionPopulation</c> name); default "AllActiveEmployees".</summary>
+    public string Population { get; init; } = nameof(Apex.Ledger.Domain.GratuityProvisionPopulation.AllActiveEmployees);
+}
+
+/// <summary>The company statutory-Bonus config (Phase 8 slice 9), mirroring the domain <c>BonusConfig</c>. Money is
+/// integer paisa.</summary>
+public sealed record BonusConfigDto
+{
+    /// <summary>The bonus rate in basis points (default 833 = 8.33%); clamped to [833, 2000] on rehydration.</summary>
+    public int RateBasisPoints { get; init; } = 833;
+
+    /// <summary>The §12 calculation ceiling in paisa (default 700000 = ₹7,000).</summary>
+    public long CalculationCeilingPaisa { get; init; } = 700_000L;
+
+    /// <summary>The state minimum wage in paisa (default 0).</summary>
+    public long MinimumWagePaisa { get; init; }
+
+    /// <summary>Whether a mid-year joiner's bonus is prorated by months worked (default true).</summary>
+    public bool Prorate { get; init; } = true;
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>

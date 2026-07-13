@@ -168,4 +168,16 @@ public static class Report
     /// projected from the posted Payroll voucher.</summary>
     public static PaymentAdvice BuildPaymentAdvice(Company c, IReadOnlyList<Guid> employeeIds, DateOnly from, DateOnly to)
         => PaymentAdvice.Build(c, employeeIds, from, to);
+
+    /// <summary>The Gratuity Provision register — per active employee, the accrued gratuity (15/26, ₹20L cap) as-on a
+    /// date with a vested (≥5 yrs) flag + total liability (Phase 8 slice 9; RQ-14).</summary>
+    public static GratuityProvisionRegisterReturn BuildGratuityProvisionRegister(
+        Company c, IReadOnlyList<Guid> employeeIds, DateOnly asOn)
+        => GratuityProvisionRegister.Build(c, employeeIds, asOn);
+
+    /// <summary>The statutory-Bonus register — per eligible employee, the actual + capped base, rate and annual bonus
+    /// for the accounting year + total (Phase 8 slice 9; RQ-15).</summary>
+    public static BonusRegisterReturn BuildBonusRegister(
+        Company c, IReadOnlyList<Guid> employeeIds, DateOnly financialYearStart)
+        => BonusRegister.Build(c, employeeIds, financialYearStart);
 }

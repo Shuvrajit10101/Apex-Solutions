@@ -68,6 +68,8 @@ public static class CanonicalXml
         if (c.Pf is { } pf) company.Add(BuildPfConfig(pf));
         if (c.Esi is { } esi) company.Add(BuildEsiConfig(esi));
         if (c.Pt is { } pt) company.Add(BuildPtConfig(pt));
+        if (c.Gratuity is { } gr) company.Add(BuildGratuityConfig(gr));
+        if (c.Bonus is { } bo) company.Add(BuildBonusConfig(bo));
         root.Add(company);
 
         var p = m.Payload;
@@ -462,6 +464,13 @@ public static class CanonicalXml
         return el;
     }
 
+    private static XElement BuildGratuityConfig(GratuityConfigDto gr) => new("gratuity",
+        Attr("capPaisa", gr.CapPaisa), Attr("wageBasis", gr.WageBasis), Attr("population", gr.Population));
+
+    private static XElement BuildBonusConfig(BonusConfigDto bo) => new("bonus",
+        Attr("rateBasisPoints", bo.RateBasisPoints), Attr("calculationCeilingPaisa", bo.CalculationCeilingPaisa),
+        Attr("minimumWagePaisa", bo.MinimumWagePaisa), Attr("prorate", bo.Prorate));
+
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
         Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
 
@@ -751,6 +760,8 @@ public static class CanonicalXml
         var pfEl = e.Element("pf");
         var esiEl = e.Element("esi");
         var ptEl = e.Element("pt");
+        var gratuityEl = e.Element("gratuity");
+        var bonusEl = e.Element("bonus");
         return new CompanyDto
         {
             Id = id,
@@ -778,8 +789,25 @@ public static class CanonicalXml
             Pf = pfEl is null ? null : ReadPfConfig(pfEl),
             Esi = esiEl is null ? null : ReadEsiConfig(esiEl),
             Pt = ptEl is null ? null : ReadPtConfig(ptEl),
+            Gratuity = gratuityEl is null ? null : ReadGratuityConfig(gratuityEl),
+            Bonus = bonusEl is null ? null : ReadBonusConfig(bonusEl),
         };
     }
+
+    private static GratuityConfigDto ReadGratuityConfig(XElement e) => new()
+    {
+        CapPaisa = Long(e, "capPaisa"),
+        WageBasis = Str(e, "wageBasis") ?? nameof(Apex.Ledger.Domain.GratuityWageBasis.BasicAndDearnessAllowance),
+        Population = Str(e, "population") ?? nameof(Apex.Ledger.Domain.GratuityProvisionPopulation.AllActiveEmployees),
+    };
+
+    private static BonusConfigDto ReadBonusConfig(XElement e) => new()
+    {
+        RateBasisPoints = Int(e, "rateBasisPoints"),
+        CalculationCeilingPaisa = Long(e, "calculationCeilingPaisa"),
+        MinimumWagePaisa = Long(e, "minimumWagePaisa"),
+        Prorate = Bool(e, "prorate"),
+    };
 
     private static PfConfigDto ReadPfConfig(XElement e) => new()
     {

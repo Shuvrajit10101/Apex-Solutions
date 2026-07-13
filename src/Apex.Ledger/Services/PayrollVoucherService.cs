@@ -36,6 +36,14 @@ public sealed class PayrollVoucherService
     /// <summary>The auto-created establishment EPF-admin-charge <b>payable</b> ledger name (A/c 2, Cr; Phase 8 slice 4).</summary>
     public const string PfAdminPayableLedgerName = "PF Admin Charges Payable";
 
+    /// <summary>The auto-created <b>Gratuity Expense</b> ledger name (Indirect Expenses, Dr; Phase 8 slice 9) — the
+    /// debit side of the period-end gratuity-provision pair.</summary>
+    public const string GratuityExpenseLedgerName = "Gratuity Expense";
+
+    /// <summary>The auto-created <b>Gratuity Provision</b> ledger name (Current Liabilities, Cr; Phase 8 slice 9) — the
+    /// accumulating provision liability the delta posts against.</summary>
+    public const string GratuityProvisionLedgerName = "Gratuity Provision";
+
     private const string IndirectExpensesGroupName = "Indirect Expenses";
     private const string CurrentLiabilitiesGroupName = "Current Liabilities";
 
@@ -107,6 +115,110 @@ public sealed class PayrollVoucherService
             scope.Rollback();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Posts the <b>period-end gratuity provision</b> voucher (Phase 8 slice 9; RQ-14) as-on <paramref name="asOn"/>
+    /// for <paramref name="employeeIds"/>: it computes the total accrued gratuity liability (the pure
+    /// <see cref="GratuityProvision"/> accrual over the active members), derives the <b>prior provision balance</b>
+    /// from the posted books (the accumulated Cr − Dr on the <see cref="GratuityProvisionLedgerName"/> ledger before
+    /// the voucher date), and posts <b>only the delta</b> as a balanced Journal:
+    /// <list type="bullet">
+    ///   <item>an <b>increase</b> (accrued &gt; prior) ⇒ <c>Dr Gratuity Expense / Cr Gratuity Provision</c> for the rise;</item>
+    ///   <item>a <b>decrease</b> (accrued &lt; prior) ⇒ the reverse <c>Dr Gratuity Provision / Cr Gratuity Expense</c>
+    ///     write-back.</item>
+    /// </list>
+    /// The Dr and Cr legs are equal by construction, so the voucher balances to the paisa. Ledger creation reuses the
+    /// idempotent, non-destructive auto-ledger path inside a rollback scope, so a rejected posting leaves the company
+    /// byte-for-byte unchanged (F2). Throws when gratuity is not enrolled, Payroll is off, no Journal voucher type
+    /// exists, or the provision is <b>unchanged</b> (delta = 0 ⇒ nothing to post).
+    /// </summary>
+    public Voucher PostGratuityProvision(
+        DateOnly asOn,
+        IReadOnlyList<Guid> employeeIds,
+        DateOnly? voucherDate = null,
+        IReadOnlyDictionary<Guid, IReadOnlyDictionary<Guid, Money>>? userDefinedAmountsByEmployee = null,
+        string? narration = null)
+    {
+        ArgumentNullException.ThrowIfNull(employeeIds);
+        if (!_company.PayrollEnabled)
+            throw new InvalidOperationException("Payroll is not enabled on this company (F11 Maintain Payroll).");
+        if (_company.GratuityConfig is null)
+            throw new InvalidOperationException("Gratuity is not enrolled on this company (F11 Payroll Statutory).");
+
+        var journalType = _company.VoucherTypes.FirstOrDefault(t => t.BaseType == VoucherBaseType.Journal)
+            ?? throw new InvalidOperationException("No Journal voucher type is defined.");
+
+        var date = voucherDate ?? asOn;
+        var accrued = GratuityProvision.TotalLiability(_company, employeeIds, asOn, userDefinedAmountsByEmployee);
+        // The prior must be INCLUSIVE of any provision already dated on the same period-end (PriorGratuityProvisionBalance
+        // is strictly-before, so pass date + 1 day). A same-date true-up after the accrual changes then posts only the
+        // increment over the existing same-date voucher — never re-posting the whole accrued (which would double-count
+        // the liability) — matching the register VM's inclusive-prior guard so the ledger reconciles to the register.
+        var prior = PriorGratuityProvisionBalance(date.AddDays(1));
+        var delta = accrued - prior;
+        if (delta.Amount == 0m)
+            throw new InvalidOperationException(
+                "The gratuity provision is unchanged from the prior balance; there is no delta to post.");
+
+        var scope = new LedgerCreationScope(_company);
+        try
+        {
+            var (expense, provision) = EnsureGratuityLedgers(scope);
+            var magnitude = new Money(Math.Abs(delta.Amount));
+            var lines = delta.Amount > 0m
+                ? new List<EntryLine>
+                {
+                    new(expense, magnitude, DrCr.Debit),    // provision rises: charge the expense …
+                    new(provision, magnitude, DrCr.Credit), // … and build the liability
+                }
+                : new List<EntryLine>
+                {
+                    new(provision, magnitude, DrCr.Debit),  // provision falls: release the liability …
+                    new(expense, magnitude, DrCr.Credit),   // … and credit back the expense
+                };
+
+            var voucher = new Voucher(Guid.NewGuid(), journalType.Id, date, lines, narration: narration);
+            return new LedgerService(_company).Post(voucher);
+        }
+        catch
+        {
+            scope.Rollback();
+            throw;
+        }
+    }
+
+    /// <summary>The accumulated <b>Gratuity Provision</b> liability from the posted books strictly before
+    /// <paramref name="before"/> (Phase 8 slice 9): the Σ of Cr − Dr on the provision ledger over non-cancelled
+    /// vouchers dated earlier. Derived (pure) from the ledger — no persisted running total; a cancelled provision
+    /// voucher never accrued, so it is excluded (F2). Zero before the first provision (ledger not yet created).</summary>
+    public Money PriorGratuityProvisionBalance(DateOnly before)
+    {
+        var ledger = _company.FindLedgerByName(GratuityProvisionLedgerName);
+        if (ledger is null) return Money.Zero;
+
+        var sum = 0m;
+        foreach (var v in _company.Vouchers)
+        {
+            if (v.Cancelled) continue;      // a cancelled provision never accrued (F2)
+            if (v.Date >= before) continue; // strictly before this provision date
+            foreach (var line in v.Lines)
+            {
+                if (line.LedgerId != ledger.Id) continue;
+                sum += line.Side == DrCr.Credit ? line.Amount.Amount : -line.Amount.Amount;
+            }
+        }
+        return new Money(sum);
+    }
+
+    /// <summary>Ensures the Gratuity Expense (Dr, Indirect Expenses) + Gratuity Provision (Cr, Current Liabilities)
+    /// ledger pair, idempotent + non-destructive (a ledger present by name is reused as-is), returning
+    /// <c>(expenseId, provisionId)</c>. A newly-created ledger is recorded in <paramref name="scope"/> for rollback (F2).</summary>
+    private (Guid Expense, Guid Provision) EnsureGratuityLedgers(LedgerCreationScope? scope)
+    {
+        var expense = EnsureLedger(GratuityExpenseLedgerName, () => GroupIdByName(IndirectExpensesGroupName), openingIsDebit: true, scope);
+        var provision = EnsureLedger(GratuityProvisionLedgerName, () => GroupIdByName(CurrentLiabilitiesGroupName), openingIsDebit: false, scope);
+        return (expense, provision);
     }
 
     /// <summary>Validates that a computed employee run is postable BEFORE any mutation (F2/F5): a postable line

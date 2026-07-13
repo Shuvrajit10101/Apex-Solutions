@@ -8318,6 +8318,117 @@
                                 </Grid>
                               </StackPanel>
                             </Border>
+
+                            <!-- ================= Gratuity (Phase 8 slice 9) ================= -->
+                            <!-- Shown only while Payroll Statutory is on (gratuity lives under it). Enrolling sets the
+                                 ₹20,00,000 cap, the Basic + DA basis and which employees a provision run accrues for. -->
+                            <Border Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8" IsVisible="{Binding ShowGratuityConfig}">
+                              <StackPanel Spacing="12">
+                                <TextBlock Text="GRATUITY (PAYMENT OF GRATUITY ACT 1972)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
+                                <CheckBox Content="Enable Gratuity provisioning for this establishment"
+                                          IsChecked="{Binding GratuityEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <StackPanel Spacing="10" IsVisible="{Binding GratuityEnabled}">
+                                  <Grid ColumnDefinitions="170,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="Gratuity Cap ₹" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding GratuityCapText, Mode=TwoWay}"
+                                             TextAlignment="Right"
+                                             PlaceholderText="2000000 (₹20,00,000 §4(3) default)"/>
+                                    <TextBlock Grid.Column="2" Text="Wage Basis" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding GratuityWageBasisText}"
+                                               VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"
+                                               TextWrapping="Wrap"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="170,*">
+                                    <TextBlock Grid.Column="0" Text="Accrue For" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding GratuityPopulations}"
+                                              SelectedItem="{Binding SelectedGratuityPopulation, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GratuityPopulationOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <TextBlock Text="Provision = (Basic + DA) × 15 × completed years ÷ 26, capped; ≥ 6 months rounds up a year. Vesting is 5 years' continuous service (the register flags it)."
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding GratuityMessage}"
+                                             IsVisible="{Binding GratuityMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply Gratuity" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyGratuityClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- ================= Statutory Bonus (Phase 8 slice 9) ================= -->
+                            <!-- Shown only while Payroll Statutory is on (bonus lives under it). Enrolling sets the
+                                 8.33%–20% rate, the §12 ₹7,000 calc ceiling, the state minimum wage and the prorate flag. -->
+                            <Border Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8" IsVisible="{Binding ShowBonusConfig}">
+                              <StackPanel Spacing="12">
+                                <TextBlock Text="STATUTORY BONUS (PAYMENT OF BONUS ACT 1965)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
+                                <CheckBox Content="Enable statutory Bonus for this establishment"
+                                          IsChecked="{Binding BonusEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <StackPanel Spacing="10" IsVisible="{Binding BonusEnabled}">
+                                  <Grid ColumnDefinitions="170,*,150,*">
+                                    <TextBlock Grid.Column="0" Text="Bonus Rate %" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding BonusRatePercentText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="8.33 (min) … 20 (max)"/>
+                                    <TextBlock Grid.Column="2" Text="Calc Ceiling ₹" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding BonusCalculationCeilingText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="7000 (§12 default)"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="170,*">
+                                    <TextBlock Grid.Column="0" Text="State Minimum Wage ₹" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding BonusMinimumWageText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="0 (⇒ ceiling falls back to ₹7,000)"/>
+                                  </Grid>
+                                  <CheckBox Content="Prorate a mid-year joiner's bonus by the months actually worked"
+                                            IsChecked="{Binding BonusProrate, Mode=TwoWay}" FontSize="12"/>
+                                  <TextBlock Text="Eligibility: Basic + DA ≤ ₹21,000 / month AND ≥ 30 days worked. Annual bonus = capped monthly base × 12 × rate (₹100 floor); a higher earner is excluded."
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding BonusMessage}"
+                                             IsVisible="{Binding BonusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply Bonus" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyBonusClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
                              </StackPanel>
                             </ScrollViewer>
                           </Grid>
@@ -9330,6 +9441,236 @@
                               <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
                                       Click="OnSaveReturnProfessionalTaxClick"/>
                             </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Gratuity Provision register (Phase 8 slice 9; RQ-14) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).GratuityProvisionRegister, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GratuityProvisionRegister}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GratuityProvisionRegisterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + provision-as-on selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,160,Auto,170,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GratuityFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Provision as-on" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Months}"
+                                        SelectedItem="{Binding SelectedMonth, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GratuityAsOnMonthOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Footings: total liability + prior provision + delta to post -->
+                            <Border Grid.Row="3" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*,*">
+                                  <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Total Liability ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalLiabilityText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Prior Provision ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding PriorProvisionText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="2">
+                                    <TextBlock Text="Delta to Post ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding DeltaText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Per-employee accrual grid — wide, so it scrolls horizontally -->
+                            <TextBlock Grid.Row="4" Text="Employee-wise Gratuity Accrual" FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                            <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                              <Grid RowDefinitions="Auto,*" Width="560">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,64,82,44,50,80,96">
+                                    <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Emp. No." Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Joined" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Years" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Vested" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Basic+DA" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="6" Text="Accrued" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Grid.Row="1" Background="White" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:GratuityRegisterRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,64,82,44,50,80,96" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding EmployeeName}" Margin="6,0"
+                                                     VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding EmployeeNumber}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     FontFamily="Consolas,Menlo,monospace"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding DateOfJoining}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding CompletedYears}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Vested}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding BasicPlusDa}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="6" Text="{Binding AccruedGratuity}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </Grid>
+                            </ScrollViewer>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="6" ColumnDefinitions="*,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding PostStatus}"
+                                         IsVisible="{Binding PostStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Post Provision (Ctrl+A)" Padding="12,6"
+                                      IsEnabled="{Binding CanPost}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnPostGratuityProvisionClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Statutory Bonus register (Phase 8 slice 9; RQ-15) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).BonusRegister, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).BonusRegister}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BonusRegisterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- Accounting-year selector -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,180,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Accounting Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:BonusFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Footing: total bonus -->
+                            <Border Grid.Row="3" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*">
+                                  <StackPanel Grid.Column="0">
+                                    <TextBlock Text="Accounting Year" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding AccountingYearText}" FontSize="12.5" FontWeight="SemiBold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Total Bonus ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalBonusText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Per-employee bonus grid — wide, so it scrolls horizontally -->
+                            <TextBlock Grid.Row="4" Text="Employee-wise Statutory Bonus" FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                            <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                              <Grid RowDefinitions="Auto,*" Width="560">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,58,68,80,86,54,96">
+                                    <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Emp. No." Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Eligible" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Basic+DA" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Capped Base" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="6" Text="Annual Bonus" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Grid.Row="1" Background="White" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:BonusRegisterRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,58,68,80,86,54,96" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding EmployeeName}" Margin="6,0"
+                                                     VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding EmployeeNumber}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     FontFamily="Consolas,Menlo,monospace"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Eligible}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding ActualBasicDa}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding CappedBase}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding RatePercent}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="6" Text="{Binding AnnualBonus}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </Grid>
+                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
