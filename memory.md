@@ -1742,6 +1742,47 @@ v29→v37; Io losslessness; de-brand sweep; RUN THE REAL APP + headless-render t
 cross-platform audit; resolve the carry-forwards incl. the S7 salary-TDS deposit-path; then A12 opens a PR
 recursing→main + merges once 3-OS CI green; PAUSE for Phase 8→9 go-ahead).**
 
+### Phase 8 slice 10 — EXIT GATE (2026-07-13) — no schema change
+Tenth and **final** Phase-8 slice — the exit gate: a **golden end-to-end payroll reconciliation** plus the four
+phase-close audits and a set of culture/doc tidies. **No schema change** (stays **v37**); nothing new is persisted.
+Delivered:
+- **`Phase8GoldenPayrollTests`** (`tests/Apex.Ledger.Tests/`) — **2 employees** exercising the whole statutory stack
+  (**PF EPS/EPF-split + EDLI + admin, ESI 0.75%/3.25%, Professional Tax state slab, §192 salary-TDS**). The posted
+  payroll voucher **balances Dr==Cr==₹1,47,835 paisa-exact**, and asserts the **anti-3.67% invariant** (employer PF is
+  EE−EPS, never a flat 3.67%). **Every downstream surface reconciles off the same posted data**: payslip, payroll
+  register, payment advice, **PF ECR**, **ESI monthly**, **PT register**, **Form 24Q Annexure I**, gratuity provision,
+  and bonus register all tie to the voucher — the single golden that proves the phase hangs together end-to-end.
+- **The 4 phase-close audits — all clean.** (1) **De-brand**: 0 must-fix; no "Tally" in any shipped code/UI/PDF surface.
+  (2) **Migration v29→v37**: the full additive chain is sound and covered — `SchemaMigrationEquivalenceTests` still
+  proves `CreateV1` == step-migrate parity across every Phase-8 version bump. (3) **Io losslessness**: complete — every
+  Phase-8 persisted surface round-trips paisa/count-exact through JSON+XML, and the **import-bypass class is closed**
+  (`CompanyImportService` mirrors the engine guards, all-or-nothing pre-flight ref checks). (4) **3-OS CI**: no
+  path-separator or byte-order hazard — deterministic byte-stable writers, culture-invariant formatting (see tidies).
+- **6 exit-gate tidies** (culture + docs) — `InvariantCulture` pinned on **(a)** the ESI last-working-day date
+  (`Reports/EsiContribution.cs`), **(b)** the Bonus register **MMM** month label (`ViewModels/BonusRegisterViewModel.cs`),
+  and **(c)** the CsvCanonicalBridge FY dates (`Io/CsvCanonicalBridge.cs`) — so a non-en culture CI leg can't drift the
+  formatting; **(d)** `CanonicalMapper.SchemaVersion` bumped **32→37** (had lagged the schema); **(e)** `Schema.cs` and
+  **(f)** `SchemaMigrationEquivalenceTests` docstrings refreshed to **v37**.
+- **RAN THE REAL APP** — launched clean; **16 payroll screens headless-rendered de-branded with no text overlap**; the
+  **payslip visually confirmed net ₹40,000**. TestAppBuilder probe reverted afterwards (no stray files).
+- **Gate: 2002 tests green** (Ledger 924 · Io 258 · Sqlite 140 · Desktop 680), schema **v37**, de-branded, Release build
+  0 warnings / 0 errors, working tree exclusively the 7 S10 files. Committed + pushed by A12 (R4):
+  `test(payroll): Phase 8 slice 10 exit gate — golden end-to-end payroll reconciliation + cross-platform/culture + doc
+  tidies` (`77835bc`) + `docs(memory): Phase 8 slice 10 exit-gate log`. Branch `claude/recursing-swirles-3138c6` pushed;
+  A12 opens the **Phase-8 PR recursing→main** (do NOT merge yet — awaits 3-OS CI + the Phase 8→9 go-ahead).
+- **✅ PHASE 8 (PAYROLL) COMPLETE — S1–S10, SQLite schema v29→v37, 2002 tests green.** Full Indian payroll: masters +
+  pay-heads (5 calc types) + dated salary structures; attendance + payroll voucher with balanced integrated posting;
+  **PF** (EPS/EPF split + EDLI + admin + ECR), **ESI** (0.75%/3.25% + contribution-period continuation), **Professional
+  Tax** (state slabs + ₹2,500 cap), **§192** salary-TDS (both regimes + 87A/surcharge marginal relief) + **Form 24Q** +
+  **Form 16**; payslips + payroll registers; **gratuity** provision + statutory **bonus**; consolidated PF/ESI/PT reports.
+- **CARRY-FORWARDS (documented, non-blocking — confirm/park at the pause):** (a) **S7 salary-TDS deposit-path** — the
+  §192 TDS is computed + shown + booked, but its *deposit* still rides a separate ledger, **not yet routed through the
+  Phase-7 challan/ITNS-281 stat-payment flow**; wire it in a later slice. (b) **Wide-matrix single-frame layout** — the
+  Payroll Register and Payment Advice use their **intended horizontal scroll** for the wide statutory columns (not a
+  layout defect). (c) The **DP defaults U1–U5** (gratuity cap ₹20L / accrue-all-active / bonus ₹7,000 calc ceiling /
+  prorate-by-months / 8.33% rate) plus the **inherited Phase-7 carry-forwards** (recon-report cash-in-window,
+  OutstandingPayable section-awareness, FIFO backdating) all await the user's confirmation at the Phase 8→9 pause.
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
