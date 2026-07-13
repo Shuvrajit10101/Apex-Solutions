@@ -272,6 +272,16 @@ public sealed class Company
     /// </summary>
     public EsiConfig? EsiConfig { get; set; }
 
+    /// <summary>
+    /// The establishment's <b>Professional-Tax configuration</b> (Phase 8 slice 6; catalog §14) — the active PT
+    /// state, enrolment number, wage basis and the editable per-state slab tables. Non-<c>null</c> once the
+    /// establishment is enrolled for PT; the dedicated <c>ProfessionalTax</c> engine resolves the slab table from
+    /// the config's state + the employee's gender and the payroll voucher posts the PT deduction only when it is
+    /// present. Defaults <c>null</c>, so a company that never enrols for PT serialises byte-identically to a pre-v35
+    /// company (ER-13).
+    /// </summary>
+    public PtConfig? PtConfig { get; set; }
+
     /// <summary>Default cost category seeded on create (catalog §6/§22); unused by Phase-1 reports.</summary>
     public string PrimaryCostCategoryName { get; set; } = "Primary Cost Category";
 

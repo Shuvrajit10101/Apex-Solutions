@@ -57,6 +57,53 @@ public sealed class PayHeadServiceTests
         Assert.Equal(basic.Id, Assert.Single(computed.Computation!.BasisComponents).PayHeadId);
     }
 
+    // ---- statutory-component posting-side guard (F3) ----
+
+    [Fact]
+    public void A_professional_tax_component_head_must_be_an_employee_deduction()
+    {
+        var c = Seed();
+        var svc = new PayHeadService(c);
+        var liab = CurrentLiabilities(c);
+
+        // Mis-typed as an employer contribution, a PT head would post a phantom self-balancing employer pair — rejected.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            svc.CreatePayHead("Professional Tax", PayHeadType.EmployersStatutoryContributions,
+                PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+                ptComponent: PtStatutoryComponent.ProfessionalTax));
+        Assert.Contains("statutory component", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Correctly typed as an employees' statutory deduction it is accepted.
+        var ok = svc.CreatePayHead("Professional Tax", PayHeadType.EmployeesStatutoryDeductions,
+            PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+            ptComponent: PtStatutoryComponent.ProfessionalTax);
+        Assert.Equal(PtStatutoryComponent.ProfessionalTax, ok.PtComponent);
+    }
+
+    [Fact]
+    public void The_statutory_role_guard_is_uniform_across_pf_esi_and_pt()
+    {
+        var c = Seed();
+        var svc = new PayHeadService(c);
+        var liab = CurrentLiabilities(c);
+
+        // An employer-side ESI component mis-typed as an employee deduction is rejected...
+        Assert.Throws<InvalidOperationException>(() =>
+            svc.CreatePayHead("Employer ESI", PayHeadType.EmployeesStatutoryDeductions,
+                PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+                esiComponent: EsiStatutoryComponent.EmployerStateInsurance));
+        // ...an employee-side PF component mis-typed as an employer contribution is rejected...
+        Assert.Throws<InvalidOperationException>(() =>
+            svc.CreatePayHead("Employee EPF", PayHeadType.EmployersStatutoryContributions,
+                PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+                pfComponent: PfStatutoryComponent.EmployeeProvidentFund));
+        // ...while EDLI typed as Employer's Other Charges (still an employer-side posting role) is accepted.
+        var edli = svc.CreatePayHead("EDLI", PayHeadType.EmployersOtherCharges,
+            PayHeadCalculationType.AsUserDefinedValue, underGroupId: liab,
+            pfComponent: PfStatutoryComponent.EmployeesDepositLinkedInsurance);
+        Assert.Equal(PfStatutoryComponent.EmployeesDepositLinkedInsurance, edli.PfComponent);
+    }
+
     [Fact]
     public void Employer_contribution_and_gratuity_default_to_not_affecting_net_salary()
     {

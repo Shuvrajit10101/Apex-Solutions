@@ -91,6 +91,10 @@ public sealed record CompanyDto
     /// <summary>The establishment Employees'-State-Insurance config (Phase 8 slice 5); null when the establishment is
     /// not enrolled for ESI (an ESI-off company is byte-identical — ER-13).</summary>
     public EsiConfigDto? Esi { get; init; }
+
+    /// <summary>The establishment Professional-Tax config (Phase 8 slice 6); null when the establishment is not
+    /// enrolled for PT (a PT-off company is byte-identical — ER-13).</summary>
+    public PtConfigDto? Pt { get; init; }
 }
 
 /// <summary>The company Provident-Fund config (Phase 8 slice 4), mirroring the domain <c>PfConfig</c>.</summary>
@@ -107,6 +111,64 @@ public sealed record EsiConfigDto
     public int EmployeeRateBasisPoints { get; init; } = 75;
     public int EmployerRateBasisPoints { get; init; } = 325;
     public string? EmployerCode { get; init; }
+}
+
+/// <summary>The company Professional-Tax config (Phase 8 slice 6), mirroring the domain <c>PtConfig</c> — the active
+/// state, registration number, wage basis and the editable per-state slab tables.</summary>
+public sealed record PtConfigDto
+{
+    /// <summary>The active PT state (2-digit GST state code), or null = "None" (no PT levied).</summary>
+    public string? StateCode { get; init; }
+
+    /// <summary>The PT enrolment/registration number, or null.</summary>
+    public string? RegistrationNumber { get; init; }
+
+    /// <summary>The wage basis a slab is selected against (<c>PtWageBasis</c> name); default "GrossEarnings".</summary>
+    public string WageBasis { get; init; } = nameof(Apex.Ledger.Domain.PtWageBasis.GrossEarnings);
+
+    /// <summary>The per-state slab tables (order-preserved).</summary>
+    public IReadOnlyList<PtSlabDto> SlabTables { get; init; } = [];
+}
+
+/// <summary>One PT state slab table (Phase 8 slice 6), mirroring the domain <c>PtSlab</c>.</summary>
+public sealed record PtSlabDto
+{
+    public Guid Id { get; init; }
+
+    /// <summary>The 2-digit GST state code the table belongs to.</summary>
+    public required string StateCode { get; init; }
+
+    /// <summary>The gender scope (<c>PtGenderScope</c> name); "Any" for a gender-agnostic state.</summary>
+    public string GenderScope { get; init; } = nameof(Apex.Ledger.Domain.PtGenderScope.Any);
+
+    /// <summary>The bands, low-to-high (order-preserved).</summary>
+    public IReadOnlyList<PtSlabBandDto> Bands { get; init; } = [];
+}
+
+/// <summary>One PT slab band (Phase 8 slice 6), mirroring the domain <c>PtSlabBand</c>. Money is integer paisa.</summary>
+public sealed record PtSlabBandDto
+{
+    /// <summary>The inclusive lower bound of the monthly PT-wage band, in paisa.</summary>
+    public long FromWagePaisa { get; init; }
+
+    /// <summary>The inclusive upper bound, in paisa; null = open-ended top band (∞).</summary>
+    public long? ToWagePaisa { get; init; }
+
+    /// <summary>The flat PT amount for the band, in paisa (before any month override).</summary>
+    public long MonthlyAmountPaisa { get; init; }
+
+    /// <summary>Per-month overrides (order-preserved), e.g. a single February over-charge.</summary>
+    public IReadOnlyList<PtMonthOverrideDto> MonthOverrides { get; init; } = [];
+}
+
+/// <summary>One PT per-month override (Phase 8 slice 6), mirroring the domain <c>PtMonthOverride</c>.</summary>
+public sealed record PtMonthOverrideDto
+{
+    /// <summary>The calendar month (1–12) the override applies to.</summary>
+    public int Month { get; init; }
+
+    /// <summary>The PT amount charged in that month, in paisa.</summary>
+    public long AmountPaisa { get; init; }
 }
 
 /// <summary>The masters + vouchers payload. Every list is deterministically ordered on export.</summary>
@@ -705,6 +767,10 @@ public sealed record PayHeadDto
     /// <summary>Whether this earning is overtime — in the ESI contribution base but out of the coverage test
     /// (Phase 8 slice 5). Default false.</summary>
     public bool IsOvertime { get; init; }
+
+    /// <summary>The PT statutory role (Phase 8 slice 6), a <see cref="Apex.Ledger.Domain.PtStatutoryComponent"/> name;
+    /// "None" for a non-PT head.</summary>
+    public string PtComponent { get; init; } = nameof(Apex.Ledger.Domain.PtStatutoryComponent.None);
 
     public IReadOnlyList<PayHeadComputationComponentDto> ComputationComponents { get; init; } = [];
     public IReadOnlyList<PayHeadComputationSlabDto> ComputationSlabs { get; init; } = [];

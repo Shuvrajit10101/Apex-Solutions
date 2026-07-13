@@ -148,6 +148,43 @@ public sealed class PayrollService
                 $"'{employerCode}' is not a valid ESIC establishment employer code (expected 17 digits).");
     }
 
+    // ------------------------------------------------------------------ Professional Tax config (Phase 8 slice 6)
+
+    /// <summary>
+    /// Enrols the establishment for <b>Professional Tax</b> (Phase 8 slice 6; RQ-11), setting
+    /// <see cref="Company.PtConfig"/>, <b>idempotently</b>. Turns on Payroll Statutory (PT lives under it) and seeds
+    /// the editable state slab tables (Maharashtra men/women, Karnataka, West Bengal — see
+    /// <see cref="ProfessionalTax.SeedSlabTables"/>). <paramref name="stateCode"/> is the 2-digit GST state code of
+    /// the active PT state (validated when supplied); <c>null</c> = "None" (no PT levied). The wage basis defaults to
+    /// gross monthly earnings (DP-3). Once enrolled, a payroll run posts the PT deduction for the active state's
+    /// slab; before enrolment no PT is computed and the company is byte-identical (ER-13).
+    /// </summary>
+    public PtConfig EnableProfessionalTax(
+        string? stateCode = null,
+        string? registrationNumber = null,
+        PtWageBasis wageBasis = PtWageBasis.GrossEarnings)
+    {
+        if (!string.IsNullOrWhiteSpace(stateCode) && !IndianState.IsValidCode(stateCode.Trim()))
+            throw new InvalidOperationException($"'{stateCode}' is not a valid 2-digit GST state code for Professional Tax.");
+        _company.PayrollStatutoryEnabled = true;
+        var config = new PtConfig(stateCode, registrationNumber, wageBasis);
+        foreach (var slab in ProfessionalTax.SeedSlabTables())
+            config.AddSlabTable(slab);
+        _company.PtConfig = config;
+        return config;
+    }
+
+    /// <summary>Sets the establishment's <b>active PT state</b> (Phase 8 slice 6) — the 2-digit GST state code whose
+    /// seeded slab table drives the deduction, or <c>null</c> for "None" (no PT). Requires PT to be enrolled.</summary>
+    public void SetProfessionalTaxState(string? stateCode)
+    {
+        if (_company.PtConfig is not { } cfg)
+            throw new InvalidOperationException("Professional Tax is not enrolled on this company.");
+        if (!string.IsNullOrWhiteSpace(stateCode) && !IndianState.IsValidCode(stateCode.Trim()))
+            throw new InvalidOperationException($"'{stateCode}' is not a valid 2-digit GST state code for Professional Tax.");
+        cfg.StateCode = string.IsNullOrWhiteSpace(stateCode) ? null : stateCode.Trim();
+    }
+
     // ------------------------------------------------------------------ Employee categories
 
     /// <summary>Creates an employee category; name unique within the company, allocating revenue and/or

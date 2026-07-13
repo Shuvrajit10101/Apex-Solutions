@@ -200,6 +200,41 @@ public sealed class PayrollComputationService
     };
 
     /// <summary>
+    /// The posting role a pay head's <b>statutory component</b> REQUIRES (Phase 8; F3), or <c>null</c> when the head
+    /// carries no statutory component (nothing to enforce): an <b>employee-side</b> component — Employee PF, Employee
+    /// ESI or Professional Tax — must post as a <see cref="PayHeadPostingRole.Deduction"/>; an <b>employer-side</b>
+    /// component — Employer PF, Employer Pension, EDLI, PF admin or Employer ESI — as a
+    /// <see cref="PayHeadPostingRole.EmployerContribution"/>. A head whose <see cref="PayHeadType"/> disagrees would
+    /// post a phantom, self-balancing pair on the wrong side, so <c>PayHeadService</c> (at master creation) and the
+    /// Io import pre-flight (the direct-construction path bypasses the service) reject the mismatch against
+    /// <see cref="RoleOf"/>.
+    /// </summary>
+    public static PayHeadPostingRole? RequiredStatutoryRole(
+        PtStatutoryComponent ptComponent, PfStatutoryComponent pfComponent, EsiStatutoryComponent esiComponent)
+    {
+        if (ptComponent != PtStatutoryComponent.None)
+            return PayHeadPostingRole.Deduction; // PT is an employee deduction with no employer side
+        switch (pfComponent)
+        {
+            case PfStatutoryComponent.EmployeeProvidentFund:
+                return PayHeadPostingRole.Deduction;
+            case PfStatutoryComponent.EmployerProvidentFund:
+            case PfStatutoryComponent.EmployerPension:
+            case PfStatutoryComponent.EmployeesDepositLinkedInsurance:
+            case PfStatutoryComponent.ProvidentFundAdminCharges:
+                return PayHeadPostingRole.EmployerContribution;
+        }
+        switch (esiComponent)
+        {
+            case EsiStatutoryComponent.EmployeeStateInsurance:
+                return PayHeadPostingRole.Deduction;
+            case EsiStatutoryComponent.EmployerStateInsurance:
+                return PayHeadPostingRole.EmployerContribution;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// The memoised, cycle-guarded per-employee pay-head evaluator. Each pay head is evaluated at most once and
     /// its rounded amount cached; a re-entry during the recursion (an As-Computed-Value head whose basis closes a
     /// cycle) fails fast (ER-3), independently of the master-level cycle guard in <c>PayHeadService</c>.
@@ -248,13 +283,16 @@ public sealed class PayrollComputationService
 
             // A PF statutory head is computed by the dedicated EPF/EPS/EDLI engine (the EPS cap + employer-EPF
             // residual + admin floor cannot be expressed as ordinary slabs); an ESI statutory head by the dedicated
-            // ESI engine (independent round-up + ≤ ₹176 waiver + frozen coverage); everything else by its generic
-            // calculation type.
+            // ESI engine (independent round-up + ≤ ₹176 waiver + frozen coverage); a PT statutory head by the
+            // dedicated PT engine (state slab bands + Feb over-charge + gender scope + ₹2,500/year cumulative cap);
+            // everything else by its generic calculation type.
             var amount = payHead.PfComponent != PfStatutoryComponent.None
                 ? EvaluatePf(payHead)
                 : payHead.EsiComponent != EsiStatutoryComponent.None
                     ? EvaluateEsi(payHead)
-                    : ApplyRounding(payHead, EvaluateRaw(payHead));
+                    : payHead.PtComponent != PtStatutoryComponent.None
+                        ? EvaluatePt(payHead)
+                        : ApplyRounding(payHead, EvaluateRaw(payHead));
 
             _visiting.Remove(payHeadId);
             _cache[payHeadId] = amount;
@@ -381,6 +419,72 @@ public sealed class PayrollComputationService
                 sum += Evaluate(ph.Id).Amount;
             }
             return sum;
+        }
+
+        /// <summary>
+        /// Evaluates a Professional-Tax statutory head for this member (Phase 8 slice 6) via
+        /// <see cref="ProfessionalTax"/>: resolves the state slab table for the establishment's active PT state +
+        /// the member's gender, selects the band containing the month's PT-wages (default basis = gross monthly
+        /// earnings), reads that band's amount for the month (applying a February/any-month over-charge), then trims
+        /// it against the ₹2,500/year cumulative cap using the PT this member already had deducted this financial
+        /// year (derived from posted payroll history). A not-enrolled establishment or a state with no slab (⇒ "None")
+        /// contributes nothing (ER-13, symmetric with PF/ESI's not-enrolled gate).
+        /// </summary>
+        private Money EvaluatePt(PayHead payHead)
+        {
+            if (payHead.PtComponent != PtStatutoryComponent.ProfessionalTax) return Money.Zero;
+            if (_company.PtConfig is not { } cfg) return Money.Zero;      // establishment not enrolled for PT (ER-13)
+            var slab = cfg.ResolveSlab(_employee.Gender);
+            if (slab is null) return Money.Zero;                         // no active state / no slab ⇒ PT ₹0
+
+            var ptWages = PtWageBasisRaw();
+            var monthly = ProfessionalTax.MonthlyBeforeCap(slab, ptWages, _to.Month);
+            if (monthly.Amount <= 0m) return Money.Zero;
+
+            var priorFyPt = PriorFinancialYearProfessionalTax();
+            return ProfessionalTax.ApplyAnnualCap(monthly, priorFyPt);
+        }
+
+        /// <summary>The member's PT wage basis (Phase 8 slice 6): the default is gross monthly earnings — the Σ of the
+        /// structure's affecting earning heads, each evaluated + memoised. No earning references a PT head, so this
+        /// closes no cycle.</summary>
+        private decimal PtWageBasisRaw()
+        {
+            // Only PtWageBasis.GrossEarnings is defined today; the basis is a configurable data choice on PtConfig.
+            decimal sum = 0m;
+            foreach (var line in _structure.Lines)
+            {
+                var ph = _company.FindPayHead(line.PayHeadId);
+                if (ph is null || !ph.AffectsNetSalary) continue;
+                if (PayrollComputationService.RoleOf(ph.Type) != PayHeadPostingRole.Earning) continue;
+                sum += Evaluate(ph.Id).Amount;
+            }
+            return sum;
+        }
+
+        /// <summary>The PT this member has already had deducted <b>this financial year</b> (Apr–Mar) up to but
+        /// excluding the current period — the running total the ₹2,500 cap trims against. Derived (pure) from posted
+        /// Payroll vouchers: the PT-component deduction lines for this employee dated in <c>[FY-start, periodFrom)</c>.
+        /// Needs no persisted running total; the cap re-derives from the books.</summary>
+        private Money PriorFinancialYearProfessionalTax()
+        {
+            var fyStart = ProfessionalTax.FinancialYearStart(_to);
+            decimal sum = 0m;
+            foreach (var v in _company.Vouchers)
+            {
+                if (v.Date < fyStart || v.Date >= _from) continue; // FY-to-date, strictly before this period
+                foreach (var line in v.Lines)
+                {
+                    if (line.Payroll is not { } pd) continue;
+                    if (pd.EmployeeId != _employee.Id) continue;
+                    if (pd.Category != PayrollLineCategory.Deduction) continue;
+                    if (pd.PayHeadId is not { } phId) continue;
+                    var ph = _company.FindPayHead(phId);
+                    if (ph is null || ph.PtComponent == PtStatutoryComponent.None) continue;
+                    sum += pd.Amount.Amount;
+                }
+            }
+            return new Money(sum);
         }
 
         private decimal EvaluateRaw(PayHead payHead)
@@ -656,6 +760,21 @@ public sealed class PayrollComputationResult
             var sum = 0m;
             foreach (var l in Lines)
                 if (l.Role == PayHeadPostingRole.Earning && l.PayHead.PartOfEsiWages) sum += l.Amount.Amount;
+            return new Money(sum);
+        }
+    }
+
+    /// <summary>The member's <b>Professional Tax</b> for the month (Phase 8 slice 6): the Σ of the evaluated
+    /// deduction lines whose pay head is a PT-component head — the already-capped PT the payroll voucher credits to
+    /// "Professional Tax Payable", exposed so the PT register reads the same figure the voucher posted.</summary>
+    public Money ProfessionalTaxDeducted
+    {
+        get
+        {
+            var sum = 0m;
+            foreach (var l in Lines)
+                if (l.Role == PayHeadPostingRole.Deduction && l.PayHead.PtComponent != PtStatutoryComponent.None)
+                    sum += l.Amount.Amount;
             return new Money(sum);
         }
     }

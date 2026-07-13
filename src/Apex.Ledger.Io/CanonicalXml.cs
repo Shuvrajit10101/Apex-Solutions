@@ -66,6 +66,7 @@ public static class CanonicalXml
         if (c.Tcs is { } tcs) company.Add(BuildTcsConfig(tcs));
         if (c.Pf is { } pf) company.Add(BuildPfConfig(pf));
         if (c.Esi is { } esi) company.Add(BuildEsiConfig(esi));
+        if (c.Pt is { } pt) company.Add(BuildPtConfig(pt));
         root.Add(company);
 
         var p = m.Payload;
@@ -245,7 +246,7 @@ public static class CanonicalXml
             OptInt("perDayCalculationBasisDays", p.PerDayCalculationBasisDays),
             Attr("pfComponent", p.PfComponent), Attr("partOfPfWages", p.PartOfPfWages),
             Attr("esiComponent", p.EsiComponent), Attr("partOfEsiWages", p.PartOfEsiWages),
-            Attr("isOvertime", p.IsOvertime));
+            Attr("isOvertime", p.IsOvertime), Attr("ptComponent", p.PtComponent));
         var comps = new XElement("computationComponents");
         foreach (var c in p.ComputationComponents)
             comps.Add(new XElement("component", Attr("payHeadId", c.PayHeadId), Attr("isSubtraction", c.IsSubtraction)));
@@ -421,6 +422,35 @@ public static class CanonicalXml
     private static XElement BuildEsiConfig(EsiConfigDto esi) => new("esi",
         Attr("employeeRateBasisPoints", esi.EmployeeRateBasisPoints),
         Attr("employerRateBasisPoints", esi.EmployerRateBasisPoints), Opt("employerCode", esi.EmployerCode));
+
+    private static XElement BuildPtConfig(PtConfigDto pt)
+    {
+        var el = new XElement("pt",
+            Opt("stateCode", pt.StateCode), Opt("registrationNumber", pt.RegistrationNumber),
+            Attr("wageBasis", pt.WageBasis));
+        var tables = new XElement("slabTables");
+        foreach (var s in pt.SlabTables)
+        {
+            var table = new XElement("slab",
+                Attr("id", s.Id), Attr("stateCode", s.StateCode), Attr("genderScope", s.GenderScope));
+            var bands = new XElement("bands");
+            foreach (var b in s.Bands)
+            {
+                var band = new XElement("band",
+                    Attr("fromWagePaisa", b.FromWagePaisa), OptLong("toWagePaisa", b.ToWagePaisa),
+                    Attr("monthlyAmountPaisa", b.MonthlyAmountPaisa));
+                var overrides = new XElement("monthOverrides");
+                foreach (var o in b.MonthOverrides)
+                    overrides.Add(new XElement("override", Attr("month", o.Month), Attr("amountPaisa", o.AmountPaisa)));
+                band.Add(overrides);
+                bands.Add(band);
+            }
+            table.Add(bands);
+            tables.Add(table);
+        }
+        el.Add(tables);
+        return el;
+    }
 
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
         Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
@@ -710,6 +740,7 @@ public static class CanonicalXml
         var tcsEl = e.Element("tcs");
         var pfEl = e.Element("pf");
         var esiEl = e.Element("esi");
+        var ptEl = e.Element("pt");
         return new CompanyDto
         {
             Id = id,
@@ -735,6 +766,7 @@ public static class CanonicalXml
             PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
             Pf = pfEl is null ? null : ReadPfConfig(pfEl),
             Esi = esiEl is null ? null : ReadEsiConfig(esiEl),
+            Pt = ptEl is null ? null : ReadPtConfig(ptEl),
         };
     }
 
@@ -750,6 +782,30 @@ public static class CanonicalXml
         EmployeeRateBasisPoints = Int(e, "employeeRateBasisPoints"),
         EmployerRateBasisPoints = Int(e, "employerRateBasisPoints"),
         EmployerCode = Str(e, "employerCode"),
+    };
+
+    private static PtConfigDto ReadPtConfig(XElement e) => new()
+    {
+        StateCode = Str(e, "stateCode"),
+        RegistrationNumber = Str(e, "registrationNumber"),
+        WageBasis = Str(e, "wageBasis") ?? nameof(Apex.Ledger.Domain.PtWageBasis.GrossEarnings),
+        SlabTables = (e.Element("slabTables")?.Elements("slab") ?? Enumerable.Empty<XElement>())
+            .Select(s => new PtSlabDto
+            {
+                Id = Guid(s, "id"),
+                StateCode = Str(s, "stateCode")!,
+                GenderScope = Str(s, "genderScope") ?? nameof(Apex.Ledger.Domain.PtGenderScope.Any),
+                Bands = (s.Element("bands")?.Elements("band") ?? Enumerable.Empty<XElement>())
+                    .Select(b => new PtSlabBandDto
+                    {
+                        FromWagePaisa = Long(b, "fromWagePaisa"),
+                        ToWagePaisa = OptLong(b, "toWagePaisa"),
+                        MonthlyAmountPaisa = Long(b, "monthlyAmountPaisa"),
+                        MonthOverrides = (b.Element("monthOverrides")?.Elements("override") ?? Enumerable.Empty<XElement>())
+                            .Select(o => new PtMonthOverrideDto { Month = Int(o, "month"), AmountPaisa = Long(o, "amountPaisa") })
+                            .ToList(),
+                    }).ToList(),
+            }).ToList(),
     };
 
     private static PayloadDto? ReadPayload(XElement root, List<string> errors)
@@ -947,6 +1003,7 @@ public static class CanonicalXml
         PartOfPfWages = Bool(e, "partOfPfWages"),
         EsiComponent = Str(e, "esiComponent") ?? nameof(Apex.Ledger.Domain.EsiStatutoryComponent.None),
         PartOfEsiWages = Bool(e, "partOfEsiWages"), IsOvertime = Bool(e, "isOvertime"),
+        PtComponent = Str(e, "ptComponent") ?? nameof(Apex.Ledger.Domain.PtStatutoryComponent.None),
         ComputationComponents = (e.Element("computationComponents")?.Elements("component") ?? Enumerable.Empty<XElement>())
             .Select(c => new PayHeadComputationComponentDto
             {

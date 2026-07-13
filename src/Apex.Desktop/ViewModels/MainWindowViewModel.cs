@@ -89,10 +89,11 @@ public enum Screen
     AttendanceVoucherEntry,
     PayrollVoucherEntry,
 
-    // Payroll statutory reports — PF ECR / Challan (Phase 8 slice 4; RQ-9) and ESI Monthly Contribution
-    // (Phase 8 slice 5; RQ-10), both gated on Payroll Statutory.
+    // Payroll statutory reports — PF ECR / Challan (Phase 8 slice 4; RQ-9), ESI Monthly Contribution
+    // (Phase 8 slice 5; RQ-10) and PT Deduction Register (Phase 8 slice 6; RQ-11), all gated on Payroll Statutory.
     PfEcrReport,
     EsiContributionReport,
+    ProfessionalTaxRegister,
 
     LedgerVouchers,
     VoucherDetail,
@@ -358,6 +359,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// open.</summary>
     [ObservableProperty] private EsiContributionReportViewModel? _esiContributionReport;
 
+    /// <summary>The PT Deduction Register report (Phase 8 slice 6; RQ-11), non-null only while that page column is
+    /// open.</summary>
+    [ObservableProperty] private ProfessionalTaxRegisterViewModel? _professionalTaxRegister;
+
     /// <summary>The F12 report-Configuration panel view model, non-null only while that config column is open (RQ-6).</summary>
     [ObservableProperty] private ReportConfigViewModel? _reportConfig;
 
@@ -423,7 +428,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && PayrollUnitMaster is null && AttendanceTypeMaster is null
         && PayHeadMaster is null && SalaryDetails is null
         && AttendanceVoucher is null && PayrollVoucher is null && PfEcrReport is null
-        && EsiContributionReport is null
+        && EsiContributionReport is null && ProfessionalTaxRegister is null
         && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -490,6 +495,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPayrollVoucherChanged(PayrollVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPfEcrReportChanged(PfEcrReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEsiContributionReportChanged(EsiContributionReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnProfessionalTaxRegisterChanged(ProfessionalTaxRegisterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportConfigChanged(ReportConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnReportSortFilterChanged(ReportSortFilterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnAddComparisonColumnChanged(AddComparisonColumnViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1366,15 +1372,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return col;
     }
 
-    /// <summary>Builds the "Payroll" submenu column (Reports → Statutory Reports → Payroll; Phase 8 slice 4/5;
-    /// RQ-9/RQ-10): the PF ECR / Challan report page (member-wise ECR 2.0 + the A/c 1/2/10/21/22 challan totals) and
-    /// the ESI Monthly Contribution report page (per-IP EE 0.75% / ER 3.25% + the offline monthly file).</summary>
+    /// <summary>Builds the "Payroll" submenu column (Reports → Statutory Reports → Payroll; Phase 8 slice 4/5/6;
+    /// RQ-9/RQ-10/RQ-11): the PF ECR / Challan report page (member-wise ECR 2.0 + the A/c 1/2/10/21/22 challan totals),
+    /// the ESI Monthly Contribution report page (per-IP EE 0.75% / ER 3.25% + the offline monthly file) and the PT
+    /// Deduction Register (per-employee monthly PT + FY cumulative + totals).</summary>
     private GatewayColumn BuildPayrollStatutoryReportsColumn()
     {
         var col = new GatewayColumn("Payroll");
         col.Add(MenuItemViewModel.Header("Payroll Statutory"));
         col.Add(new MenuItemViewModel("PF ECR / Challan", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("ESI Monthly Contribution", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("PT Deduction Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2983,6 +2991,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the <b>PT Deduction Register</b> report page (Reports → Statutory Reports → Payroll → PT Deduction
+    /// Register; Phase 8 slice 6; RQ-11) as a page column: the per-employee rows (name, number, PT wages, the month's
+    /// PT and the FY-to-date cumulative bounded by the ₹2,500 cap) + the PT-wages / PT footings for a chosen FY + wage
+    /// month, with a Ctrl+A CSV export and an Alt+B save-return. A no-op unless Payroll Statutory is enabled (the menu
+    /// item + the open path are gated on <see cref="Company.PayrollStatutoryEnabled"/>), so a non-payroll company never
+    /// reaches it (ER-13).
+    /// </summary>
+    public void OpenProfessionalTaxRegister()
+    {
+        if (Company is not { PayrollStatutoryEnabled: true }) return;
+
+        var page = new ProfessionalTaxRegisterViewModel(Company);
+        OpenPageColumn(new GatewayColumn("PT Deduction Register", page), Screen.ProfessionalTaxRegister,
+            "PT Deduction Register", () => ProfessionalTaxRegister = page);
+    }
+
+    /// <summary>True while the PT Deduction Register report page is the active screen (drives its keyboard actions).</summary>
+    public bool IsProfessionalTaxRegisterScreen => CurrentScreen == Screen.ProfessionalTaxRegister && ProfessionalTaxRegister is not null;
+
+    /// <summary>
+    /// Alt+B on the PT Deduction Register screen — <b>save &amp; return</b>: writes the register CSV for the current
+    /// wage month to the export folder (the "save") then pops back to the menu (the "return"). A no-op off that screen.
+    /// </summary>
+    public void SaveReturnProfessionalTax()
+    {
+        if (!IsProfessionalTaxRegisterScreen || ProfessionalTaxRegister is null) return;
+        ProfessionalTaxRegister.ExportRegister();
+        BackFromPage();
+    }
+
+    /// <summary>
     /// Opens the <b>TCS Stat Payment</b> deposit page (Transactions → Vouchers → Statutory → TCS Stat Payment, the
     /// Payment "Ctrl+F" family; Phase 7 slice 6) as a page column: deposits the collected TCS Payable into the bank and
     /// records the ITNS-281 challan. A no-op unless TCS is enabled (the menu item is itself gated on
@@ -3418,6 +3457,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PayrollVoucher = null;
         PfEcrReport = null;
         EsiContributionReport = null;
+        ProfessionalTaxRegister = null;
         ReportConfig = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
@@ -3845,6 +3885,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.EsiContributionReport:
                 EsiContributionReport?.ExportReturn(); // Ctrl+A exports the ESIC monthly-contribution offline file
                 return;
+            case Screen.ProfessionalTaxRegister:
+                ProfessionalTaxRegister?.ExportRegister(); // Ctrl+A exports the PT register CSV (the page's primary action)
+                return;
             case Screen.TcsStatPayment:
                 TcsStatPayment?.Deposit();
                 return;
@@ -4077,6 +4120,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Payroll statutory reports (Phase 8 slice 4/5) — under Reports → Statutory Reports → Payroll.
             case "PF ECR / Challan": OpenPfEcrReport(); break;
             case "ESI Monthly Contribution": OpenEsiContributionReport(); break;
+            case "PT Deduction Register": OpenProfessionalTaxRegister(); break;
             case "Bank Reconciliation": OpenBankReconciliation(); break;
             case "Import Bank Statement": OpenBankStatementImport(); break;
             case "Contra": OpenVoucher(VoucherBaseType.Contra); break;

@@ -317,6 +317,10 @@ public sealed class InventoryVoucherRoundTripTests
         // v25 (TDS/TCS) master tables — drop so re-migrating v9→v25 does not hit "table already exists".
         Exec(conn, "DROP TABLE IF EXISTS nature_of_payment;");
         Exec(conn, "DROP TABLE IF EXISTS nature_of_goods;");
+        // v35 PT slab-band table (+ its index) — drop so the reopen's v34→v35 CREATE TABLE does not collide (the
+        // companies rebuild below strips the v35 pt_* columns back to the v9 shape).
+        Exec(conn, "DROP INDEX IF EXISTS ix_pt_slab_bands_company;");
+        Exec(conn, "DROP TABLE IF EXISTS pt_slab_bands;");
         // v32 Attendance/Payroll-voucher tables — drop before the masters/entry_lines they FK so the reopen's
         // v31→v32 CREATE TABLE does not collide (payroll_lines FKs entry_lines; attendance_entries FKs employees).
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");

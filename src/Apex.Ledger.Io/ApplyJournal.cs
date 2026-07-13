@@ -279,14 +279,14 @@ internal sealed class ApplyJournal
         DateOnly FinancialYearStart, DateOnly BooksBeginFrom, string BaseCurrencySymbol, string BaseCurrencyName,
         int DecimalPlaces, string DecimalUnitName,
         bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels,
-        bool PayrollEnabled, bool PayrollStatutoryEnabled, PfConfig? PfConfig, EsiConfig? EsiConfig)
+        bool PayrollEnabled, bool PayrollStatutoryEnabled, PfConfig? PfConfig, EsiConfig? EsiConfig, PtConfig? PtConfig)
     {
         public static CompanyHeaderSnapshot Capture(Company t) => new(
             t.Name, t.MailingName, t.Address, t.Country, t.State, t.Pin,
             t.FinancialYearStart, t.BooksBeginFrom, t.BaseCurrencySymbol, t.BaseCurrencyName,
             t.DecimalPlaces, t.DecimalUnitName,
             t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels,
-            t.PayrollEnabled, t.PayrollStatutoryEnabled, t.PfConfig, t.EsiConfig);
+            t.PayrollEnabled, t.PayrollStatutoryEnabled, t.PfConfig, t.EsiConfig, t.PtConfig);
 
         public void RestoreTo(Company t)
         {
@@ -308,6 +308,7 @@ internal sealed class ApplyJournal
             t.PayrollStatutoryEnabled = PayrollStatutoryEnabled;
             t.PfConfig = PfConfig;
             t.EsiConfig = EsiConfig;
+            t.PtConfig = PtConfig;
         }
     }
 }

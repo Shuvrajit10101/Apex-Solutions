@@ -385,6 +385,34 @@ public sealed class CompanyImportService
                 errors.Add($"Employee '{em.Name}' is ESI-applicable but has no valid 10-digit ESI IP number.");
         }
 
+        // Professional-Tax config (Phase 8 slice 6): the direct-construction import (ImportPlan.BuildPtConfig) builds
+        // the domain PtSlab/PtSlabBand/PtMonthOverride, whose constructors throw on a malformed band. Re-run the guards
+        // here so a hand-edited export is rejected cleanly at pre-flight rather than throwing mid-Apply.
+        if (model.Company.Pt is { } pt)
+        {
+            if (!string.IsNullOrWhiteSpace(pt.StateCode) && !IndianState.IsValidCode(pt.StateCode.Trim()))
+                errors.Add($"Professional-Tax config references an invalid state code '{pt.StateCode}'.");
+            if (!Enum.TryParse<PtWageBasis>(pt.WageBasis, out _))
+                errors.Add($"Professional-Tax config has an unknown wage basis '{pt.WageBasis}'.");
+            foreach (var slab in pt.SlabTables)
+            {
+                if (string.IsNullOrWhiteSpace(slab.StateCode))
+                    errors.Add("A Professional-Tax slab table has no state code.");
+                if (!Enum.TryParse<PtGenderScope>(slab.GenderScope, out _))
+                    errors.Add($"Professional-Tax slab table (state '{slab.StateCode}') has an unknown gender scope '{slab.GenderScope}'.");
+                foreach (var b in slab.Bands)
+                {
+                    if (b.FromWagePaisa < 0 || b.MonthlyAmountPaisa < 0)
+                        errors.Add($"Professional-Tax slab band (state '{slab.StateCode}') has a negative wage/amount.");
+                    if (b.ToWagePaisa is { } to && to < b.FromWagePaisa)
+                        errors.Add($"Professional-Tax slab band (state '{slab.StateCode}') has an upper bound below its lower bound.");
+                    foreach (var o in b.MonthOverrides)
+                        if (o.Month is < 1 or > 12 || o.AmountPaisa < 0)
+                            errors.Add($"Professional-Tax slab band (state '{slab.StateCode}') has an invalid month override (month {o.Month}).");
+                }
+            }
+        }
+
         // Pay heads (Phase 8 slice 2): under-group + ledger + attendance-type + computed-on component references.
         foreach (var ph in model.Payload.PayHeads)
         {
@@ -399,6 +427,20 @@ public sealed class CompanyImportService
             foreach (var comp in ph.ComputationComponents)
                 if (!plan.CanResolvePayHead(comp.PayHeadId, _target))
                     errors.Add($"Pay head '{ph.Name}' computes on a pay head that is neither imported nor present.");
+
+            // Mirror the PayHeadService statutory-component role guard (F3): the direct-construction import path
+            // bypasses the service, so a hand-edited export pairing a statutory component with a wrong-side pay-head
+            // type (e.g. a Professional-Tax head typed as an employer contribution) would load a phantom, self-balancing
+            // employer/deduction pair. Reject it at pre-flight so nothing is applied.
+            if (Enum.TryParse<PayHeadType>(ph.PayHeadType, out var phType)
+                && Enum.TryParse<PtStatutoryComponent>(ph.PtComponent, out var phPt)
+                && Enum.TryParse<PfStatutoryComponent>(ph.PfComponent, out var phPf)
+                && Enum.TryParse<EsiStatutoryComponent>(ph.EsiComponent, out var phEsi)
+                && PayrollComputationService.RequiredStatutoryRole(phPt, phPf, phEsi) is { } requiredRole
+                && PayrollComputationService.RoleOf(phType) != requiredRole)
+                errors.Add(
+                    $"Pay head '{ph.Name}' carries a statutory component that must post as {requiredRole}, but its " +
+                    $"pay-head type '{phType}' posts as {PayrollComputationService.RoleOf(phType)}.");
         }
 
         // Pay-head computed-on integrity (the direct-construction import path bypasses PayHeadService, so re-run

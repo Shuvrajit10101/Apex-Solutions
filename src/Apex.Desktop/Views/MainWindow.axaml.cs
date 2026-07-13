@@ -229,6 +229,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+B on the PT Deduction Register report (Phase 8 slice 6) SAVES the register CSV and RETURNS to the menu —
+        // the PT mirror of the PF ECR / ESI Alt+B above. Scoped to the PT register screen so it never collides with
+        // the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.ProfessionalTaxRegister && !IsTyping(e))
+        {
+            vm.SaveReturnProfessionalTax();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+B on a TDS/TCS certificate / control-chart page (Phase 7 slice 7) SAVES the PDF and RETURNS to the
         // menu — the mirror of the Form 26Q / 27EQ Alt+B above. Scoped to each certificate screen so it never
         // collides with the inventory-voucher Alt+B (batch allocation) below; not while typing in a field.
@@ -752,6 +764,16 @@ public partial class MainWindow : Window
 
     private void OnSaveReturnEsiContributionClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveReturnEsiContribution();
+
+    // Professional Tax (Phase 8 slice 6) — F11 Enable Professional Tax + the PT register export / save-return actions.
+    private void OnApplyPtClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstConfig?.ApplyPt();
+
+    private void OnExportProfessionalTaxClick(object? sender, RoutedEventArgs e)
+        => Vm?.ProfessionalTaxRegister?.ExportRegister();
+
+    private void OnSaveReturnProfessionalTaxClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveReturnProfessionalTax();
 
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
         => Vm?.NatureOfPaymentMaster?.Create();

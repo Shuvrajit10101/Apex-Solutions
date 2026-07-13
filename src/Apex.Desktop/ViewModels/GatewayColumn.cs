@@ -171,6 +171,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted ESI Monthly Contribution report (non-null only for that column; Phase 8 slice 5; RQ-10).</summary>
     public EsiContributionReportViewModel? EsiContributionReport => Page as EsiContributionReportViewModel;
 
+    /// <summary>The hosted PT Deduction Register report (non-null only for that column; Phase 8 slice 6; RQ-11).</summary>
+    public ProfessionalTaxRegisterViewModel? ProfessionalTaxRegister => Page as ProfessionalTaxRegisterViewModel;
+
     /// <summary>The hosted Price Level master (non-null only for the Price-Level creation column; Phase 6 slice 5; RQ-26).</summary>
     public PriceLevelsViewModel? PriceLevels => Page as PriceLevelsViewModel;
 

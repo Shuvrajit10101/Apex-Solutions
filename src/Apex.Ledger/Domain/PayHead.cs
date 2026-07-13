@@ -97,6 +97,14 @@ public sealed class PayHead
     /// meaningful together with <see cref="PartOfEsiWages"/>. Additive, defaults <c>false</c> (ER-13).</summary>
     public bool IsOvertime { get; set; }
 
+    /// <summary>The <b>Professional-Tax statutory role</b> of this head (Phase 8 slice 6); default
+    /// <see cref="PtStatutoryComponent.None"/>. A non-<c>None</c> head is computed by the dedicated PT engine
+    /// (<c>ProfessionalTax</c>) rather than its ordinary <see cref="CalculationType"/> slabs, because the state slab
+    /// tables (flat-amount-by-band, a February over-charge, a gender-scoped exemption and the ₹2,500/year cumulative
+    /// cap) cannot be expressed as ordinary slabs. PT is an employee deduction with no employer side. Additive,
+    /// defaults <see cref="PtStatutoryComponent.None"/> so an existing pay head is byte-identical (ER-13).</summary>
+    public PtStatutoryComponent PtComponent { get; set; } = PtStatutoryComponent.None;
+
     /// <summary>The income-tax component tag (§192 treatment); default <see cref="IncomeTaxComponent.NotApplicable"/>.</summary>
     public IncomeTaxComponent IncomeTaxComponent { get; set; } = IncomeTaxComponent.NotApplicable;
 

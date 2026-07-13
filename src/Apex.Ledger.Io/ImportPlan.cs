@@ -431,6 +431,7 @@ internal sealed class ImportPlan
                 EsiComponent = ParseEnum<EsiStatutoryComponent>(ph.EsiComponent),
                 PartOfEsiWages = ph.PartOfEsiWages,
                 IsOvertime = ph.IsOvertime,
+                PtComponent = ParseEnum<PtStatutoryComponent>(ph.PtComponent),
             };
             t.AddPayHead(domain);
             journal.RecordPayHead(domain);
@@ -955,6 +956,11 @@ internal sealed class ImportPlan
             ? new EsiConfig(esi.EmployeeRateBasisPoints, esi.EmployerRateBasisPoints, esi.EmployerCode)
             : null;
 
+        // Phase 8 slice 6 Professional-Tax config — plain data holder (config + editable slab tables), captured by
+        // the header snapshot for rollback. Slab tables are rebuilt with fresh band objects preserving the exported
+        // ids/bands/overrides.
+        t.PtConfig = c.Pt is { } pt ? BuildPtConfig(pt) : null;
+
         // Enable Job Order Processing through the engine (slice 8; RQ-45) so the seeded Material In/Out + Job Work
         // Order voucher types get their IsActive / UseForJobWork / AllowConsumption flags stamped exactly as the app
         // does — the export captures those stamped flags, so a reused seeded type reconciles without an overlay. The
@@ -964,6 +970,23 @@ internal sealed class ImportPlan
             journal.RecordJobOrderProcessingBefore(t.EnableJobOrderProcessing);
             new JobWorkService(t).SetEnabled(c.EnableJobOrderProcessing);
         }
+    }
+
+    /// <summary>Builds a <see cref="PtConfig"/> from its DTO (Phase 8 slice 6), preserving the exported state /
+    /// registration / wage basis and rebuilding every slab table (with its bands + month overrides).</summary>
+    private static PtConfig BuildPtConfig(PtConfigDto pt)
+    {
+        var config = new PtConfig(pt.StateCode, pt.RegistrationNumber, ParseEnum<PtWageBasis>(pt.WageBasis));
+        foreach (var s in pt.SlabTables)
+        {
+            var bands = s.Bands.Select(b => new PtSlabBand(
+                MoneyCodec.FromPaisa(b.FromWagePaisa),
+                b.ToWagePaisa is { } tw ? MoneyCodec.FromPaisa(tw) : (Money?)null,
+                MoneyCodec.FromPaisa(b.MonthlyAmountPaisa),
+                b.MonthOverrides.Select(o => new PtMonthOverride(o.Month, MoneyCodec.FromPaisa(o.AmountPaisa)))));
+            config.AddSlabTable(new PtSlab(s.Id, s.StateCode, ParseEnum<PtGenderScope>(s.GenderScope), bands));
+        }
+        return config;
     }
 
     private static GstConfig BuildGstConfig(GstConfigDto g)

@@ -53,7 +53,8 @@ public sealed class PayHeadService
         bool partOfPfWages = false,
         EsiStatutoryComponent esiComponent = EsiStatutoryComponent.None,
         bool partOfEsiWages = false,
-        bool isOvertime = false)
+        bool isOvertime = false,
+        PtStatutoryComponent ptComponent = PtStatutoryComponent.None)
     {
         var trimmed = RequireName(name);
         if (_company.FindPayHeadByName(trimmed) is not null)
@@ -77,6 +78,7 @@ public sealed class PayHeadService
             EsiComponent = esiComponent,
             PartOfEsiWages = partOfEsiWages,
             IsOvertime = isOvertime,
+            PtComponent = ptComponent,
         };
         if (affectsNetSalary is { } a) payHead.AffectsNetSalary = a;
 
@@ -162,6 +164,28 @@ public sealed class PayHeadService
 
         ValidateAttendanceLinkage(payHead);
         ValidateComputation(payHead);
+        ValidateStatutoryComponentRole(payHead);
+    }
+
+    /// <summary>
+    /// Rejects a <b>statutory-component</b> head whose pay-head type posts on the wrong accounting side (F3): a
+    /// Professional-Tax or Employee PF/ESI head must be an <b>employee deduction</b>, and an Employer
+    /// PF/Pension/EDLI/admin or Employer-ESI head an <b>employer contribution / charge</b>. A mis-typed statutory head
+    /// (e.g. a Professional-Tax component tagged onto an Employer's-Statutory-Contributions head) would otherwise post
+    /// a phantom, self-balancing pair on the wrong side. Enforced uniformly for all three statutory systems (PF, ESI,
+    /// PT) against <see cref="PayrollComputationService.RoleOf"/>, and mirrored by the Io import pre-flight (the
+    /// direct-construction import path bypasses this service).
+    /// </summary>
+    private static void ValidateStatutoryComponentRole(PayHead payHead)
+    {
+        if (PayrollComputationService.RequiredStatutoryRole(
+                payHead.PtComponent, payHead.PfComponent, payHead.EsiComponent) is not { } required)
+            return;
+        var actual = PayrollComputationService.RoleOf(payHead.Type);
+        if (actual != required)
+            throw new InvalidOperationException(
+                $"Pay head '{payHead.Name}' carries a statutory component that must post as {required}, but its " +
+                $"pay-head type '{payHead.Type}' posts as {actual}.");
     }
 
     private void ValidateAttendanceLinkage(PayHead payHead)

@@ -75,6 +75,33 @@ public static class CanonicalMapper
         PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
         Pf = c.PfConfig is { } pf ? MapPfConfig(pf) : null,
         Esi = c.EsiConfig is { } esi ? MapEsiConfig(esi) : null,
+        Pt = c.PtConfig is { } pt ? MapPtConfig(pt) : null,
+    };
+
+    private static PtConfigDto MapPtConfig(PtConfig pt) => new()
+    {
+        StateCode = pt.StateCode,
+        RegistrationNumber = pt.RegistrationNumber,
+        WageBasis = pt.WageBasis.ToString(),
+        SlabTables = pt.SlabTables.Select(MapPtSlab).ToList(),
+    };
+
+    private static PtSlabDto MapPtSlab(PtSlab s) => new()
+    {
+        Id = s.Id,
+        StateCode = s.StateCode,
+        GenderScope = s.GenderScope.ToString(),
+        Bands = s.Bands.Select(MapPtSlabBand).ToList(),
+    };
+
+    private static PtSlabBandDto MapPtSlabBand(PtSlabBand b) => new()
+    {
+        FromWagePaisa = MoneyCodec.ToPaisa(b.FromWage),
+        ToWagePaisa = b.ToWage is { } t ? MoneyCodec.ToPaisa(t) : null,
+        MonthlyAmountPaisa = MoneyCodec.ToPaisa(b.MonthlyAmount),
+        MonthOverrides = b.MonthOverrides
+            .Select(o => new PtMonthOverrideDto { Month = o.Month, AmountPaisa = MoneyCodec.ToPaisa(o.Amount) })
+            .ToList(),
     };
 
     private static PfConfigDto MapPfConfig(PfConfig pf) => new()
@@ -301,6 +328,7 @@ public static class CanonicalMapper
         AttendanceTypeId = p.AttendanceTypeId, PerDayCalculationBasisDays = p.PerDayCalculationBasisDays,
         PfComponent = p.PfComponent.ToString(), PartOfPfWages = p.PartOfPfWages,
         EsiComponent = p.EsiComponent.ToString(), PartOfEsiWages = p.PartOfEsiWages, IsOvertime = p.IsOvertime,
+        PtComponent = p.PtComponent.ToString(),
         ComputationComponents = p.Computation is { } c1
             ? c1.BasisComponents.Select(x => new PayHeadComputationComponentDto { PayHeadId = x.PayHeadId, IsSubtraction = x.IsSubtraction }).ToList()
             : [],

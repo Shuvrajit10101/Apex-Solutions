@@ -828,6 +828,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 34;
         }
 
+        // v34 → v35: apply the Professional-Tax schema (four additive companies columns for the establishment PT
+        // config, one additive pay_heads column for the PT statutory role, one new pt_slab_bands table + index for the
+        // editable per-state slab bands), then bump the marker. Existing v34 data survives untouched (ALTER … ADD
+        // COLUMN + a new empty table; no row rewrites — Phase 8 slice 6). ER-13 byte-identical when the establishment
+        // never enrols for PT (pt_config_enabled defaults 0, pt_slab_bands starts empty).
+        if (version == 34)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV34ToV35;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 35);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 35;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -852,7 +877,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from,
                    payroll_enabled, payroll_statutory_enabled,
                    pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
-                   esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code
+                   esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
+                   pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -953,6 +979,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (int)r.GetInt64(45),
                     (int)r.GetInt64(46),
                     r.IsDBNull(47) ? null : r.GetString(47));
+
+            // v35 (Phase 8 slice 6): establishment Professional-Tax config. Present iff pt_config_enabled = 1; when off
+            // (default for a company not enrolled for PT) PtConfig stays null and no PT path activates (ER-13). The
+            // per-state slab tables are hydrated from pt_slab_bands below.
+            if (r.GetInt64(48) != 0)
+                company.PtConfig = new PtConfig(
+                    r.IsDBNull(49) ? null : r.GetString(49),
+                    r.IsDBNull(50) ? null : r.GetString(50),
+                    (PtWageBasis)(int)r.GetInt64(51));
         }
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
@@ -967,6 +1002,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (company.Tcs is not null)
             foreach (var nature in ReadNaturesOfGoods(companyId))
                 company.Tcs.AddNatureOfGoods(nature);
+
+        // v35 PT slab tables (only present when PT was enrolled). Bands are grouped by (slab_id) into PtSlab tables.
+        if (company.PtConfig is not null)
+            foreach (var slab in ReadPtSlabTables(companyId))
+                company.PtConfig.AddSlabTable(slab);
 
         // Groups: the reserved P&L head (is_pl_head = 1) is registered via SetProfitAndLossHead and
         // kept OUT of Company.Groups; the 28 (and any custom) groups go into Company.Groups. Load
@@ -1612,6 +1652,74 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
+    /// <summary>v35: reads the PT slab bands for a company and groups them (by <c>slab_id</c>, ordered by
+    /// <c>band_order</c>) into <see cref="PtSlab"/> tables, preserving each table's state + gender scope. No rows ⇒ an
+    /// empty list.</summary>
+    private IEnumerable<PtSlab> ReadPtSlabTables(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT slab_id, state_code, gender_scope, from_wage_paisa, to_wage_paisa, monthly_amount_paisa, month_overrides
+            FROM pt_slab_bands WHERE company_id = $cid ORDER BY band_order, rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+
+        // Group by slab_id preserving first-seen order. Ordered by the WRITTEN band_order (low band to high) — the
+        // documented key — so band order is robust to any future in-place edit that leaves rowid and band_order out of
+        // step (F2); rowid is only a deterministic tie-break across slabs (band_order is unique within a slab), which
+        // keeps each slab's first-seen position stable = its saved SlabTables order.
+        var order = new List<Guid>();
+        var byId = new Dictionary<Guid, (string State, PtGenderScope Scope, List<PtSlabBand> Bands)>();
+        using (var r = cmd.ExecuteReader())
+            while (r.Read())
+            {
+                var slabId = Guid.Parse(r.GetString(0));
+                if (!byId.TryGetValue(slabId, out var table))
+                {
+                    table = (r.GetString(1), (PtGenderScope)(int)r.GetInt64(2), new List<PtSlabBand>());
+                    byId[slabId] = table;
+                    order.Add(slabId);
+                }
+                var from = new Money(r.GetInt64(3) / 100m);
+                Money? to = r.IsDBNull(4) ? null : new Money(r.GetInt64(4) / 100m);
+                var amount = new Money(r.GetInt64(5) / 100m);
+                var overrides = ParsePtMonthOverrides(r.GetString(6));
+                table.Bands.Add(new PtSlabBand(from, to, amount, overrides));
+            }
+
+        var list = new List<PtSlab>(order.Count);
+        foreach (var id in order)
+        {
+            var t = byId[id];
+            list.Add(new PtSlab(id, t.State, t.Scope, t.Bands));
+        }
+        return list;
+    }
+
+    /// <summary>Parses the compact PT month-override column ("month:paisa" pairs joined by ';', "" = none).</summary>
+    private static IReadOnlyList<PtMonthOverride> ParsePtMonthOverrides(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return Array.Empty<PtMonthOverride>();
+        var result = new List<PtMonthOverride>();
+        foreach (var part in text.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split(':', 2);
+            var month = int.Parse(kv[0], System.Globalization.CultureInfo.InvariantCulture);
+            var paisa = long.Parse(kv[1], System.Globalization.CultureInfo.InvariantCulture);
+            result.Add(new PtMonthOverride(month, new Money(paisa / 100m)));
+        }
+        return result;
+    }
+
+    /// <summary>Formats a PT band's month overrides into the compact "month:paisa" column ("" = none).</summary>
+    private static string FormatPtMonthOverrides(IReadOnlyList<PtMonthOverride> overrides)
+    {
+        if (overrides.Count == 0) return string.Empty;
+        return string.Join(';', overrides.Select(o =>
+            $"{o.Month.ToString(System.Globalization.CultureInfo.InvariantCulture)}:" +
+            $"{((long)(o.Amount.Amount * 100m)).ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+    }
+
     /// <summary>v25: a threshold stored as rupees × 1,000,000 ("micros") → exact <see cref="Money"/> (rupees).</summary>
     private static Money? MicroToMoney(object? micro) =>
         micro is null ? null : new Money(Convert.ToInt64(micro) / 1_000_000m);
@@ -1965,7 +2073,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    under_group_id, ledger_id, income_tax_component, use_for_gratuity,
                    rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
                    employer_expense_ledger_id, pf_component, part_of_pf_wages,
-                   esi_component, part_of_esi_wages, is_overtime
+                   esi_component, part_of_esi_wages, is_overtime, pt_component
             FROM pay_heads WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1998,6 +2106,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 EsiComponent = (EsiStatutoryComponent)(int)pr.GetInt64(18),
                 PartOfEsiWages = pr.GetInt64(19) != 0,
                 IsOvertime = pr.GetInt64(20) != 0,
+                // v35 (Phase 8 slice 6): PT statutory role (default None — ER-13).
+                PtComponent = (PtStatutoryComponent)(int)pr.GetInt64(21),
             };
             var hasComponents = components.TryGetValue(id, out var comps);
             var hasSlabs = slabs.TryGetValue(id, out var slabList);
@@ -3153,6 +3263,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         // v13 GST rate slabs FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM gst_rate_slabs WHERE company_id = $cid;", ("$cid", cid));
+        // v35 PT slab bands FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
         // v25 TDS/TCS masters FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM nature_of_payment WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM nature_of_goods WHERE company_id = $cid;", ("$cid", cid));
@@ -3188,7 +3300,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  cess_applicable, tds_periodicity, tds_applicable_from, tcs_applicable_from,
                  payroll_enabled, payroll_statutory_enabled,
                  pf_config_enabled, pf_epf_rate_bp, pf_establishment_code, pf_cap_at_ceiling,
-                 esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code)
+                 esi_config_enabled, esi_ee_rate_bp, esi_er_rate_bp, esi_employer_code,
+                 pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3198,7 +3311,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $tdsfrom, $tcsfrom,
                  $payen, $paystat,
                  $pfen, $pfrate, $pfcode, $pfcap,
-                 $esien, $esieerate, $esiererate, $esicode);
+                 $esien, $esieerate, $esiererate, $esicode,
+                 $pten, $ptstate, $ptreg, $ptbasis);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -3265,7 +3379,43 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$esieerate", esi?.EmployeeRateBasisPoints ?? EsiConfig.DefaultEmployeeRateBasisPoints);
         cmd.Parameters.AddWithValue("$esiererate", esi?.EmployerRateBasisPoints ?? EsiConfig.DefaultEmployerRateBasisPoints);
         cmd.Parameters.AddWithValue("$esicode", (object?)esi?.EmployerCode ?? DBNull.Value);
+        // v35 (Phase 8 slice 6): the establishment PT config. NULL/defaults for a company not enrolled for PT (ER-13).
+        var pt = c.PtConfig;
+        cmd.Parameters.AddWithValue("$pten", pt is not null ? 1 : 0);
+        cmd.Parameters.AddWithValue("$ptstate", (object?)pt?.StateCode ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ptreg", (object?)pt?.RegistrationNumber ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$ptbasis", (int)(pt?.WageBasis ?? PtWageBasis.GrossEarnings));
         cmd.ExecuteNonQuery();
+
+        // v35 PT slab bands (only when PT is enrolled), hung off the PT config like the GST slabs. Each band is one
+        // row keyed to its PtSlab (slab_id) with its state + gender scope, ordered low-to-high.
+        if (pt is not null)
+            foreach (var slab in pt.SlabTables)
+            {
+                var bandOrder = 0;
+                foreach (var band in slab.Bands)
+                {
+                    using var s = _connection.CreateCommand();
+                    s.Transaction = tx;
+                    s.CommandText = """
+                        INSERT INTO pt_slab_bands
+                            (id, company_id, slab_id, state_code, gender_scope, band_order,
+                             from_wage_paisa, to_wage_paisa, monthly_amount_paisa, month_overrides)
+                        VALUES ($id, $cid, $slab, $state, $scope, $ord, $from, $to, $amt, $ovr);
+                        """;
+                    s.Parameters.AddWithValue("$id", Guid.NewGuid().ToString("D"));
+                    s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                    s.Parameters.AddWithValue("$slab", slab.Id.ToString("D"));
+                    s.Parameters.AddWithValue("$state", slab.StateCode);
+                    s.Parameters.AddWithValue("$scope", (int)slab.GenderScope);
+                    s.Parameters.AddWithValue("$ord", bandOrder++);
+                    s.Parameters.AddWithValue("$from", (long)(band.FromWage.Amount * 100m));
+                    s.Parameters.AddWithValue("$to", band.ToWage is { } tw ? (long)(tw.Amount * 100m) : (object)DBNull.Value);
+                    s.Parameters.AddWithValue("$amt", (long)(band.MonthlyAmount.Amount * 100m));
+                    s.Parameters.AddWithValue("$ovr", FormatPtMonthOverrides(band.MonthOverrides));
+                    s.ExecuteNonQuery();
+                }
+            }
 
         // v13 GST rate slabs (the seeded config-driven slabs), if any.
         if (gst is not null)
@@ -3898,12 +4048,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      under_group_id, ledger_id, income_tax_component, use_for_gratuity,
                      rounding_method, rounding_limit_paisa, calculation_period, attendance_type_id, per_day_calculation_basis,
                      employer_expense_ledger_id, pf_component, part_of_pf_wages,
-                     esi_component, part_of_esi_wages, is_overtime)
+                     esi_component, part_of_esi_wages, is_overtime, pt_component)
                 VALUES ($id, $cid, $name, $disp, $type, $calc, $anet,
                         $grp, $led, $itc, $grat,
                         $rm, $rl, $cp, $atid, $pdb,
                         $eeled, $pfcomp, $pfwage,
-                        $esicomp, $esiwage, $ot);
+                        $esicomp, $esiwage, $ot, $ptcomp);
                 """;
             cmd.Parameters.AddWithValue("$id", p.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -3929,6 +4079,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$esicomp", (int)p.EsiComponent);
             cmd.Parameters.AddWithValue("$esiwage", p.PartOfEsiWages ? 1 : 0);
             cmd.Parameters.AddWithValue("$ot", p.IsOvertime ? 1 : 0);
+            // v35 (Phase 8 slice 6): PT statutory role (default None — ER-13).
+            cmd.Parameters.AddWithValue("$ptcomp", (int)p.PtComponent);
             cmd.ExecuteNonQuery();
         }
 

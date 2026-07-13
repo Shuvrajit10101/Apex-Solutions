@@ -7948,6 +7948,106 @@
                                 </Grid>
                               </StackPanel>
                             </Border>
+
+                            <!-- ================= Professional Tax (Phase 8 slice 6) ================= -->
+                            <!-- Shown only while Payroll Statutory is on (PT lives under it). A state slab deduction
+                                 on the monthly PT-wages: pick the PT state (seeded MH/KA/WB + None) and the enrolment
+                                 number; the seeded slab bands for the active state are shown read-only. -->
+                            <Border Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,8" IsVisible="{Binding ShowPtConfig}">
+                              <StackPanel Spacing="12">
+                                <TextBlock Text="PROFESSIONAL TAX (STATE)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+
+                                <CheckBox Content="Enable Professional Tax for this establishment"
+                                          IsChecked="{Binding PtEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                <StackPanel Spacing="10" IsVisible="{Binding PtEnabled}">
+                                  <Grid ColumnDefinitions="170,*">
+                                    <TextBlock Grid.Column="0" Text="PT State" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding PtStateOptions}"
+                                              SelectedItem="{Binding SelectedPtState, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:PtStateOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="170,*">
+                                    <TextBlock Grid.Column="0" Text="Enrolment / Reg. No." FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding PtRegistrationNumber, Mode=TwoWay}"
+                                             FontFamily="Consolas,Menlo,monospace"
+                                             PlaceholderText="PTEC / PTRC number (optional)"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="170,*">
+                                    <TextBlock Grid.Column="0" Text="Wage Basis" FontWeight="SemiBold"
+                                               FontSize="12" VerticalAlignment="Center"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding PtWageBasisText}"
+                                               VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
+                                  </Grid>
+
+                                  <!-- Seeded slab bands for the active state (read-only view; right-aligned amounts) -->
+                                  <TextBlock Text="Seeded slab (a starting point, not law — annual cap ₹2,500 per person)"
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                  <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <Grid RowDefinitions="Auto,Auto" MinWidth="520"
+                                          IsVisible="{Binding HasPtSlabBands}">
+                                      <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                        <Grid ColumnDefinitions="130,110,110,90,80">
+                                          <TextBlock Grid.Column="0" Text="Applies To" Classes="colHdr"/>
+                                          <TextBlock Grid.Column="1" Text="From ₹" Classes="colHdr" TextAlignment="Right"/>
+                                          <TextBlock Grid.Column="2" Text="To ₹" Classes="colHdr" TextAlignment="Right"/>
+                                          <TextBlock Grid.Column="3" Text="Monthly ₹" Classes="colHdr" TextAlignment="Right"/>
+                                          <TextBlock Grid.Column="4" Text="Feb ₹" Classes="colHdr" TextAlignment="Right"/>
+                                        </Grid>
+                                      </Border>
+                                      <ItemsControl Grid.Row="1" Background="White" ItemsSource="{Binding PtSlabBands}">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:PtSlabRow">
+                                            <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                              <Grid ColumnDefinitions="130,110,110,90,80" Height="24">
+                                                <TextBlock Grid.Column="0" Text="{Binding AppliesTo}" Margin="6,0"
+                                                           VerticalAlignment="Center" FontSize="11.5"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding FromText}" TextAlignment="Right"
+                                                           VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding ToText}" TextAlignment="Right"
+                                                           VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                                <TextBlock Grid.Column="3" Text="{Binding MonthlyText}" TextAlignment="Right"
+                                                           VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                                <TextBlock Grid.Column="4" Text="{Binding FebText}" TextAlignment="Right"
+                                                           VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0"/>
+                                              </Grid>
+                                            </Border>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                    </Grid>
+                                  </ScrollViewer>
+                                  <TextBlock Text="No Professional Tax is levied in the selected state."
+                                             FontSize="11.5" Foreground="#777777"
+                                             IsVisible="{Binding PtStateHasNoSlab}"/>
+                                </StackPanel>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding PtMessage}"
+                                             IsVisible="{Binding PtMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply PT" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyPtClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
                              </StackPanel>
                             </ScrollViewer>
                           </Grid>
@@ -8839,6 +8939,126 @@
                                       Click="OnExportEsiContributionClick"/>
                               <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
                                       Click="OnSaveReturnEsiContributionClick"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: PT Deduction Register (Phase 8 slice 6; RQ-11) -->
+                    <ContentControl IsVisible="{Binding ProfessionalTaxRegister, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding ProfessionalTaxRegister}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ProfessionalTaxRegisterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + wage-month selectors (state + enrolment are shown in the subtitle) -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,160,Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PtRegisterFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Wage Month" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0"
+                                         Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Months}"
+                                        SelectedItem="{Binding SelectedMonth, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:PtRegisterMonthOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <!-- Footings: total PT wages + total PT to remit -->
+                            <Border Grid.Row="3" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10" Margin="0,0,0,8">
+                              <StackPanel Spacing="4">
+                                <Grid ColumnDefinitions="*,*">
+                                  <StackPanel Grid.Column="0">
+                                    <TextBlock Text="PT Wages ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalWagesText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold"/>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Professional Tax ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding TotalPtText}" TextAlignment="Right"
+                                               FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                </Grid>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Per-employee PT grid — wide, so it scrolls horizontally -->
+                            <TextBlock Grid.Row="4" Text="Employee-wise Professional Tax" FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
+                            <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
+                                          VerticalScrollBarVisibility="Auto">
+                              <Grid RowDefinitions="Auto,*" Width="560">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,110,110,110,120">
+                                    <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Emp. No." Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="PT Wages" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Monthly PT" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="FY Cumulative" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Grid.Row="1" Background="White" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PtRegisterRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,110,110,110,120" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding EmployeeName}" Margin="6,0"
+                                                     VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding EmployeeNumber}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     FontFamily="Consolas,Menlo,monospace"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding PtWages}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding MonthlyPt}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding FyCumulative}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </Grid>
+                            </ScrollViewer>
+
+                            <!-- Status + actions -->
+                            <Grid Grid.Row="6" ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+                              <TextBlock Grid.Column="0" Text="{Binding ExportStatus}"
+                                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                         VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                              <Button Grid.Column="1" Content="Export Register (Ctrl+A)" Padding="12,6" Margin="0,0,8,0"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Click="OnExportProfessionalTaxClick"/>
+                              <Button Grid.Column="2" Content="Save &amp; Return (Alt+B)" Padding="12,6"
+                                      Click="OnSaveReturnProfessionalTaxClick"/>
                             </Grid>
                           </Grid>
                         </DataTemplate>

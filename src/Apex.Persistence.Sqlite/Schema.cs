@@ -79,7 +79,7 @@ public static class Schema
     /// migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>: any
     /// table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the
     /// migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 34;
+    public const int CurrentVersion = 35;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -167,7 +167,15 @@ public static class Schema
             esi_config_enabled             INTEGER NOT NULL DEFAULT 0,  -- 0/1 (ESI establishment enrolled)
             esi_ee_rate_bp                 INTEGER NOT NULL DEFAULT 75,  -- employee ESI rate basis points (75=0.75%)
             esi_er_rate_bp                 INTEGER NOT NULL DEFAULT 325, -- employer ESI rate basis points (325=3.25%)
-            esi_employer_code              TEXT        NULL             -- 17-digit ESIC establishment employer code, or NULL
+            esi_employer_code              TEXT        NULL,            -- 17-digit ESIC establishment employer code, or NULL
+            -- v35 (Phase 8 slice 6): establishment Professional-Tax config. pt_config_enabled = 0 for every existing
+            -- company, so a company not enrolled for PT is byte-identical (ER-13). pt_state = active PT state (2-digit
+            -- GST state code, or NULL = "None"); pt_wage_basis = PtWageBasis ordinal (0 = gross earnings). The editable
+            -- per-state slab bands live in the pt_slab_bands table below.
+            pt_config_enabled              INTEGER NOT NULL DEFAULT 0,  -- 0/1 (PT establishment enrolled)
+            pt_state                       TEXT        NULL,            -- active PT state (2-digit GST state code), or NULL = None
+            pt_registration_number         TEXT        NULL,            -- PT enrolment/registration number, or NULL
+            pt_wage_basis                  INTEGER NOT NULL DEFAULT 0   -- PtWageBasis enum ordinal (0 = GrossEarnings)
         );
 
         CREATE TABLE nature_of_payment (
@@ -210,6 +218,25 @@ public static class Schema
             is_predefined INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX ix_gst_rate_slabs_company ON gst_rate_slabs(company_id);
+
+        -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
+        -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
+        -- (slab_id) form one PtSlab. No rows for a company not enrolled for PT (ER-13).
+        CREATE TABLE pt_slab_bands (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            slab_id              TEXT    NOT NULL,   -- the PtSlab (state+gender table) this band belongs to
+            state_code           TEXT    NOT NULL,   -- 2-digit GST state code of the slab table
+            gender_scope         INTEGER NOT NULL,   -- PtGenderScope ordinal (0 = Any)
+            band_order           INTEGER NOT NULL,   -- band order within its slab table (low to high)
+            from_wage_paisa      INTEGER NOT NULL,   -- inclusive lower bound, paisa
+            to_wage_paisa        INTEGER     NULL,   -- inclusive upper bound, paisa; NULL = open-ended top (∞)
+            monthly_amount_paisa INTEGER NOT NULL,   -- flat PT amount, paisa
+            -- per-band month overrides (e.g. the ₹300 February over-charge): compact "month:paisa" pairs joined by
+            -- ';' ("2:30000" = ₹300 in February), '' = none.
+            month_overrides      TEXT    NOT NULL DEFAULT ''
+        );
+        CREATE INDEX ix_pt_slab_bands_company ON pt_slab_bands(company_id);
 
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
@@ -1108,7 +1135,9 @@ public static class Schema
             -- ESI-wage / not overtime), so a pre-v34 pay head is byte-identical (ER-13).
             esi_component             INTEGER NOT NULL DEFAULT 0,  -- EsiStatutoryComponent ordinal (0 = None)
             part_of_esi_wages         INTEGER NOT NULL DEFAULT 0,  -- 0/1 (counts toward ESI wages; HRA included)
-            is_overtime               INTEGER NOT NULL DEFAULT 0   -- 0/1 (in ESI contribution base, out of coverage test)
+            is_overtime               INTEGER NOT NULL DEFAULT 0,  -- 0/1 (in ESI contribution base, out of coverage test)
+            -- v35 (Phase 8 slice 6): PT statutory role. Default 0 (None), so a pre-v35 pay head is byte-identical (ER-13).
+            pt_component              INTEGER NOT NULL DEFAULT 0   -- PtStatutoryComponent ordinal (0 = None)
         );
         CREATE INDEX ix_pay_heads_company ON pay_heads(company_id);
 
@@ -2416,5 +2445,39 @@ public static class Schema
         ALTER TABLE pay_heads ADD COLUMN esi_component     INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE pay_heads ADD COLUMN part_of_esi_wages INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE pay_heads ADD COLUMN is_overtime       INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v34 → v35 (Phase 8 slice 6; Professional Tax): additive — four <c>ALTER TABLE companies ADD COLUMN</c> for the
+    /// establishment PT config (enrolled flag, active state, registration number, wage basis), one <c>ALTER TABLE
+    /// pay_heads ADD COLUMN</c> for the PT statutory role, and one new <c>pt_slab_bands</c> table (+ its
+    /// company-scoped index) holding the editable per-state slab bands — run inside a transaction that bumps
+    /// <c>schema_version</c> to 35. <b>No row rewrites, no data backfill</b> — an existing v34 database keeps every
+    /// row untouched, the flags default off (0), the state/registration stay NULL and the new table starts empty, so a
+    /// company not enrolled for PT serialises byte-identically to a v34 company (ER-13). Each added column / table /
+    /// index is byte-identical to its counterpart in <see cref="CreateV1"/> (the migration-equivalence test enforces
+    /// this). A fresh DB is stamped straight to v35 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV34ToV35 = """
+        ALTER TABLE companies ADD COLUMN pt_config_enabled      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN pt_state               TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN pt_registration_number TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN pt_wage_basis          INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE pay_heads ADD COLUMN pt_component INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE pt_slab_bands (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            slab_id              TEXT    NOT NULL,
+            state_code           TEXT    NOT NULL,
+            gender_scope         INTEGER NOT NULL,
+            band_order           INTEGER NOT NULL,
+            from_wage_paisa      INTEGER NOT NULL,
+            to_wage_paisa        INTEGER     NULL,
+            monthly_amount_paisa INTEGER NOT NULL,
+            month_overrides      TEXT    NOT NULL DEFAULT ''
+        );
+        CREATE INDEX ix_pt_slab_bands_company ON pt_slab_bands(company_id);
         """;
 }

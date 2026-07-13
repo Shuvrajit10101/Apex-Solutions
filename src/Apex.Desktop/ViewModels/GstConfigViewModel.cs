@@ -38,6 +38,27 @@ public sealed class GstTaxLedgerRow
     public string Under { get; init; } = string.Empty;
 }
 
+/// <summary>A Professional-Tax state picker option (Phase 8 slice 6): the 2-digit GST state code the seeded slab table
+/// belongs to (<c>null</c> = "None", no PT levied) + the display label.</summary>
+public sealed class PtStateOption
+{
+    /// <summary>The 2-digit GST state code (e.g. "27" Maharashtra); <c>null</c> for the "None" option.</summary>
+    public string? Code { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
+/// <summary>One band row of the seeded Professional-Tax slab table for the active state (Phase 8 slice 6; read-only
+/// view): who it applies to (all / men / women), the monthly PT-wage range, the flat monthly PT and any February
+/// over-charge. All figures whole rupees (PT carries no paisa).</summary>
+public sealed class PtSlabRow
+{
+    public string AppliesTo { get; init; } = string.Empty;
+    public string FromText { get; init; } = string.Empty;
+    public string ToText { get; init; } = string.Empty;
+    public string MonthlyText { get; init; } = string.Empty;
+    public string FebText { get; init; } = string.Empty;
+}
+
 /// <summary>
 /// The company-level GST configuration screen ("F11 Features → GST"; Statutory → GST; catalog §12; phase4
 /// slice 4c). Toggles GST on/off for the current company and, when enabling, captures the GSTIN (validated
@@ -179,6 +200,44 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// under it). A payroll-off / statutory-off company never sees the ESI fields (ER-13).</summary>
     public bool ShowEsiConfig => PayrollStatutoryEnabled;
 
+    // ---- Professional Tax (Phase 8 slice 6; F11 Payroll Statutory → PT; RQ-11) ------------------------------
+    // A state slab deduction on the monthly PT-wages. Only meaningful (and only shown) while PayrollStatutoryEnabled
+    // is on; enrolling sets Company.PtConfig via the engine (seeding the editable state slab tables), disabling clears
+    // it. Every field is gated: a company that never enrols for PT is byte-identical to a pre-v35 company (ER-13).
+
+    /// <summary>Whether the establishment is enrolled for Professional Tax (the "Enable Professional Tax" toggle;
+    /// applied via <see cref="ApplyPt"/>). Non-<c>null</c> <see cref="Company.PtConfig"/> ⇔ enrolled.</summary>
+    [ObservableProperty] private bool _ptEnabled;
+
+    /// <summary>The PT <b>enrolment / registration number</b> (the PTEC/PTRC number printed on the challan); optional.</summary>
+    [ObservableProperty] private string _ptRegistrationNumber = string.Empty;
+
+    /// <summary>The active PT state (whose seeded slab table drives the deduction); "None" ⇒ no PT levied.</summary>
+    [ObservableProperty] private PtStateOption? _selectedPtState;
+
+    /// <summary>The PT Enable/disable result message (kept separate from the GST/TDS/TCS/PF/ESI messages).</summary>
+    [ObservableProperty] private string? _ptMessage;
+
+    /// <summary>True iff the PT configuration block should render — only while Payroll Statutory is on (PT lives
+    /// under it). A payroll-off / statutory-off company never sees the PT fields (ER-13).</summary>
+    public bool ShowPtConfig => PayrollStatutoryEnabled;
+
+    /// <summary>The read-only display of the PT wage basis (only <see cref="PtWageBasis.GrossEarnings"/> today).</summary>
+    public string PtWageBasisText => "Gross monthly earnings";
+
+    /// <summary>The PT state picker options (None + the seeded states Maharashtra / Karnataka / West Bengal).</summary>
+    public ObservableCollection<PtStateOption> PtStateOptions { get; } = new();
+
+    /// <summary>The seeded slab bands of the currently-selected PT state (read-only view; rebuilt as the state
+    /// changes). Empty for "None".</summary>
+    public ObservableCollection<PtSlabRow> PtSlabBands { get; } = new();
+
+    /// <summary>True when the selected PT state has seeded slab bands to show (drives the slab grid's visibility).</summary>
+    public bool HasPtSlabBands => PtSlabBands.Count > 0;
+
+    /// <summary>True when the selected PT state levies no PT (no slab bands) — drives the "None" note.</summary>
+    public bool PtStateHasNoSlab => PtSlabBands.Count == 0;
+
     /// <summary>The company GSTIN/UIN (validated on Enable); blank ⇒ unset.</summary>
     [ObservableProperty] private string _gstin = string.Empty;
 
@@ -278,6 +337,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         foreach (var opt in TdsTcsDisplay.DeductorTypeOptions())
             DeductorTypes.Add(opt);
 
+        // PT state picker: None + the seeded states (Maharashtra 27 / Karnataka 29 / West Bengal 19). PT is
+        // state-configurable; the seeded set is the DP default (any state is addable via its own slab table).
+        PtStateOptions.Add(new PtStateOption { Code = null, Display = "None (no Professional Tax)" });
+        foreach (var code in new[] { "27", "29", "19" })
+        {
+            var st = IndianState.FromCode(code);
+            if (st is not null) PtStateOptions.Add(new PtStateOption { Code = st.Code, Display = $"{st.Code} — {st.Name}" });
+        }
+
         LoadFromCompany();
     }
 
@@ -295,6 +363,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         LoadPfFromCompany();
         LoadEsiFromCompany();
+        LoadPtFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
@@ -471,6 +540,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         OnPropertyChanged(nameof(ShowPfConfig));
         OnPropertyChanged(nameof(ShowEsiConfig));
+        OnPropertyChanged(nameof(ShowPtConfig));
         _onChanged();
     }
 
@@ -495,6 +565,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
         OnPropertyChanged(nameof(ShowPfConfig)); // the PF block appears/hides with the statutory sub-toggle
         OnPropertyChanged(nameof(ShowEsiConfig)); // the ESI block appears/hides with the statutory sub-toggle
+        OnPropertyChanged(nameof(ShowPtConfig)); // the PT block appears/hides with the statutory sub-toggle
         _onChanged();
     }
 
@@ -618,6 +689,127 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         var real = _company.EsiConfig is not null;
         if (EsiEnabled != real) EsiEnabled = real;
     }
+
+    // =========================================================== Professional Tax (Phase 8 slice 6)
+
+    /// <summary>Seeds the PT form from the company's current <see cref="Company.PtConfig"/> (defaults for a
+    /// never-enrolled company: not enabled, "None" state, blank enrolment number) and rebuilds the slab preview.</summary>
+    private void LoadPtFromCompany()
+    {
+        var pt = _company.PtConfig;
+        PtEnabled = pt is not null;
+        PtRegistrationNumber = pt?.RegistrationNumber ?? string.Empty;
+        SelectedPtState = PtStateOptions.FirstOrDefault(o => o.Code == pt?.StateCode) ?? PtStateOptions.FirstOrDefault();
+        RebuildSlabBands();
+    }
+
+    /// <summary>The active PT state changed — refresh the read-only slab preview so the selected state's bands show.</summary>
+    partial void OnSelectedPtStateChanged(PtStateOption? value) => RebuildSlabBands();
+
+    /// <summary>
+    /// Applies the "Enable Professional Tax" toggle (F11 → Payroll Statutory; Phase 8 slice 6; RQ-11), mirroring
+    /// <see cref="ApplyEsi"/>. On enable: enrol the establishment via the engine's idempotent
+    /// <see cref="PayrollService.EnableProfessionalTax"/> (seeds the editable state slab tables — Maharashtra
+    /// men/women, Karnataka, West Bengal) when not yet enrolled, or update the active state + enrolment number on the
+    /// existing config (preserving its slab tables) — which also turns Payroll Statutory on — and persist. On disable:
+    /// clear <see cref="Company.PtConfig"/> and persist. Any domain error is surfaced to <see cref="PtMessage"/>
+    /// without crashing, and the toggle reverts to the real company state.
+    /// </summary>
+    public bool ApplyPt()
+    {
+        PtMessage = null;
+
+        if (!PtEnabled)
+        {
+            _company.PtConfig = null; // enrolment cleared; the company is byte-identical to a pre-v35 company (ER-13)
+            if (!TrySave(m => PtMessage = m)) { RevertPtToggle(); return false; }
+            PtMessage = "Professional Tax is now OFF for this company.";
+            RebuildSlabBands();
+            _onChanged();
+            return true;
+        }
+
+        var stateCode = SelectedPtState?.Code;
+        var registration = BlankToNull(PtRegistrationNumber);
+        try
+        {
+            if (_company.PtConfig is { } existing)
+            {
+                // Already enrolled — switch the active state + enrolment number in place (keeps the slab tables the
+                // company may have edited); mirror EnableProfessionalTax's Payroll-Statutory-on invariant.
+                new PayrollService(_company).SetProfessionalTaxState(stateCode);
+                existing.RegistrationNumber = registration;
+                _company.PayrollStatutoryEnabled = true;
+            }
+            else
+            {
+                new PayrollService(_company).EnableProfessionalTax(stateCode, registration);
+            }
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            PtMessage = ex.Message;
+            RevertPtToggle();
+            return false;
+        }
+
+        // EnableProfessionalTax flips Payroll Statutory on — keep the sibling toggle + the config blocks in sync.
+        if (PayrollStatutoryEnabled != _company.PayrollStatutoryEnabled)
+            PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
+        var stateName = stateCode is null ? "None" : (IndianState.FromCode(stateCode)?.Name ?? stateCode);
+        PtMessage = $"Professional Tax enabled for {_company.Name} (state {stateName}; annual cap ₹2,500 per person).";
+        RebuildSlabBands();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Reverts the <see cref="PtEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
+    private void RevertPtToggle()
+    {
+        var real = _company.PtConfig is not null;
+        if (PtEnabled != real) PtEnabled = real;
+    }
+
+    /// <summary>Rebuilds the read-only slab preview for the selected PT state: the seeded bands of the active state's
+    /// tables (Maharashtra shows its Men + Women tables; Karnataka / West Bengal one gender-agnostic table). Reads the
+    /// company's live tables when enrolled, else the seed preview; "None" ⇒ empty.</summary>
+    private void RebuildSlabBands()
+    {
+        PtSlabBands.Clear();
+        var state = SelectedPtState?.Code;
+        if (state is null) return;
+
+        var tables = _company.PtConfig is { } cfg
+            ? cfg.SlabTables
+            : ProfessionalTax.SeedSlabTables();
+
+        foreach (var table in tables.Where(t => string.Equals(t.StateCode, state, StringComparison.Ordinal))
+                                     .OrderBy(t => (int)t.GenderScope))
+        {
+            foreach (var band in table.Bands)
+            {
+                var feb = band.MonthOverrides.FirstOrDefault(o => o.Month == ProfessionalTax.FebruaryOverrideMonth);
+                PtSlabBands.Add(new PtSlabRow
+                {
+                    AppliesTo = GenderScopeLabel(table.GenderScope),
+                    FromText = IndianFormat.RupeesAlways(band.FromWage.Amount),
+                    ToText = band.ToWage is { } t ? IndianFormat.RupeesAlways(t.Amount) : "and above",
+                    MonthlyText = IndianFormat.RupeesAlways(band.MonthlyAmount.Amount),
+                    FebText = feb is null ? "—" : IndianFormat.RupeesAlways(feb.Amount.Amount),
+                });
+            }
+        }
+        OnPropertyChanged(nameof(HasPtSlabBands));
+        OnPropertyChanged(nameof(PtStateHasNoSlab));
+    }
+
+    private static string GenderScopeLabel(PtGenderScope scope) => scope switch
+    {
+        PtGenderScope.Male => "Men",
+        PtGenderScope.Female => "Women",
+        _ => "All employees",
+    };
 
     /// <summary>
     /// Applies the "Define type of component for BOM" F12 toggle to the live company (RQ-10) and persists, so the
@@ -908,6 +1100,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // Commit the ESI enrolment on the same rule (toggle changed, or ESI on to persist an edited employer code).
         if (ShowEsiConfig && (EsiEnabled != (_company.EsiConfig is not null) || EsiEnabled))
             ApplyEsi();
+        // Commit the PT enrolment on the same rule (toggle changed, or PT on to persist an edited state / enrolment no.).
+        if (ShowPtConfig && (PtEnabled != (_company.PtConfig is not null) || PtEnabled))
+            ApplyPt();
     }
 
     /// <summary>Persists the company, surfacing a domain error via <paramref name="setMessage"/>; false on failure.</summary>
