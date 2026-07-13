@@ -1650,6 +1650,54 @@ depositable via the Phase-7 stat-payment / challan path** — routing it there w
 deferred** to a later refinement / the S10 exit gate.
 **Next = P8-S8 (payslips + Pay Sheet / Payroll Register / Attendance / Payment Advice reports; no schema change).**
 
+### Phase 8 slice 8 — Payslips + payroll reports (2026-07-13) — no schema change
+Eighth Phase-8 (Payroll) slice — the **presentation half**: the five payroll outputs Tally ships, all **pure
+projections over the already-POSTED payroll voucher data** (no compute, no schema, no Io-canonical change; `Schema.cs`
+stays `CurrentVersion = 36`). Delivered:
+- **`PayrollReportSupport`** (`src/Apex.Ledger/Reports/PayrollReportSupport.cs`) — the shared projection layer
+  (`PostedPayrollByEmployee`) that reads each employee's pay-head figures **off the posted `PayrollLineDetail` on the
+  payroll voucher**, so every report **reconciles to the voucher by construction** and **excludes cancelled / never-posted
+  months**. This is the KEY design choice of the slice (see the HIGH fix below).
+- **Payslip** (`src/Apex.Ledger/Reports/Payslip.cs`) — the per-employee earnings/deductions/net statement for a month,
+  + a **hand-rolled payslip PDF** (`src/Apex.Ledger.Io/PayslipPdf.cs`) reusing the bespoke deterministic `PdfWriter` +
+  the **Indian amount-in-words** helper; byte-stable, de-branded, no NuGet. `PayslipPdfTests`.
+- **Pay Sheet** (`src/Apex.Ledger/Reports/PaySheet.cs`) — the **employee × pay-head matrix** for a period; **foots both
+  ways** (per-employee net across the row, per-pay-head total down the column).
+- **Payroll Register** (`src/Apex.Ledger/Reports/PayrollRegister.cs`) — the period register of payroll vouchers with
+  gross / deductions / net per employee.
+- **Attendance Register** (`src/Apex.Ledger/Reports/AttendanceRegister.cs`) — the period attendance/production summary
+  per employee off the posted attendance entries.
+- **Payment (bank) Advice** (`src/Apex.Ledger/Reports/PaymentAdvice.cs`) — the per-employee net-pay bank-transfer advice
+  for the disbursement run.
+- **UI** — a nested **Reports → Payroll Reports** section (gated on the payroll feature), with a shared
+  **horizontally-scrolling matrix** view (Pay Sheet / Register / Attendance / Payment Advice) + a bespoke **payslip**
+  view; **Print → PayslipPdf** + **Export**, wired through `ReportsViewModel` / `MainWindowViewModel` /
+  `MainWindow.axaml` / `Converters` / `ReportPrintProjector` / `ReportTabularProjector` / `PrintPreviewViewModel`.
+  `PayrollReportsViewModelTests`.
+- **A10 adversarial review — fixed 1 HIGH + 2 MED.** **HIGH:** the reports originally **recomputed pay-head figures from
+  the masters** rather than reading the posted voucher — an employee paid via an **As-User-Defined-Value** pay head (a
+  value that lives only on the voucher, not derivable from the salary structure) was **silently dropped** from the Pay
+  Sheet / Payroll Register / **Payment Advice**, i.e. a **paid person was omitted from the bank advice** → fixed by
+  projecting every report over the posted `PayrollLineDetail` (`PostedPayrollByEmployee`). **MED (1):** a **cancelled /
+  never-posted** month rendered **phantom full salary** (masters still resolved a structure) → the posted-line projection
+  excludes it. **MED (2):** `PriorFinancialYearProfessionalTax` (`PayrollComputationService.cs`, ~:478) lacked the
+  **cancelled-voucher guard** the other statutory paid-to-date reads have → a cancelled payroll voucher **wrongly
+  consumed the ₹2,500 annual PT cap**, under-charging later months → guard added (`PtVoucherPostingTests`). **⚠️ The S8
+  build workflow's FIX phase died on a session limit** — consistent with the recurring S3/S4/S5/S6/S7 "review/fix phase
+  may die — verify it ran" habit — so I ran the three A10 lenses + the fixes **separately** on the final on-disk code.
+Gate fully green (verified by the orchestrator before this commit): **Ledger 875 · Io 252 · Sqlite 137 · Desktop 665 =
+1929 total, 0 failures**, **schema v36 UNCHANGED**, de-branded, TestAppBuilder clean, no stray files, working tree
+exclusively P8-S8 (5 reports + PayrollReportSupport + PayslipPdf + report/UI/PDF tests + Reports.cs /
+PayrollComputationService.cs [PT cancelled guard] + ReportsViewModel / MainWindowViewModel / MainWindow.axaml /
+Converters / ReportPrintProjector / ReportTabularProjector / PrintPreviewViewModel; **NO Schema.cs / Sqlite file**).
+Release build sanity: **0 warnings, 0 errors.** Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 8 —
+payslips (PDF) + Pay Sheet / Payroll Register / Attendance / Payment Advice reports (no schema)` (`d762567`) +
+`docs(memory): Phase 8 slice 8 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary).
+**Next = P8-S9 (PF/ESI/PT statutory reports + Gratuity provision + statutory Bonus; likely additive schema v37 for the
+gratuity/bonus config; A14 to web-verify the gratuity formula [(Basic+DA)×15×completed-years/26, cap ₹20L] + the
+Payment of Bonus Act [8.33%–20%, eligibility wage ₹21k, calc ceiling ₹7,000]).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
