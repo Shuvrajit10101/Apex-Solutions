@@ -1698,6 +1698,50 @@ payslips (PDF) + Pay Sheet / Payroll Register / Attendance / Payment Advice repo
 gratuity/bonus config; A14 to web-verify the gratuity formula [(Basic+DA)×15×completed-years/26, cap ₹20L] + the
 Payment of Bonus Act [8.33%–20%, eligibility wage ₹21k, calc ceiling ₹7,000]).**
 
+### Phase 8 slice 9 — Gratuity provision + statutory Bonus + statutory-report consolidation (2026-07-13) — schema v37
+Ninth Phase-8 (Payroll) slice — the two remaining year-end statutory provisions plus the consolidated statutory
+landing. Additive **schema v36→v37** (9 company-config columns; **no new tables**), all folded into the Io canonical
+model. Delivered:
+- **Gratuity** (`src/Apex.Ledger/Services/Gratuity.cs` + `Domain/GratuityConfig.cs` / `GratuityWageBasis.cs` /
+  `GratuityProvisionPopulation.cs`) — **A14-verified** Payment of Gratuity Act formula
+  **(Basic+DA via `UseForGratuity`) × 15 × completed-years / 26**; **cap ₹20,00,000** (Act ceiling, configurable);
+  a **≥6-month year rounds up** to the next completed year; **vesting at 60 months** (5 completed years) — below that a
+  provision may still be accrued per policy but the payable is not yet vested; **accrue-all-active** default population.
+- **Gratuity provision posting** (`src/Apex.Ledger/Services/GratuityProvision.cs`) — the accrual is booked as a
+  **balanced Journal for the DELTA over the prior book balance**: **Dr Gratuity Expense / Cr Gratuity Provision** when
+  the accrued liability rises, and the **reverse pair when it falls** (over-provision release). The prior book balance
+  is **derived from the ledger, inclusive of same-date postings**, so re-running the provision on the same date books
+  **only the incremental delta** rather than double-counting the already-posted amount (see the A10 fix).
+- **Statutory Bonus** (`src/Apex.Ledger/Services/StatutoryBonus.cs` + `Domain/BonusConfig.cs`) — **A14-verified**
+  Payment of Bonus Act: **eligible when Basic+DA ≤ ₹21,000** and **≥ 30 days worked**; the **calc ceiling = max(₹7,000,
+  minimum wage)**; the **rate is clamped 8.33%–20%** (statutory floor/ceiling, default **8.33%**); **prorated by months
+  worked**; the **minimum bonus is payable even without allocable profit** (min-bonus obligation).
+- **Registers** — **Gratuity Provision register** (`src/Apex.Ledger/Reports/GratuityProvisionRegister.cs`) and
+  **Bonus register** (`src/Apex.Ledger/Reports/BonusRegister.cs`).
+- **Consolidated Statutory Reports (Payroll)** nav — a single landing linking **PF-ECR / ESI / PT / Gratuity / Bonus**
+  (register + config VMs: `GratuityProvisionRegisterViewModel` / `BonusRegisterViewModel`; F11 gratuity/bonus config +
+  register UI through `MainWindowViewModel` / `MainWindow.axaml`).
+- **Schema v37** — the 9 gratuity/bonus config columns added to **BOTH `CreateV1` AND `MigrateV36ToV37`** (equivalence
+  test green; no new tables); **Io fold-in lossless** (`CanonicalModel` / `CanonicalMapper` / `CanonicalXml` /
+  `ApplyJournal`) + **import pre-flight ref checks** in `CompanyImportService` / `ImportPlan`.
+- **Goldens** — gratuity **26,000 × 15 × 10 / 26 = ₹1,50,000**; bonus **₹18,000 → capped ₹7,000 → 8.33% = ₹6,997/yr**.
+- **A10 adversarial review — all 3 lenses ran** (no session-limit death this slice) — caught + fixed a **same-date
+  provision re-post double-counting the prior**: the prior book balance now reads the ledger **inclusive of same-date**,
+  so a same-date re-run posts only the delta (regression-locked in `GratuityProvisionPostingTests`).
+- **DP defaults adopted (confirm at the gate): U1** Act cap **₹20,00,000**; **U2** gratuity population **accrue-all-active**;
+  **U3** bonus minimum wage default **0 → falls back to ₹7,000** calc ceiling; **U4** bonus **prorated by months worked**;
+  **U5** bonus rate default **8.33%**.
+Gate fully green (verified by the orchestrator before this commit): **Ledger 919 · Io 258 · Sqlite 140 · Desktop 680 =
+1997 total, 0 failures**, **schema v37**, de-branded, TestAppBuilder clean, no stray files, working tree exclusively
+P8-S9. Release build sanity: **0 warnings, 0 errors.** Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 9 —
+Gratuity provision + statutory Bonus + PF/ESI/PT report consolidation, SQLite schema v37` (`d26010a`) +
+`docs(memory): Phase 8 slice 9 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary).
+**Next = P8-S10 (EXIT GATE — golden end-to-end payslip with all statutory [PF/ESI/PT/§192] reconciled; migration chain
+v29→v37; Io losslessness; de-brand sweep; RUN THE REAL APP + headless-render the payroll screens; 3-OS CI
+cross-platform audit; resolve the carry-forwards incl. the S7 salary-TDS deposit-path; then A12 opens a PR
+recursing→main + merges once 3-OS CI green; PAUSE for Phase 8→9 go-ahead).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
