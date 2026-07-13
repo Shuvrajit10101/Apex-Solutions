@@ -1575,6 +1575,81 @@ de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S6
 surcharge/cess; Annexure I all quarters + Annexure II in Q4 → Form 16; offline FVU; likely no/additive schema; A14 to
 web-verify the FY2025-26 §192 slabs & rebate).**
 
+### Phase 8 slice 7 — §192 Salary-TDS + Form 24Q + Form 16 (2026-07-13) — schema v36
+Seventh Phase-8 (Payroll) slice — the **fourth statutory** payroll head and the payroll-side income-tax return:
+**§192 salary TDS** (tax-deducted-at-source on salary), computed and posted through the S3 balanced/atomic voucher, then
+filed as **Form 24Q** and certified as **Form 16**. **A14 web-verified the FY2025-26 both-regime slabs, §87A rebate,
+surcharge/cess, and §206AA no-PAN floor.** §192 differs structurally from PF/ESI/PT: the deduction is not a flat rate on
+the month's wage but an **average-rate spreading of the *annual* estimated tax across the remaining pay periods**, trued
+up to actuals as the year progresses. Delivered:
+- **`SalaryIncomeTax`** (`src/Apex.Ledger/Services/SalaryIncomeTax.cs`) — pure, framework/DB/clock-free FY2025-26 §192
+  income-tax engine. **NEW regime** (default, DP): slabs **0 / 4 / 8 / 12 / 16 / 20 / 24L**, **₹75k standard deduction**,
+  **§87A nil ≤₹12L taxable + a marginal-relief band above ₹12L** (rebate capped ₹60k) so ₹12,10,000 pays only the excess
+  over ₹12L, surcharge **10/15/25 (NEW capped at 25%)**. **OLD regime** (per-employee toggle, DP): slabs **2.5 / 5 / 10L**,
+  **₹50k standard deduction**, **§87A ≤₹5L cliff**, **senior (₹3L) / super-senior (₹5L) basic-exemption**, surcharge up
+  to **37%**, and the Chapter-VI-A / HRA / housing-interest deductions off the Form-12BB declaration. Both regimes then add
+  **surcharge marginal relief** + **4% health-&-education cess**; **§206AA / no-PAN forces the higher of the computed rate
+  or a 20% floor**. `SalaryIncomeTaxTests`.
+- **§192 average-rate spreading with a paid-to-date + projected true-up** — the monthly TDS is **annual estimated tax ÷
+  remaining pay periods**, where the annual estimate = **tax already deducted year-to-date (paid-to-date, off posted
+  payroll history)** + **projected tax on the remaining months**; as actual pay/deductions land, the estimate re-trues so
+  the year foots to the real liability (**fix for the A10 HIGH — the naive ×12 estimate over/under-withheld; replaced with
+  the paid-to-date+projected true-up**). Mirrors the TCS/GSTR-1 YTD-projection pattern used across Phases 5–8.
+- **Per-employee Form-12BB tax declaration** — **`TaxDeclaration`** (`src/Apex.Ledger/Domain/TaxDeclaration.cs`) carries
+  the employee's regime choice + declared Chapter-VI-A investments / HRA / housing-loan interest / other-income, feeding
+  the OLD-regime taxable-income build. Persisted per employee (`employee_tax_declarations`), editable in the UI.
+- **Posting integration into the S3 balanced/atomic voucher** — salary TDS is a pure **employee statutory deduction**: it
+  **reduces net** (Cr **TDS on Salary Payable**), **no employer side**. Rides the same **pre-validate → rollback-scope
+  atomic** post and **non-destructive auto-create** of the payable ledger from S3 — no voucher-service change.
+  `SalaryTdsVoucherPostingTests` (incl. the **cancelled-voucher guard** MED fix — a cancelled payroll voucher no longer
+  contributes to paid-to-date).
+- **Form 24Q** (`src/Apex.Ledger/Reports/Form24Q.cs`) — the quarterly salary-TDS return, **reusing the Phase-7 deductor
+  identity + FVU framing**: **Annexure I every quarter** (per-employee deduction detail per the quarter's payroll) +
+  **Annexure II in Q4** (the annual salary/tax reconciliation per employee). A **new Form24Q FVU writer**
+  (`FvuWriter.cs` Form24Q overload, `Fvu24QWriterTests`) emits the caret-delimited FH→BH→CD→per-employee salary-detail→FT
+  layout with **control totals derived from the records actually written** (the S4/S6 counted-totals discipline);
+  **no-PAN employees force the Annexure II 20% floor** (MED fix). `Form24QForm16Tests`.
+- **Form 16** (`src/Apex.Ledger/Reports/Form16.cs`) — the employee's salary-TDS certificate, **Part A** (deductor/employee
+  identity + quarterly deducted/deposited summary) + **Part B** (the salary breakup, deductions, and tax computation),
+  reconciling to Form 24Q by construction. `Form24QForm16Tests`.
+- **Schema v35→v36 — additive** (`Schema.cs` `CurrentVersion = 36`): **`companies.salary_tds_enabled`** + the
+  **`employee_tax_declarations` table**, added to **BOTH `CreateV1` AND `MigrateV35ToV36`** (no create-vs-migrate drift);
+  the **downgrade helpers DROP `employee_tax_declarations`**; **`SchemaMigrationEquivalenceTests` green at v36**.
+  `SqliteCompanyStore` persists it all (`SalaryTdsSchemaTests`).
+- **Io canonical fold-in** — the salary-TDS flag + the per-employee tax declarations folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** with a **full import pre-flight ref guard** (`CanonicalSalaryTdsRoundTripTests`).
+- **UI** — F11 **§192 config** toggle (`GstConfigViewModel` F11 pane) + **Income Tax Declaration**
+  (`TaxDeclarationViewModel`) + **Form 24Q** (`Form24QViewModel`) + **Form 16** (`Form16ViewModel`) panes, plus the
+  `SalaryTdsOptions` VM, wired into `MainWindowViewModel`/`MainWindow.axaml(.cs)`. `SalaryTdsUiViewModelTests`.
+- **GOLDEN** (hand-derived, A14-matched, regression-locked): **NEW ₹15L → ₹97,500 annual / ₹8,125 monthly**; **NEW taxable
+  ₹12L → ₹0** (§87A full rebate); **NEW ₹12,10,000 → ₹10,400** (marginal-relief band); **OLD ₹15L + 80C + 80D →
+  ₹2,02,800 / ₹16,900**.
+- **A10 adversarial review — fixed HIGH + 3 MED + 2 LOW.** HIGH: the §192 estimate used a naive **×12** annualization →
+  systematic over/under-withholding → replaced with the **paid-to-date + projected-remaining true-up**. MED: (1)
+  **cancelled-voucher guard** on paid-to-date; (2) **no-PAN Annexure II 20% floor** in Form 24Q; (3) the **Form 24Q FVU
+  writer** control-total derivation. Plus 2 LOW. **⚠️ CRITICAL WORKFLOW ANOMALY + LESSON:** the S7 build workflow's
+  **ENGINE agent returned GARBAGE** — an injected 'memory-retrieval' instruction block (disregarded as data, not
+  instructions; it wrote no report) — so the downstream **UI + review agents CORRECTLY refused/flagged 'S7 not built'**
+  (the on-disk tree was still v35 at that moment). The **FIX-phase agent then improvised the FULL engine build** (24 files
+  → schema v36) on top, producing a complete-*looking* engine that **never got a proper review pass and had no UI**. I
+  (orchestrator) **SALVAGED it**: verified the gate + that the 4 goldens matched the A14 brief, then **ran the 3 A10
+  review lenses SEPARATELY**, built the UI, and ran a proper fix pass on the final on-disk code. **LESSON: a workflow can
+  silently build a whole slice (under a *later* phase) after an engine failure — always verify WHAT actually landed on
+  disk (git status + schema version) vs which agent claims to have produced it, and run the adversarial review on the
+  final on-disk code regardless of which agent wrote it.** (Extends the recurring S3/S4/S5/S6/S8 "review phase may die on
+  a session limit — verify it ran" habit.)
+Gate fully green in Release: **Ledger 864 · Io 249 · Sqlite 137 · Desktop 658 = 1908 total, 0 failures**, schema v36,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S7. Release build sanity check: **0
+warnings, 0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 7 — §192 salary TDS … schema v36`
+(`c019a7f`) + `docs(memory): Phase 8 slice 7 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched**
+(rides to `main` with the Phase-8 PR at the phase boundary).
+**CARRY-FORWARD (documented, non-blocking):** salary TDS credits a **separate 'TDS on Salary' payable** and is **NOT yet
+depositable via the Phase-7 stat-payment / challan path** — routing it there would pollute **Form 26Q** (which keys on
+`TdsLineTax`). Form 24Q is a complete, self-consistent RETURN, but the **salary-TDS deposit/challan integration is
+deferred** to a later refinement / the S10 exit gate.
+**Next = P8-S8 (payslips + Pay Sheet / Payroll Register / Attendance / Payment Advice reports; no schema change).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
