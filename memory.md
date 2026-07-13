@@ -1521,6 +1521,60 @@ de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S5
 MH + KA + WB + None, PT deduction + payment; schema v35; A14 to web-verify per-state PT bands + the ₹2,500/yr
 constitutional cap).**
 
+### Phase 8 slice 6 — Professional Tax (PT) (2026-07-12) — schema v35
+Sixth Phase-8 (Payroll) slice — the **third statutory** payroll head: **Professional Tax**, a **state-levied** tax on
+employment, computed and posted through the S3 balanced/atomic voucher. **A14 web-verified the per-state PT bands and the
+constitutional cap.** PT differs structurally from PF/ESI: it is **flat-amount-by-wage-band (a slab lookup), not a
+percentage**, and the schedule is **state-specific and editable**. Delivered:
+- **`ProfessionalTax`** (`src/Apex.Ledger/Services/ProfessionalTax.cs`) — pure, framework/DB/clock-free PT computation. A
+  monthly wage falls into exactly one **band** of the active state's slab and pays that band's **flat rupee amount** (not a
+  rate). **₹2,500/yr constitutional HARD CAP (Art. 276(2))** on **cumulative FY PT** — the year-to-date PT is **derived
+  from posted payroll history** (like the TCS §206C(1H) / GSTR-1 YTD projection), and the current month is clamped so the
+  FY total never exceeds ₹2,500. **Per-band February override** — a band may carry a distinct **February amount** (e.g.
+  Maharashtra charges ₹300 in Feb vs ₹200 the other months) so the ₹200×11 + ₹300 schedule lands **exactly** on the
+  ₹2,500 cap. **Maharashtra gender dimension** — a band may be scoped to a gender (`PtGenderScope`); MH **women are exempt
+  at/below ₹25,000** monthly wages. `PtComputationTests` incl. the goldens.
+- **State-configurable slab engine, seeded + editable** — **`ProfessionalTaxSlab`** / band rows
+  (`src/Apex.Ledger/Domain/ProfessionalTaxSlab.cs`) are **data, not code**: a per-company slab set seeded **MH (men +
+  women schedules), KA, WB, and None**, then **editable per company**. **`PtConfig`**
+  (`src/Apex.Ledger/Domain/PtConfig.cs`) carries the per-company PT applicability + active state + registration; wage basis
+  is data (`PtWageBasis`). The verified seed (band-for-band, A14): **MH men** ≤₹7,500 ₹0 / ₹7,501–10,000 ₹175 / >₹10,000
+  ₹200 (₹300 in Feb); **MH women** exempt ≤₹25,000 then the men schedule; **KA** ≤₹24,999 ₹0 / ≥₹25,000 ₹200; **WB**
+  banded to ₹110 at ₹15,000; **None** = no PT.
+- **`PtStatutoryComponent`** (`src/Apex.Ledger/Domain/PtStatutoryComponent.cs`) carries the computed monthly PT + the
+  selected band + the applied cap/Feb-override decision; the **per-pay-head `PtComponent`** role tags the PT deduction head.
+- **Posting integration into the S3 balanced/atomic voucher** — PT is a pure **employee deduction**: it **reduces net**
+  (Cr **Professional Tax Payable**), **no employer side** (unlike PF/ESI). Rides the same **pre-validate → rollback-scope
+  atomic** post and **non-destructive auto-create** of the PT-payable ledger from S3 — **no voucher-service change**.
+  `PtVoucherPostingTests`.
+- **Register** — **`ProfessionalTaxRegister`** (`src/Apex.Ledger/Reports/ProfessionalTaxRegister.cs`) projects the
+  per-employee monthly PT (band, amount, Feb override, YTD-vs-cap) for the state remittance; `ProfessionalTaxRegisterViewModel`
+  drives the pane. `PtConfigReportViewModelTests`.
+- **Schema v34→v35 — additive** (`Schema.cs` `CurrentVersion = 35`): the **`pt_slab_bands` table** (per-company slab bands)
+  + `companies` **pt_* columns** (applicability/state/registration) + **`pay_heads.pt_component`**, added to **BOTH
+  `CreateV1` AND `MigrateV34ToV35`** (no create-vs-migrate drift); the **downgrade helpers DROP `pt_slab_bands`**;
+  **`SchemaMigrationEquivalenceTests` green at v35**. `SqliteCompanyStore` persists it all (`PtSchemaTests`).
+- **Io canonical fold-in** — PtConfig + the slab bands + the pay-head PtComponent folded into `Apex.Ledger.Io`
+  (`CanonicalModel`/`CanonicalMapper`/`CanonicalXml`/`ApplyJournal`/`ImportPlan`/`CompanyImportService`) → **paisa-exact
+  JSON+XML lossless round-trip** with a **full import pre-flight ref guard** (`CanonicalPtRoundTripTests`).
+- **GOLDEN** (hand-derived, regression-locked): **MH man ₹12,000 → ₹200/mo + ₹300 Feb = ₹2,500/yr** (lands exactly on the
+  Art. 276 cap); **MH woman ₹12,000 → ₹0** (women exempt); **KA ₹30,000 → ₹200/mo**; **WB ₹15,000 → ₹110/mo**.
+- **A10 adversarial review — posting-balance CLEAN, seed verified band-for-band.** ⚠️ the **workflow's review phase again
+  died on a session limit** (the recurring S3/S4/S5/S8 habit), so I (orchestrator) **ran the 3 A10 lenses SEPARATELY**
+  before A12 committed. Fixed **3 LOW**: (1) **band selection now half-up** so the picked band matches the register; (2)
+  **`pt_slab_bands` read by `band_order`** (deterministic band sequencing, not insertion order); (3) a **UNIFORM
+  role-based statutory-component guard (PF/ESI/PT)** in `PayHeadService` **and** the Io import pre-flight — hardening the
+  recurring **Io-import-bypassing-engine-guards** class so a PT/PF/ESI role can't be double-assigned or imported past the
+  engine invariant.
+Gate fully green in Release: **Ledger 831 · Io 239 · Sqlite 134 · Desktop 649 = 1853 total, 0 failures**, schema v35,
+de-branded, TestAppBuilder clean, no stray files, working tree exclusively P8-S6. Release build sanity check: **0 warnings,
+0 errors**. Committed + pushed by A12 (R4): `feat(payroll): Phase 8 slice 6 — Professional Tax … schema v35` +
+`docs(memory): Phase 8 slice 6 log`. Branch `claude/recursing-swirles-3138c6` pushed; **`main` NOT touched** (rides to
+`main` with the Phase-8 PR at the phase boundary). **Next = P8-S7 (§192 Salary TDS + Form 24Q — REUSES the Phase-7
+`TdsService`; FY2025-26 new-regime default with a per-employee old-regime toggle, standard deduction ₹75k, §87A nil ≤₹12L,
+surcharge/cess; Annexure I all quarters + Annexure II in Q4 → Form 16; offline FVU; likely no/additive schema; A14 to
+web-verify the FY2025-26 §192 slabs & rebate).**
+
 ## Phase 7 Slice 7 — Form 16A / 27D certificates + Form 27A control chart (PDF) (2026-07-10) — NO schema change (v29)
 Seventh (final compute-side) TDS/TCS slice: the **certificates** — the deductee's/collectee's proof-of-tax and the
 return's control-total cover. **No schema change** (`Schema.cs` stays `CurrentVersion = 29`); every figure is a pure
