@@ -95,7 +95,9 @@ public static class EsiMonthlyContribution
                     ? r.Trim()
                     : DefaultZeroWageReason);
 
-            string? lastWorkingDay = employee.DateOfLeaving is { } lv ? lv.ToString("yyyy-MM-dd") : null;
+            string? lastWorkingDay = employee.DateOfLeaving is { } lv
+                ? lv.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                : null;
 
             rows.Add(new EsiContributionRow(
                 IpNumber: employee.EsiNumber!.Trim(),

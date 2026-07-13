@@ -16,8 +16,9 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v32).</summary>
-    public const int SchemaVersion = 32;
+    /// <summary>The persistence schema version this export targets (SQLite schema v37). Metadata only — the canonical
+    /// round-trip is faithful regardless and this constant is not validated on import.</summary>
+    public const int SchemaVersion = 37;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>

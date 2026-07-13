@@ -97,7 +97,8 @@ public sealed partial class BonusRegisterViewModel : ViewModelBase
         var fyStart = new DateOnly(startYear, _company.FinancialYearStart.Month, 1);
         var fyEnd = fyStart.AddYears(1).AddDays(-1);
 
-        AccountingYearText = $"{fyStart:dd MMM yyyy} — {fyEnd:dd MMM yyyy}";
+        AccountingYearText = $"{fyStart.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)} — " +
+            $"{fyEnd.ToString("dd MMM yyyy", CultureInfo.InvariantCulture)}";
         RateText = _company.BonusConfig is { } cfg
             ? (cfg.RateBasisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%"
             : "—";

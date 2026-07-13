@@ -65,20 +65,24 @@ namespace Apex.Persistence.Sqlite;
 /// employer-expense ledger link (v32); and the Provident-Fund config (establishment PF config on companies,
 /// per-employee PF details, and the pay-head PF statutory role + PF-wage flag) (v33); and the Employees'-State-
 /// Insurance config (establishment ESI config on companies, per-employee ESI applicability, and the pay-head ESI
-/// statutory role + ESI-wage flag + overtime marker) (v34).
-/// <b><see cref="CurrentVersion"/> = 34</b>; a fresh DB is always stamped straight to the current version via
+/// statutory role + ESI-wage flag + overtime marker) (v34); the Professional-Tax config (establishment PT
+/// state/registration/wage-basis columns on companies, the pay-head PT statutory role, and the seeded per-state
+/// <c>pt_slab_bands</c> table) (v35); §192 salary-TDS (the <c>salary_tds_enabled</c> company flag and the
+/// <c>employee_tax_declarations</c> table of Chapter VI-A / HRA / other-income figures) (v36); and the establishment
+/// Gratuity-provision + statutory-Bonus config columns on companies (v37).
+/// <b><see cref="CurrentVersion"/> = 37</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v34</b> is the latest bump (Phase 8
-    /// slice 5 — Employees' State Insurance: establishment ESI config columns on companies, a per-employee ESI
-    /// applicability column, and the pay-head ESI statutory role + ESI-wage flag + overtime marker). The full
-    /// v1→v34 history is documented on each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a
-    /// fresh database is stamped straight to this version via <see cref="CreateV1"/>, while an older database is
-    /// migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>: any
-    /// table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the
-    /// migration-equivalence test enforces this).</summary>
+    /// <summary>The current schema version this adapter reads and writes. <b>v37</b> is the latest bump (Phase 8
+    /// slice 9 — Gratuity provision + statutory Bonus: the establishment Gratuity config columns (enrolled flag,
+    /// §4(3) cap, wage basis, provision population) and statutory-Bonus config columns (enrolled flag, rate, §12
+    /// calc-ceiling, minimum wage, prorate) on companies). The full v1→v37 history is documented on each
+    /// <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight to
+    /// this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time.
+    /// Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
+    /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
     public const int CurrentVersion = 37;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
