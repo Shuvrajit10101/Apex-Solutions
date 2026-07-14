@@ -1,4 +1,5 @@
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Reports;
 
@@ -49,6 +50,48 @@ public sealed record Gstr1HsnRow(
 }
 
 /// <summary>
+/// One <b>Table 9B</b> row of GSTR-1 (Phase 9 slice 2b; RQ-24; §34): a credit/debit note against an original invoice —
+/// the note type (C/D), the original-invoice reference (number + date), the note's own date, place of supply, and the
+/// <b>signed</b> taxable value + CGST/SGST/IGST (a credit note is negative, a debit note positive), plus the §34 reason.
+/// Read off the posted note tax lines (never recomputed), joined to the <see cref="GstCreditDebitNoteLink"/> record.
+/// </summary>
+public sealed record Gstr1Table9BRow(
+    CdnType NoteType,
+    Guid? OriginalInvoiceVoucherId,
+    string? OriginalInvoiceNumber,
+    DateOnly? OriginalInvoiceDate,
+    DateOnly NoteDate,
+    string? PlaceOfSupplyStateCode,
+    Money TaxableValue,
+    Money Cgst,
+    Money Sgst,
+    Money Igst,
+    string ReasonCode,
+    bool Is9BTarget)
+{
+    /// <summary>Σ signed tax on this note (CGST + SGST + IGST).</summary>
+    public Money TotalTax => new(Cgst.Amount + Sgst.Amount + Igst.Amount);
+}
+
+/// <summary>One <b>Table 11A</b> row of GSTR-1 (Phase 9 slice 2b; RQ-25): advance <b>received</b> in the period, grouped
+/// by integrated rate and place-of-supply nature, with its tax (services only — goods advances are de-taxed).</summary>
+public sealed record Gstr1AdvanceRow(
+    int RateBasisPoints, bool InterState, Money AdvanceReceived, Money Cgst, Money Sgst, Money Igst)
+{
+    /// <summary>Σ advance tax on this row.</summary>
+    public Money TotalTax => new(Cgst.Amount + Sgst.Amount + Igst.Amount);
+}
+
+/// <summary>One <b>Table 11B</b> row of GSTR-1 (Phase 9 slice 2b; RQ-25): advance <b>adjusted</b> against an invoice in
+/// the period, grouped by integrated rate and place-of-supply nature (reverses the 11A the advance was reported in).</summary>
+public sealed record Gstr1AdvanceAdjustedRow(
+    int RateBasisPoints, bool InterState, Money AdvanceAdjusted, Money Cgst, Money Sgst, Money Igst)
+{
+    /// <summary>Σ adjusted advance tax on this row.</summary>
+    public Money TotalTax => new(Cgst.Amount + Sgst.Amount + Igst.Amount);
+}
+
+/// <summary>
 /// <b>GSTR-1</b> (outward supplies) — a pure, read-only projection over the posted <b>outward</b> (Sales /
 /// Credit-Note) GST vouchers in <c>[from, to]</c> (phase4-gst-requirements RQ-21; catalog §12; ER-7). It reads
 /// the tax off each tax <see cref="EntryLine"/>'s <see cref="GstLineTax"/> — never recomputing — so the
@@ -79,7 +122,28 @@ public sealed record Gstr1(
     /// </summary>
     public Money Rcm4BOutwardValue { get; init; }
 
-    /// <summary>Σ all output tax on the return (CGST + SGST + IGST).</summary>
+    /// <summary>
+    /// Table 9B (Phase 9 slice 2b; RQ-24; §34) — the credit/debit notes issued against original invoices in the period,
+    /// each signed by note type (credit negative, debit positive). Default empty so a company with no §34 note is
+    /// byte-identical (ER-13). The note tax is <b>already folded (signed) into <see cref="TotalCgst"/>/…</b>.
+    /// </summary>
+    public IReadOnlyList<Gstr1Table9BRow> Table9B { get; init; } = [];
+
+    /// <summary>Table 11A (Phase 9 slice 2b; RQ-25) — advances received (services only) in the period. Default empty (ER-13).</summary>
+    public IReadOnlyList<Gstr1AdvanceRow> Table11A { get; init; } = [];
+
+    /// <summary>Table 11B (Phase 9 slice 2b; RQ-25) — advances adjusted against invoices in the period. Default empty (ER-13).</summary>
+    public IReadOnlyList<Gstr1AdvanceAdjustedRow> Table11B { get; init; } = [];
+
+    /// <summary>Σ advance tax received (Table 11A) across all rows.</summary>
+    public Money AdvanceTaxReceived =>
+        new(Table11A.Sum(r => r.Cgst.Amount + r.Sgst.Amount + r.Igst.Amount));
+
+    /// <summary>Σ advance tax adjusted (Table 11B) across all rows.</summary>
+    public Money AdvanceTaxAdjusted =>
+        new(Table11B.Sum(r => r.Cgst.Amount + r.Sgst.Amount + r.Igst.Amount));
+
+    /// <summary>Σ all output tax on the return (CGST + SGST + IGST). Includes the §34 CDN net (signed).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
     /// <summary>Builds GSTR-1 for the whole company over <c>[from, to]</c>.</summary>
@@ -94,6 +158,12 @@ public sealed record Gstr1(
 
         foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output))
         {
+            // Phase 9 slice 2b: a formalised §34 credit/debit note is a first-class outward document projected by Table 9B
+            // (signed by note type) and folded — signed — into the output totals below. Exclude it from the ordinary
+            // invoice sweep so its tax is not double-counted (mirrors the RCM / outward-4B exclusions, risk #4). A company
+            // with no §34 note never enters this branch (byte-identical, ER-13).
+            if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
+
             // Per-invoice posted tax by head (read off the tax lines — never recomputed).
             var invoice = ReadInvoiceHeads(voucher);
             var hasTax = invoice.Cgst != 0m || invoice.Sgst != 0m || invoice.Igst != 0m;
@@ -163,11 +233,120 @@ public sealed record Gstr1(
                 new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst)))
             .ToList();
 
+        // Phase 9 slice 2b: Table 9B (§34 CDN) — signed by note type — is folded into the output totals; 11A/11B are
+        // projected off the advance records. All skipped byte-identically when the collections are empty (ER-13).
+        var table9B = BuildTable9B(company, from, to, ref totalCgst, ref totalSgst, ref totalIgst);
+        var (table11A, table11B) = BuildAdvanceTables(company, from, to);
+
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
             new Money(exempt), new Money(totalCgst), new Money(totalSgst), new Money(totalIgst))
         {
             Rcm4BOutwardValue = ComputeRcm4BOutwardValue(company, from, to),
+            Table9B = table9B,
+            Table11A = table11A,
+            Table11B = table11B,
         };
+    }
+
+    /// <summary>
+    /// Builds GSTR-1 Table 9B (Phase 9 slice 2b; RQ-24; §34): one row per §34 credit/debit note posted in the window,
+    /// read off the note's posted Output-tax lines (never recomputed), joined to its <see cref="GstCreditDebitNoteLink"/>
+    /// for the original-invoice reference + reason. Each row is <b>signed by note type</b> — a credit note is negative
+    /// (it reduces output), a debit note positive — and that signed tax is folded into the return's output totals so
+    /// GSTR-1 nets correctly. A company with no §34 note yields an empty table and leaves the totals untouched (ER-13).
+    /// </summary>
+    private static IReadOnlyList<Gstr1Table9BRow> BuildTable9B(
+        Company company, DateOnly from, DateOnly to, ref decimal totalCgst, ref decimal totalSgst, ref decimal totalIgst)
+    {
+        if (company.CreditDebitNoteLinks.Count == 0) return [];
+
+        var rows = new List<Gstr1Table9BRow>();
+        foreach (var link in company.CreditDebitNoteLinks)
+        {
+            var v = company.FindVoucher(link.CdnVoucherId);
+            if (v is null || v.Date < from) continue;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+
+            var heads = ReadInvoiceHeads(v);              // positive magnitudes
+            var taxable = GstReportSupport.InvoiceTaxableValue(v).Amount;
+            var sign = link.CdnType == CdnType.Credit ? -1m : 1m;
+
+            totalCgst += sign * heads.Cgst;
+            totalSgst += sign * heads.Sgst;
+            totalIgst += sign * heads.Igst;
+
+            rows.Add(new Gstr1Table9BRow(
+                link.CdnType, link.OriginalInvoiceVoucherId, link.OriginalInvoiceNumber, link.OriginalInvoiceDate,
+                v.Date, GstReportSupport.PlaceOfSupply(company, v),
+                new Money(sign * taxable), new Money(sign * heads.Cgst), new Money(sign * heads.Sgst),
+                new Money(sign * heads.Igst), link.ReasonCode, link.Is9BTarget));
+        }
+        // Deterministic order: by note date, then original-invoice reference, then id-stable link order.
+        return rows
+            .OrderBy(r => r.NoteDate)
+            .ThenBy(r => r.OriginalInvoiceNumber, StringComparer.Ordinal)
+            .ThenBy(r => r.NoteType)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Builds GSTR-1 Table 11A (advances received) + 11B (advances adjusted) off the <see cref="GstAdvanceReceipt"/>
+    /// records (Phase 9 slice 2b; RQ-25) — the source of truth for the advance tax. 11A groups the service advances whose
+    /// <b>receipt</b> voucher falls in the window (goods advances are de-taxed → excluded); 11B groups those whose
+    /// <b>adjustment</b> (invoice) <b>or Rule-51 refund</b> voucher falls in the window (a refund reverses the advance
+    /// exactly like an adjustment). Each group's CGST/SGST/IGST split is reproduced from the record's net advance + rate +
+    /// POS via the same total-then-split rule (paisa-exact). Empty when unused (ER-13).
+    /// </summary>
+    private static (IReadOnlyList<Gstr1AdvanceRow> Table11A, IReadOnlyList<Gstr1AdvanceAdjustedRow> Table11B)
+        BuildAdvanceTables(Company company, DateOnly from, DateOnly to)
+    {
+        if (company.AdvanceReceipts.Count == 0) return ([], []);
+
+        var received = new Dictionary<(int Rate, bool Inter), (decimal Adv, decimal Cgst, decimal Sgst, decimal Igst)>();
+        var adjusted = new Dictionary<(int Rate, bool Inter), (decimal Adv, decimal Cgst, decimal Sgst, decimal Igst)>();
+
+        bool InWindow(Guid? voucherId)
+        {
+            if (voucherId is not { } vid || company.FindVoucher(vid) is not { } v) return false;
+            if (v.Date < from) return false;
+            var type = company.FindVoucherType(v.TypeId);
+            return type is not null && LedgerBalances.CountsAsOf(v, to, type.BaseType);
+        }
+
+        void Accumulate(
+            Dictionary<(int, bool), (decimal, decimal, decimal, decimal)> acc, GstAdvanceReceipt a)
+        {
+            var split = GstService.ComputeLineTax(a.AdvanceAmount, a.RateBasisPoints, a.InterState);
+            var key = (a.RateBasisPoints, a.InterState);
+            var (adv, cg, sg, ig) = acc.TryGetValue(key, out var cur) ? cur : (0m, 0m, 0m, 0m);
+            acc[key] = (adv + a.AdvanceAmount.Amount, cg + split.Cgst.Amount, sg + split.Sgst.Amount, ig + split.Igst.Amount);
+        }
+
+        foreach (var a in company.AdvanceReceipts)
+        {
+            if (!a.IsService || a.AdvanceTax.Amount == 0m) continue; // goods advances are de-taxed — no 11A/11B
+            if (InWindow(a.ReceiptVoucherId)) Accumulate(received, a);
+            if (InWindow(a.AdjustedAgainstInvoiceVoucherId)) Accumulate(adjusted, a);
+            // A Rule-51 REFUND reverses the advance: net it back out in the refund period exactly like an adjustment
+            // (11B), so a refunded advance's 11A − 11B collapses to 0 and reconciles with the zero ledger balance
+            // (finding #1). Without this the 11A liability stays reported forever though the books say 0.
+            if (InWindow(a.RefundVoucherId)) Accumulate(adjusted, a);
+        }
+
+        var t11a = received
+            .OrderBy(kv => kv.Key.Rate).ThenBy(kv => kv.Key.Inter)
+            .Select(kv => new Gstr1AdvanceRow(kv.Key.Rate, kv.Key.Inter,
+                new Money(kv.Value.Adv), new Money(kv.Value.Cgst), new Money(kv.Value.Sgst), new Money(kv.Value.Igst)))
+            .ToList();
+
+        var t11b = adjusted
+            .OrderBy(kv => kv.Key.Rate).ThenBy(kv => kv.Key.Inter)
+            .Select(kv => new Gstr1AdvanceAdjustedRow(kv.Key.Rate, kv.Key.Inter,
+                new Money(kv.Value.Adv), new Money(kv.Value.Cgst), new Money(kv.Value.Sgst), new Money(kv.Value.Igst)))
+            .ToList();
+
+        return (t11a, t11b);
     }
 
     /// <summary>
@@ -192,13 +371,17 @@ public sealed record Gstr1(
         return new Money(total);
     }
 
-    /// <summary>Reads a voucher's posted tax by head off its <see cref="GstLineTax"/> tax lines.</summary>
+    /// <summary>Reads a voucher's posted forward tax by head off its <see cref="GstLineTax"/> tax lines. Reverse-charge
+    /// lines are excluded (finding #7): they are their own 3.1(d)/4A buckets, so folding an identical head set here keeps
+    /// Table 9B aligned with GSTR-3B <c>ReadCdn</c> (which already skips them) and consistent with
+    /// <see cref="GstReportSupport.InvoiceTaxableValue"/> (which excludes them too). An ordinary outward invoice carries no
+    /// reverse-charge forward-tax line, so this is a defensive alignment — byte-identical for the reachable paths.</summary>
     private static (decimal Cgst, decimal Sgst, decimal Igst) ReadInvoiceHeads(Voucher voucher)
     {
         var cgst = 0m; var sgst = 0m; var igst = 0m;
         foreach (var line in voucher.Lines)
         {
-            if (line.Gst is not { } g) continue;
+            if (line.Gst is not { } g || g.IsReverseCharge) continue;
             switch (g.TaxHead)
             {
                 case GstTaxHead.Central: cgst += line.Amount.Amount; break;

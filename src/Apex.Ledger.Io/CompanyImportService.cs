@@ -203,7 +203,48 @@ public sealed class CompanyImportService
         foreach (var v in model.Payload.Vouchers)
             ValidateVoucher(v, plan, model, errors);
 
+        // ---- §34 credit/debit-note links: original-invoice reference resolvability (Phase 9 slice 2b; ER-12) ----
+        ValidateCreditDebitNoteLinks(model, errors);
+
         return plan;
+    }
+
+    /// <summary>
+    /// Validates the §34 credit/debit-note links at pre-flight (Phase 9 slice 2b; RQ-24; ER-12): the original-invoice
+    /// reference must <b>resolve</b> — either its <c>OriginalInvoiceVoucherId</c> maps to a voucher that is imported or
+    /// already present in the target, OR a consolidated <c>OriginalInvoiceNumber</c> is supplied (finding #3). Without
+    /// this a dangling voucher link with no fallback number degrades to an opaque mid-Apply rollback (the domain
+    /// <see cref="Domain.GstCreditDebitNoteLink"/> constructor throws ER-12 when <c>ImportPlan</c> re-mints the link with a
+    /// null voucher and null number); the guard surfaces it as a clean per-record error instead.
+    /// <para>
+    /// The <b>§34(2) 30-November date guard is deliberately NOT re-run on import</b> (finding #2): that cut-off is an
+    /// <b>entry-time</b> decision made in <see cref="CreditDebitNoteService"/> (with its <c>overrideTimeLimit</c> escape
+    /// hatch), so re-enforcing it here would reject a legitimately-overridden late credit note and make backup/restore
+    /// <b>lossy</b>. Import restores already-decided data losslessly. A persisted <c>OverrideTimeLimit</c> flag on
+    /// <c>gst_cdn_links</c> is a cleaner future enhancement (it would let import re-verify §34(2) while honouring a stored
+    /// override) — but that needs a new schema column, out of scope this slice.
+    /// </para>
+    /// </summary>
+    private void ValidateCreditDebitNoteLinks(CanonicalModel model, List<string> errors)
+    {
+        foreach (var link in model.Payload.CreditDebitNoteLinks)
+        {
+            // Skip an orphan link whose CDN voucher was not imported / is not present — ImportPlan prunes it, so it is
+            // never re-minted and cannot fault.
+            var cdnVoucherResolvable = model.Payload.Vouchers.Any(v => v.Id == link.CdnVoucherId)
+                || _target.FindVoucher(link.CdnVoucherId) is not null;
+            if (!cdnVoucherResolvable) continue;
+
+            // ER-12 resolvability: the original-invoice voucher link resolves, OR a consolidated original-invoice number
+            // stands in. If neither, ImportPlan re-mints the link with a null voucher AND null number → the domain
+            // constructor throws mid-Apply (generic rollback). Flag it cleanly here instead (finding #3).
+            var origVoucherResolves = link.OriginalInvoiceVoucherId is { } oid
+                && (model.Payload.Vouchers.Any(v => v.Id == oid) || _target.FindVoucher(oid) is not null);
+            if (!origVoucherResolves && string.IsNullOrWhiteSpace(link.OriginalInvoiceNumber))
+                errors.Add(
+                    "A §34 credit/debit-note link references an original invoice that is neither imported nor present in "
+                    + "the target, and carries no consolidated original-invoice number (ER-12).");
+        }
     }
 
     /// <summary>

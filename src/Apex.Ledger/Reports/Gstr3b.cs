@@ -91,6 +91,12 @@ public sealed record Gstr3b(
 
         var rcm = ReadRcm(company, from, to);
 
+        // Phase 9 slice 2b: fold the §34 CDN net (signed by note type) into 3.1(a) outward — a credit note reduces the
+        // outward tax + taxable value, a debit note increases them. CDN-linked vouchers are excluded from ReadSide (both
+        // directions) so they are counted here once, signed (risk #4). No CDN ⇒ zero delta (byte-identical, ER-13).
+        var cdn = ReadCdn(company, from, to);
+        outCgst += cdn.Cgst; outSgst += cdn.Sgst; outIgst += cdn.Igst; taxable += cdn.Taxable;
+
         return new Gstr3b(from, to,
             new Money(taxable), new Money(exempt),
             new Money(outCgst), new Money(outSgst), new Money(outIgst),
@@ -152,6 +158,42 @@ public sealed record Gstr3b(
     }
 
     /// <summary>
+    /// The §34 CDN net (Phase 9 slice 2b; RQ-24) folded into 3.1(a) outward: Σ over the credit/debit notes posted in the
+    /// window of their <b>signed</b> Output tax + taxable value (a credit note negative — reduces output; a debit note
+    /// positive — increases it). Read off the note's posted Output-tax lines (never recomputed), joined to the
+    /// <see cref="GstCreditDebitNoteLink"/> record, decoupled from the base-type→direction map so a §34 debit note (whose
+    /// base type maps to Input) still nets the <b>output</b> tax up. A company with no §34 note yields a zero delta (ER-13).
+    /// </summary>
+    private static (decimal Cgst, decimal Sgst, decimal Igst, decimal Taxable) ReadCdn(
+        Company company, DateOnly from, DateOnly to)
+    {
+        if (company.CreditDebitNoteLinks.Count == 0) return (0m, 0m, 0m, 0m);
+
+        decimal cgst = 0m, sgst = 0m, igst = 0m, taxable = 0m;
+        foreach (var link in company.CreditDebitNoteLinks)
+        {
+            var v = company.FindVoucher(link.CdnVoucherId);
+            if (v is null || v.Date < from) continue;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+
+            var sign = link.CdnType == CdnType.Credit ? -1m : 1m;
+            foreach (var line in v.Lines)
+            {
+                if (line.Gst is not { } g || g.IsReverseCharge) continue;
+                switch (g.TaxHead)
+                {
+                    case GstTaxHead.Central: cgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.State: sgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.Integrated: igst += sign * line.Amount.Amount; break;
+                }
+            }
+            taxable += sign * GstReportSupport.InvoiceTaxableValue(v).Amount;
+        }
+        return (cgst, sgst, igst, taxable);
+    }
+
+    /// <summary>
     /// Reads one side's per-head tax + (for outward) taxable and exempt outward value, off the posted tax
     /// lines. Taxable value is summed once per voucher (the whole-invoice taxable value, not per head, to avoid
     /// double-counting the CGST+SGST legs); an all-exempt/nil outward supply adds its stock value to exempt.
@@ -163,6 +205,11 @@ public sealed record Gstr3b(
 
         foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction))
         {
+            // Phase 9 slice 2b: a formalised §34 credit/debit note is projected — signed — into 3.1(a) by ReadCdn; exclude
+            // it from BOTH the ordinary outward and the "all other ITC" sweeps so it is never double-counted (risk #4). A
+            // §34 debit note's base type maps to Input, so this exclusion also keeps it out of ITC. No CDN ⇒ no exclusion.
+            if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
+
             var hasTax = false;
             foreach (var line in voucher.Lines)
             {
@@ -208,6 +255,10 @@ public sealed record Gstr3b(
             // An outward reverse-charge supply carries zero tax too, but it belongs only in 3.1(d)-value / GSTR-1 4B —
             // NOT the exempt/nil/non-GST bucket (else it is double-represented). Exclude it (Phase 9 slice 2; RQ-7).
             if (GstReportSupport.IsOutwardReverseChargeSupply(company, v)) continue;
+            // A §34 CDN-linked voucher is projected — signed — by its own table (3.1(a) via ReadCdn / GSTR-1 Table 9B),
+            // so a zero-tax (exempt) §34 note must NOT also land in the exempt/nil/non-GST bucket, else GSTR-3B over-states
+            // exempt outward and diverges from the GSTR-1 main sweep (which already skips CDN-linked vouchers). Finding #6.
+            if (GstReportSupport.CdnLinkFor(company, v) is not null) continue;
             exempt += v.InventoryLinesValue.Amount;
         }
         return exempt;

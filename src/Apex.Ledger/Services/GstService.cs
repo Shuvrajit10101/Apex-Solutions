@@ -227,6 +227,28 @@ public sealed class GstService
             Guid.NewGuid(), RoundOffLedgerName, indirectExp.Id, Money.Zero, openingIsDebit: true));
     }
 
+    /// <summary>The auto-created GST-on-advance tax-suspense ledger name (Phase 9 slice 2b; Rule 50).</summary>
+    public const string AdvanceTaxSuspenseLedgerName = "Output Tax on Advances";
+
+    /// <summary>
+    /// Lazily creates (idempotently) the <b>Output Tax on Advances</b> suspense ledger under Current Assets and returns
+    /// it (Phase 9 slice 2b; RQ-25; Rule 50). On a service-advance receipt the tax is payable now (a genuine Output
+    /// liability) yet not yet invoiced, so the paid tax is parked in this current-asset suspense — the receipt balances
+    /// without inflating revenue, and the suspense is reversed when the invoice adjusts the advance (or on a Rule-51
+    /// refund). Created <b>lazily</b> (never in <see cref="EnableGst"/>), so a company that never takes a taxable advance
+    /// keeps the v38 ledger set (ER-13). Mirrors <see cref="EnsureRoundOffLedger"/> / <see cref="EnsureRcmOutputLedger"/>.
+    /// </summary>
+    public Domain.Ledger EnsureAdvanceTaxSuspenseLedger()
+    {
+        if (_company.FindLedgerByName(AdvanceTaxSuspenseLedgerName) is { } existing) return existing;
+        var currentAssets = _company.FindGroupByName("Current Assets")
+            ?? throw new InvalidOperationException("Seed missing 'Current Assets' group; cannot auto-create the advance-tax suspense ledger.");
+        var ledger = new Domain.Ledger(
+            Guid.NewGuid(), AdvanceTaxSuspenseLedgerName, currentAssets.Id, Money.Zero, openingIsDebit: true);
+        _company.AddLedger(ledger);
+        return ledger;
+    }
+
     // ---- RQ-11: intra vs inter routing ----
 
     /// <summary>

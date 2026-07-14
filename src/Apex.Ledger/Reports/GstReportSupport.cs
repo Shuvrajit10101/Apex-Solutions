@@ -93,6 +93,16 @@ public static class GstReportSupport
     }
 
     /// <summary>
+    /// The §34 credit/debit-note link annotating a voucher (Phase 9 slice 2b; RQ-24), or <c>null</c> when the voucher is
+    /// not a formalised §34 note. A CDN-linked voucher is a first-class §34 document projected by its own outward table
+    /// (GSTR-1 Table 9B, signed by <see cref="GstCreditDebitNoteLink.CdnType"/>) and folded — signed — into the output-tax
+    /// buckets, so the ordinary GSTR-1/3B invoice sweeps <b>exclude</b> it (it is never double-counted, mirroring the RCM
+    /// and outward-4B exclusions). A company with no §34 note always returns <c>null</c> (byte-identical, ER-13).
+    /// </summary>
+    public static GstCreditDebitNoteLink? CdnLinkFor(Company company, Voucher voucher) =>
+        company.CreditDebitNoteLinks.FirstOrDefault(l => l.CdnVoucherId == voucher.Id);
+
+    /// <summary>
     /// The integrated-rate basis points a tax line represents, for rate-wise grouping. A CGST/SGST line carries
     /// the <b>half</b> rate on its <see cref="GstLineTax.RateBasisPoints"/> (900 for an 18% intra supply), so we
     /// double it to recover the integrated slab (1800); an IGST line already carries the full rate. A zero-rate
