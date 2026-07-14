@@ -16,6 +16,8 @@ namespace Apex.Ledger.Domain;
 public sealed class GstConfig
 {
     private readonly List<GstRateSlab> _rateSlabs = new();
+    private readonly List<GstRateHistoryEntry> _rateHistory = new();
+    private readonly List<GstCessRate> _cessRates = new();
 
     /// <summary>Whether GST is enabled for the company. When false, no GST field or report is active.</summary>
     public bool Enabled { get; set; }
@@ -40,6 +42,26 @@ public sealed class GstConfig
 
     /// <summary>Adds a rate slab (used by the seed on enable).</summary>
     public void AddRateSlab(GstRateSlab slab) => _rateSlabs.Add(slab ?? throw new ArgumentNullException(nameof(slab)));
+
+    /// <summary>
+    /// The dated GST rate-history windows (Phase 9 slice 1; RQ-1). <b>Empty</b> for a company that never enables
+    /// advanced GST — <c>ResolveRate</c> then resolves exactly as Phase-4/8 (ER-13 byte-identical when off).
+    /// </summary>
+    public IReadOnlyList<GstRateHistoryEntry> RateHistory => _rateHistory;
+
+    /// <summary>Adds a dated rate-history window (used by the advanced-GST seed / import).</summary>
+    public void AddRateHistory(GstRateHistoryEntry entry) =>
+        _rateHistory.Add(entry ?? throw new ArgumentNullException(nameof(entry)));
+
+    /// <summary>
+    /// The dated Compensation-Cess windows (Phase 9 slice 1; RQ-2/RQ-9). <b>Empty</b> for a company that bears no
+    /// cess — the cess compute is a no-op and no Cess ledger is created (ER-13 byte-identical when off).
+    /// </summary>
+    public IReadOnlyList<GstCessRate> CessRates => _cessRates;
+
+    /// <summary>Adds a dated cess window (used by the advanced-GST seed / import).</summary>
+    public void AddCessRate(GstCessRate rate) =>
+        _cessRates.Add(rate ?? throw new ArgumentNullException(nameof(rate)));
 
     /// <summary>The home <see cref="IndianState"/>, or <c>null</c> if the home state code is unset/invalid.</summary>
     public IndianState? HomeState => IndianState.FromCode(HomeStateCode);

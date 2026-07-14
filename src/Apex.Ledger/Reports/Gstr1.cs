@@ -184,6 +184,10 @@ public sealed record Gstr1(
         foreach (var line in voucher.Lines)
         {
             if (line.Gst is not { } g) continue;
+            // Phase 9 slice 1: a Compensation-Cess line is ring-fenced (own column/total, ER-2), NOT a CGST/SGST/IGST
+            // rate group. Its (doubled) cess-rate key would otherwise inject a phantom rate row into the rate-wise /
+            // B2C consolidation and duplicate the group's taxable value. Skip it here; reports read cess separately.
+            if (g.TaxHead == GstTaxHead.Cess) continue;
             var rate = GstReportSupport.IntegratedRateOf(g);
             if (!byRate.TryGetValue(rate, out var acc)) byRate[rate] = acc = new HeadAmounts();
             switch (g.TaxHead)

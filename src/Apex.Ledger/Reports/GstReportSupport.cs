@@ -94,6 +94,9 @@ public static class GstReportSupport
     /// per-rate maxes yields the whole-invoice taxable value for a multi-rate invoice (e.g. 1000@18% + 500@5% ⇒
     /// 1500) while still not double-counting the CGST+SGST legs of any one rate group. A single-rate invoice
     /// reduces to the previous "max taxable across tax lines". A voucher with no tax line contributes zero.
+    /// <b>Compensation-Cess lines are excluded</b> (Phase 9 slice 1): a cess line records the SAME taxable value on
+    /// its own (doubled) cess-rate key, so counting it would double the CGST/SGST taxable value and inject a phantom
+    /// rate group into GSTR-1/3B. Cess is a ring-fenced own-column charge, never a CGST/SGST/IGST rate group (ER-2).
     /// </summary>
     public static Money InvoiceTaxableValue(Voucher voucher)
     {
@@ -101,6 +104,7 @@ public static class GstReportSupport
         foreach (var line in voucher.Lines)
         {
             if (line.Gst is not { } g) continue;
+            if (g.TaxHead == GstTaxHead.Cess) continue; // ring-fenced cess is not a CGST/SGST/IGST rate group
             var rate = IntegratedRateOf(g);
             var cur = maxByRate.TryGetValue(rate, out var m) ? m : 0m;
             if (g.TaxableValue.Amount > cur) maxByRate[rate] = g.TaxableValue.Amount;

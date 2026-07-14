@@ -410,6 +410,12 @@ public sealed class InventoryVoucherRoundTripTests
         // faithful pre-GST shape and the reopen's MigrateV12ToV13 does not collide with an existing table/column.
         // stock_items is already rebuilt (above) without GST columns, so only these three tables + the table remain.
         Exec(conn, "DROP TABLE IF EXISTS gst_rate_slabs;");
+        // v38 GST 2.0 rate-history + Compensation-Cess tables (+ their indexes) — drop so the reopen's v37→v38 CREATE
+        // TABLE does not collide (the stock_items/ledgers rebuilds above already stripped the v38 columns).
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_rate_history_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_rate_history;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_cess_rates_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_cess_rates;");
         Exec(conn, """
             CREATE TABLE companies_v12 (
                 id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,

@@ -903,6 +903,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 37;
         }
 
+        // v37 → v38: apply the Phase-9 GST 2.0 dated rate framework + Compensation-Cess seam (two new tables
+        // gst_rate_history/gst_cess_rates + their indexes, and seven additive columns each on stock_items and
+        // ledgers), then bump the marker. Existing v37 data survives untouched (CREATE TABLE/INDEX + ALTER … ADD
+        // COLUMN only; no row rewrites). ER-13 byte-identical when a company enables no advanced GST (new tables
+        // empty, new columns default 0/NULL).
+        if (version == 37)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV37ToV38;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 38);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 38;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1066,8 +1091,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
         // v13 GST rate slabs (only present when GST was enabled). Loaded into the config's slab set.
         if (company.Gst is not null)
+        {
             foreach (var slab in ReadGstRateSlabs(companyId))
                 company.Gst.AddRateSlab(slab);
+            // v38 (Phase 9 slice 1): dated rate-history + Compensation-Cess windows (empty when advanced GST is off).
+            foreach (var entry in ReadGstRateHistory(companyId))
+                company.Gst.AddRateHistory(entry);
+            foreach (var rate in ReadGstCessRates(companyId))
+                company.Gst.AddCessRate(rate);
+        }
 
         // v25 TDS/TCS masters (only present when the respective feature was enabled). Loaded into the config.
         if (company.Tds is not null)
@@ -1521,7 +1553,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
                    gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id,
                    tds_applicable, tds_nature_id, deductee_type, party_pan, deduct_in_same_voucher,
-                   tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind
+                   tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind,
+                   sp_gst_valuation_basis, sp_cess_applicable, sp_cess_valuation_mode, sp_cess_rate_bp,
+                   sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1581,7 +1615,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         };
     }
 
-    /// <summary>Reads the sales/purchase GST block (columns 25–28), or <c>null</c> when taxability is NULL.</summary>
+    /// <summary>Reads the sales/purchase GST block (columns 25–28 + v38 cess/RSP columns 42–48), or <c>null</c> when
+    /// taxability is NULL.</summary>
     private static StockItemGstDetails? ReadSalesPurchaseGst(SqliteDataReader r)
     {
         if (r.IsDBNull(26)) return null; // sp_gst_taxability NULL = no block
@@ -1591,6 +1626,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             Taxability = (GstTaxability)(int)r.GetInt64(26),
             RateBasisPoints = r.IsDBNull(27) ? (int?)null : (int)r.GetInt64(27),
             SupplyType = r.IsDBNull(28) ? GstSupplyType.Goods : (GstSupplyType)(int)r.GetInt64(28),
+            // v38 (Phase 9 slice 1): GST 2.0 RSP valuation + Compensation-Cess (default off/null for a plain ledger).
+            ValuationBasis = (GstValuationBasis)(int)r.GetInt64(42),
+            CessApplicable = r.GetInt64(43) != 0,
+            CessValuationMode = r.IsDBNull(44) ? (CessValuationMode?)null : (CessValuationMode)(int)r.GetInt64(44),
+            CessRateBasisPoints = r.IsDBNull(45) ? (int?)null : (int)r.GetInt64(45),
+            CessPerUnit = r.IsDBNull(46) ? (Money?)null : Paisa.ToMoney(r.GetInt64(46)),
+            CessRspFactorMillis = r.IsDBNull(47) ? (int?)null : (int)r.GetInt64(47),
+            RetailSalePrice = r.IsDBNull(48) ? (Money?)null : Paisa.ToMoney(r.GetInt64(48)),
         };
     }
 
@@ -1727,6 +1770,58 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (int)r.GetInt64(1),
                 r.GetString(2),
                 isPredefined: r.GetInt64(3) != 0));
+        return list;
+    }
+
+    /// <summary>v38: reads the dated GST rate-history windows for a company (empty when advanced GST is off).</summary>
+    private IEnumerable<GstRateHistoryEntry> ReadGstRateHistory(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, hsn_sac, rate_bp, rate_class, effective_from, effective_to, valuation_basis, label, is_predefined
+            FROM gst_rate_history WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstRateHistoryEntry>();
+        while (r.Read())
+            list.Add(new GstRateHistoryEntry(
+                Guid.Parse(r.GetString(0)),
+                r.IsDBNull(1) ? null : r.GetString(1),
+                (int)r.GetInt64(2),
+                (GstRateClass)(int)r.GetInt64(3),
+                ParseDate(r.GetString(4)),
+                r.IsDBNull(5) ? (DateOnly?)null : ParseDate(r.GetString(5)),
+                (GstValuationBasis)(int)r.GetInt64(6),
+                r.GetString(7),
+                isPredefined: r.GetInt64(8) != 0));
+        return list;
+    }
+
+    /// <summary>v38: reads the dated Compensation-Cess windows for a company (empty when the company bears no cess).</summary>
+    private IEnumerable<GstCessRate> ReadGstCessRates(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, hsn_sac, valuation_mode, cess_rate_bp, cess_per_unit_paisa, cess_rsp_factor_millis,
+                   effective_from, effective_to, label, is_predefined
+            FROM gst_cess_rates WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstCessRate>();
+        while (r.Read())
+            list.Add(new GstCessRate(
+                Guid.Parse(r.GetString(0)),
+                r.IsDBNull(1) ? null : r.GetString(1),
+                (CessValuationMode)(int)r.GetInt64(2),
+                (int)r.GetInt64(3),
+                Paisa.ToMoney(r.GetInt64(4)),
+                (int)r.GetInt64(5),
+                ParseDate(r.GetString(6)),
+                r.IsDBNull(7) ? (DateOnly?)null : ParseDate(r.GetString(7)),
+                r.GetString(8),
+                isPredefined: r.GetInt64(9) != 0));
         return list;
     }
 
@@ -2351,7 +2446,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
                    gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
                    maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components,
-                   tcs_nature_id
+                   tcs_nature_id,
+                   gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
+                   cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2581,6 +2678,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             Taxability = (GstTaxability)(int)r.GetInt64(13),
             RateBasisPoints = r.IsDBNull(14) ? (int?)null : (int)r.GetInt64(14),
             SupplyType = r.IsDBNull(15) ? GstSupplyType.Goods : (GstSupplyType)(int)r.GetInt64(15),
+            // v38 (Phase 9 slice 1): GST 2.0 RSP valuation + Compensation-Cess (default off/null for a plain item).
+            ValuationBasis = (GstValuationBasis)(int)r.GetInt64(21),
+            CessApplicable = r.GetInt64(22) != 0,
+            CessValuationMode = r.IsDBNull(23) ? (CessValuationMode?)null : (CessValuationMode)(int)r.GetInt64(23),
+            CessRateBasisPoints = r.IsDBNull(24) ? (int?)null : (int)r.GetInt64(24),
+            CessPerUnit = r.IsDBNull(25) ? (Money?)null : Paisa.ToMoney(r.GetInt64(25)),
+            CessRspFactorMillis = r.IsDBNull(26) ? (int?)null : (int)r.GetInt64(26),
+            RetailSalePrice = r.IsDBNull(27) ? (Money?)null : Paisa.ToMoney(r.GetInt64(27)),
         };
     }
 
@@ -3373,6 +3478,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM groups WHERE company_id = $cid;", ("$cid", cid));
         // v13 GST rate slabs FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM gst_rate_slabs WHERE company_id = $cid;", ("$cid", cid));
+        // v38 GST rate-history + Compensation-Cess masters FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM gst_rate_history WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_cess_rates WHERE company_id = $cid;", ("$cid", cid));
         // v35 PT slab bands FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
         // v36 §192 tax declarations FK companies → delete before the company row.
@@ -3595,6 +3703,57 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 s.ExecuteNonQuery();
             }
 
+        // v38 GST rate-history windows (empty when advanced GST is off).
+        if (gst is not null)
+            foreach (var e in gst.RateHistory)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO gst_rate_history
+                        (id, company_id, hsn_sac, rate_bp, rate_class, effective_from, effective_to,
+                         valuation_basis, label, is_predefined)
+                    VALUES ($id, $cid, $hsn, $bp, $cls, $from, $to, $basis, $label, $pre);
+                    """;
+                s.Parameters.AddWithValue("$id", e.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$hsn", (object?)e.HsnSac ?? DBNull.Value);
+                s.Parameters.AddWithValue("$bp", e.RateBasisPoints);
+                s.Parameters.AddWithValue("$cls", (int)e.RateClass);
+                s.Parameters.AddWithValue("$from", FormatDate(e.EffectiveFrom));
+                s.Parameters.AddWithValue("$to", e.EffectiveTo is { } to ? FormatDate(to) : (object)DBNull.Value);
+                s.Parameters.AddWithValue("$basis", (int)e.ValuationBasis);
+                s.Parameters.AddWithValue("$label", e.Label);
+                s.Parameters.AddWithValue("$pre", e.IsPredefined ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
+
+        // v38 Compensation-Cess windows (empty when the company bears no cess).
+        if (gst is not null)
+            foreach (var e in gst.CessRates)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO gst_cess_rates
+                        (id, company_id, hsn_sac, valuation_mode, cess_rate_bp, cess_per_unit_paisa,
+                         cess_rsp_factor_millis, effective_from, effective_to, label, is_predefined)
+                    VALUES ($id, $cid, $hsn, $mode, $bp, $perunit, $rsp, $from, $to, $label, $pre);
+                    """;
+                s.Parameters.AddWithValue("$id", e.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$hsn", (object?)e.HsnSac ?? DBNull.Value);
+                s.Parameters.AddWithValue("$mode", (int)e.ValuationMode);
+                s.Parameters.AddWithValue("$bp", e.CessRateBasisPoints);
+                s.Parameters.AddWithValue("$perunit", Paisa.FromMoney(e.CessPerUnit));
+                s.Parameters.AddWithValue("$rsp", e.CessRspFactorMillis);
+                s.Parameters.AddWithValue("$from", FormatDate(e.EffectiveFrom));
+                s.Parameters.AddWithValue("$to", e.EffectiveTo is { } to ? FormatDate(to) : (object)DBNull.Value);
+                s.Parameters.AddWithValue("$label", e.Label);
+                s.Parameters.AddWithValue("$pre", e.IsPredefined ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
+
         // v25 Nature-of-Payment masters (only when TDS is enabled), hung off the TDS config like the GST slabs.
         if (tds is not null)
             foreach (var n in tds.NaturesOfPayment)
@@ -3706,11 +3865,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      sp_gst_hsn, sp_gst_taxability, sp_gst_rate_bp, sp_gst_supply_type,
                      gst_tax_head, gst_tax_direction, method_of_appropriation, default_price_level_id,
                      tds_applicable, tds_nature_id, deductee_type, party_pan, deduct_in_same_voucher,
-                     tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind)
+                     tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind,
+                     sp_gst_valuation_basis, sp_cess_applicable, sp_cess_valuation_mode, sp_cess_rate_bp,
+                     sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
-                        $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind);
+                        $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind,
+                        $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -3754,6 +3916,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$sptax", sp is null ? (object)DBNull.Value : (int)sp.Taxability);
             cmd.Parameters.AddWithValue("$sprate", sp?.RateBasisPoints is { } sprbp ? sprbp : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$spsup", sp is null ? (object)DBNull.Value : (int)sp.SupplyType);
+
+            // v38 sales/purchase-ledger GST 2.0 RSP valuation + Compensation-Cess (default off/null for a plain ledger).
+            cmd.Parameters.AddWithValue("$spvb", sp is null ? 0 : (int)sp.ValuationBasis);
+            cmd.Parameters.AddWithValue("$spca", sp is { CessApplicable: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$spcvm", sp?.CessValuationMode is { } spcvm ? (int)spcvm : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$spcrate", sp?.CessRateBasisPoints is { } spcr ? spcr : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$spcpu", sp?.CessPerUnit is { } spcpu ? Paisa.FromMoney(spcpu) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$spcrsp", sp?.CessRspFactorMillis is { } spcrsp ? spcrsp : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$sprsp", sp?.RetailSalePrice is { } sprsp ? Paisa.FromMoney(sprsp) : (object)DBNull.Value);
 
             // v13 tax-ledger classification (NULL for an ordinary ledger).
             var gc = l.GstClassification;
@@ -4425,9 +4596,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      hsn_sac_code, is_taxable, reorder_level_micro, min_order_qty_micro, standard_cost_paisa,
                      gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type,
                      maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components,
-                     tcs_nature_id)
+                     tcs_nature_id,
+                     gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
+                     cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
-                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat);
+                        $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat,
+                        $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4449,6 +4623,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$gtax", g is null ? (object)DBNull.Value : (int)g.Taxability);
             cmd.Parameters.AddWithValue("$grate", g?.RateBasisPoints is { } grbp ? grbp : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$gsup", g is null ? (object)DBNull.Value : (int)g.SupplyType);
+
+            // v38 item GST 2.0 RSP valuation + Compensation-Cess (default off/null for a plain item).
+            cmd.Parameters.AddWithValue("$gvb", g is null ? 0 : (int)g.ValuationBasis);
+            cmd.Parameters.AddWithValue("$cess", g is { CessApplicable: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$cvm", g?.CessValuationMode is { } cvm ? (int)cvm : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$crate", g?.CessRateBasisPoints is { } crbp ? crbp : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$cpu", g?.CessPerUnit is { } cpu ? Paisa.FromMoney(cpu) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$crsp", g?.CessRspFactorMillis is { } crsp ? crsp : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$rsp", g?.RetailSalePrice is { } rsp ? Paisa.FromMoney(rsp) : (object)DBNull.Value);
 
             // v16 batch switches (0/1; default off).
             cmd.Parameters.AddWithValue("$mib", item.MaintainInBatches ? 1 : 0);

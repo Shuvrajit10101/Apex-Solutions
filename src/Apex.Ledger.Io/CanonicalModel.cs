@@ -953,12 +953,46 @@ public sealed record GstConfigDto
     public string? ApplicableFrom { get; init; }              // ISO or null
     public required string Periodicity { get; init; }        // GstReturnPeriodicity name
     public IReadOnlyList<GstRateSlabDto> RateSlabs { get; init; } = [];
+    // Phase 9 slice 1 (RQ-1/RQ-2): dated rate-history + Compensation-Cess windows. Default empty ⇒ an advanced-GST-off
+    // company serialises identically to a Phase-8 company (ER-13). Appended at the END so existing field order is
+    // unchanged.
+    public IReadOnlyList<GstRateHistoryDto> RateHistory { get; init; } = [];
+    public IReadOnlyList<GstCessRateDto> CessRates { get; init; } = [];
 }
 
 public sealed record GstRateSlabDto
 {
     public required Guid Id { get; init; }
     public int RateBasisPoints { get; init; }
+    public required string Label { get; init; }
+    public bool IsPredefined { get; init; }
+}
+
+/// <summary>A dated GST rate-history window (Phase 9 slice 1; RQ-1). Dates are ISO yyyy-MM-dd.</summary>
+public sealed record GstRateHistoryDto
+{
+    public required Guid Id { get; init; }
+    public string? HsnSac { get; init; }
+    public int RateBasisPoints { get; init; }
+    public required string RateClass { get; init; }        // GstRateClass name
+    public required string EffectiveFrom { get; init; }     // ISO
+    public string? EffectiveTo { get; init; }               // ISO or null
+    public required string ValuationBasis { get; init; }    // GstValuationBasis name
+    public required string Label { get; init; }
+    public bool IsPredefined { get; init; }
+}
+
+/// <summary>A dated Compensation-Cess window (Phase 9 slice 1; RQ-2/RQ-9). Money is integer paisa.</summary>
+public sealed record GstCessRateDto
+{
+    public required Guid Id { get; init; }
+    public string? HsnSac { get; init; }
+    public required string ValuationMode { get; init; }     // CessValuationMode name
+    public int CessRateBasisPoints { get; init; }
+    public long CessPerUnitPaisa { get; init; }
+    public int CessRspFactorMillis { get; init; }
+    public required string EffectiveFrom { get; init; }     // ISO
+    public string? EffectiveTo { get; init; }               // ISO or null
     public required string Label { get; init; }
     public bool IsPredefined { get; init; }
 }
@@ -976,6 +1010,15 @@ public sealed record StockItemGstDto
     public required string Taxability { get; init; }  // GstTaxability name
     public int? RateBasisPoints { get; init; }
     public required string SupplyType { get; init; }   // GstSupplyType name
+    // Phase 9 slice 1 (RQ-1/RQ-2): GST 2.0 RSP valuation + Compensation-Cess. Appended at the END so existing field
+    // order is unchanged; defaults keep an off item byte-identical to a Phase-8 item (ER-13). Money is integer paisa.
+    public string ValuationBasis { get; init; } = "TransactionValue"; // GstValuationBasis name
+    public bool CessApplicable { get; init; }
+    public string? CessValuationMode { get; init; }    // CessValuationMode name, or null
+    public int? CessRateBasisPoints { get; init; }
+    public long? CessPerUnitPaisa { get; init; }
+    public int? CessRspFactorMillis { get; init; }
+    public long? RspPaisa { get; init; }
 }
 
 public sealed record LedgerGstClassificationDto

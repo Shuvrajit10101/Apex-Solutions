@@ -93,3 +93,59 @@ public enum GstSupplyType
     /// <summary>Services — classified by SAC.</summary>
     Services,
 }
+
+/// <summary>
+/// The rate class of a dated GST rate-history row (Phase 9 slice 1; RQ-1; GST 2.0 eff. 22-Sep-2025). Advisory
+/// classification carried on <see cref="GstRateHistoryEntry"/> so the GST Rate Setup screen can group/filter the
+/// slabs; it does <b>not</b> alter computation (the rate that flows in is the row's <c>RateBasisPoints</c>).
+/// </summary>
+public enum GstRateClass
+{
+    /// <summary>The 18% standard slab (~90% of former-28% items) — and the 0% nil bucket.</summary>
+    Standard,
+
+    /// <summary>The 5% merit slab (~99% of former-12% items moved here).</summary>
+    Merit,
+
+    /// <summary>A surviving special rate (3% bullion, 1.5% cut diamonds, 0.25% rough diamonds) alongside the slabs.</summary>
+    Special,
+
+    /// <summary>The 40% de-merit slab (luxury cars/SUVs, aerated drinks, betting, etc.) — ordinary GST, <b>not</b> a cess.</summary>
+    DeMerit,
+
+    /// <summary>The retained 28%-plus-cess tobacco/pan-masala carve-out that did NOT move to 40% on 22-Sep-2025.</summary>
+    CarveOut,
+
+    /// <summary>A pre-GST-2.0 legacy rate (12% / 28%) kept inactive-by-date so a pre-22-Sep voucher reprints correctly.</summary>
+    Legacy,
+}
+
+/// <summary>
+/// The GST valuation basis of a rate-history row / stock item (Phase 9 slice 1; RQ-1; GST 2.0 RSP valuation). Most
+/// supplies are valued on the §15 <see cref="TransactionValue"/>; certain tobacco/pan-masala carve-outs are valued on
+/// the declared <see cref="RetailSalePrice"/>.
+/// </summary>
+public enum GstValuationBasis
+{
+    /// <summary>§15 transaction value (the default for every existing item/line — byte-identical when off, ER-13).</summary>
+    TransactionValue,
+
+    /// <summary>Retail Sale Price basis (RSP-valued tobacco/pan-masala carve-out).</summary>
+    RetailSalePrice,
+}
+
+/// <summary>
+/// How a Compensation-Cess amount is valued (Phase 9 slice 1; RQ-2/RQ-9). The GST 2.0 cess schedule mixes all three:
+/// ad-valorem on the taxable value, a specific per-unit/quantity amount, and an RSP-factor per unit.
+/// </summary>
+public enum CessValuationMode
+{
+    /// <summary>Ad-valorem: cess = taxable value × cess-rate% (e.g. aerated waters 12%).</summary>
+    AdValorem,
+
+    /// <summary>Specific: cess = quantity × per-unit amount (e.g. coal ₹400/tonne, cigarettes per 1,000 sticks).</summary>
+    Specific,
+
+    /// <summary>RSP-factor: cess = quantity × declared RSP × factor (e.g. pan masala ~0.32R).</summary>
+    RetailSalePriceFactor,
+}

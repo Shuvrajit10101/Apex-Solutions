@@ -287,6 +287,12 @@ public sealed class ItemInvoiceRoundTripTests
         // (the companies rebuild below strips the v36 salary_tds_enabled column back to the v12 shape).
         Exec(conn, "DROP INDEX IF EXISTS ix_employee_tax_declarations_company;");
         Exec(conn, "DROP TABLE IF EXISTS employee_tax_declarations;");
+        // v38 GST 2.0 rate-history + Compensation-Cess tables (+ their indexes) — drop so the reopen's v37→v38 CREATE
+        // TABLE does not collide (the stock_items/ledgers rebuild in DowngradeStripV13 strips the v38 columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_rate_history_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_rate_history;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_cess_rates_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_cess_rates;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
         Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");

@@ -16,9 +16,9 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v37). Metadata only — the canonical
+    /// <summary>The persistence schema version this export targets (SQLite schema v38). Metadata only — the canonical
     /// round-trip is faithful regardless and this constant is not validated on import.</summary>
-    public const int SchemaVersion = 37;
+    public const int SchemaVersion = 38;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -567,6 +567,24 @@ public static class CanonicalMapper
             {
                 Id = s.Id, RateBasisPoints = s.RateBasisPoints, Label = s.Label, IsPredefined = s.IsPredefined,
             }).ToList(),
+        // Phase 9 slice 1: order deterministically so the byte stream is stable regardless of insertion order.
+        RateHistory = g.RateHistory
+            .OrderBy(h => h.EffectiveFrom).ThenBy(h => h.HsnSac ?? "").ThenBy(h => h.RateBasisPoints).ThenBy(h => h.Id)
+            .Select(h => new GstRateHistoryDto
+            {
+                Id = h.Id, HsnSac = h.HsnSac, RateBasisPoints = h.RateBasisPoints, RateClass = h.RateClass.ToString(),
+                EffectiveFrom = Iso(h.EffectiveFrom), EffectiveTo = Iso(h.EffectiveTo),
+                ValuationBasis = h.ValuationBasis.ToString(), Label = h.Label, IsPredefined = h.IsPredefined,
+            }).ToList(),
+        CessRates = g.CessRates
+            .OrderBy(c => c.EffectiveFrom).ThenBy(c => c.HsnSac ?? "").ThenBy(c => (int)c.ValuationMode).ThenBy(c => c.Id)
+            .Select(c => new GstCessRateDto
+            {
+                Id = c.Id, HsnSac = c.HsnSac, ValuationMode = c.ValuationMode.ToString(),
+                CessRateBasisPoints = c.CessRateBasisPoints, CessPerUnitPaisa = MoneyCodec.ToPaisa(c.CessPerUnit),
+                CessRspFactorMillis = c.CessRspFactorMillis, EffectiveFrom = Iso(c.EffectiveFrom),
+                EffectiveTo = Iso(c.EffectiveTo), Label = c.Label, IsPredefined = c.IsPredefined,
+            }).ToList(),
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()
@@ -578,6 +596,11 @@ public static class CanonicalMapper
     {
         HsnSac = s.HsnSac, Taxability = s.Taxability.ToString(),
         RateBasisPoints = s.RateBasisPoints, SupplyType = s.SupplyType.ToString(),
+        // Phase 9 slice 1: GST 2.0 RSP valuation + cess (Money? → long? paisa).
+        ValuationBasis = s.ValuationBasis.ToString(), CessApplicable = s.CessApplicable,
+        CessValuationMode = s.CessValuationMode?.ToString(), CessRateBasisPoints = s.CessRateBasisPoints,
+        CessPerUnitPaisa = MoneyCodec.ToPaisa(s.CessPerUnit), CessRspFactorMillis = s.CessRspFactorMillis,
+        RspPaisa = MoneyCodec.ToPaisa(s.RetailSalePrice),
     };
 
     private static LedgerGstClassificationDto MapGstClassification(LedgerGstClassification c) => new()

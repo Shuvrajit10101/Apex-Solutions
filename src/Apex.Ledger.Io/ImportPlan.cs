@@ -682,6 +682,10 @@ internal sealed class ImportPlan
                 i.Alias, ParseEnum<StockValuationMethod>(i.ValuationMethod), i.HsnSacCode, i.IsTaxable,
                 i.ReorderLevel, i.MinimumOrderQuantity, MoneyCodec.FromPaisaNullable(i.StandardCostPaisa));
             domain.Gst = BuildStockItemGst(i.Gst);
+            // Phase 9 slice 1: mirror the item-GST guard into the import (the recurring Io-bypass defect class) — a
+            // malformed cess/RSP block (e.g. RSP-factor mode with no declared RSP) throws here in pre-flight, so the
+            // whole batch rejects all-or-nothing (Applied = false, target untouched) rather than persisting bad data.
+            domain.Gst?.EnsureValid();
             // v16 batch switches (RQ-2) + v18 Set-Components (RQ-10) — plain model flags, carried verbatim. The
             // Set-Components flag is authoritative from the export; a BOM created below keeps it true (idempotent).
             domain.MaintainInBatches = i.MaintainInBatches;
@@ -1044,6 +1048,19 @@ internal sealed class ImportPlan
         // Preserve the exported slabs (EnableGst only seeds defaults when none are present).
         foreach (var s in g.RateSlabs)
             config.AddRateSlab(new GstRateSlab(Guid.NewGuid(), s.RateBasisPoints, s.Label, s.IsPredefined));
+        // Phase 9 slice 1: preserve the exported dated rate-history + Compensation-Cess windows (fresh ids). A
+        // malformed row throws here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).
+        foreach (var h in g.RateHistory)
+            config.AddRateHistory(new GstRateHistoryEntry(
+                Guid.NewGuid(), h.HsnSac, h.RateBasisPoints, ParseEnum<GstRateClass>(h.RateClass),
+                CompanyImportService.ParseDate(h.EffectiveFrom), CompanyImportService.ParseDateOpt(h.EffectiveTo),
+                ParseEnum<GstValuationBasis>(h.ValuationBasis), h.Label, h.IsPredefined));
+        foreach (var c in g.CessRates)
+            config.AddCessRate(new GstCessRate(
+                Guid.NewGuid(), c.HsnSac, ParseEnum<CessValuationMode>(c.ValuationMode), c.CessRateBasisPoints,
+                MoneyCodec.FromPaisa(c.CessPerUnitPaisa), c.CessRspFactorMillis,
+                CompanyImportService.ParseDate(c.EffectiveFrom), CompanyImportService.ParseDateOpt(c.EffectiveTo),
+                c.Label, c.IsPredefined));
         return config;
     }
 
@@ -1323,6 +1340,14 @@ internal sealed class ImportPlan
         Taxability = ParseEnum<GstTaxability>(s.Taxability),
         RateBasisPoints = s.RateBasisPoints,
         SupplyType = ParseEnum<GstSupplyType>(s.SupplyType),
+        // Phase 9 slice 1: RSP valuation + Compensation-Cess (long? paisa → Money?).
+        ValuationBasis = ParseEnum<GstValuationBasis>(s.ValuationBasis),
+        CessApplicable = s.CessApplicable,
+        CessValuationMode = s.CessValuationMode is { } m ? ParseEnum<CessValuationMode>(m) : null,
+        CessRateBasisPoints = s.CessRateBasisPoints,
+        CessPerUnit = MoneyCodec.FromPaisaNullable(s.CessPerUnitPaisa),
+        CessRspFactorMillis = s.CessRspFactorMillis,
+        RetailSalePrice = MoneyCodec.FromPaisaNullable(s.RspPaisa),
     };
 
     private static LedgerGstClassification? BuildGstClassification(LedgerGstClassificationDto? c) => c is null ? null

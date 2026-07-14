@@ -83,7 +83,7 @@ public static class Schema
     /// this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time.
     /// Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 37;
+    public const int CurrentVersion = 38;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -242,6 +242,40 @@ public static class Schema
         );
         CREATE INDEX ix_gst_rate_slabs_company ON gst_rate_slabs(company_id);
 
+        -- v38 (Phase 9 slice 1): the dated GST 2.0 rate-history master. One row = one dated rate-applicability window,
+        -- optionally HSN-keyed, so a voucher-dated rate can be resolved (28% before 22-Sep-2025, 40% after). Empty for
+        -- a company that never enables advanced GST (ER-13). Both effective bounds are INCLUSIVE.
+        CREATE TABLE gst_rate_history (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            hsn_sac          TEXT        NULL,   -- specific HSN/SAC carve-out; NULL = generic slab
+            rate_bp          INTEGER NOT NULL,   -- integrated rate in basis points (4000 = 40%)
+            rate_class       INTEGER NOT NULL,   -- GstRateClass ordinal (Standard/Merit/Special/DeMerit/CarveOut/Legacy)
+            effective_from   TEXT    NOT NULL,   -- ISO yyyy-MM-dd, inclusive
+            effective_to     TEXT        NULL,   -- ISO yyyy-MM-dd, inclusive; NULL = open-ended
+            valuation_basis  INTEGER NOT NULL DEFAULT 0,  -- GstValuationBasis ordinal (TransactionValue=0, RetailSalePrice=1)
+            label            TEXT    NOT NULL,
+            is_predefined    INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gst_rate_history_company ON gst_rate_history(company_id);
+
+        -- v38 (Phase 9 slice 1): the dated Compensation-Cess master (three FY2025-26 windows; three valuation modes).
+        -- Empty for a company that bears no cess ⇒ zero cess + no Cess ledger (ER-2/ER-13). Bounds are INCLUSIVE.
+        CREATE TABLE gst_cess_rates (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            hsn_sac                TEXT        NULL,   -- goods this cess applies to; NULL = generic
+            valuation_mode         INTEGER NOT NULL,   -- CessValuationMode ordinal (AdValorem=0, Specific=1, RetailSalePriceFactor=2)
+            cess_rate_bp           INTEGER NOT NULL DEFAULT 0,  -- ad-valorem % in bp (0 unless AdValorem)
+            cess_per_unit_paisa    INTEGER NOT NULL DEFAULT 0,  -- specific per-unit amount, paisa (0 unless Specific)
+            cess_rsp_factor_millis INTEGER NOT NULL DEFAULT 0,  -- RSP multiplier x1000 (0.32R -> 320; 0 unless RspFactor)
+            effective_from         TEXT    NOT NULL,   -- ISO yyyy-MM-dd, inclusive
+            effective_to           TEXT        NULL,   -- ISO yyyy-MM-dd, inclusive; NULL = open-ended
+            label                  TEXT    NOT NULL,
+            is_predefined          INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gst_cess_rates_company ON gst_cess_rates(company_id);
+
         -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
         -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
         -- (slab_id) form one PtSlab. No rows for a company not enrolled for PT (ER-13).
@@ -351,7 +385,17 @@ public static class Schema
             tcs_applicable         INTEGER NOT NULL DEFAULT 0,   -- 0/1 ("Is TCS Applicable")
             tcs_nature_id          TEXT        NULL,             -- default Nature-of-Goods id, or NULL
             collectee_type         INTEGER     NULL,             -- CollecteeType enum ordinal, or NULL
-            tds_tcs_class_kind     INTEGER     NULL              -- TdsTcsLedgerKind ordinal (payable ledger tag), or NULL
+            tds_tcs_class_kind     INTEGER     NULL,             -- TdsTcsLedgerKind ordinal (payable ledger tag), or NULL
+            -- v38 (Phase 9 slice 1): sales/purchase-ledger GST 2.0 RSP valuation + Compensation-Cess (same
+            -- StockItemGstDetails hydration as the item block). All DEFAULT 0/NULL so an existing ledger is
+            -- byte-identical to a v37 ledger (ER-13).
+            sp_gst_valuation_basis    INTEGER NOT NULL DEFAULT 0,  -- GstValuationBasis ordinal (TransactionValue=0)
+            sp_cess_applicable        INTEGER NOT NULL DEFAULT 0,  -- 0/1 gate: line bears cess
+            sp_cess_valuation_mode    INTEGER     NULL,            -- CessValuationMode ordinal, or NULL = inherit
+            sp_cess_rate_bp           INTEGER     NULL,            -- ad-valorem override in bp
+            sp_cess_per_unit_paisa    INTEGER     NULL,            -- specific per-unit override, paisa
+            sp_cess_rsp_factor_millis INTEGER     NULL,            -- RSP-factor override x1000
+            sp_rsp_paisa              INTEGER     NULL             -- declared Retail Sale Price per unit, paisa
         );
 
         CREATE TABLE currencies (
@@ -673,7 +717,16 @@ public static class Schema
             set_components           INTEGER NOT NULL DEFAULT 0,   -- 0/1
             -- v25 (Phase 7 slice 1): the item's default Nature-of-Goods (§206C TCS category). NULL (the default for
             -- every existing item) = no TCS nature; byte-identical (ER-13). Bare id (no FK, resolved at compute).
-            tcs_nature_id            TEXT        NULL
+            tcs_nature_id            TEXT        NULL,
+            -- v38 (Phase 9 slice 1): GST 2.0 RSP valuation + Compensation-Cess per item. All DEFAULT 0/NULL so an item
+            -- with no advanced-GST data is byte-identical to a v37 item (ER-13).
+            gst_valuation_basis      INTEGER NOT NULL DEFAULT 0,  -- GstValuationBasis ordinal (TransactionValue=0)
+            cess_applicable          INTEGER NOT NULL DEFAULT 0,  -- 0/1 gate: item bears cess
+            cess_valuation_mode      INTEGER     NULL,            -- CessValuationMode ordinal, or NULL = inherit
+            cess_rate_bp             INTEGER     NULL,            -- ad-valorem override in bp
+            cess_per_unit_paisa      INTEGER     NULL,            -- specific per-unit override, paisa
+            cess_rsp_factor_millis   INTEGER     NULL,            -- RSP-factor override x1000
+            rsp_paisa                INTEGER     NULL             -- declared Retail Sale Price per unit, paisa
         );
 
         CREATE TABLE stock_opening_balances (
@@ -2573,5 +2626,62 @@ public static class Schema
         ALTER TABLE companies ADD COLUMN bonus_calc_ceiling_paisa INTEGER NOT NULL DEFAULT 700000;
         ALTER TABLE companies ADD COLUMN bonus_minimum_wage_paisa INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE companies ADD COLUMN bonus_prorate            INTEGER NOT NULL DEFAULT 1;
+        """;
+
+    /// <summary>
+    /// v37 → v38 (Phase 9 slice 1; GST 2.0 dated rate framework + Compensation-Cess seam): additive — two new tables
+    /// (<c>gst_rate_history</c>, <c>gst_cess_rates</c>) + their company-scoped indexes, and seven ALTER-added columns
+    /// each on <c>stock_items</c> (item RSP/cess) and <c>ledgers</c> (sales-purchase RSP/cess) — run inside a
+    /// transaction that bumps <c>schema_version</c> to 38. <b>No row rewrites, no data backfill</b>: an existing v37
+    /// database keeps every row untouched, the new tables start empty and the new columns default 0/NULL, so a company
+    /// that never enables advanced GST serialises byte-identically to a v37 company (ER-13). Each added table / column /
+    /// index is byte-identical to its counterpart in <see cref="CreateV1"/> (the migration-equivalence test enforces
+    /// this). A fresh DB is stamped straight to v38 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV37ToV38 = """
+        CREATE TABLE gst_rate_history (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            hsn_sac          TEXT        NULL,
+            rate_bp          INTEGER NOT NULL,
+            rate_class       INTEGER NOT NULL,
+            effective_from   TEXT    NOT NULL,
+            effective_to     TEXT        NULL,
+            valuation_basis  INTEGER NOT NULL DEFAULT 0,
+            label            TEXT    NOT NULL,
+            is_predefined    INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gst_rate_history_company ON gst_rate_history(company_id);
+
+        CREATE TABLE gst_cess_rates (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            hsn_sac                TEXT        NULL,
+            valuation_mode         INTEGER NOT NULL,
+            cess_rate_bp           INTEGER NOT NULL DEFAULT 0,
+            cess_per_unit_paisa    INTEGER NOT NULL DEFAULT 0,
+            cess_rsp_factor_millis INTEGER NOT NULL DEFAULT 0,
+            effective_from         TEXT    NOT NULL,
+            effective_to           TEXT        NULL,
+            label                  TEXT    NOT NULL,
+            is_predefined          INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gst_cess_rates_company ON gst_cess_rates(company_id);
+
+        ALTER TABLE stock_items ADD COLUMN gst_valuation_basis      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN cess_applicable          INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN cess_valuation_mode      INTEGER     NULL;
+        ALTER TABLE stock_items ADD COLUMN cess_rate_bp             INTEGER     NULL;
+        ALTER TABLE stock_items ADD COLUMN cess_per_unit_paisa      INTEGER     NULL;
+        ALTER TABLE stock_items ADD COLUMN cess_rsp_factor_millis   INTEGER     NULL;
+        ALTER TABLE stock_items ADD COLUMN rsp_paisa                INTEGER     NULL;
+
+        ALTER TABLE ledgers ADD COLUMN sp_gst_valuation_basis    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN sp_cess_applicable        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN sp_cess_valuation_mode    INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_cess_rate_bp           INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_cess_per_unit_paisa    INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_cess_rsp_factor_millis INTEGER     NULL;
+        ALTER TABLE ledgers ADD COLUMN sp_rsp_paisa              INTEGER     NULL;
         """;
 }

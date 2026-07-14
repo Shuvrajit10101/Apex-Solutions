@@ -424,6 +424,24 @@ public static class CanonicalXml
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
                 Attr("label", s.Label), Attr("isPredefined", s.IsPredefined)));
         el.Add(slabs);
+
+        // Phase 9 slice 1: dated rate-history + Compensation-Cess windows (empty elements when advanced GST is off).
+        var history = new XElement("rateHistory");
+        foreach (var h in g.RateHistory)
+            history.Add(new XElement("entry",
+                Attr("id", h.Id), Opt("hsnSac", h.HsnSac), Attr("rateBasisPoints", h.RateBasisPoints),
+                Attr("rateClass", h.RateClass), Attr("effectiveFrom", h.EffectiveFrom), Opt("effectiveTo", h.EffectiveTo),
+                Attr("valuationBasis", h.ValuationBasis), Attr("label", h.Label), Attr("isPredefined", h.IsPredefined)));
+        el.Add(history);
+
+        var cess = new XElement("cessRates");
+        foreach (var c in g.CessRates)
+            cess.Add(new XElement("cess",
+                Attr("id", c.Id), Opt("hsnSac", c.HsnSac), Attr("valuationMode", c.ValuationMode),
+                Attr("cessRateBasisPoints", c.CessRateBasisPoints), Attr("cessPerUnitPaisa", c.CessPerUnitPaisa),
+                Attr("cessRspFactorMillis", c.CessRspFactorMillis), Attr("effectiveFrom", c.EffectiveFrom),
+                Opt("effectiveTo", c.EffectiveTo), Attr("label", c.Label), Attr("isPredefined", c.IsPredefined)));
+        el.Add(cess);
         return el;
     }
 
@@ -476,7 +494,13 @@ public static class CanonicalXml
 
     private static XElement BuildStockItemGst(string name, StockItemGstDto s) => new(name,
         Opt("hsnSac", s.HsnSac), Attr("taxability", s.Taxability),
-        OptInt("rateBasisPoints", s.RateBasisPoints), Attr("supplyType", s.SupplyType));
+        OptInt("rateBasisPoints", s.RateBasisPoints), Attr("supplyType", s.SupplyType),
+        // Phase 9 slice 1: RSP valuation + cess (required valuationBasis/cessApplicable always emitted; cess scalars
+        // omitted via Opt* when null → an off item's bytes are identical to a Phase-8 item, ER-13).
+        Attr("valuationBasis", s.ValuationBasis), Attr("cessApplicable", s.CessApplicable),
+        Opt("cessValuationMode", s.CessValuationMode), OptInt("cessRateBasisPoints", s.CessRateBasisPoints),
+        OptLong("cessPerUnitPaisa", s.CessPerUnitPaisa), OptInt("cessRspFactorMillis", s.CessRspFactorMillis),
+        OptLong("rspPaisa", s.RspPaisa));
 
     private static XElement BuildGstClassification(LedgerGstClassificationDto c) => new("gstClassification",
         Attr("taxHead", c.TaxHead), Attr("direction", c.Direction));
@@ -1243,6 +1267,23 @@ public static class CanonicalXml
                 Id = Guid(s, "id"), RateBasisPoints = Int(s, "rateBasisPoints"),
                 Label = Str(s, "label")!, IsPredefined = Bool(s, "isPredefined"),
             }).ToList(),
+        // Phase 9 slice 1: dated rate-history + Compensation-Cess windows (absent elements ⇒ empty lists, ER-13).
+        RateHistory = (e.Element("rateHistory")?.Elements("entry") ?? Enumerable.Empty<XElement>())
+            .Select(h => new GstRateHistoryDto
+            {
+                Id = Guid(h, "id"), HsnSac = Str(h, "hsnSac"), RateBasisPoints = Int(h, "rateBasisPoints"),
+                RateClass = Str(h, "rateClass")!, EffectiveFrom = Str(h, "effectiveFrom")!,
+                EffectiveTo = Str(h, "effectiveTo"), ValuationBasis = Str(h, "valuationBasis")!,
+                Label = Str(h, "label")!, IsPredefined = Bool(h, "isPredefined"),
+            }).ToList(),
+        CessRates = (e.Element("cessRates")?.Elements("cess") ?? Enumerable.Empty<XElement>())
+            .Select(c => new GstCessRateDto
+            {
+                Id = Guid(c, "id"), HsnSac = Str(c, "hsnSac"), ValuationMode = Str(c, "valuationMode")!,
+                CessRateBasisPoints = Int(c, "cessRateBasisPoints"), CessPerUnitPaisa = Long(c, "cessPerUnitPaisa"),
+                CessRspFactorMillis = Int(c, "cessRspFactorMillis"), EffectiveFrom = Str(c, "effectiveFrom")!,
+                EffectiveTo = Str(c, "effectiveTo"), Label = Str(c, "label")!, IsPredefined = Bool(c, "isPredefined"),
+            }).ToList(),
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()
@@ -1254,6 +1295,11 @@ public static class CanonicalXml
     {
         HsnSac = Str(e, "hsnSac"), Taxability = Str(e, "taxability")!,
         RateBasisPoints = OptInt(e, "rateBasisPoints"), SupplyType = Str(e, "supplyType")!,
+        // Phase 9 slice 1: RSP valuation + cess (absent valuationBasis ⇒ default TransactionValue, ER-13).
+        ValuationBasis = Str(e, "valuationBasis") ?? "TransactionValue", CessApplicable = Bool(e, "cessApplicable"),
+        CessValuationMode = Str(e, "cessValuationMode"), CessRateBasisPoints = OptInt(e, "cessRateBasisPoints"),
+        CessPerUnitPaisa = OptLong(e, "cessPerUnitPaisa"), CessRspFactorMillis = OptInt(e, "cessRspFactorMillis"),
+        RspPaisa = OptLong(e, "rspPaisa"),
     };
 
     private static LedgerGstClassificationDto ReadGstClassification(XElement e) => new()
