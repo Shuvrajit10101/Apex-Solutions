@@ -139,6 +139,19 @@ public sealed class VoucherType
     /// <summary>True iff this is a Stat-Payment type — a Payment base type with <see cref="IsStatPayment"/> on.</summary>
     public bool IsStatPaymentType => BaseType == VoucherBaseType.Payment && IsStatPayment;
 
+    /// <summary>
+    /// "<b>Use for RCM Payment Voucher (Rule 52)</b>" (Phase 9 slice 2; catalog §12; RQ-8). A <b>Payment</b> voucher type
+    /// flagged to book a reverse-charge supplier payment (Dr Party / Cr Bank) that also generates the Rule-52 payment
+    /// voucher document. It reuses the Payment <see cref="BaseType"/> unchanged (mirror <see cref="IsStatPayment"/>, no
+    /// new <see cref="VoucherBaseType"/>) — so <c>GstReportSupport.DirectionOf</c> and every exhaustive base-type switch
+    /// are untouched. Defaults to <c>false</c>, so every existing Payment type is byte-identical (ER-13). Only meaningful
+    /// on a Payment base.
+    /// </summary>
+    public bool IsRcmPaymentVoucher { get; set; }
+
+    /// <summary>True iff this is an RCM Payment-Voucher type — a Payment base type with <see cref="IsRcmPaymentVoucher"/> on.</summary>
+    public bool IsRcmPaymentVoucherType => BaseType == VoucherBaseType.Payment && IsRcmPaymentVoucher;
+
     public VoucherType(
         Guid id,
         string name,
@@ -157,7 +170,8 @@ public sealed class VoucherType
         PosConfig? posConfig = null,
         bool useForJobWork = false,
         bool allowConsumption = false,
-        bool isStatPayment = false)
+        bool isStatPayment = false,
+        bool isRcmPaymentVoucher = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -180,5 +194,6 @@ public sealed class VoucherType
         UseForJobWork = useForJobWork;
         AllowConsumption = allowConsumption;
         IsStatPayment = isStatPayment;
+        IsRcmPaymentVoucher = isRcmPaymentVoucher;
     }
 }

@@ -293,6 +293,58 @@ public sealed record PayloadDto
     /// <summary>TCS challan ↔ Stat-Payment-voucher links (Phase 7 slice 6): which deposit voucher each TCS challan
     /// booked. Reuses <see cref="ChallanVoucherLinkDto"/>, in its own list (a TCS-specific link set).</summary>
     public IReadOnlyList<ChallanVoucherLinkDto> TcsChallanVoucherLinks { get; init; } = [];
+
+    /// <summary>RCM generated documents (Phase 9 slice 2; RQ-8): Rule-47A self-invoices + Rule-52 payment vouchers.
+    /// Empty when reverse charge is unused (ER-13).</summary>
+    public IReadOnlyList<RcmDocumentDto> RcmDocuments { get; init; } = [];
+
+    /// <summary>§34 credit/debit-note links (Phase 9; RQ-24). Empty until the S2b CDN engine (ER-13).</summary>
+    public IReadOnlyList<GstCdnLinkDto> CreditDebitNoteLinks { get; init; } = [];
+
+    /// <summary>GST-on-advance receipts (Phase 9; RQ-25). Empty until the S2b advance engine (ER-13).</summary>
+    public IReadOnlyList<GstAdvanceReceiptDto> AdvanceReceipts { get; init; } = [];
+}
+
+/// <summary>An RCM generated document (Phase 9 slice 2), mirroring the domain <c>RcmDocument</c> and the SQLite
+/// <c>rcm_documents</c> row.</summary>
+public sealed record RcmDocumentDto
+{
+    public required Guid Id { get; init; }
+    public required string Kind { get; init; }             // RcmDocumentKind name
+    public required Guid SourceVoucherId { get; init; }
+    public int SeriesNumber { get; init; }
+    public required string DocDate { get; init; }          // ISO yyyy-MM-dd
+    public Guid? SupplierLedgerId { get; init; }
+}
+
+/// <summary>A §34 credit/debit-note link (Phase 9), mirroring the domain <c>GstCreditDebitNoteLink</c> and the SQLite
+/// <c>gst_cdn_links</c> row. Empty until S2b.</summary>
+public sealed record GstCdnLinkDto
+{
+    public required Guid Id { get; init; }
+    public required Guid CdnVoucherId { get; init; }
+    public required string CdnType { get; init; }          // CdnType name
+    public Guid? OriginalInvoiceVoucherId { get; init; }
+    public string? OriginalInvoiceNumber { get; init; }
+    public string? OriginalInvoiceDate { get; init; }      // ISO or null
+    public required string ReasonCode { get; init; }
+    public bool Is9BTarget { get; init; }
+}
+
+/// <summary>A GST-on-advance receipt record (Phase 9), mirroring the domain <c>GstAdvanceReceipt</c> and the SQLite
+/// <c>gst_advance_receipts</c> row. Money is integer paisa. Empty until S2b.</summary>
+public sealed record GstAdvanceReceiptDto
+{
+    public required Guid Id { get; init; }
+    public required Guid ReceiptVoucherId { get; init; }
+    public bool IsService { get; init; }
+    public long AdvanceAmountPaisa { get; init; }
+    public int RateBasisPoints { get; init; }
+    public bool InterState { get; init; }
+    public string? PlaceOfSupplyStateCode { get; init; }
+    public long AdvanceTaxPaisa { get; init; }
+    public Guid? AdjustedAgainstInvoiceVoucherId { get; init; }
+    public Guid? RefundVoucherId { get; init; }
 }
 
 /// <summary>A TDS deposit challan (Phase 7 slice 3), mirroring the domain <c>TdsChallan</c> and the SQLite
@@ -454,6 +506,9 @@ public sealed record VoucherTypeDto
 
     /// <summary>"Use for Statutory Payment (Stat Payment)" (Phase 7 slice 3) — a Payment voucher-type flag. Default false.</summary>
     public bool IsStatPayment { get; init; }
+
+    /// <summary>"Use for RCM Payment Voucher (Rule 52)" (Phase 9 slice 2) — a Payment voucher-type flag. Default false.</summary>
+    public bool IsRcmPaymentVoucher { get; init; }
 
     /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
     public PosConfigDto? PosConfig { get; init; }
@@ -958,6 +1013,27 @@ public sealed record GstConfigDto
     // unchanged.
     public IReadOnlyList<GstRateHistoryDto> RateHistory { get; init; } = [];
     public IReadOnlyList<GstCessRateDto> CessRates { get; init; } = [];
+    // Phase 9 slice 2 (RQ-3/RQ-7): dated reverse-charge categories. Default empty ⇒ an RCM-off company serialises
+    // identically to a v38 company (ER-13). Appended at the END so existing field order is unchanged.
+    public IReadOnlyList<RcmCategoryDto> RcmCategories { get; init; } = [];
+}
+
+/// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>
+public sealed record RcmCategoryDto
+{
+    public required Guid Id { get; init; }
+    public required string Notification { get; init; }
+    public required string Stream { get; init; }            // RcmStream name
+    public required string SupplyNature { get; init; }
+    public required string SupplyType { get; init; }        // GstSupplyType name
+    public string? HsnSac { get; init; }
+    public int RateBasisPoints { get; init; }
+    public required string SupplierQualifier { get; init; } // RcmParty name
+    public required string RecipientQualifier { get; init; }// RcmParty name
+    public required string EffectiveFrom { get; init; }     // ISO
+    public string? EffectiveTo { get; init; }               // ISO or null
+    public required string Label { get; init; }
+    public bool IsPredefined { get; init; }
 }
 
 public sealed record GstRateSlabDto
@@ -1002,6 +1078,9 @@ public sealed record PartyGstDto
     public required string RegistrationType { get; init; } // GstRegistrationType name
     public string? Gstin { get; init; }
     public string? StateCode { get; init; }
+    // Phase 9 slice 2 (RQ-3): reverse-charge qualifiers. Default false ⇒ byte-identical to a v38 party (ER-13).
+    public bool IsPromoter { get; init; }
+    public bool IsBodyCorporate { get; init; }
 }
 
 public sealed record StockItemGstDto
@@ -1019,12 +1098,19 @@ public sealed record StockItemGstDto
     public long? CessPerUnitPaisa { get; init; }
     public int? CessRspFactorMillis { get; init; }
     public long? RspPaisa { get; init; }
+    // Phase 9 slice 2 (RQ-3): reverse-charge flags on the shared item / S-P-ledger GST block. Default false/null ⇒
+    // byte-identical to a v38 block (ER-13). Appended at the END so existing field order is unchanged.
+    public bool ReverseChargeApplicable { get; init; }
+    public bool GtaForwardCharge { get; init; }
+    public Guid? RcmCategoryId { get; init; }
 }
 
 public sealed record LedgerGstClassificationDto
 {
     public required string TaxHead { get; init; }   // GstTaxHead name
     public required string Direction { get; init; } // GstTaxDirection name
+    // Phase 9 slice 2 (RQ-7): the RCM Output-ledger discriminator. Default false ⇒ an ordinary tax ledger (ER-13).
+    public bool IsReverseCharge { get; init; }
 }
 
 // ----------------------------------------------------------------- tds / tcs value objects (Phase 7 slice 1)
@@ -1201,6 +1287,9 @@ public sealed record GstLineTaxDto
     public required string TaxHead { get; init; }      // GstTaxHead name
     public int RateBasisPoints { get; init; }
     public long TaxableValuePaisa { get; init; }
+    // Phase 9 slice 2 (RQ-7): reverse-charge tag. Default false/null ⇒ a forward-charge line is byte-identical (ER-13).
+    public bool IsReverseCharge { get; init; }
+    public string? RcmScheme { get; init; }            // RcmItcScheme name, or null
 }
 
 /// <summary>The TDS withholding detail carried on an entry line (Phase 7 slice 2), mirroring the domain

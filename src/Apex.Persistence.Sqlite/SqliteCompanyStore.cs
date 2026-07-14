@@ -928,6 +928,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 38;
         }
 
+        // v38 → v39: apply the Phase-9 slice 2 RCM core + §34-CDN/advances seam (four new tables rcm_categories/
+        // rcm_documents/gst_cdn_links/gst_advance_receipts + their indexes, and the reverse-charge additive columns on
+        // stock_items/ledgers/entry_lines/voucher_types), then bump the marker. Existing v38 data survives untouched
+        // (CREATE TABLE/INDEX + ALTER … ADD COLUMN only; no row rewrites). ER-13 byte-identical when a company uses no
+        // reverse charge / CDN / advances (new tables empty, new columns default 0/NULL).
+        if (version == 38)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV38ToV39;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 39);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 39;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1099,6 +1124,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 company.Gst.AddRateHistory(entry);
             foreach (var rate in ReadGstCessRates(companyId))
                 company.Gst.AddCessRate(rate);
+            // v39 (Phase 9 slice 2): dated reverse-charge categories (empty when RCM is off).
+            foreach (var cat in ReadRcmCategories(companyId))
+                company.Gst.AddRcmCategory(cat);
         }
 
         // v25 TDS/TCS masters (only present when the respective feature was enabled). Loaded into the config.
@@ -1213,6 +1241,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             company.AddTcsChallan(ch);
         foreach (var (challanId, voucherId) in ReadTcsChallanVoucherLinks(companyId))
             company.LinkTcsChallanToVoucher(challanId, voucherId);
+
+        // RCM generated documents + §34-CDN links + GST-on-advance receipts (Phase 9 slice 2). Loaded after vouchers so
+        // their source-voucher references resolve. The CDN/advance sets stay empty until S2b (ER-13).
+        foreach (var doc in ReadRcmDocuments(companyId))
+            company.AddRcmDocument(doc);
+        foreach (var link in ReadGstCdnLinks(companyId))
+            company.AddCreditDebitNoteLink(link);
+        foreach (var adv in ReadGstAdvanceReceipts(companyId))
+            company.AddAdvanceReceipt(adv);
 
         // Payroll masters (Phase 8 slice 1). Order: categories + groups + payroll units first, then attendance
         // types (reference payroll units) and employees (reference groups + categories). Empty when Payroll off.
@@ -1402,6 +1439,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertTdsChallans(tx, company);
         // TCS deposit challans + their voucher links (Phase 7 slice 6): the exact sibling of the TDS challan set.
         InsertTcsChallans(tx, company);
+        // RCM generated documents + §34-CDN links + GST-on-advance receipts (Phase 9 slice 2): all FK vouchers (source /
+        // cdn / receipt / adjustment / refund), inserted above, so insert them here.
+        InsertRcmRecords(tx, company);
         // Payroll masters (Phase 8 slice 1). Categories + groups + payroll units first; then attendance types
         // (FK payroll_units) and employees (FK employee_groups + employee_categories). Hierarchical/compound
         // masters are inserted parents-before-children so their self-FK resolves.
@@ -1555,7 +1595,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    tds_applicable, tds_nature_id, deductee_type, party_pan, deduct_in_same_voucher,
                    tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind,
                    sp_gst_valuation_basis, sp_cess_applicable, sp_cess_valuation_mode, sp_cess_rate_bp,
-                   sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa
+                   sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
+                   sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
+                   party_is_promoter, party_is_body_corporate, gst_class_reverse_charge
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1602,16 +1644,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         return list;
     }
 
-    /// <summary>Reads the party GST block (columns 22–24), or <c>null</c> when the ledger has no party GST.</summary>
+    /// <summary>Reads the party GST block (columns 22–24 + v39 RCM qualifiers 52–53), or <c>null</c> when the ledger has
+    /// no party GST. A ledger carrying only a v39 RCM qualifier (no reg-type/gstin/state) still materialises a block so
+    /// the flag round-trips.</summary>
     private static PartyGstDetails? ReadPartyGst(SqliteDataReader r)
     {
-        // Present iff any of reg-type / gstin / state is set.
-        if (r.IsDBNull(22) && r.IsDBNull(23) && r.IsDBNull(24)) return null;
+        var promoter = r.GetInt64(52) != 0;
+        var bodyCorporate = r.GetInt64(53) != 0;
+        // Present iff any of reg-type / gstin / state / v39 RCM qualifier is set.
+        if (r.IsDBNull(22) && r.IsDBNull(23) && r.IsDBNull(24) && !promoter && !bodyCorporate) return null;
         return new PartyGstDetails
         {
             RegistrationType = r.IsDBNull(22) ? GstRegistrationType.Unregistered : (GstRegistrationType)(int)r.GetInt64(22),
             Gstin = r.IsDBNull(23) ? null : r.GetString(23),
             StateCode = r.IsDBNull(24) ? null : r.GetString(24),
+            // v39 (Phase 9 slice 2): reverse-charge qualifiers (default off).
+            IsPromoter = promoter,
+            IsBodyCorporate = bodyCorporate,
         };
     }
 
@@ -1634,14 +1683,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             CessPerUnit = r.IsDBNull(46) ? (Money?)null : Paisa.ToMoney(r.GetInt64(46)),
             CessRspFactorMillis = r.IsDBNull(47) ? (int?)null : (int)r.GetInt64(47),
             RetailSalePrice = r.IsDBNull(48) ? (Money?)null : Paisa.ToMoney(r.GetInt64(48)),
+            // v39 (Phase 9 slice 2): reverse-charge flags on the sales/purchase-ledger block (default off/null).
+            ReverseChargeApplicable = r.GetInt64(49) != 0,
+            GtaForwardCharge = r.GetInt64(50) != 0,
+            RcmCategoryId = r.IsDBNull(51) ? (Guid?)null : Guid.Parse(r.GetString(51)),
         };
     }
 
-    /// <summary>Reads the tax-ledger classification (columns 29–30), or <c>null</c> for an ordinary ledger.</summary>
+    /// <summary>Reads the tax-ledger classification (columns 29–30 + v39 reverse-charge discriminator 54), or <c>null</c>
+    /// for an ordinary ledger.</summary>
     private static LedgerGstClassification? ReadLedgerGstClassification(SqliteDataReader r)
     {
         if (r.IsDBNull(29) || r.IsDBNull(30)) return null;
-        return new LedgerGstClassification((GstTaxHead)(int)r.GetInt64(29), (GstTaxDirection)(int)r.GetInt64(30));
+        return new LedgerGstClassification(
+            (GstTaxHead)(int)r.GetInt64(29), (GstTaxDirection)(int)r.GetInt64(30), isReverseCharge: r.GetInt64(54) != 0);
     }
 
     /// <summary>
@@ -1670,7 +1725,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
-                   allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment
+                   allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
+                   is_rcm_payment_voucher
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1702,7 +1758,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 useForJobWork: r.GetInt64(14) != 0,
                 allowConsumption: r.GetInt64(15) != 0,
                 // v27 (Phase 7 slice 3): "Use for Statutory Payment" flag, read verbatim.
-                isStatPayment: r.GetInt64(16) != 0);
+                isStatPayment: r.GetInt64(16) != 0,
+                // v39 (Phase 9 slice 2): "Use for RCM Payment Voucher" flag, read verbatim.
+                isRcmPaymentVoucher: r.GetInt64(17) != 0);
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -1822,6 +1880,110 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.IsDBNull(7) ? (DateOnly?)null : ParseDate(r.GetString(7)),
                 r.GetString(8),
                 isPredefined: r.GetInt64(9) != 0));
+        return list;
+    }
+
+    /// <summary>v39: reads the dated reverse-charge categories for a company (empty when RCM is off).</summary>
+    private IEnumerable<RcmCategory> ReadRcmCategories(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, notification, stream, supply_nature, supply_type, hsn_sac, rate_bp,
+                   supplier_qualifier, recipient_qualifier, effective_from, effective_to, label, is_predefined
+            FROM rcm_categories WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<RcmCategory>();
+        while (r.Read())
+            list.Add(new RcmCategory(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                (RcmStream)(int)r.GetInt64(2),
+                r.GetString(3),
+                (GstSupplyType)(int)r.GetInt64(4),
+                r.IsDBNull(5) ? null : r.GetString(5),
+                (int)r.GetInt64(6),
+                (RcmParty)(int)r.GetInt64(7),
+                (RcmParty)(int)r.GetInt64(8),
+                ParseDate(r.GetString(9)),
+                r.IsDBNull(10) ? (DateOnly?)null : ParseDate(r.GetString(10)),
+                r.GetString(11),
+                isPredefined: r.GetInt64(12) != 0));
+        return list;
+    }
+
+    /// <summary>v39: reads the RCM generated documents (self-invoices + payment vouchers) for a company (Phase 9 slice 2).</summary>
+    private IEnumerable<RcmDocument> ReadRcmDocuments(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, doc_kind, source_voucher_id, series_number, doc_date, supplier_ledger_id
+            FROM rcm_documents WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<RcmDocument>();
+        while (r.Read())
+            list.Add(new RcmDocument(
+                Guid.Parse(r.GetString(0)),
+                (RcmDocumentKind)(int)r.GetInt64(1),
+                Guid.Parse(r.GetString(2)),
+                (int)r.GetInt64(3),
+                ParseDate(r.GetString(4)),
+                r.IsDBNull(5) ? (Guid?)null : Guid.Parse(r.GetString(5))));
+        return list;
+    }
+
+    /// <summary>v39: reads the §34 credit/debit-note links for a company (empty until S2b).</summary>
+    private IEnumerable<GstCreditDebitNoteLink> ReadGstCdnLinks(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, cdn_voucher_id, cdn_type, original_invoice_voucher_id, original_invoice_number,
+                   original_invoice_date, reason_code, is_9b_target
+            FROM gst_cdn_links WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstCreditDebitNoteLink>();
+        while (r.Read())
+            list.Add(new GstCreditDebitNoteLink(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                (CdnType)(int)r.GetInt64(2),
+                r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                r.IsDBNull(4) ? null : r.GetString(4),
+                r.IsDBNull(5) ? (DateOnly?)null : ParseDate(r.GetString(5)),
+                r.GetString(6),
+                is9BTarget: r.GetInt64(7) != 0));
+        return list;
+    }
+
+    /// <summary>v39: reads the GST-on-advance receipts for a company (empty until S2b).</summary>
+    private IEnumerable<GstAdvanceReceipt> ReadGstAdvanceReceipts(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, receipt_voucher_id, is_service, advance_amount_paisa, rate_bp, inter_state, pos_state_code,
+                   advance_tax_paisa, adjusted_against_invoice_vid, refund_voucher_id
+            FROM gst_advance_receipts WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstAdvanceReceipt>();
+        while (r.Read())
+            list.Add(new GstAdvanceReceipt(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                r.GetInt64(2) != 0,
+                Paisa.ToMoney(r.GetInt64(3)),
+                (int)r.GetInt64(4),
+                r.GetInt64(5) != 0,
+                r.IsDBNull(6) ? null : r.GetString(6),
+                Paisa.ToMoney(r.GetInt64(7)),
+                r.IsDBNull(8) ? (Guid?)null : Guid.Parse(r.GetString(8)),
+                r.IsDBNull(9) ? (Guid?)null : Guid.Parse(r.GetString(9))));
         return list;
     }
 
@@ -2448,7 +2610,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components,
                    tcs_nature_id,
                    gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
-                   cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa
+                   cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
+                   reverse_charge_applicable, gta_forward_charge, rcm_category_id
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2686,6 +2849,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             CessPerUnit = r.IsDBNull(25) ? (Money?)null : Paisa.ToMoney(r.GetInt64(25)),
             CessRspFactorMillis = r.IsDBNull(26) ? (int?)null : (int)r.GetInt64(26),
             RetailSalePrice = r.IsDBNull(27) ? (Money?)null : Paisa.ToMoney(r.GetInt64(27)),
+            // v39 (Phase 9 slice 2): reverse-charge (RCM) flags (default off/null for a plain item).
+            ReverseChargeApplicable = r.GetInt64(28) != 0,
+            GtaForwardCharge = r.GetInt64(29) != 0,
+            RcmCategoryId = r.IsDBNull(30) ? (Guid?)null : Guid.Parse(r.GetString(30)),
         };
     }
 
@@ -3111,7 +3278,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 SELECT id, ledger_id, amount_paisa, side,
                        forex_currency_id, forex_amount_micro, forex_rate_micro,
-                       gst_tax_head, gst_rate_bp, gst_taxable_value_paisa
+                       gst_tax_head, gst_rate_bp, gst_taxable_value_paisa,
+                       gst_is_reverse_charge, gst_rcm_scheme
                 FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
                 """;
             cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -3127,14 +3295,17 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         MicroToDecimal(r.GetInt64(6)));
                 }
 
-                // v13 GST tax-line detail: present iff gst_tax_head is set.
+                // v13 GST tax-line detail: present iff gst_tax_head is set. v39 (Phase 9 slice 2) adds the reverse-charge
+                // tag (gst_is_reverse_charge / gst_rcm_scheme), default 0/NULL for a forward-charge line.
                 GstLineTax? gst = null;
                 if (!r.IsDBNull(7))
                 {
                     gst = new GstLineTax(
                         (GstTaxHead)(int)r.GetInt64(7),
                         (int)r.GetInt64(8),
-                        Paisa.ToMoney(r.GetInt64(9)));
+                        Paisa.ToMoney(r.GetInt64(9)),
+                        isReverseCharge: r.GetInt64(10) != 0,
+                        rcmScheme: r.IsDBNull(11) ? (RcmItcScheme?)null : (RcmItcScheme)(int)r.GetInt64(11));
                 }
 
                 raw.Add((
@@ -3355,6 +3526,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id FROM tcs_challans WHERE company_id = $cid);
             """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM tcs_challans WHERE company_id = $cid;", ("$cid", cid));
+        // v39 RCM documents + §34-CDN links + GST-on-advance receipts FK vouchers (source/cdn/receipt/adjustment/refund) +
+        // companies → delete before vouchers and the company row below (Phase 9 slice 2).
+        ExecTx(tx, "DELETE FROM rcm_documents WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_cdn_links WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_advance_receipts WHERE company_id = $cid;", ("$cid", cid));
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
         ExecTx(tx, """
             DELETE FROM tds_lines WHERE entry_line_id IN (
@@ -3481,6 +3657,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v38 GST rate-history + Compensation-Cess masters FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM gst_rate_history WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_cess_rates WHERE company_id = $cid;", ("$cid", cid));
+        // v39 RCM category master FK companies → delete before the company row.
+        ExecTx(tx, "DELETE FROM rcm_categories WHERE company_id = $cid;", ("$cid", cid));
         // v35 PT slab bands FK companies → delete before the company row.
         ExecTx(tx, "DELETE FROM pt_slab_bands WHERE company_id = $cid;", ("$cid", cid));
         // v36 §192 tax declarations FK companies → delete before the company row.
@@ -3754,6 +3932,35 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 s.ExecuteNonQuery();
             }
 
+        // v39 reverse-charge categories (empty when RCM is off), hung off the GST config like the rate-history/cess.
+        if (gst is not null)
+            foreach (var c2 in gst.RcmCategories)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO rcm_categories
+                        (id, company_id, notification, stream, supply_nature, supply_type, hsn_sac, rate_bp,
+                         supplier_qualifier, recipient_qualifier, effective_from, effective_to, label, is_predefined)
+                    VALUES ($id, $cid, $notn, $stream, $nature, $stype, $hsn, $bp, $supq, $recq, $from, $to, $label, $pre);
+                    """;
+                s.Parameters.AddWithValue("$id", c2.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$notn", c2.Notification);
+                s.Parameters.AddWithValue("$stream", (int)c2.Stream);
+                s.Parameters.AddWithValue("$nature", c2.SupplyNature);
+                s.Parameters.AddWithValue("$stype", (int)c2.SupplyType);
+                s.Parameters.AddWithValue("$hsn", (object?)c2.HsnSac ?? DBNull.Value);
+                s.Parameters.AddWithValue("$bp", c2.RateBasisPoints);
+                s.Parameters.AddWithValue("$supq", (int)c2.SupplierQualifier);
+                s.Parameters.AddWithValue("$recq", (int)c2.RecipientQualifier);
+                s.Parameters.AddWithValue("$from", FormatDate(c2.EffectiveFrom));
+                s.Parameters.AddWithValue("$to", c2.EffectiveTo is { } to ? FormatDate(to) : (object)DBNull.Value);
+                s.Parameters.AddWithValue("$label", c2.Label);
+                s.Parameters.AddWithValue("$pre", c2.IsPredefined ? 1 : 0);
+                s.ExecuteNonQuery();
+            }
+
         // v25 Nature-of-Payment masters (only when TDS is enabled), hung off the TDS config like the GST slabs.
         if (tds is not null)
             foreach (var n in tds.NaturesOfPayment)
@@ -3867,12 +4074,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      tds_applicable, tds_nature_id, deductee_type, party_pan, deduct_in_same_voucher,
                      tcs_applicable, tcs_nature_id, collectee_type, tds_tcs_class_kind,
                      sp_gst_valuation_basis, sp_cess_applicable, sp_cess_valuation_mode, sp_cess_rate_bp,
-                     sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa)
+                     sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
+                     sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
+                     party_is_promoter, party_is_body_corporate, gst_class_reverse_charge)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
                         $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind,
-                        $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp);
+                        $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp,
+                        $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -3926,10 +4136,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$spcrsp", sp?.CessRspFactorMillis is { } spcrsp ? spcrsp : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$sprsp", sp?.RetailSalePrice is { } sprsp ? Paisa.FromMoney(sprsp) : (object)DBNull.Value);
 
-            // v13 tax-ledger classification (NULL for an ordinary ledger).
+            // v39 sales/purchase-ledger reverse-charge (RCM) flags + party RCM qualifiers (default off/null).
+            cmd.Parameters.AddWithValue("$sprca", sp is { ReverseChargeApplicable: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$spgtafc", sp is { GtaForwardCharge: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$sprcmcat", (object?)sp?.RcmCategoryId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ppromo", pg is { IsPromoter: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pbodycorp", pg is { IsBodyCorporate: true } ? 1 : 0);
+
+            // v13 tax-ledger classification (NULL for an ordinary ledger); v39 adds the RCM Output discriminator.
             var gc = l.GstClassification;
             cmd.Parameters.AddWithValue("$gthead", gc is null ? (object)DBNull.Value : (int)gc.TaxHead);
             cmd.Parameters.AddWithValue("$gtdir", gc is null ? (object)DBNull.Value : (int)gc.Direction);
+            cmd.Parameters.AddWithValue("$gcrc", gc is { IsReverseCharge: true } ? 1 : 0);
 
             // v19 additional-cost ledger method (NULL for a plain P&L ledger).
             cmd.Parameters.AddWithValue("$moa", l.MethodOfAppropriation is { } moa ? (int)moa : (object)DBNull.Value);
@@ -4003,8 +4221,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
-                     use_for_pos, use_for_job_work, allow_consumption, is_stat_payment)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat);
+                     use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4024,6 +4242,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$ujw", t.UseForJobWork ? 1 : 0);              // v24 (RQ-45/RQ-48)
             cmd.Parameters.AddWithValue("$ac", t.AllowConsumption ? 1 : 0);            // v24 (RQ-49)
             cmd.Parameters.AddWithValue("$stat", t.IsStatPayment ? 1 : 0);             // v27 (Phase 7 slice 3)
+            cmd.Parameters.AddWithValue("$rcmpv", t.IsRcmPaymentVoucher ? 1 : 0);      // v39 (Phase 9 slice 2)
             cmd.ExecuteNonQuery();
         }
     }
@@ -4099,6 +4318,76 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 """;
             cmd.Parameters.AddWithValue("$ch", link.ChallanId.ToString("D"));
             cmd.Parameters.AddWithValue("$v", link.VoucherId.ToString("D"));
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>Persists the RCM generated documents (v39; Phase 9 slice 2) + the §34-CDN links + the GST-on-advance
+    /// receipts. All FK vouchers, so this runs after InsertVouchers. Empty sets write nothing — byte-identical (ER-13).</summary>
+    private void InsertRcmRecords(SqliteTransaction tx, Company c)
+    {
+        foreach (var d in c.RcmDocuments)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO rcm_documents
+                    (id, company_id, doc_kind, source_voucher_id, series_number, doc_date, supplier_ledger_id)
+                VALUES ($id, $cid, $kind, $src, $seq, $date, $sup);
+                """;
+            cmd.Parameters.AddWithValue("$id", d.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$kind", (int)d.Kind);
+            cmd.Parameters.AddWithValue("$src", d.SourceVoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$seq", d.SeriesNumber);
+            cmd.Parameters.AddWithValue("$date", FormatDate(d.DocDate));
+            cmd.Parameters.AddWithValue("$sup", (object?)d.SupplierLedgerId?.ToString("D") ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var l in c.CreditDebitNoteLinks)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO gst_cdn_links
+                    (id, company_id, cdn_voucher_id, cdn_type, original_invoice_voucher_id, original_invoice_number,
+                     original_invoice_date, reason_code, is_9b_target)
+                VALUES ($id, $cid, $cdnv, $type, $origv, $orignum, $origdate, $reason, $b9);
+                """;
+            cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cdnv", l.CdnVoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$type", (int)l.CdnType);
+            cmd.Parameters.AddWithValue("$origv", (object?)l.OriginalInvoiceVoucherId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$orignum", (object?)l.OriginalInvoiceNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$origdate", l.OriginalInvoiceDate is { } od ? FormatDate(od) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$reason", l.ReasonCode);
+            cmd.Parameters.AddWithValue("$b9", l.Is9BTarget ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var a in c.AdvanceReceipts)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO gst_advance_receipts
+                    (id, company_id, receipt_voucher_id, is_service, advance_amount_paisa, rate_bp, inter_state,
+                     pos_state_code, advance_tax_paisa, adjusted_against_invoice_vid, refund_voucher_id)
+                VALUES ($id, $cid, $rv, $svc, $amt, $bp, $inter, $pos, $tax, $adj, $ref);
+                """;
+            cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$rv", a.ReceiptVoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$svc", a.IsService ? 1 : 0);
+            cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(a.AdvanceAmount));
+            cmd.Parameters.AddWithValue("$bp", a.RateBasisPoints);
+            cmd.Parameters.AddWithValue("$inter", a.InterState ? 1 : 0);
+            cmd.Parameters.AddWithValue("$pos", (object?)a.PlaceOfSupplyStateCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$tax", Paisa.FromMoney(a.AdvanceTax));
+            cmd.Parameters.AddWithValue("$adj", (object?)a.AdjustedAgainstInvoiceVoucherId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ref", (object?)a.RefundVoucherId?.ToString("D") ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -4598,10 +4887,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      maintain_in_batches, track_manufacturing_date, use_expiry_dates, set_components,
                      tcs_nature_id,
                      gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
-                     cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa)
+                     cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
+                     reverse_charge_applicable, gta_forward_charge, rcm_category_id)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
                         $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat,
-                        $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp);
+                        $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp,
+                        $rca, $gtafc, $rcmcat);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4632,6 +4923,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$cpu", g?.CessPerUnit is { } cpu ? Paisa.FromMoney(cpu) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$crsp", g?.CessRspFactorMillis is { } crsp ? crsp : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$rsp", g?.RetailSalePrice is { } rsp ? Paisa.FromMoney(rsp) : (object)DBNull.Value);
+
+            // v39 item reverse-charge (RCM) flags (default off/null for a plain item).
+            cmd.Parameters.AddWithValue("$rca", g is { ReverseChargeApplicable: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$gtafc", g is { GtaForwardCharge: true } ? 1 : 0);
+            cmd.Parameters.AddWithValue("$rcmcat", (object?)g?.RcmCategoryId?.ToString("D") ?? DBNull.Value);
 
             // v16 batch switches (0/1; default off).
             cmd.Parameters.AddWithValue("$mib", item.MaintainInBatches ? 1 : 0);
@@ -5143,8 +5439,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     INSERT INTO entry_lines
                         (voucher_id, line_order, ledger_id, amount_paisa, side,
                          forex_currency_id, forex_amount_micro, forex_rate_micro,
-                         gst_tax_head, gst_rate_bp, gst_taxable_value_paisa)
-                    VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate, $gthead, $grate, $gtax)
+                         gst_tax_head, gst_rate_bp, gst_taxable_value_paisa,
+                         gst_is_reverse_charge, gst_rcm_scheme)
+                    VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate, $gthead, $grate, $gtax,
+                            $grcm, $grcmsch)
                     RETURNING id;
                     """;
                 cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
@@ -5164,6 +5462,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$gthead", gt is null ? (object)DBNull.Value : (int)gt.TaxHead);
                 cmd.Parameters.AddWithValue("$grate", gt is null ? (object)DBNull.Value : gt.RateBasisPoints);
                 cmd.Parameters.AddWithValue("$gtax", gt is null ? (object)DBNull.Value : Paisa.FromMoney(gt.TaxableValue));
+                // v39 (Phase 9 slice 2): reverse-charge tag (default 0/NULL for a forward-charge line).
+                cmd.Parameters.AddWithValue("$grcm", gt is { IsReverseCharge: true } ? 1 : 0);
+                cmd.Parameters.AddWithValue("$grcmsch", gt?.RcmScheme is { } sch ? (int)sch : (object)DBNull.Value);
                 lineId = Convert.ToInt64(cmd.ExecuteScalar());
             }
 

@@ -21,6 +21,17 @@ public sealed class PartyGstDetails
     /// <summary>The party's State/UT 2-digit GST code (the place of supply for goods); <c>null</c> when unset.</summary>
     public string? StateCode { get; set; }
 
+    // ---- Phase 9 slice 2: reverse-charge (RCM) qualifiers (RQ-3). Default false so a party with no RCM profile is
+    // byte-identical to a v38 party (ER-13); the blanket §9(4) stays OFF (promoter-only, Notn 7/2019). ----
+
+    /// <summary>True iff this party is a real-estate <b>promoter</b> — the sole surviving §9(4) trigger (Notn 7/2019).
+    /// Default false, so a company with no promoter profile leaves §9(4) OFF.</summary>
+    public bool IsPromoter { get; set; }
+
+    /// <summary>True iff this party is a <b>body corporate</b> — drives the recipient/supplier qualifier match (e.g. GTA /
+    /// security / renting-of-motor-vehicle RCM shifts to a body-corporate recipient). Default false.</summary>
+    public bool IsBodyCorporate { get; set; }
+
     /// <summary>
     /// True iff this is a B2C party — no GSTIN, or a registration type of Unregistered/Consumer. B2C supplies
     /// go to the B2C section of GSTR-1 (DP-8) but pay CGST+SGST/IGST normally by place of supply.

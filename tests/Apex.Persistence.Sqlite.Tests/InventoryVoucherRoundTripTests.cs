@@ -416,6 +416,16 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS gst_rate_history;");
         Exec(conn, "DROP INDEX IF EXISTS ix_gst_cess_rates_company;");
         Exec(conn, "DROP TABLE IF EXISTS gst_cess_rates;");
+        // v39 RCM category + document + §34-CDN + advance tables (+ their indexes) — drop so the reopen's v38→v39 CREATE
+        // TABLE does not collide (the stock_items/ledgers rebuilds strip the v39 columns; voucher_types/entry_lines too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_rcm_categories_company;");
+        Exec(conn, "DROP TABLE IF EXISTS rcm_categories;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_rcm_documents_company;");
+        Exec(conn, "DROP TABLE IF EXISTS rcm_documents;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_cdn_links_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_cdn_links;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_advance_receipts_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_advance_receipts;");
         Exec(conn, """
             CREATE TABLE companies_v12 (
                 id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,

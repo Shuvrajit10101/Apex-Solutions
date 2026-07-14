@@ -70,6 +70,15 @@ public sealed record Gstr1(
     Money TotalSgst,
     Money TotalIgst)
 {
+    /// <summary>
+    /// Table 4B (Phase 9 slice 2; RQ-7) — the value of <b>outward</b> supplies on which the <b>recipient</b> pays tax
+    /// under reverse charge (the invoice carries zero tax but must be flagged). Light in S2a: a single value bucket
+    /// (Σ the outward supply value of vouchers whose sales/expense ledger is flagged
+    /// <see cref="StockItemGstDetails.ReverseChargeApplicable"/>). Default <c>Money.Zero</c> so a company with no outward
+    /// RCM supply is byte-identical (ER-13).
+    /// </summary>
+    public Money Rcm4BOutwardValue { get; init; }
+
     /// <summary>Σ all output tax on the return (CGST + SGST + IGST).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
@@ -90,7 +99,12 @@ public sealed record Gstr1(
             var hasTax = invoice.Cgst != 0m || invoice.Sgst != 0m || invoice.Igst != 0m;
             totalCgst += invoice.Cgst; totalSgst += invoice.Sgst; totalIgst += invoice.Igst;
 
-            // HSN summary + exempt bucket — every outward supply (taxable AND exempt/nil) contributes here.
+            // An outward reverse-charge supply (zero forward tax; sales ledger flagged ReverseChargeApplicable) belongs
+            // ONLY in Table 4B (Rcm4BOutwardValue) — never the exempt/nil/non-GST bucket or the HSN sweep, else it is
+            // double-represented (its value would appear in both 4B and exempt). Skip it here (Phase 9 slice 2; RQ-7).
+            if (!hasTax && GstReportSupport.IsOutwardReverseChargeSupply(company, voucher)) continue;
+
+            // HSN summary + exempt bucket — every other outward supply (taxable AND exempt/nil) contributes here.
             AccumulateHsn(company, voucher, invoice, hsnAcc, ref exempt);
 
             // A no-tax supply (exempt/nil/non-GST) belongs only in the HSN summary + exempt bucket, not in the
@@ -150,7 +164,32 @@ public sealed record Gstr1(
             .ToList();
 
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
-            new Money(exempt), new Money(totalCgst), new Money(totalSgst), new Money(totalIgst));
+            new Money(exempt), new Money(totalCgst), new Money(totalSgst), new Money(totalIgst))
+        {
+            Rcm4BOutwardValue = ComputeRcm4BOutwardValue(company, from, to),
+        };
+    }
+
+    /// <summary>
+    /// The Table-4B outward-RCM-supply value (Phase 9 slice 2; RQ-7) — Σ the outward supply value of vouchers whose
+    /// sales/expense ledger carries an <b>outward</b> reverse-charge flag (the recipient pays the tax, so the invoice bears
+    /// none). Reads posted amounts only. A company with no such supply yields <c>Money.Zero</c> (byte-identical, ER-13).
+    /// </summary>
+    private static Money ComputeRcm4BOutwardValue(Company company, DateOnly from, DateOnly to)
+    {
+        if (!company.GstEnabled) return Money.Zero;
+        var total = 0m;
+        foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output))
+        {
+            // A Credit Note against an outward RCM supply REDUCES the 4B value (it nets the original supply down),
+            // mirroring how an outward return nets down a rate row; a Sales voucher adds. Signing by base type (rather
+            // than treating every posted line as additive) keeps 4B from being inflated by a credit note (Phase 9 S2; RQ-7).
+            var sign = type.BaseType == VoucherBaseType.CreditNote ? -1m : 1m;
+            foreach (var line in voucher.Lines)
+                if (company.FindLedger(line.LedgerId)?.SalesPurchaseGst is { ReverseChargeApplicable: true })
+                    total += sign * line.Amount.Amount;
+        }
+        return new Money(total);
     }
 
     /// <summary>Reads a voucher's posted tax by head off its <see cref="GstLineTax"/> tax lines.</summary>

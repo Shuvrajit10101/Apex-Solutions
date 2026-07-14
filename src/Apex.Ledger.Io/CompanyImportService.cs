@@ -201,7 +201,7 @@ public sealed class CompanyImportService
 
         // ---- Voucher validation: balance + resolvable refs (RQ-21), without posting ----
         foreach (var v in model.Payload.Vouchers)
-            ValidateVoucher(v, plan, errors);
+            ValidateVoucher(v, plan, model, errors);
 
         return plan;
     }
@@ -696,7 +696,7 @@ public sealed class CompanyImportService
         return false;
     }
 
-    private void ValidateVoucher(VoucherDto v, ImportPlan plan, List<string> errors)
+    private void ValidateVoucher(VoucherDto v, ImportPlan plan, CanonicalModel model, List<string> errors)
     {
         var label = $"Voucher #{v.Number} dated {v.Date}";
 
@@ -713,6 +713,20 @@ public sealed class CompanyImportService
                 errors.Add($"{label} has a non-positive line amount.");
             if (!plan.CanResolveLedger(line.LedgerId, _target))
                 errors.Add($"{label} references a ledger that is neither imported nor present.");
+
+            // Phase 9 slice 2 (ER-3 cash-only structural check): an RCM output-liability line is any reverse-charge-tagged
+            // Credit line — it MUST land in a dedicated RCM Output ledger (a classification tagged IsReverseCharge), never
+            // a normal Output ledger (else GSTR reconciliation double-counts). The ITC leg is a DEBIT, so every RCM CREDIT
+            // line is a liability leg and must route to an RCM Output ledger. The check is deliberately STRUCTURAL (target
+            // ledger classification), NOT keyed on RcmScheme being null: a corrupt/hand-edited batch that tags the mis-
+            // routed liability leg with a non-null RcmScheme would otherwise bypass the guard (the recurring Io-bypass
+            // hardening class). Direct-construction import bypasses the RcmService, so mirror the guard here — a mis-routed
+            // RCM liability rejects the whole batch (all-or-nothing).
+            if (line.Gst is { IsReverseCharge: true }
+                && string.Equals(line.Side, nameof(DrCr.Credit), StringComparison.Ordinal)
+                && !RcmOutputLedgerIsValid(line.LedgerId, model))
+                errors.Add($"{label} posts an RCM output-liability line to a ledger that is not a dedicated " +
+                           "RCM Output tax ledger (reverse-charge classification required — cash-only §49(4) invariant).");
 
             if (string.Equals(line.Side, nameof(DrCr.Debit), StringComparison.Ordinal)) dr += line.AmountPaisa;
             else if (string.Equals(line.Side, nameof(DrCr.Credit), StringComparison.Ordinal)) cr += line.AmountPaisa;
@@ -749,6 +763,17 @@ public sealed class CompanyImportService
             if (!plan.CanResolveGodown(il.GodownId, _target))
                 errors.Add($"{label} has an item line referencing a godown that is neither imported nor present.");
         }
+    }
+
+    /// <summary>True iff the ledger a reverse-charge output-liability line posts to carries a reverse-charge
+    /// classification (Phase 9 slice 2). The ledger is resolved from the imported <see cref="LedgerDto"/> set (its
+    /// <see cref="LedgerGstClassificationDto.IsReverseCharge"/>) or, when it references a pre-existing ledger, from the
+    /// target company's ledger classification.</summary>
+    private bool RcmOutputLedgerIsValid(Guid ledgerId, CanonicalModel model)
+    {
+        var dto = model.Payload.Ledgers.FirstOrDefault(l => l.Id == ledgerId);
+        if (dto is not null) return dto.GstClassification is { IsReverseCharge: true };
+        return _target.FindLedger(ledgerId)?.GstClassification is { IsReverseCharge: true };
     }
 
     // ============================================================ static parse helpers (shared with the plan)

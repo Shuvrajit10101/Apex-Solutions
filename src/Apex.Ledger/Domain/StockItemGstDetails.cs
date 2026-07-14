@@ -57,6 +57,27 @@ public sealed class StockItemGstDetails
     /// <summary>The declared Retail Sale Price (per unit) — drives RSP-factor cess and RSP GST valuation; <c>null</c> ⇒ unset.</summary>
     public Money? RetailSalePrice { get; set; }
 
+    // ---- Phase 9 slice 2: reverse-charge (RCM) flags on the shared item / sales-purchase-ledger GST block (RQ-3).
+    // All default off/null so an item or ledger with no RCM data serialises byte-identically to a v38 block (ER-13). ----
+
+    /// <summary>
+    /// "Is reverse charge applicable" (RQ-3). When set on the inward expense/purchase ledger-or-item <b>and</b> a matching
+    /// <see cref="RcmCategory"/> resolves, the recipient self-accounts the RCM dual leg (the supplier charges no tax). On
+    /// the <b>outward</b> side it flags a supply on which the recipient pays RCM (GSTR-1 Table 4B, S2b). Default false.
+    /// </summary>
+    public bool ReverseChargeApplicable { get; set; }
+
+    /// <summary>
+    /// "GTA under forward charge (Annexure-V)" — when a Goods-Transport-Agency has opted to charge GST forward at 18%,
+    /// this suppresses the RCM leg on the recipient (the supplier's invoice already carries the tax). Default false; only
+    /// meaningful together with <see cref="ReverseChargeApplicable"/>.
+    /// </summary>
+    public bool GtaForwardCharge { get; set; }
+
+    /// <summary>The linked notified <see cref="RcmCategory"/> id (nature-of-supply); <c>null</c> ⇒ resolve by stream +
+    /// qualifiers. Bare id (no FK, mirrors <c>tds_nature_id</c>).</summary>
+    public Guid? RcmCategoryId { get; set; }
+
     /// <summary>True iff this block is taxable (attracts tax when a rate resolves).</summary>
     public bool IsTaxable => Taxability == GstTaxability.Taxable;
 

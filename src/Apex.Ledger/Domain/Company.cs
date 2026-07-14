@@ -31,6 +31,9 @@ public sealed class Company
     private readonly List<ReorderDefinition> _reorderDefinitions = new();
     private readonly List<TdsChallan> _tdsChallans = new();
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
+    private readonly List<RcmDocument> _rcmDocuments = new();
+    private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
+    private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
@@ -405,6 +408,18 @@ public sealed class Company
     /// (Phase 7 slice 6; the <c>tcs_challan_voucher_links</c> set — a TCS-specific sibling of the TDS one).</summary>
     public IReadOnlyList<ChallanVoucherLink> TcsChallanVoucherLinks => _tcsChallanVoucherLinks;
 
+    /// <summary>RCM generated documents (Phase 9 slice 2; RQ-8): Rule-47A self-invoices + Rule-52 payment vouchers.
+    /// Empty when reverse charge is unused (ER-13).</summary>
+    public IReadOnlyList<RcmDocument> RcmDocuments => _rcmDocuments;
+
+    /// <summary>§34 credit/debit-note links (Phase 9; RQ-24): the original-invoice link + reason + 9B target. The
+    /// table lands in the S2a schema but stays empty until the S2b CDN engine (ER-13).</summary>
+    public IReadOnlyList<GstCreditDebitNoteLink> CreditDebitNoteLinks => _cdnLinks;
+
+    /// <summary>GST-on-advance receipts (Phase 9; RQ-25): the 11A/11B source records. The table lands in the S2a
+    /// schema but stays empty until the S2b advance engine (ER-13).</summary>
+    public IReadOnlyList<GstAdvanceReceipt> AdvanceReceipts => _advanceReceipts;
+
     /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
     /// unless Payroll is used.</summary>
     public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
@@ -569,6 +584,33 @@ public sealed class Company
     /// <summary>The TCS challan ids linked to a given voucher (Phase 7 slice 6).</summary>
     public IEnumerable<Guid> TcsChallansLinkedToVoucher(Guid voucherId) =>
         _tcsChallanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
+
+    // ---- RCM / §34-CDN / advance records (Phase 9 slice 2; guards live in RcmService / CreditDebitNoteService /
+    //      AdvanceReceiptService). The CDN + advance collections land here but stay empty until S2b. ----
+
+    /// <summary>Adds an RCM generated document (Phase 9 slice 2; also used by the store/import rehydration).</summary>
+    public void AddRcmDocument(RcmDocument document) => _rcmDocuments.Add(document ?? throw new ArgumentNullException(nameof(document)));
+    /// <summary>Removes an RCM generated document (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveRcmDocument(RcmDocument document) => _rcmDocuments.Remove(document);
+    /// <summary>Finds an RCM generated document by its id, or <c>null</c>.</summary>
+    public RcmDocument? FindRcmDocument(Guid id) => _rcmDocuments.FirstOrDefault(d => d.Id == id);
+    /// <summary>The next consecutive per-company RCM self-invoice / payment-voucher series number for a document kind.</summary>
+    public int NextRcmDocumentSeries(RcmDocumentKind kind) =>
+        (_rcmDocuments.Where(d => d.Kind == kind).Select(d => (int?)d.SeriesNumber).Max() ?? 0) + 1;
+
+    /// <summary>Adds a §34 credit/debit-note link (Phase 9; also used by the store/import rehydration).</summary>
+    public void AddCreditDebitNoteLink(GstCreditDebitNoteLink link) => _cdnLinks.Add(link ?? throw new ArgumentNullException(nameof(link)));
+    /// <summary>Removes a §34 credit/debit-note link (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveCreditDebitNoteLink(GstCreditDebitNoteLink link) => _cdnLinks.Remove(link);
+    /// <summary>Finds a §34 credit/debit-note link by its id, or <c>null</c>.</summary>
+    public GstCreditDebitNoteLink? FindCreditDebitNoteLink(Guid id) => _cdnLinks.FirstOrDefault(l => l.Id == id);
+
+    /// <summary>Adds a GST-on-advance receipt record (Phase 9; also used by the store/import rehydration).</summary>
+    public void AddAdvanceReceipt(GstAdvanceReceipt receipt) => _advanceReceipts.Add(receipt ?? throw new ArgumentNullException(nameof(receipt)));
+    /// <summary>Removes a GST-on-advance receipt record (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveAdvanceReceipt(GstAdvanceReceipt receipt) => _advanceReceipts.Remove(receipt);
+    /// <summary>Finds a GST-on-advance receipt record by its id, or <c>null</c>.</summary>
+    public GstAdvanceReceipt? FindAdvanceReceipt(Guid id) => _advanceReceipts.FirstOrDefault(a => a.Id == id);
 
     // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
 

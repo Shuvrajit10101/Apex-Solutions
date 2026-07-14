@@ -108,7 +108,11 @@ public static class CanonicalXml
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
             List("challanVoucherLinks", "challanVoucherLink", p.ChallanVoucherLinks, BuildChallanVoucherLink),
             List("tcsChallans", "tcsChallan", p.TcsChallans, BuildTcsChallan),
-            List("tcsChallanVoucherLinks", "tcsChallanVoucherLink", p.TcsChallanVoucherLinks, BuildChallanVoucherLink));
+            List("tcsChallanVoucherLinks", "tcsChallanVoucherLink", p.TcsChallanVoucherLinks, BuildChallanVoucherLink),
+            // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts (empty until used).
+            List("rcmDocuments", "rcmDocument", p.RcmDocuments, BuildRcmDocument),
+            List("creditDebitNoteLinks", "creditDebitNoteLink", p.CreditDebitNoteLinks, BuildCdnLink),
+            List("advanceReceipts", "advanceReceipt", p.AdvanceReceipts, BuildAdvanceReceipt));
         return root;
     }
 
@@ -119,6 +123,24 @@ public static class CanonicalXml
 
     private static XElement BuildChallanVoucherLink(ChallanVoucherLinkDto l) => new("challanVoucherLink",
         Attr("challanId", l.ChallanId), Attr("voucherId", l.VoucherId));
+
+    private static XElement BuildRcmDocument(RcmDocumentDto d) => new("rcmDocument",
+        Attr("id", d.Id), Attr("kind", d.Kind), Attr("sourceVoucherId", d.SourceVoucherId),
+        Attr("seriesNumber", d.SeriesNumber), Attr("docDate", d.DocDate), OptId("supplierLedgerId", d.SupplierLedgerId));
+
+    private static XElement BuildCdnLink(GstCdnLinkDto l) => new("creditDebitNoteLink",
+        Attr("id", l.Id), Attr("cdnVoucherId", l.CdnVoucherId), Attr("cdnType", l.CdnType),
+        OptId("originalInvoiceVoucherId", l.OriginalInvoiceVoucherId), Opt("originalInvoiceNumber", l.OriginalInvoiceNumber),
+        Opt("originalInvoiceDate", l.OriginalInvoiceDate), Attr("reasonCode", l.ReasonCode),
+        Attr("is9BTarget", l.Is9BTarget));
+
+    private static XElement BuildAdvanceReceipt(GstAdvanceReceiptDto a) => new("advanceReceipt",
+        Attr("id", a.Id), Attr("receiptVoucherId", a.ReceiptVoucherId), Attr("isService", a.IsService),
+        Attr("advanceAmountPaisa", a.AdvanceAmountPaisa), Attr("rateBasisPoints", a.RateBasisPoints),
+        Attr("interState", a.InterState), Opt("placeOfSupplyStateCode", a.PlaceOfSupplyStateCode),
+        Attr("advanceTaxPaisa", a.AdvanceTaxPaisa),
+        OptId("adjustedAgainstInvoiceVoucherId", a.AdjustedAgainstInvoiceVoucherId),
+        OptId("refundVoucherId", a.RefundVoucherId));
 
     private static XElement BuildTcsChallan(TcsChallanDto ch) => new("tcsChallan",
         Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
@@ -335,7 +357,8 @@ public static class CanonicalXml
             Attr("useForPos", t.UseForPos),
             Attr("useForJobWork", t.UseForJobWork),
             Attr("allowConsumption", t.AllowConsumption),
-            Attr("isStatPayment", t.IsStatPayment));
+            Attr("isStatPayment", t.IsStatPayment),
+            Attr("isRcmPaymentVoucher", t.IsRcmPaymentVoucher));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
         return el;
     }
@@ -442,6 +465,17 @@ public static class CanonicalXml
                 Attr("cessRspFactorMillis", c.CessRspFactorMillis), Attr("effectiveFrom", c.EffectiveFrom),
                 Opt("effectiveTo", c.EffectiveTo), Attr("label", c.Label), Attr("isPredefined", c.IsPredefined)));
         el.Add(cess);
+
+        // Phase 9 slice 2: dated reverse-charge categories (empty element when RCM is off).
+        var rcm = new XElement("rcmCategories");
+        foreach (var c in g.RcmCategories)
+            rcm.Add(new XElement("rcmCategory",
+                Attr("id", c.Id), Attr("notification", c.Notification), Attr("stream", c.Stream),
+                Attr("supplyNature", c.SupplyNature), Attr("supplyType", c.SupplyType), Opt("hsnSac", c.HsnSac),
+                Attr("rateBasisPoints", c.RateBasisPoints), Attr("supplierQualifier", c.SupplierQualifier),
+                Attr("recipientQualifier", c.RecipientQualifier), Attr("effectiveFrom", c.EffectiveFrom),
+                Opt("effectiveTo", c.EffectiveTo), Attr("label", c.Label), Attr("isPredefined", c.IsPredefined)));
+        el.Add(rcm);
         return el;
     }
 
@@ -490,7 +524,9 @@ public static class CanonicalXml
         Attr("minimumWagePaisa", bo.MinimumWagePaisa), Attr("prorate", bo.Prorate));
 
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
-        Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
+        Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode),
+        // Phase 9 slice 2: reverse-charge qualifiers (emitted only when true so an off party is byte-identical, ER-13).
+        OptTrue("isPromoter", p.IsPromoter), OptTrue("isBodyCorporate", p.IsBodyCorporate));
 
     private static XElement BuildStockItemGst(string name, StockItemGstDto s) => new(name,
         Opt("hsnSac", s.HsnSac), Attr("taxability", s.Taxability),
@@ -500,10 +536,15 @@ public static class CanonicalXml
         Attr("valuationBasis", s.ValuationBasis), Attr("cessApplicable", s.CessApplicable),
         Opt("cessValuationMode", s.CessValuationMode), OptInt("cessRateBasisPoints", s.CessRateBasisPoints),
         OptLong("cessPerUnitPaisa", s.CessPerUnitPaisa), OptInt("cessRspFactorMillis", s.CessRspFactorMillis),
-        OptLong("rspPaisa", s.RspPaisa));
+        OptLong("rspPaisa", s.RspPaisa),
+        // Phase 9 slice 2: reverse-charge flags (emitted only when set so an off item is byte-identical, ER-13).
+        OptTrue("reverseChargeApplicable", s.ReverseChargeApplicable), OptTrue("gtaForwardCharge", s.GtaForwardCharge),
+        OptId("rcmCategoryId", s.RcmCategoryId));
 
     private static XElement BuildGstClassification(LedgerGstClassificationDto c) => new("gstClassification",
-        Attr("taxHead", c.TaxHead), Attr("direction", c.Direction));
+        Attr("taxHead", c.TaxHead), Attr("direction", c.Direction),
+        // Phase 9 slice 2: the RCM Output discriminator (emitted only when true so an ordinary ledger is byte-identical).
+        OptTrue("isReverseCharge", c.IsReverseCharge));
 
     private static XElement BuildTdsConfig(TdsConfigDto t)
     {
@@ -595,7 +636,9 @@ public static class CanonicalXml
                 Attr("forexAmountPaisa", fx.ForexAmountPaisa), Attr("rateMicro", fx.RateMicro)));
         if (l.Gst is { } g)
             el.Add(new XElement("gst", Attr("taxHead", g.TaxHead), Attr("rateBasisPoints", g.RateBasisPoints),
-                Attr("taxableValuePaisa", g.TaxableValuePaisa)));
+                Attr("taxableValuePaisa", g.TaxableValuePaisa),
+                // Phase 9 slice 2: reverse-charge tag (emitted only when set so a forward-charge line is byte-identical).
+                OptTrue("isReverseCharge", g.IsReverseCharge), Opt("rcmScheme", g.RcmScheme)));
         if (l.Tds is { } t)
             el.Add(new XElement("tds", Attr("natureId", t.NatureId), Attr("sectionCode", t.SectionCode),
                 Attr("assessableValuePaisa", t.AssessableValuePaisa), Attr("rateBasisPoints", t.RateBasisPoints),
@@ -912,6 +955,10 @@ public static class CanonicalXml
                 ChallanVoucherLinks = ReadList(root, "challanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
                 TcsChallans = ReadList(root, "tcsChallans", "tcsChallan", ReadTcsChallan),
                 TcsChallanVoucherLinks = ReadList(root, "tcsChallanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
+                // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts.
+                RcmDocuments = ReadList(root, "rcmDocuments", "rcmDocument", ReadRcmDocument),
+                CreditDebitNoteLinks = ReadList(root, "creditDebitNoteLinks", "creditDebitNoteLink", ReadCdnLink),
+                AdvanceReceipts = ReadList(root, "advanceReceipts", "advanceReceipt", ReadAdvanceReceipt),
             };
         }
         catch (Exception ex)
@@ -1157,6 +1204,7 @@ public static class CanonicalXml
         UseForJobWork = Bool(e, "useForJobWork"),
         AllowConsumption = Bool(e, "allowConsumption"),
         IsStatPayment = Bool(e, "isStatPayment"),
+        IsRcmPaymentVoucher = Bool(e, "isRcmPaymentVoucher"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
     };
 
@@ -1170,6 +1218,31 @@ public static class CanonicalXml
     private static ChallanVoucherLinkDto ReadChallanVoucherLink(XElement e) => new()
     {
         ChallanId = Guid(e, "challanId"), VoucherId = Guid(e, "voucherId"),
+    };
+
+    private static RcmDocumentDto ReadRcmDocument(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Kind = Str(e, "kind")!, SourceVoucherId = Guid(e, "sourceVoucherId"),
+        SeriesNumber = Int(e, "seriesNumber"), DocDate = Str(e, "docDate") ?? string.Empty,
+        SupplierLedgerId = OptGuid(e, "supplierLedgerId"),
+    };
+
+    private static GstCdnLinkDto ReadCdnLink(XElement e) => new()
+    {
+        Id = Guid(e, "id"), CdnVoucherId = Guid(e, "cdnVoucherId"), CdnType = Str(e, "cdnType")!,
+        OriginalInvoiceVoucherId = OptGuid(e, "originalInvoiceVoucherId"),
+        OriginalInvoiceNumber = Str(e, "originalInvoiceNumber"), OriginalInvoiceDate = Str(e, "originalInvoiceDate"),
+        ReasonCode = Str(e, "reasonCode")!, Is9BTarget = Bool(e, "is9BTarget"),
+    };
+
+    private static GstAdvanceReceiptDto ReadAdvanceReceipt(XElement e) => new()
+    {
+        Id = Guid(e, "id"), ReceiptVoucherId = Guid(e, "receiptVoucherId"), IsService = Bool(e, "isService"),
+        AdvanceAmountPaisa = Long(e, "advanceAmountPaisa"), RateBasisPoints = Int(e, "rateBasisPoints"),
+        InterState = Bool(e, "interState"), PlaceOfSupplyStateCode = Str(e, "placeOfSupplyStateCode"),
+        AdvanceTaxPaisa = Long(e, "advanceTaxPaisa"),
+        AdjustedAgainstInvoiceVoucherId = OptGuid(e, "adjustedAgainstInvoiceVoucherId"),
+        RefundVoucherId = OptGuid(e, "refundVoucherId"),
     };
 
     private static TcsChallanDto ReadTcsChallan(XElement e) => new()
@@ -1284,11 +1357,23 @@ public static class CanonicalXml
                 CessRspFactorMillis = Int(c, "cessRspFactorMillis"), EffectiveFrom = Str(c, "effectiveFrom")!,
                 EffectiveTo = Str(c, "effectiveTo"), Label = Str(c, "label")!, IsPredefined = Bool(c, "isPredefined"),
             }).ToList(),
+        // Phase 9 slice 2: dated reverse-charge categories (absent element ⇒ empty list, ER-13).
+        RcmCategories = (e.Element("rcmCategories")?.Elements("rcmCategory") ?? Enumerable.Empty<XElement>())
+            .Select(c => new RcmCategoryDto
+            {
+                Id = Guid(c, "id"), Notification = Str(c, "notification")!, Stream = Str(c, "stream")!,
+                SupplyNature = Str(c, "supplyNature")!, SupplyType = Str(c, "supplyType")!, HsnSac = Str(c, "hsnSac"),
+                RateBasisPoints = Int(c, "rateBasisPoints"), SupplierQualifier = Str(c, "supplierQualifier")!,
+                RecipientQualifier = Str(c, "recipientQualifier")!, EffectiveFrom = Str(c, "effectiveFrom")!,
+                EffectiveTo = Str(c, "effectiveTo"), Label = Str(c, "label")!, IsPredefined = Bool(c, "isPredefined"),
+            }).ToList(),
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()
     {
         RegistrationType = Str(e, "registrationType")!, Gstin = Str(e, "gstin"), StateCode = Str(e, "stateCode"),
+        // Phase 9 slice 2: reverse-charge qualifiers (absent ⇒ false, ER-13).
+        IsPromoter = Bool(e, "isPromoter"), IsBodyCorporate = Bool(e, "isBodyCorporate"),
     };
 
     private static StockItemGstDto ReadStockItemGst(XElement e) => new()
@@ -1300,11 +1385,16 @@ public static class CanonicalXml
         CessValuationMode = Str(e, "cessValuationMode"), CessRateBasisPoints = OptInt(e, "cessRateBasisPoints"),
         CessPerUnitPaisa = OptLong(e, "cessPerUnitPaisa"), CessRspFactorMillis = OptInt(e, "cessRspFactorMillis"),
         RspPaisa = OptLong(e, "rspPaisa"),
+        // Phase 9 slice 2: reverse-charge flags (absent ⇒ false/null, ER-13).
+        ReverseChargeApplicable = Bool(e, "reverseChargeApplicable"), GtaForwardCharge = Bool(e, "gtaForwardCharge"),
+        RcmCategoryId = OptGuid(e, "rcmCategoryId"),
     };
 
     private static LedgerGstClassificationDto ReadGstClassification(XElement e) => new()
     {
         TaxHead = Str(e, "taxHead")!, Direction = Str(e, "direction")!,
+        // Phase 9 slice 2: the RCM Output discriminator (absent ⇒ false, ER-13).
+        IsReverseCharge = Bool(e, "isReverseCharge"),
     };
 
     private static TdsConfigDto ReadTdsConfig(XElement e) => new()
@@ -1396,6 +1486,8 @@ public static class CanonicalXml
         {
             TaxHead = Str(g, "taxHead")!, RateBasisPoints = Int(g, "rateBasisPoints"),
             TaxableValuePaisa = Long(g, "taxableValuePaisa"),
+            // Phase 9 slice 2: reverse-charge tag (absent ⇒ false/null, ER-13).
+            IsReverseCharge = Bool(g, "isReverseCharge"), RcmScheme = Str(g, "rcmScheme"),
         } : null,
         Tds = e.Element("tds") is { } t ? new TdsLineTaxDto
         {

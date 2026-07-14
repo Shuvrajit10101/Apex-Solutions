@@ -31,7 +31,17 @@ public sealed class GstService
     // ---- Auto-created tax-ledger names (DP-3) ----
 
     /// <summary>The canonical Output/Input tax-ledger name for a head + direction (DP-3).</summary>
-    public static string TaxLedgerName(GstTaxHead head, GstTaxDirection direction)
+    public static string TaxLedgerName(GstTaxHead head, GstTaxDirection direction) =>
+        TaxLedgerName(head, direction, isReverseCharge: false);
+
+    /// <summary>
+    /// The canonical tax-ledger name for a head + direction, optionally the dedicated <b>reverse-charge output</b> ledger
+    /// (Phase 9 slice 2; RQ-7). A reverse-charge output liability lands in a distinct <c>"RCM Output {CGST|SGST|IGST|Cess}"</c>
+    /// ledger — the cash-only §49(4) liability, kept separate from the ordinary Output ledgers so it is never netted
+    /// against the credit ledger. RCM <b>input</b> ITC reuses the ordinary <c>Input {head}</c> ledger (distinguished only
+    /// by the line tag), so <paramref name="isReverseCharge"/> is meaningful only for the Output direction.
+    /// </summary>
+    public static string TaxLedgerName(GstTaxHead head, GstTaxDirection direction, bool isReverseCharge)
     {
         var side = direction == GstTaxDirection.Output ? "Output" : "Input";
         var headName = head switch
@@ -42,7 +52,9 @@ public sealed class GstService
             GstTaxHead.Cess => "Cess",
             _ => throw new ArgumentOutOfRangeException(nameof(head)),
         };
-        return $"{side} {headName}";
+        return isReverseCharge && direction == GstTaxDirection.Output
+            ? $"RCM {side} {headName}"
+            : $"{side} {headName}";
     }
 
     /// <summary>The auto-created invoice Round-Off ledger name (DP-4).</summary>
@@ -84,10 +96,51 @@ public sealed class GstService
         return config;
     }
 
-    /// <summary>The tax ledger for a head + direction, or <c>null</c> if GST is not enabled / not created.</summary>
+    /// <summary>
+    /// The <b>ordinary</b> tax ledger for a head + direction, or <c>null</c> if GST is not enabled / not created. Filters
+    /// out the reverse-charge Output ledgers (Phase 9 slice 2; risk #2): with RCM Output ledgers now also
+    /// <c>(head, Output)</c>, matching on head+direction alone would be ambiguous — a normal sale could post to the RCM
+    /// ledger. The <c>IsReverseCharge == false</c> predicate keeps this returning the ordinary ledger; the RCM Output
+    /// ledger is found via <see cref="FindRcmOutputLedger"/>.
+    /// </summary>
     public Domain.Ledger? FindTaxLedger(GstTaxHead head, GstTaxDirection direction) =>
         _company.Ledgers.FirstOrDefault(l =>
-            l.GstClassification is { } c && c.TaxHead == head && c.Direction == direction);
+            l.GstClassification is { IsReverseCharge: false } c && c.TaxHead == head && c.Direction == direction);
+
+    /// <summary>The dedicated <b>RCM output-liability</b> ledger for a head, or <c>null</c> if not yet created (Phase 9
+    /// slice 2). Filters on <c>IsReverseCharge == true</c> so it never collides with the ordinary Output ledger.</summary>
+    public Domain.Ledger? FindRcmOutputLedger(GstTaxHead head) =>
+        _company.Ledgers.FirstOrDefault(l =>
+            l.GstClassification is { IsReverseCharge: true, Direction: GstTaxDirection.Output } c && c.TaxHead == head);
+
+    /// <summary>
+    /// Lazily creates (idempotently) the dedicated <b>RCM Output {head}</b> ledger under Duties &amp; Taxes and returns it
+    /// (Phase 9 slice 2; RQ-7). Called only when an RCM line is about to post (never in <see cref="EnableGst"/>, so an
+    /// off company keeps the v38 ledger set — ER-13). The ledger carries
+    /// <c>LedgerGstClassification(head, Output, isReverseCharge: true)</c> — the cash-only §49(4) liability.
+    /// </summary>
+    public Domain.Ledger EnsureRcmOutputLedger(GstTaxHead head)
+    {
+        if (FindRcmOutputLedger(head) is { } existing) return existing;
+
+        var dutiesAndTaxes = _company.FindGroupByName("Duties & Taxes")
+            ?? throw new InvalidOperationException("Seed missing 'Duties & Taxes' group; cannot auto-create RCM Output ledgers.");
+
+        var name = TaxLedgerName(head, GstTaxDirection.Output, isReverseCharge: true);
+        // If a ledger by that name exists (e.g. user pre-created), tag it; else create a fresh one.
+        if (_company.FindLedgerByName(name) is { } byName)
+        {
+            byName.GstClassification ??= new LedgerGstClassification(head, GstTaxDirection.Output, isReverseCharge: true);
+            if (byName.GroupId == Guid.Empty) byName.GroupId = dutiesAndTaxes.Id;
+            return byName;
+        }
+
+        var ledger = new Domain.Ledger(
+            Guid.NewGuid(), name, dutiesAndTaxes.Id, Money.Zero, openingIsDebit: false,
+            gstClassification: new LedgerGstClassification(head, GstTaxDirection.Output, isReverseCharge: true));
+        _company.AddLedger(ledger);
+        return ledger;
+    }
 
     private void EnsureTaxLedger(Guid dutiesAndTaxesGroupId, GstTaxHead head, GstTaxDirection direction)
     {
@@ -120,6 +173,15 @@ public sealed class GstService
         EnsureTaxLedger(dutiesAndTaxesGroupId, GstTaxHead.Cess, GstTaxDirection.Input);
     }
 
+    /// <summary>Lazily creates the Output/Input Cess ledgers under Duties &amp; Taxes, idempotently (Phase 9). Public so the
+    /// <c>RcmService</c> cess path can ensure the normal Input Cess ledger before posting an RCM cess ITC line.</summary>
+    public void EnsureCessLedgers()
+    {
+        var dutiesAndTaxes = _company.FindGroupByName("Duties & Taxes")
+            ?? throw new InvalidOperationException("Seed missing 'Duties & Taxes' group; cannot auto-create Cess ledgers.");
+        EnsureCessLedgers(dutiesAndTaxes.Id);
+    }
+
     /// <summary>
     /// Enables the <b>advanced GST 2.0</b> data on an already-GST-enabled company (Phase 9 slice 1; RQ-1/RQ-2): seeds
     /// the dated rate-history windows and the three Compensation-Cess windows (when each is empty), and — because cess
@@ -140,6 +202,13 @@ public sealed class GstService
         if (config.CessRates.Count == 0)
             foreach (var r in SeedGstRates.BuildDefaultCessRates())
                 config.AddCessRate(r);
+
+        // Phase 9 slice 2: seed the notified reverse-charge categories (idempotent; only the advanced-GST opt-in seeds
+        // them, so EnableGst stays byte-identical — ER-13). The RCM Output ledgers are created LAZILY when an RCM line
+        // posts (never here), so an opted-in company that never posts an RCM supply keeps the v38 ledger set.
+        if (config.RcmCategories.Count == 0)
+            foreach (var c in SeedRcmCategories.BuildDefaults())
+                config.AddRcmCategory(c);
 
         if (config.CessRates.Count > 0)
         {

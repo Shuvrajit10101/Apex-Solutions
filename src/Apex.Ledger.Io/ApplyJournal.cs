@@ -40,6 +40,9 @@ internal sealed class ApplyJournal
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
+    private readonly List<RcmDocument> _rcmDocuments = new();
+    private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
+    private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
     private readonly List<EmployeeGroup> _employeeGroups = new();
     private readonly List<Employee> _employees = new();
@@ -106,6 +109,9 @@ internal sealed class ApplyJournal
     public void RecordChallanVoucherLink(ChallanVoucherLink l) => _challanVoucherLinks.Add(l);
     public void RecordTcsChallan(TcsChallan ch) => _tcsChallans.Add(ch);
     public void RecordTcsChallanVoucherLink(ChallanVoucherLink l) => _tcsChallanVoucherLinks.Add(l);
+    public void RecordRcmDocument(RcmDocument d) => _rcmDocuments.Add(d);
+    public void RecordCreditDebitNoteLink(GstCreditDebitNoteLink l) => _cdnLinks.Add(l);
+    public void RecordAdvanceReceipt(GstAdvanceReceipt a) => _advanceReceipts.Add(a);
     public void RecordEmployeeCategory(EmployeeCategory x) => _employeeCategories.Add(x);
     public void RecordEmployeeGroup(EmployeeGroup x) => _employeeGroups.Add(x);
     public void RecordEmployee(Employee x) => _employees.Add(x);
@@ -188,6 +194,11 @@ internal sealed class ApplyJournal
         for (var i = _tdsChallans.Count - 1; i >= 0; i--) _company.RemoveTdsChallan(_tdsChallans[i]);
         for (var i = _tcsChallanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveTcsChallanVoucherLink(_tcsChallanVoucherLinks[i]);
         for (var i = _tcsChallans.Count - 1; i >= 0; i--) _company.RemoveTcsChallan(_tcsChallans[i]);
+        // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts — remove before the
+        // vouchers they reference are removed below.
+        for (var i = _rcmDocuments.Count - 1; i >= 0; i--) _company.RemoveRcmDocument(_rcmDocuments[i]);
+        for (var i = _cdnLinks.Count - 1; i >= 0; i--) _company.RemoveCreditDebitNoteLink(_cdnLinks[i]);
+        for (var i = _advanceReceipts.Count - 1; i >= 0; i--) _company.RemoveAdvanceReceipt(_advanceReceipts[i]);
 
         // 1) Vouchers first (reverse posting order): inventory/order vouchers, then accounting vouchers.
         for (var i = _inventoryVouchers.Count - 1; i >= 0; i--) _company.RemoveInventoryVoucher(_inventoryVouchers[i]);

@@ -149,3 +149,87 @@ public enum CessValuationMode
     /// <summary>RSP-factor: cess = quantity × declared RSP × factor (e.g. pan masala ~0.32R).</summary>
     RetailSalePriceFactor,
 }
+
+/// <summary>
+/// The legal limb a reverse-charge (RCM) category is notified under (Phase 9 slice 2; RQ-3/RQ-7). Drives applicability:
+/// <see cref="Section9_3"/> fires on a notified supply-nature (GTA/legal/director/…) regardless of supplier registration,
+/// while <see cref="Section9_4"/> fires only for the real-estate-promoter recipient on a purchase from an unregistered
+/// supplier (the blanket §9(4) was rescinded in 2019 — promoter-only survives). Stored as the enum ordinal
+/// (Section9_3=0, Section9_4=1).
+/// </summary>
+public enum RcmStream
+{
+    /// <summary>§9(3) / §5(3) IGST — supplies notified for reverse charge (Notn 13/2017-CT(R) &amp; 10/2017-IGST(R)).</summary>
+    Section9_3,
+
+    /// <summary>§9(4) — inward supply from an unregistered supplier to a notified (promoter) recipient (Notn 7/2019-CT(R)).</summary>
+    Section9_4,
+}
+
+/// <summary>
+/// A party (supplier or recipient) qualifier a reverse-charge category matches on (Phase 9 slice 2; RQ-3). A category
+/// carries a supplier qualifier and a recipient qualifier; RCM fires only when the actual parties satisfy both. Stored
+/// as the enum ordinal.
+/// </summary>
+public enum RcmParty
+{
+    /// <summary>Any party qualifies (no restriction).</summary>
+    Any,
+
+    /// <summary>An unregistered supplier (no GSTIN) — e.g. §9(4) promoter purchases, or GTA-from-unregistered.</summary>
+    Unregistered,
+
+    /// <summary>A non-body-corporate supplier (e.g. an individual GTA / advocate whose RCM shifts to a body-corporate recipient).</summary>
+    NonBodyCorporate,
+
+    /// <summary>A body-corporate recipient (the recipient that must pay RCM on security/renting-of-motor-vehicle/GTA supplies).</summary>
+    BodyCorporate,
+
+    /// <summary>Any registered recipient (the default §9(3) recipient qualifier).</summary>
+    RegisteredPerson,
+
+    /// <summary>A real-estate promoter recipient (the sole surviving §9(4) trigger, Notn 7/2019).</summary>
+    Promoter,
+}
+
+/// <summary>
+/// Which GSTR-3B ITC bucket a reverse-charge input-tax line belongs to (Phase 9 slice 2; RQ-7/RQ-11). Carried on the RCM
+/// <see cref="GstLineTax"/> so the returns bucket the ITC without recomputing (ER-9). Stored as the enum ordinal.
+/// </summary>
+public enum RcmItcScheme
+{
+    /// <summary>Import of services under §5(3)/§13 — the RCM ITC lands in GSTR-3B Table 4(A)(2).</summary>
+    ImportOfServices,
+
+    /// <summary>Every other reverse-charge inward supply — the RCM ITC lands in GSTR-3B Table 4(A)(3).</summary>
+    OtherRcm,
+}
+
+/// <summary>
+/// The kind of an RCM generated document (Phase 9 slice 2; RQ-8). A registered §9(3) supplier issues the tax invoice,
+/// so no self-invoice is generated; an unregistered supplier triggers a Rule-47A <see cref="SelfInvoice"/>, and every
+/// supplier payment may carry a Rule-52 <see cref="PaymentVoucher"/>. Stored as the enum ordinal (SelfInvoice=0,
+/// PaymentVoucher=1).
+/// </summary>
+public enum RcmDocumentKind
+{
+    /// <summary>A Rule-47A self-invoice raised by the recipient for an unregistered-supplier RCM inward supply.</summary>
+    SelfInvoice,
+
+    /// <summary>A Rule-52 payment voucher raised at the time of the supplier payment.</summary>
+    PaymentVoucher,
+}
+
+/// <summary>
+/// A §34 note direction (Phase 9 slice 2; RQ-24). A <see cref="Credit"/> note reduces the supplier's output liability;
+/// a <see cref="Debit"/> note increases it. Stored as the enum ordinal (Credit=0, Debit=1). (The CDN engine is built in
+/// S2b; the enum + link table land in S2a so the v39 schema is complete at one version bump.)
+/// </summary>
+public enum CdnType
+{
+    /// <summary>A credit note — reduces the original supply's output tax (issuance capped by §34(2), the 30-Nov limit).</summary>
+    Credit,
+
+    /// <summary>A debit note — increases the original supply's output tax (uncapped issuance).</summary>
+    Debit,
+}

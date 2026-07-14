@@ -18,6 +18,7 @@ public sealed class GstConfig
     private readonly List<GstRateSlab> _rateSlabs = new();
     private readonly List<GstRateHistoryEntry> _rateHistory = new();
     private readonly List<GstCessRate> _cessRates = new();
+    private readonly List<RcmCategory> _rcmCategories = new();
 
     /// <summary>Whether GST is enabled for the company. When false, no GST field or report is active.</summary>
     public bool Enabled { get; set; }
@@ -62,6 +63,17 @@ public sealed class GstConfig
     /// <summary>Adds a dated cess window (used by the advanced-GST seed / import).</summary>
     public void AddCessRate(GstCessRate rate) =>
         _cessRates.Add(rate ?? throw new ArgumentNullException(nameof(rate)));
+
+    /// <summary>
+    /// The dated notified reverse-charge categories (Phase 9 slice 2; RQ-3/RQ-7). <b>Empty</b> for a company that never
+    /// enables advanced GST — no inward supply attracts reverse charge and no RCM ledger is created (ER-13
+    /// byte-identical when off).
+    /// </summary>
+    public IReadOnlyList<RcmCategory> RcmCategories => _rcmCategories;
+
+    /// <summary>Adds a dated reverse-charge category (used by the advanced-GST seed / import).</summary>
+    public void AddRcmCategory(RcmCategory category) =>
+        _rcmCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
 
     /// <summary>The home <see cref="IndianState"/>, or <c>null</c> if the home state code is unset/invalid.</summary>
     public IndianState? HomeState => IndianState.FromCode(HomeStateCode);

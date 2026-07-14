@@ -199,7 +199,8 @@ internal sealed class ImportPlan
                 useForPos: vt.UseForPos,
                 useForJobWork: vt.UseForJobWork,
                 allowConsumption: vt.AllowConsumption,
-                isStatPayment: vt.IsStatPayment);
+                isStatPayment: vt.IsStatPayment,
+                isRcmPaymentVoucher: vt.IsRcmPaymentVoucher);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -939,6 +940,43 @@ internal sealed class ImportPlan
             journal.RecordTcsChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
         }
 
+        // 14) RCM generated documents + §34-CDN links + GST-on-advance receipts (Phase 9 slice 2). Each is re-minted
+        //     with a fresh Guid; its voucher/ledger references resolve the DTO id to the re-minted target
+        //     (voucher/ledger maps built above), skipping an orphan whose voucher was not imported. Recorded in the
+        //     journal so a rollback prunes them. CDN links + advance receipts stay empty until S2b.
+        Guid? MapVoucher(Guid dtoId) =>
+            voucherId.TryGetValue(dtoId, out var m) ? m : t.FindVoucher(dtoId)?.Id;
+        Guid? MapVoucherOpt(Guid? dtoId) => dtoId is { } id ? MapVoucher(id) : null;
+        Guid? MapLedgerOpt(Guid? dtoId) =>
+            dtoId is { } id ? (ledgerId.TryGetValue(id, out var m) ? m : t.FindLedger(id)?.Id) : null;
+
+        foreach (var d in _model.Payload.RcmDocuments)
+        {
+            if (MapVoucher(d.SourceVoucherId) is not { } src) continue; // orphan — source voucher not imported
+            var doc = new RcmDocument(Guid.NewGuid(), ParseEnum<RcmDocumentKind>(d.Kind), src, d.SeriesNumber,
+                CompanyImportService.ParseDate(d.DocDate), MapLedgerOpt(d.SupplierLedgerId));
+            t.AddRcmDocument(doc);
+            journal.RecordRcmDocument(doc);
+        }
+        foreach (var l in _model.Payload.CreditDebitNoteLinks)
+        {
+            if (MapVoucher(l.CdnVoucherId) is not { } cdnv) continue; // orphan — CDN voucher not imported
+            var link = new GstCreditDebitNoteLink(Guid.NewGuid(), cdnv, ParseEnum<CdnType>(l.CdnType),
+                MapVoucherOpt(l.OriginalInvoiceVoucherId), l.OriginalInvoiceNumber,
+                CompanyImportService.ParseDateOpt(l.OriginalInvoiceDate), l.ReasonCode, l.Is9BTarget);
+            t.AddCreditDebitNoteLink(link);
+            journal.RecordCreditDebitNoteLink(link);
+        }
+        foreach (var a in _model.Payload.AdvanceReceipts)
+        {
+            if (MapVoucher(a.ReceiptVoucherId) is not { } rv) continue; // orphan — receipt voucher not imported
+            var adv = new GstAdvanceReceipt(Guid.NewGuid(), rv, a.IsService, MoneyCodec.FromPaisa(a.AdvanceAmountPaisa),
+                a.RateBasisPoints, a.InterState, a.PlaceOfSupplyStateCode, MoneyCodec.FromPaisa(a.AdvanceTaxPaisa),
+                MapVoucherOpt(a.AdjustedAgainstInvoiceVoucherId), MapVoucherOpt(a.RefundVoucherId));
+            t.AddAdvanceReceipt(adv);
+            journal.RecordAdvanceReceipt(adv);
+        }
+
         return (created, reused, posted);
     }
 
@@ -1059,6 +1097,15 @@ internal sealed class ImportPlan
             config.AddCessRate(new GstCessRate(
                 Guid.NewGuid(), c.HsnSac, ParseEnum<CessValuationMode>(c.ValuationMode), c.CessRateBasisPoints,
                 MoneyCodec.FromPaisa(c.CessPerUnitPaisa), c.CessRspFactorMillis,
+                CompanyImportService.ParseDate(c.EffectiveFrom), CompanyImportService.ParseDateOpt(c.EffectiveTo),
+                c.Label, c.IsPredefined));
+        // Phase 9 slice 2: preserve the exported reverse-charge categories. The category id is PRESERVED (not re-minted)
+        // so a stock item / S-P ledger's RcmCategoryId link resolves after import (the config is replaced wholesale by
+        // EnableGst, so there is no collision with an existing company's categories).
+        foreach (var c in g.RcmCategories)
+            config.AddRcmCategory(new RcmCategory(
+                c.Id, c.Notification, ParseEnum<RcmStream>(c.Stream), c.SupplyNature, ParseEnum<GstSupplyType>(c.SupplyType),
+                c.HsnSac, c.RateBasisPoints, ParseEnum<RcmParty>(c.SupplierQualifier), ParseEnum<RcmParty>(c.RecipientQualifier),
                 CompanyImportService.ParseDate(c.EffectiveFrom), CompanyImportService.ParseDateOpt(c.EffectiveTo),
                 c.Label, c.IsPredefined));
         return config;
@@ -1202,7 +1249,10 @@ internal sealed class ImportPlan
             MoneyCodec.FromPaisa(f.ForexAmountPaisa), FromMicro(f.RateMicro));
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
-        ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa));
+        ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa),
+        // Phase 9 slice 2: reverse-charge tag.
+        isReverseCharge: g.IsReverseCharge,
+        rcmScheme: g.RcmScheme is { } s ? ParseEnum<RcmItcScheme>(s) : null);
 
     /// <summary>Rebuilds a line's payroll detail (Phase 8 slice 3), re-mapping the source employee + pay-head ids
     /// into the target company's re-minted ids so the per-employee salary breakdown reconciles across companies
@@ -1332,6 +1382,9 @@ internal sealed class ImportPlan
         RegistrationType = ParseEnum<GstRegistrationType>(p.RegistrationType),
         Gstin = p.Gstin,
         StateCode = p.StateCode,
+        // Phase 9 slice 2: reverse-charge qualifiers.
+        IsPromoter = p.IsPromoter,
+        IsBodyCorporate = p.IsBodyCorporate,
     };
 
     private static StockItemGstDetails? BuildStockItemGst(StockItemGstDto? s) => s is null ? null : new StockItemGstDetails
@@ -1348,10 +1401,16 @@ internal sealed class ImportPlan
         CessPerUnit = MoneyCodec.FromPaisaNullable(s.CessPerUnitPaisa),
         CessRspFactorMillis = s.CessRspFactorMillis,
         RetailSalePrice = MoneyCodec.FromPaisaNullable(s.RspPaisa),
+        // Phase 9 slice 2: reverse-charge flags. RcmCategoryId is passed through (the category id is preserved on import,
+        // see BuildGstConfig) so the item→category link resolves.
+        ReverseChargeApplicable = s.ReverseChargeApplicable,
+        GtaForwardCharge = s.GtaForwardCharge,
+        RcmCategoryId = s.RcmCategoryId,
     };
 
     private static LedgerGstClassification? BuildGstClassification(LedgerGstClassificationDto? c) => c is null ? null
-        : new LedgerGstClassification(ParseEnum<GstTaxHead>(c.TaxHead), ParseEnum<GstTaxDirection>(c.Direction));
+        : new LedgerGstClassification(
+            ParseEnum<GstTaxHead>(c.TaxHead), ParseEnum<GstTaxDirection>(c.Direction), c.IsReverseCharge);
 
     // ---- duplicate merges ----
 

@@ -21,7 +21,24 @@ public sealed class GstLineTax
     /// <summary>The taxable (assessable) value the tax was computed on (paisa-exact).</summary>
     public Money TaxableValue { get; }
 
-    public GstLineTax(GstTaxHead taxHead, int rateBasisPoints, Money taxableValue)
+    /// <summary>
+    /// True iff this is a <b>reverse-charge</b> tax line (Phase 9 slice 2; RQ-7). The RCM output-liability line and the
+    /// RCM input-ITC line both carry it; a normal forward-charge line leaves it false (default) so a v38 line is
+    /// byte-identical (ER-13). It is the tag the GSTR-3B / GSTR-1 projections read to bucket 3.1(d) / 4A(2) / 4A(3)
+    /// and to <b>exclude</b> RCM lines from the normal outward/ITC buckets — a pure projection, never a recompute (ER-9).
+    /// </summary>
+    public bool IsReverseCharge { get; }
+
+    /// <summary>
+    /// The RCM ITC bucket this line belongs to (Phase 9 slice 2; RQ-7/RQ-11): <c>ImportOfServices</c> → GSTR-3B 4A(2),
+    /// <c>OtherRcm</c> → 4A(3). Set on the RCM <b>input</b> ITC line; <c>null</c> on the RCM <b>output</b> liability line
+    /// (a liability, not ITC) and on every forward-charge line.
+    /// </summary>
+    public RcmItcScheme? RcmScheme { get; }
+
+    public GstLineTax(
+        GstTaxHead taxHead, int rateBasisPoints, Money taxableValue,
+        bool isReverseCharge = false, RcmItcScheme? rcmScheme = null)
     {
         if (rateBasisPoints < 0)
             throw new ArgumentException("GST rate basis points must be ≥ 0.", nameof(rateBasisPoints));
@@ -33,5 +50,7 @@ public sealed class GstLineTax
         TaxHead = taxHead;
         RateBasisPoints = rateBasisPoints;
         TaxableValue = taxableValue;
+        IsReverseCharge = isReverseCharge;
+        RcmScheme = rcmScheme;
     }
 }

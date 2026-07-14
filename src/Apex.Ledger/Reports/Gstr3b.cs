@@ -31,6 +31,30 @@ public sealed record Gstr3b(
     Money ItcSgst,
     Money ItcIgst)
 {
+    // ---- Phase 9 slice 2: reverse-charge (RCM) buckets (RQ-7). Default Money.Zero so a company with no RCM line is
+    // byte-identical to a pre-S2 3B (ER-13). Set by Build; positional constructions (tests) keep them zero. ----
+
+    /// <summary>Table 3.1(d) — inward supplies liable to reverse charge, CGST (the RCM output liability).</summary>
+    public Money RcmOutwardCgst { get; init; }
+    /// <summary>Table 3.1(d) — inward supplies liable to reverse charge, SGST/UTGST.</summary>
+    public Money RcmOutwardSgst { get; init; }
+    /// <summary>Table 3.1(d) — inward supplies liable to reverse charge, IGST.</summary>
+    public Money RcmOutwardIgst { get; init; }
+    /// <summary>Table 3.1(d) — inward supplies liable to reverse charge, Compensation Cess (ring-fenced, ER-2).</summary>
+    public Money RcmOutwardCess { get; init; }
+
+    /// <summary>Table 4(A)(2) — ITC on import of services (IGST only).</summary>
+    public Money RcmItcImportIgst { get; init; }
+
+    /// <summary>Table 4(A)(3) — ITC on other inward supplies liable to reverse charge, CGST.</summary>
+    public Money RcmItcOtherCgst { get; init; }
+    /// <summary>Table 4(A)(3) — ITC on other reverse-charge inward supplies, SGST/UTGST.</summary>
+    public Money RcmItcOtherSgst { get; init; }
+    /// <summary>Table 4(A)(3) — ITC on other reverse-charge inward supplies, IGST.</summary>
+    public Money RcmItcOtherIgst { get; init; }
+    /// <summary>Table 4(A)(3) — ITC on other reverse-charge inward supplies, Compensation Cess (ring-fenced, ER-2).</summary>
+    public Money RcmItcOtherCess { get; init; }
+
     /// <summary>Net CGST payable = outward − ITC (display-only, DP-9; negative ⇒ carried-forward credit).</summary>
     public Money NetCgst => new(OutwardCgst.Amount - ItcCgst.Amount);
 
@@ -46,6 +70,13 @@ public sealed record Gstr3b(
     /// <summary>Σ eligible ITC across heads.</summary>
     public Money TotalItc => new(ItcCgst.Amount + ItcSgst.Amount + ItcIgst.Amount);
 
+    /// <summary>Σ Table 3.1(d) reverse-charge outward liability across the GST heads (excludes cess, ER-2).</summary>
+    public Money TotalRcmOutward => new(RcmOutwardCgst.Amount + RcmOutwardSgst.Amount + RcmOutwardIgst.Amount);
+
+    /// <summary>Σ Table 4(A)(2)+4(A)(3) reverse-charge ITC across the GST heads (excludes cess, ER-2).</summary>
+    public Money TotalRcmItc => new(
+        RcmItcImportIgst.Amount + RcmItcOtherCgst.Amount + RcmItcOtherSgst.Amount + RcmItcOtherIgst.Amount);
+
     /// <summary>
     /// Σ net tax payable across heads (display-only). Negative-head credits are netted in, mirroring the
     /// indicative arithmetic; this is NOT a Rule-88A set-off (Phase 9).
@@ -58,10 +89,66 @@ public sealed record Gstr3b(
         var (outCgst, outSgst, outIgst, taxable, exempt) = ReadSide(company, from, to, GstTaxDirection.Output);
         var (itcCgst, itcSgst, itcIgst, _, _) = ReadSide(company, from, to, GstTaxDirection.Input);
 
+        var rcm = ReadRcm(company, from, to);
+
         return new Gstr3b(from, to,
             new Money(taxable), new Money(exempt),
             new Money(outCgst), new Money(outSgst), new Money(outIgst),
-            new Money(itcCgst), new Money(itcSgst), new Money(itcIgst));
+            new Money(itcCgst), new Money(itcSgst), new Money(itcIgst))
+        {
+            RcmOutwardCgst = new Money(rcm.OutCgst), RcmOutwardSgst = new Money(rcm.OutSgst),
+            RcmOutwardIgst = new Money(rcm.OutIgst), RcmOutwardCess = new Money(rcm.OutCess),
+            RcmItcImportIgst = new Money(rcm.ImportIgst),
+            RcmItcOtherCgst = new Money(rcm.OtherCgst), RcmItcOtherSgst = new Money(rcm.OtherSgst),
+            RcmItcOtherIgst = new Money(rcm.OtherIgst), RcmItcOtherCess = new Money(rcm.OtherCess),
+        };
+    }
+
+    /// <summary>
+    /// Reads the reverse-charge buckets (Phase 9 slice 2; RQ-7): 3.1(d) = Σ RCM output-liability lines by head; 4A(2) =
+    /// Σ import-of-services RCM ITC (IGST); 4A(3) = Σ other RCM ITC by head. A pure projection over
+    /// <see cref="GstReportSupport.RcmLines"/> (reads the posted RCM-tagged lines, never recomputed). These lines are
+    /// <b>excluded</b> from the ordinary outward/ITC buckets in <see cref="ReadSide"/> (no double-count, risk #3).
+    /// </summary>
+    private static (decimal OutCgst, decimal OutSgst, decimal OutIgst, decimal OutCess,
+        decimal ImportIgst, decimal OtherCgst, decimal OtherSgst, decimal OtherIgst, decimal OtherCess) ReadRcm(
+        Company company, DateOnly from, DateOnly to)
+    {
+        decimal outCgst = 0m, outSgst = 0m, outIgst = 0m, outCess = 0m;
+        decimal importIgst = 0m, otherCgst = 0m, otherSgst = 0m, otherIgst = 0m, otherCess = 0m;
+
+        foreach (var l in GstReportSupport.RcmLines(company, from, to))
+        {
+            var amt = l.Amount.Amount;
+            if (l.IsOutputLiability)
+            {
+                switch (l.Gst.TaxHead)
+                {
+                    case GstTaxHead.Central: outCgst += amt; break;
+                    case GstTaxHead.State: outSgst += amt; break;
+                    case GstTaxHead.Integrated: outIgst += amt; break;
+                    case GstTaxHead.Cess: outCess += amt; break;
+                }
+            }
+            else if (l.Scheme == RcmItcScheme.ImportOfServices)
+            {
+                // Import of services is always IGST → 4A(2).
+                if (l.Gst.TaxHead == GstTaxHead.Integrated) importIgst += amt;
+                else otherCess += l.Gst.TaxHead == GstTaxHead.Cess ? amt : 0m;
+            }
+            else // OtherRcm → 4A(3)
+            {
+                switch (l.Gst.TaxHead)
+                {
+                    case GstTaxHead.Central: otherCgst += amt; break;
+                    case GstTaxHead.State: otherSgst += amt; break;
+                    case GstTaxHead.Integrated: otherIgst += amt; break;
+                    case GstTaxHead.Cess: otherCess += amt; break;
+                }
+            }
+        }
+
+        return (outCgst, outSgst, outIgst, outCess, importIgst, otherCgst, otherSgst, otherIgst, otherCess);
     }
 
     /// <summary>
@@ -80,6 +167,9 @@ public sealed record Gstr3b(
             foreach (var line in voucher.Lines)
             {
                 if (line.Gst is not { } g) continue;
+                // Phase 9 slice 2: reverse-charge lines are their own 3.1(d)/4A(2)/4A(3) buckets (ReadRcm) — EXCLUDE them
+                // from the ordinary outward / "all other ITC" (4A(5)) accumulation so they are never double-counted (risk #3).
+                if (g.IsReverseCharge) continue;
                 hasTax = true;
                 switch (g.TaxHead)
                 {
@@ -115,6 +205,9 @@ public sealed record Gstr3b(
             if (type is null || GstReportSupport.DirectionOf(type.BaseType) != GstTaxDirection.Output) continue;
             if (!LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
             if (v.Lines.Any(l => l.HasGst)) continue;   // taxable vouchers already counted
+            // An outward reverse-charge supply carries zero tax too, but it belongs only in 3.1(d)-value / GSTR-1 4B —
+            // NOT the exempt/nil/non-GST bucket (else it is double-represented). Exclude it (Phase 9 slice 2; RQ-7).
+            if (GstReportSupport.IsOutwardReverseChargeSupply(company, v)) continue;
             exempt += v.InventoryLinesValue.Amount;
         }
         return exempt;

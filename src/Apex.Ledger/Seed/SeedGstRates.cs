@@ -64,6 +64,9 @@ public static class SeedGstRates
             // Car (HSN 8703): 28% legacy → 40% under GST 2.0.
             H("8703", 2800, GstRateClass.Legacy,  LegacyStart, Gst2End, GstValuationBasis.TransactionValue, "Car 28% (legacy)"),
             H("8703", 4000, GstRateClass.DeMerit, Gst2Start,   null,    GstValuationBasis.TransactionValue, "Car 40% (GST 2.0)"),
+            // Cement (HSN 2523): 28% legacy → 18% under GST 2.0 (also the §9(4) promoter-RCM item, Phase 9 slice 2).
+            H("2523", 2800, GstRateClass.Legacy,   LegacyStart, Gst2End, GstValuationBasis.TransactionValue, "Cement 28% (legacy)"),
+            H("2523", 1800, GstRateClass.Standard, Gst2Start,   null,    GstValuationBasis.TransactionValue, "Cement 18% (GST 2.0)"),
             // Tobacco / pan-masala carve-out — 28% + cess on RSP; did NOT move to 40% on 22-Sep-2025.
             H("2402",     2800, GstRateClass.CarveOut, LegacyStart, null, GstValuationBasis.RetailSalePrice, "Cigarettes 28% (RSP carve-out)"),
             H("2403",     2800, GstRateClass.CarveOut, LegacyStart, null, GstValuationBasis.RetailSalePrice, "Chewing tobacco 28% (RSP carve-out)"),

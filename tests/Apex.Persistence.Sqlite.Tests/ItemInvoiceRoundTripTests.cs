@@ -293,6 +293,16 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS gst_rate_history;");
         Exec(conn, "DROP INDEX IF EXISTS ix_gst_cess_rates_company;");
         Exec(conn, "DROP TABLE IF EXISTS gst_cess_rates;");
+        // v39 RCM category + document + §34-CDN + advance tables (+ their indexes) — drop so the reopen's v38→v39 CREATE
+        // TABLE does not collide (the stock_items/ledgers/entry_lines/voucher_types rebuild below strips the v39 columns).
+        Exec(conn, "DROP INDEX IF EXISTS ix_rcm_categories_company;");
+        Exec(conn, "DROP TABLE IF EXISTS rcm_categories;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_rcm_documents_company;");
+        Exec(conn, "DROP TABLE IF EXISTS rcm_documents;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_cdn_links_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_cdn_links;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_advance_receipts_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_advance_receipts;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
         Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");

@@ -78,6 +78,21 @@ public static class GstReportSupport
     }
 
     /// <summary>
+    /// True iff a voucher is an <b>outward reverse-charge supply</b> (Phase 9 slice 2; RQ-7): an outward supply whose
+    /// sales ledger carries <see cref="StockItemGstDetails.ReverseChargeApplicable"/> — the <b>recipient</b> pays the tax,
+    /// so the invoice bears none. Such a supply belongs <b>only</b> in GSTR-1 Table 4B / the 3.1(d)-value bucket, never in
+    /// the exempt/nil/non-GST outward bucket (it would otherwise be double-represented). A pure read over the posted lines'
+    /// ledgers; a company with no such supply always returns false (byte-identical, ER-13).
+    /// </summary>
+    public static bool IsOutwardReverseChargeSupply(Company company, Voucher voucher)
+    {
+        foreach (var line in voucher.Lines)
+            if (company.FindLedger(line.LedgerId)?.SalesPurchaseGst is { ReverseChargeApplicable: true })
+                return true;
+        return false;
+    }
+
+    /// <summary>
     /// The integrated-rate basis points a tax line represents, for rate-wise grouping. A CGST/SGST line carries
     /// the <b>half</b> rate on its <see cref="GstLineTax.RateBasisPoints"/> (900 for an 18% intra supply), so we
     /// double it to recover the integrated slab (1800); an IGST line already carries the full rate. A zero-rate
@@ -105,10 +120,48 @@ public static class GstReportSupport
         {
             if (line.Gst is not { } g) continue;
             if (g.TaxHead == GstTaxHead.Cess) continue; // ring-fenced cess is not a CGST/SGST/IGST rate group
+            if (g.IsReverseCharge) continue;            // Phase 9 slice 2: RCM lines are their own buckets, not forward taxable value
             var rate = IntegratedRateOf(g);
             var cur = maxByRate.TryGetValue(rate, out var m) ? m : 0m;
             if (g.TaxableValue.Amount > cur) maxByRate[rate] = g.TaxableValue.Amount;
         }
         return new Money(maxByRate.Values.Sum());
+    }
+
+    /// <summary>One posted reverse-charge tax line in a report window (Phase 9 slice 2; RQ-7).</summary>
+    /// <param name="Voucher">The voucher the RCM line was posted on (a Purchase for an inward RCM supply).</param>
+    /// <param name="Gst">The line's GST detail (head, rate, taxable value; carries the RCM tag + scheme).</param>
+    /// <param name="Amount">The posted tax amount (paisa-exact).</param>
+    /// <param name="IsOutputLiability">True ⇒ the RCM Output liability leg (→ GSTR-3B 3.1(d)); false ⇒ the ITC leg.</param>
+    /// <param name="Scheme">The ITC bucket for the ITC leg (ImportOfServices → 4A(2), OtherRcm → 4A(3)); <c>null</c> on the liability leg.</param>
+    public readonly record struct RcmLine(
+        Voucher Voucher, GstLineTax Gst, Money Amount, bool IsOutputLiability, RcmItcScheme? Scheme);
+
+    /// <summary>
+    /// Enumerates every posted <b>reverse-charge</b>-tagged tax line in the window <c>[from, to]</c> (Phase 9 slice 2;
+    /// RQ-7), a pure projection over the posted lines' <see cref="GstLineTax.IsReverseCharge"/> tag — never a recompute
+    /// (ER-9). RCM breaks the 1:1 base-type→direction map (a Purchase yields an Output liability), so this scans <b>all</b>
+    /// directions, filtered for cancelled / optional / provisional / post-dated-after-<paramref name="to"/> (via
+    /// <see cref="LedgerBalances.CountsAsOf(Voucher, DateOnly, VoucherBaseType?)"/>) and the lower date bound. A line
+    /// posting to an <c>IsReverseCharge</c> classification ledger is the output liability (→ 3.1(d)); an RCM-tagged line on
+    /// an ordinary Input ledger is the ITC (→ 4A(2)/4A(3)). GST-off companies yield nothing.
+    /// </summary>
+    public static IEnumerable<RcmLine> RcmLines(Company company, DateOnly from, DateOnly to)
+    {
+        if (!company.GstEnabled) yield break;
+
+        foreach (var v in company.Vouchers)
+        {
+            if (v.Date < from) continue;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is null) continue;
+            if (!LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue; // cancelled/post-dated/date filter
+            foreach (var line in v.Lines)
+            {
+                if (line.Gst is not { IsReverseCharge: true } g) continue;
+                var isOutput = company.FindLedger(line.LedgerId)?.GstClassification is { IsReverseCharge: true };
+                yield return new RcmLine(v, g, line.Amount, isOutput, g.RcmScheme);
+            }
+        }
     }
 }

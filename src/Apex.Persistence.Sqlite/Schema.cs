@@ -83,7 +83,7 @@ public static class Schema
     /// this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time.
     /// Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 38;
+    public const int CurrentVersion = 39;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -276,6 +276,71 @@ public static class Schema
         );
         CREATE INDEX ix_gst_cess_rates_company ON gst_cess_rates(company_id);
 
+        -- v39 (Phase 9 slice 2): the notified reverse-charge category master (dated, seeded via SeedAdvancedGst; empty
+        -- when RCM unused, ER-13). One row = one dated §9(3)/§9(4) applicability window. Both bounds INCLUSIVE.
+        CREATE TABLE rcm_categories (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            notification         TEXT    NOT NULL,   -- "13/2017-CT(R)" etc.
+            stream               INTEGER NOT NULL,   -- RcmStream ordinal (Section9_3=0, Section9_4=1)
+            supply_nature        TEXT    NOT NULL,   -- "GTA" | "Legal" | "Cement" | ...
+            supply_type          INTEGER NOT NULL,   -- GstSupplyType ordinal (Goods=0, Services=1)
+            hsn_sac              TEXT        NULL,    -- goods categories (cement 2523); NULL for services
+            rate_bp              INTEGER NOT NULL,
+            supplier_qualifier   INTEGER NOT NULL,   -- RcmParty ordinal
+            recipient_qualifier  INTEGER NOT NULL,   -- RcmParty ordinal
+            effective_from       TEXT    NOT NULL,   -- ISO yyyy-MM-dd, inclusive
+            effective_to         TEXT        NULL,   -- ISO yyyy-MM-dd, inclusive; NULL = open
+            label                TEXT    NOT NULL,
+            is_predefined        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_rcm_categories_company ON rcm_categories(company_id);
+
+        -- v39 (Phase 9 slice 2): RCM self-invoice (Rule 47A) + payment voucher (Rule 52) generated documents
+        -- (voucher-linked, own consecutive series). Empty when RCM unused (ER-13).
+        CREATE TABLE rcm_documents (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            doc_kind           INTEGER NOT NULL,   -- RcmDocumentKind ordinal (SelfInvoice=0, PaymentVoucher=1)
+            source_voucher_id  TEXT    NOT NULL REFERENCES vouchers(id),
+            series_number      INTEGER NOT NULL,   -- consecutive per-company self-invoice/payment series
+            doc_date           TEXT    NOT NULL,   -- ISO yyyy-MM-dd (self-invoice ≤ receipt+30d)
+            supplier_ledger_id TEXT        NULL REFERENCES ledgers(id)
+        );
+        CREATE INDEX ix_rcm_documents_company ON rcm_documents(company_id);
+
+        -- v39 (Phase 9 slice 2): §34 credit/debit-note link to the original invoice (+ 9B target, reason). The table
+        -- lands in the S2a schema but stays EMPTY until the S2b CDN engine (ER-13 byte-identical when off).
+        CREATE TABLE gst_cdn_links (
+            id                          TEXT    NOT NULL PRIMARY KEY,
+            company_id                  TEXT    NOT NULL REFERENCES companies(id),
+            cdn_voucher_id              TEXT    NOT NULL REFERENCES vouchers(id),
+            cdn_type                    INTEGER NOT NULL,   -- CdnType ordinal (Credit=0, Debit=1)
+            original_invoice_voucher_id TEXT        NULL REFERENCES vouchers(id),
+            original_invoice_number     TEXT        NULL,
+            original_invoice_date       TEXT        NULL,   -- ISO yyyy-MM-dd (§34(2) FY basis)
+            reason_code                 TEXT    NOT NULL,
+            is_9b_target                INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX ix_gst_cdn_links_company ON gst_cdn_links(company_id);
+
+        -- v39 (Phase 9 slice 2): GST-on-advances (Rule 50/51) + 11A/11B adjustment. The table lands in the S2a schema
+        -- but stays EMPTY until the S2b advance engine (ER-13 byte-identical when off).
+        CREATE TABLE gst_advance_receipts (
+            id                             TEXT    NOT NULL PRIMARY KEY,
+            company_id                     TEXT    NOT NULL REFERENCES companies(id),
+            receipt_voucher_id             TEXT    NOT NULL REFERENCES vouchers(id),
+            is_service                     INTEGER NOT NULL DEFAULT 1,  -- 0 ⇒ goods (de-taxed)
+            advance_amount_paisa           INTEGER NOT NULL,
+            rate_bp                        INTEGER NOT NULL DEFAULT 0,
+            inter_state                    INTEGER NOT NULL DEFAULT 0,
+            pos_state_code                 TEXT        NULL,
+            advance_tax_paisa              INTEGER NOT NULL DEFAULT 0,  -- 0 for goods
+            adjusted_against_invoice_vid   TEXT        NULL REFERENCES vouchers(id),
+            refund_voucher_id              TEXT        NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_gst_advance_receipts_company ON gst_advance_receipts(company_id);
+
         -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
         -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
         -- (slab_id) form one PtSlab. No rows for a company not enrolled for PT (ER-13).
@@ -395,7 +460,16 @@ public static class Schema
             sp_cess_rate_bp           INTEGER     NULL,            -- ad-valorem override in bp
             sp_cess_per_unit_paisa    INTEGER     NULL,            -- specific per-unit override, paisa
             sp_cess_rsp_factor_millis INTEGER     NULL,            -- RSP-factor override x1000
-            sp_rsp_paisa              INTEGER     NULL             -- declared Retail Sale Price per unit, paisa
+            sp_rsp_paisa              INTEGER     NULL,            -- declared Retail Sale Price per unit, paisa
+            -- v39 (Phase 9 slice 2): reverse-charge (RCM) flags on the sales/purchase-ledger GST block + party RCM
+            -- qualifiers + the RCM Output-ledger classification discriminator. All DEFAULT 0/NULL so an existing ledger is
+            -- byte-identical to a v38 ledger (ER-13).
+            sp_reverse_charge_applicable INTEGER NOT NULL DEFAULT 0,  -- 0/1 "Is reverse charge applicable" (S/P ledger)
+            sp_gta_forward_charge        INTEGER NOT NULL DEFAULT 0,  -- 0/1 GTA Annexure-V forward-charge opt-out
+            sp_rcm_category_id           TEXT        NULL,            -- linked RcmCategory id (bare id, no FK)
+            party_is_promoter            INTEGER NOT NULL DEFAULT 0,  -- 0/1 §9(4) promoter recipient
+            party_is_body_corporate      INTEGER NOT NULL DEFAULT 0,  -- 0/1 body-corporate qualifier
+            gst_class_reverse_charge     INTEGER NOT NULL DEFAULT 0   -- 0/1 the RCM Output tax-ledger discriminator
         );
 
         CREATE TABLE currencies (
@@ -451,7 +525,10 @@ public static class Schema
             -- v27 (Phase 7 slice 3; catalog §13): "Use for Statutory Payment (Stat Payment)" — a Payment voucher-type
             -- flag marking the Ctrl+F stat-payment deposit (Dr TDS Payable / Cr Bank). 0/1, default 0 so an existing
             -- Payment type is byte-identical (ER-13). Reuses the Payment base type — no new VoucherBaseType.
-            is_stat_payment   INTEGER NOT NULL DEFAULT 0             -- 0/1
+            is_stat_payment   INTEGER NOT NULL DEFAULT 0,            -- 0/1
+            -- v39 (Phase 9 slice 2): "Use for RCM Payment Voucher (Rule 52)" — a Payment voucher-type flag marking a
+            -- reverse-charge supplier payment. 0/1, default 0 so an existing Payment type is byte-identical (ER-13).
+            is_rcm_payment_voucher INTEGER NOT NULL DEFAULT 0       -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -483,7 +560,11 @@ public static class Schema
             -- v13 core GST (catalog §12): tax-line detail, all NULL for a non-tax line
             gst_tax_head          INTEGER NULL,   -- GstTaxHead enum ordinal (Central/State/Integrated)
             gst_rate_bp           INTEGER NULL,   -- applied head rate in basis points (900 = 9% CGST half)
-            gst_taxable_value_paisa INTEGER NULL  -- the taxable value the tax was computed on, in paisa
+            gst_taxable_value_paisa INTEGER NULL, -- the taxable value the tax was computed on, in paisa
+            -- v39 (Phase 9 slice 2): reverse-charge (RCM) tag on the tax line. Default 0/NULL ⇒ a forward-charge line is
+            -- byte-identical to a v38 line (ER-13).
+            gst_is_reverse_charge INTEGER NOT NULL DEFAULT 0, -- 0/1 RCM tax line
+            gst_rcm_scheme        INTEGER     NULL             -- RcmItcScheme ordinal (ImportOfServices=0, OtherRcm=1) or NULL
         );
 
         -- v26 TDS withholding detail (catalog §13; Phase 7 slice 2): one row per TDS-assessed line — the TDS
@@ -726,7 +807,12 @@ public static class Schema
             cess_rate_bp             INTEGER     NULL,            -- ad-valorem override in bp
             cess_per_unit_paisa      INTEGER     NULL,            -- specific per-unit override, paisa
             cess_rsp_factor_millis   INTEGER     NULL,            -- RSP-factor override x1000
-            rsp_paisa                INTEGER     NULL             -- declared Retail Sale Price per unit, paisa
+            rsp_paisa                INTEGER     NULL,            -- declared Retail Sale Price per unit, paisa
+            -- v39 (Phase 9 slice 2): reverse-charge (RCM) flags on the shared item/S-P GST block. All DEFAULT 0/NULL so an
+            -- item with no RCM data is byte-identical to a v38 item (ER-13).
+            reverse_charge_applicable INTEGER NOT NULL DEFAULT 0, -- 0/1 "Is reverse charge applicable"
+            gta_forward_charge        INTEGER NOT NULL DEFAULT 0, -- 0/1 GTA Annexure-V forward-charge opt-out
+            rcm_category_id           TEXT        NULL            -- linked RcmCategory id (bare id, no FK)
         );
 
         CREATE TABLE stock_opening_balances (
@@ -2683,5 +2769,93 @@ public static class Schema
         ALTER TABLE ledgers ADD COLUMN sp_cess_per_unit_paisa    INTEGER     NULL;
         ALTER TABLE ledgers ADD COLUMN sp_cess_rsp_factor_millis INTEGER     NULL;
         ALTER TABLE ledgers ADD COLUMN sp_rsp_paisa              INTEGER     NULL;
+        """;
+
+    /// <summary>
+    /// v38 → v39 (Phase 9 slice 2; RCM core + §34-CDN/advances seam): additive — four new tables
+    /// (<c>rcm_categories</c>, <c>rcm_documents</c>, <c>gst_cdn_links</c>, <c>gst_advance_receipts</c>) + their
+    /// company-scoped indexes, and the reverse-charge ALTER-added columns on <c>stock_items</c> (item RCM flags),
+    /// <c>ledgers</c> (sales-purchase RCM flags + party qualifiers + the RCM Output classification discriminator),
+    /// <c>entry_lines</c> (the RCM tax-line tag) and <c>voucher_types</c> (the RCM payment-voucher flag) — run inside a
+    /// transaction that bumps <c>schema_version</c> to 39. <b>No row rewrites, no data backfill</b>: an existing v38
+    /// database keeps every row untouched, the new tables start empty and the new columns default 0/NULL, so a company
+    /// that never uses reverse charge / CDN / advances serialises byte-identically to a v38 company (ER-13). The
+    /// <c>gst_cdn_links</c> / <c>gst_advance_receipts</c> tables stay unused until S2b. Each added table / column / index
+    /// is byte-identical to its counterpart in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A
+    /// fresh DB is stamped straight to v39 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV38ToV39 = """
+        CREATE TABLE rcm_categories (
+            id                   TEXT    NOT NULL PRIMARY KEY,
+            company_id           TEXT    NOT NULL REFERENCES companies(id),
+            notification         TEXT    NOT NULL,
+            stream               INTEGER NOT NULL,
+            supply_nature        TEXT    NOT NULL,
+            supply_type          INTEGER NOT NULL,
+            hsn_sac              TEXT        NULL,
+            rate_bp              INTEGER NOT NULL,
+            supplier_qualifier   INTEGER NOT NULL,
+            recipient_qualifier  INTEGER NOT NULL,
+            effective_from       TEXT    NOT NULL,
+            effective_to         TEXT        NULL,
+            label                TEXT    NOT NULL,
+            is_predefined        INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_rcm_categories_company ON rcm_categories(company_id);
+
+        CREATE TABLE rcm_documents (
+            id                 TEXT    NOT NULL PRIMARY KEY,
+            company_id         TEXT    NOT NULL REFERENCES companies(id),
+            doc_kind           INTEGER NOT NULL,
+            source_voucher_id  TEXT    NOT NULL REFERENCES vouchers(id),
+            series_number      INTEGER NOT NULL,
+            doc_date           TEXT    NOT NULL,
+            supplier_ledger_id TEXT        NULL REFERENCES ledgers(id)
+        );
+        CREATE INDEX ix_rcm_documents_company ON rcm_documents(company_id);
+
+        CREATE TABLE gst_cdn_links (
+            id                          TEXT    NOT NULL PRIMARY KEY,
+            company_id                  TEXT    NOT NULL REFERENCES companies(id),
+            cdn_voucher_id              TEXT    NOT NULL REFERENCES vouchers(id),
+            cdn_type                    INTEGER NOT NULL,
+            original_invoice_voucher_id TEXT        NULL REFERENCES vouchers(id),
+            original_invoice_number     TEXT        NULL,
+            original_invoice_date       TEXT        NULL,
+            reason_code                 TEXT    NOT NULL,
+            is_9b_target                INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE INDEX ix_gst_cdn_links_company ON gst_cdn_links(company_id);
+
+        CREATE TABLE gst_advance_receipts (
+            id                             TEXT    NOT NULL PRIMARY KEY,
+            company_id                     TEXT    NOT NULL REFERENCES companies(id),
+            receipt_voucher_id             TEXT    NOT NULL REFERENCES vouchers(id),
+            is_service                     INTEGER NOT NULL DEFAULT 1,
+            advance_amount_paisa           INTEGER NOT NULL,
+            rate_bp                        INTEGER NOT NULL DEFAULT 0,
+            inter_state                    INTEGER NOT NULL DEFAULT 0,
+            pos_state_code                 TEXT        NULL,
+            advance_tax_paisa              INTEGER NOT NULL DEFAULT 0,
+            adjusted_against_invoice_vid   TEXT        NULL REFERENCES vouchers(id),
+            refund_voucher_id              TEXT        NULL REFERENCES vouchers(id)
+        );
+        CREATE INDEX ix_gst_advance_receipts_company ON gst_advance_receipts(company_id);
+
+        ALTER TABLE stock_items ADD COLUMN reverse_charge_applicable INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN gta_forward_charge        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN rcm_category_id           TEXT        NULL;
+
+        ALTER TABLE ledgers ADD COLUMN sp_reverse_charge_applicable INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN sp_gta_forward_charge        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN sp_rcm_category_id           TEXT        NULL;
+        ALTER TABLE ledgers ADD COLUMN party_is_promoter            INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN party_is_body_corporate      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN gst_class_reverse_charge     INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE entry_lines ADD COLUMN gst_is_reverse_charge     INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE entry_lines ADD COLUMN gst_rcm_scheme            INTEGER     NULL;
+
+        ALTER TABLE voucher_types ADD COLUMN is_rcm_payment_voucher  INTEGER NOT NULL DEFAULT 0;
         """;
 }

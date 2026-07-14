@@ -220,6 +220,32 @@ public static class CanonicalMapper
         TcsChallanVoucherLinks = c.TcsChallanVoucherLinks
             .OrderBy(l => l.ChallanId).ThenBy(l => l.VoucherId)
             .Select(l => new ChallanVoucherLinkDto { ChallanId = l.ChallanId, VoucherId = l.VoucherId }).ToList(),
+        // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts (ordered by id so stable).
+        RcmDocuments = c.RcmDocuments.OrderBy(d => d.Id).Select(MapRcmDocument).ToList(),
+        CreditDebitNoteLinks = c.CreditDebitNoteLinks.OrderBy(l => l.Id).Select(MapCdnLink).ToList(),
+        AdvanceReceipts = c.AdvanceReceipts.OrderBy(a => a.Id).Select(MapAdvanceReceipt).ToList(),
+    };
+
+    private static RcmDocumentDto MapRcmDocument(RcmDocument d) => new()
+    {
+        Id = d.Id, Kind = d.Kind.ToString(), SourceVoucherId = d.SourceVoucherId,
+        SeriesNumber = d.SeriesNumber, DocDate = Iso(d.DocDate), SupplierLedgerId = d.SupplierLedgerId,
+    };
+
+    private static GstCdnLinkDto MapCdnLink(GstCreditDebitNoteLink l) => new()
+    {
+        Id = l.Id, CdnVoucherId = l.CdnVoucherId, CdnType = l.CdnType.ToString(),
+        OriginalInvoiceVoucherId = l.OriginalInvoiceVoucherId, OriginalInvoiceNumber = l.OriginalInvoiceNumber,
+        OriginalInvoiceDate = Iso(l.OriginalInvoiceDate), ReasonCode = l.ReasonCode, Is9BTarget = l.Is9BTarget,
+    };
+
+    private static GstAdvanceReceiptDto MapAdvanceReceipt(GstAdvanceReceipt a) => new()
+    {
+        Id = a.Id, ReceiptVoucherId = a.ReceiptVoucherId, IsService = a.IsService,
+        AdvanceAmountPaisa = MoneyCodec.ToPaisa(a.AdvanceAmount), RateBasisPoints = a.RateBasisPoints,
+        InterState = a.InterState, PlaceOfSupplyStateCode = a.PlaceOfSupplyStateCode,
+        AdvanceTaxPaisa = MoneyCodec.ToPaisa(a.AdvanceTax),
+        AdjustedAgainstInvoiceVoucherId = a.AdjustedAgainstInvoiceVoucherId, RefundVoucherId = a.RefundVoucherId,
     };
 
     private static TdsChallanDto MapTdsChallan(TdsChallan ch) => new()
@@ -443,6 +469,7 @@ public static class CanonicalMapper
         UseForJobWork = t.UseForJobWork,
         AllowConsumption = t.AllowConsumption,
         IsStatPayment = t.IsStatPayment,
+        IsRcmPaymentVoucher = t.IsRcmPaymentVoucher,
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
 
@@ -585,11 +612,25 @@ public static class CanonicalMapper
                 CessRspFactorMillis = c.CessRspFactorMillis, EffectiveFrom = Iso(c.EffectiveFrom),
                 EffectiveTo = Iso(c.EffectiveTo), Label = c.Label, IsPredefined = c.IsPredefined,
             }).ToList(),
+        // Phase 9 slice 2: reverse-charge categories, ordered deterministically so the byte stream is stable.
+        RcmCategories = g.RcmCategories
+            .OrderBy(c => c.EffectiveFrom).ThenBy(c => c.Notification, StringComparer.Ordinal)
+            .ThenBy(c => c.SupplyNature, StringComparer.Ordinal).ThenBy(c => c.Id)
+            .Select(c => new RcmCategoryDto
+            {
+                Id = c.Id, Notification = c.Notification, Stream = c.Stream.ToString(),
+                SupplyNature = c.SupplyNature, SupplyType = c.SupplyType.ToString(), HsnSac = c.HsnSac,
+                RateBasisPoints = c.RateBasisPoints, SupplierQualifier = c.SupplierQualifier.ToString(),
+                RecipientQualifier = c.RecipientQualifier.ToString(), EffectiveFrom = Iso(c.EffectiveFrom),
+                EffectiveTo = Iso(c.EffectiveTo), Label = c.Label, IsPredefined = c.IsPredefined,
+            }).ToList(),
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()
     {
         RegistrationType = p.RegistrationType.ToString(), Gstin = p.Gstin, StateCode = p.StateCode,
+        // Phase 9 slice 2: reverse-charge qualifiers.
+        IsPromoter = p.IsPromoter, IsBodyCorporate = p.IsBodyCorporate,
     };
 
     private static StockItemGstDto MapStockItemGst(StockItemGstDetails s) => new()
@@ -601,11 +642,16 @@ public static class CanonicalMapper
         CessValuationMode = s.CessValuationMode?.ToString(), CessRateBasisPoints = s.CessRateBasisPoints,
         CessPerUnitPaisa = MoneyCodec.ToPaisa(s.CessPerUnit), CessRspFactorMillis = s.CessRspFactorMillis,
         RspPaisa = MoneyCodec.ToPaisa(s.RetailSalePrice),
+        // Phase 9 slice 2: reverse-charge flags.
+        ReverseChargeApplicable = s.ReverseChargeApplicable, GtaForwardCharge = s.GtaForwardCharge,
+        RcmCategoryId = s.RcmCategoryId,
     };
 
     private static LedgerGstClassificationDto MapGstClassification(LedgerGstClassification c) => new()
     {
         TaxHead = c.TaxHead.ToString(), Direction = c.Direction.ToString(),
+        // Phase 9 slice 2: the RCM Output-ledger discriminator.
+        IsReverseCharge = c.IsReverseCharge,
     };
 
     // ------------------------------------------------------------- tds / tcs value objects (Phase 7 slice 1)
@@ -736,6 +782,8 @@ public static class CanonicalMapper
     {
         TaxHead = g.TaxHead.ToString(), RateBasisPoints = g.RateBasisPoints,
         TaxableValuePaisa = MoneyCodec.ToPaisa(g.TaxableValue),
+        // Phase 9 slice 2: reverse-charge tag.
+        IsReverseCharge = g.IsReverseCharge, RcmScheme = g.RcmScheme?.ToString(),
     };
 
     private static VoucherInventoryLineDto MapVoucherInventoryLine(VoucherInventoryLine l) => new()
