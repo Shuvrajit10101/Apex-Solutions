@@ -86,6 +86,13 @@ public sealed record Gstr3b(
     /// <summary>Builds GSTR-3B for the whole company over <c>[from, to]</c>.</summary>
     public static Gstr3b Build(Company company, DateOnly from, DateOnly to)
     {
+        // Phase 9 slice 3 (RQ-16): a Composition dealer files CMP-08 / GSTR-4, NOT GSTR-3B — early-return an empty
+        // summary. The dealer's inward RCM is reported in CMP-08 Table 3(ii) (not 3.1(d) here), so no data is lost. A
+        // Regular company never enters this branch ⇒ byte-identical (ER-13).
+        if (company.Gst?.RegistrationType == GstRegistrationType.Composition)
+            return new Gstr3b(from, to, Money.Zero, Money.Zero, Money.Zero, Money.Zero, Money.Zero,
+                Money.Zero, Money.Zero, Money.Zero);
+
         var (outCgst, outSgst, outIgst, taxable, exempt) = ReadSide(company, from, to, GstTaxDirection.Output);
         var (itcCgst, itcSgst, itcIgst, _, _) = ReadSide(company, from, to, GstTaxDirection.Input);
 

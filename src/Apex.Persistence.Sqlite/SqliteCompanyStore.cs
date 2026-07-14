@@ -953,6 +953,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 39;
         }
 
+        // v39 → v40: apply the Phase-9 slice 3 Composition-scheme config (two ALTER-added columns on companies:
+        // composition_sub_type + composition_opt_in_date), then bump the marker. Existing v39 data survives untouched
+        // (ALTER … ADD COLUMN only; no row rewrites, no new table). ER-13 byte-identical when a company is not a
+        // composition dealer (both new columns default NULL).
+        if (version == 39)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV39ToV40;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 40);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 40;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -981,7 +1005,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
                    salary_tds_enabled,
                    gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
-                   bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate
+                   bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate,
+                   composition_sub_type, composition_opt_in_date
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1032,6 +1057,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     RegistrationType = r.IsDBNull(19) ? GstRegistrationType.Regular : (GstRegistrationType)(int)r.GetInt64(19),
                     ApplicableFrom = r.IsDBNull(20) ? (DateOnly?)null : ParseDate(r.GetString(20)),
                     Periodicity = r.IsDBNull(21) ? GstReturnPeriodicity.Monthly : (GstReturnPeriodicity)(int)r.GetInt64(21),
+                    // v40 (Phase 9 slice 3): composition-scheme config — NULL unless the company is a composition dealer (ER-13).
+                    CompositionSubType = r.IsDBNull(62) ? (CompositionSubType?)null : (CompositionSubType)(int)r.GetInt64(62),
+                    CompositionOptInDate = r.IsDBNull(63) ? (DateOnly?)null : ParseDate(r.GetString(63)),
                 };
             }
 
@@ -3702,7 +3730,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  pt_config_enabled, pt_state, pt_registration_number, pt_wage_basis,
                  salary_tds_enabled,
                  gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
-                 bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate)
+                 bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate,
+                 composition_sub_type, composition_opt_in_date)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3716,7 +3745,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $pten, $ptstate, $ptreg, $ptbasis,
                  $salarytds,
                  $graten, $gratcap, $gratbasis, $gratpop,
-                 $bonusen, $bonusrate, $bonusceil, $bonusminwage, $bonusprorate);
+                 $bonusen, $bonusrate, $bonusceil, $bonusminwage, $bonusprorate,
+                 $compsub, $compdate);
             """;
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
@@ -3804,6 +3834,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$bonusceil", (long)((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling) * 100m));
         cmd.Parameters.AddWithValue("$bonusminwage", (long)((bonus?.MinimumWage.Amount ?? 0m) * 100m));
         cmd.Parameters.AddWithValue("$bonusprorate", (bonus?.Prorate ?? true) ? 1 : 0);
+        // v40 (Phase 9 slice 3): the composition-scheme config. NULL for a non-composition company (ER-13).
+        cmd.Parameters.AddWithValue("$compsub", gst?.CompositionSubType is { } st ? (int)st : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$compdate", gst?.CompositionOptInDate is { } d ? FormatDate(d) : (object)DBNull.Value);
         cmd.ExecuteNonQuery();
 
         // v36 per-employee §192 income-tax declarations (only for employees that declared figures). All money in

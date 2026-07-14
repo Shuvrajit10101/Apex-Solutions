@@ -441,7 +441,9 @@ public static class CanonicalXml
         var el = new XElement("gst",
             Attr("enabled", g.Enabled), Opt("gstin", g.Gstin), Opt("homeStateCode", g.HomeStateCode),
             Attr("registrationType", g.RegistrationType), Opt("applicableFrom", g.ApplicableFrom),
-            Attr("periodicity", g.Periodicity));
+            Attr("periodicity", g.Periodicity),
+            // Phase 9 slice 3: composition sub-type + opt-in date (null-omitting ⇒ byte-identical when off, ER-13).
+            Opt("compositionSubType", g.CompositionSubType), Opt("compositionOptInDate", g.CompositionOptInDate));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
@@ -1367,6 +1369,8 @@ public static class CanonicalXml
                 RecipientQualifier = Str(c, "recipientQualifier")!, EffectiveFrom = Str(c, "effectiveFrom")!,
                 EffectiveTo = Str(c, "effectiveTo"), Label = Str(c, "label")!, IsPredefined = Bool(c, "isPredefined"),
             }).ToList(),
+        // Phase 9 slice 3: composition sub-type + opt-in date (absent attributes ⇒ null, ER-13).
+        CompositionSubType = Str(e, "compositionSubType"), CompositionOptInDate = Str(e, "compositionOptInDate"),
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()

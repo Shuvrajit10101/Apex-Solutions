@@ -103,6 +103,89 @@ public static class GstReportSupport
         company.CreditDebitNoteLinks.FirstOrDefault(l => l.CdnVoucherId == voucher.Id);
 
     /// <summary>
+    /// The §10 / Rule 5(f) declaration a composition dealer's <b>Bill of Supply</b> must bear (Phase 9 slice 3; RQ-10;
+    /// ER-11: de-branded, never "Tally"). Printed in place of the CGST/SGST/IGST tax columns (a composition supply
+    /// carries none).
+    /// </summary>
+    public const string BillOfSupplyDeclaration = "Composition taxable person, not eligible to collect tax on supplies";
+
+    /// <summary>
+    /// True iff a voucher is a composition dealer's <b>Bill of Supply</b> (Phase 9 slice 3; RQ-10): an outward supply
+    /// (<see cref="VoucherBaseType.Sales"/>) of a company whose GST registration type is Composition. A <b>derived</b>
+    /// property (no stored flag), mirroring <see cref="IsOutwardReverseChargeSupply"/>. A Regular/Unregistered company
+    /// always returns false (byte-identical, ER-13). The print layer titles the document "Bill of Supply" (not "Tax
+    /// Invoice") and prints <see cref="BillOfSupplyDeclaration"/>.
+    /// </summary>
+    public static bool IsBillOfSupply(Company company, Voucher voucher)
+    {
+        if (company.Gst?.RegistrationType != GstRegistrationType.Composition) return false;
+        var type = company.FindVoucherType(voucher.TypeId);
+        return type?.BaseType == VoucherBaseType.Sales;
+    }
+
+    /// <summary>
+    /// The <b>outward supply value</b> of a composition sale (or sale-return note), split (Total, Taxable) by GST
+    /// taxability (Phase 9 slice 3; RQ-10/RQ-16; ER-9). A composition voucher carries <b>no tax lines</b>, so turnover
+    /// is read from the posted stock/sales <b>value</b>, never from tax lines (<see cref="InvoiceTaxableValue"/> reads
+    /// tax lines ⇒ returns 0 and must NOT be used for turnover). An item-invoice sale reads the item-line values, each
+    /// classified by its stock item's <see cref="StockItemGstDetails.IsTaxable"/> (falling back to the voucher's
+    /// sales-ledger GST block, else treated as taxable). An as-voucher sale sums the sales/income legs on the
+    /// <b>sales-natural side</b> — CREDIT for a Sales bill, DEBIT for a sale-return <see cref="VoucherBaseType.CreditNote"/>
+    /// (which reverses the sale) — so the party/cash counter-leg is never counted and a return is valued (and classified)
+    /// off its own sales ledger, mirroring <see cref="Gstr1"/>'s sign-by-base-type read. Each leg is classified by its
+    /// ledger's <see cref="Domain.Ledger.SalesPurchaseGst"/>; the <b>Taxable</b> component counts only an <b>explicitly</b>
+    /// taxable leg (an unclassified leg is treated as non-taxable, so it never over-includes an exempt as-voucher sale
+    /// into a taxable-only base — finding #1). Reads posted amounts only; the <b>sign</b> (a return nets down) is applied
+    /// by the caller.
+    /// </summary>
+    public static (Money Total, Money Taxable) OutwardSupplyValue(Company company, Voucher voucher, VoucherBaseType baseType)
+    {
+        if (voucher.HasInventoryLines)
+        {
+            var total = 0m; var taxable = 0m;
+            foreach (var il in voucher.InventoryLines)
+            {
+                var v = il.Value.Amount;
+                total += v;
+                if (LineIsTaxable(company, il, voucher)) taxable += v;
+            }
+            return (new Money(total), new Money(taxable));
+        }
+
+        // As-voucher supply: the supply value is the sales/income legs on the sales-natural side (CREDIT for a Sales
+        // bill; DEBIT for a sale-return Credit Note, which reverses the sale). Reading the sales side — rather than
+        // always the credit legs — keeps the party/cash counter-leg out and reads a return off its reversed sales leg.
+        // A Duties & Taxes leg (defensive — none exist for composition) is excluded so it can never inflate turnover.
+        var supplySide = baseType == VoucherBaseType.CreditNote ? DrCr.Debit : DrCr.Credit;
+        var t = 0m; var tx = 0m;
+        foreach (var line in voucher.Lines)
+        {
+            if (line.Side != supplySide) continue;
+            var ledger = company.FindLedger(line.LedgerId);
+            if (ledger is null || ClassificationRules.IsDutiesAndTaxesLedger(ledger, company)) continue;
+            var v = line.Amount.Amount;
+            t += v;
+            // TAXABLE component: count only an EXPLICITLY-taxable sales/income leg (finding #1). An unclassified leg
+            // (no GST block) is NOT assumed taxable — that would over-include an exempt as-voucher sale into the
+            // taxable-only base (Trader / §10(2A)). Total-turnover sub-types read `Total`, so an exempt sale still
+            // counts for them (base-rule-aware, not a blanket flip).
+            if (ledger.SalesPurchaseGst?.IsTaxable ?? false) tx += v;
+        }
+        return (new Money(t), new Money(tx));
+    }
+
+    /// <summary>Classifies one item-invoice line as a taxable supply: by the stock item's GST taxability, falling back
+    /// to any sales-ledger GST block on the voucher, else treated as taxable (conservative for the taxable-base
+    /// sub-types).</summary>
+    private static bool LineIsTaxable(Company company, VoucherInventoryLine il, Voucher voucher)
+    {
+        if (company.FindStockItem(il.StockItemId)?.Gst is { } g) return g.IsTaxable;
+        foreach (var line in voucher.Lines)
+            if (company.FindLedger(line.LedgerId)?.SalesPurchaseGst is { } spg) return spg.IsTaxable;
+        return true;
+    }
+
+    /// <summary>
     /// The integrated-rate basis points a tax line represents, for rate-wise grouping. A CGST/SGST line carries
     /// the <b>half</b> rate on its <see cref="GstLineTax.RateBasisPoints"/> (900 for an 18% intra supply), so we
     /// double it to recover the integrated slab (1800); an IGST line already carries the full rate. A zero-rate

@@ -149,6 +149,13 @@ public sealed record Gstr1(
     /// <summary>Builds GSTR-1 for the whole company over <c>[from, to]</c>.</summary>
     public static Gstr1 Build(Company company, DateOnly from, DateOnly to)
     {
+        // Phase 9 slice 3 (RQ-16): a Composition dealer files CMP-08 / GSTR-4, NOT GSTR-1 — early-return an empty return
+        // so it never emits an outward-supplies return (the Desktop routes it to the CMP-08/GSTR-4 screens). The inward
+        // RCM the dealer owes is reported in CMP-08 Table 3(ii), so nothing is lost. A Regular company never enters this
+        // branch ⇒ byte-identical (ER-13).
+        if (company.Gst?.RegistrationType == GstRegistrationType.Composition)
+            return new Gstr1(from, to, [], [], [], [], Money.Zero, Money.Zero, Money.Zero, Money.Zero);
+
         var b2b = new List<Gstr1B2BRow>();
         var b2cAcc = new Dictionary<int, HeadAmounts>();       // by integrated rate
         var rateAcc = new Dictionary<int, (decimal Taxable, decimal Tax)>();

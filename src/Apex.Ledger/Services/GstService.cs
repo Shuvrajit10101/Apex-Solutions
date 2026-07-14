@@ -86,9 +86,14 @@ public sealed class GstService
             ?? throw new InvalidOperationException("Seed missing 'Duties & Taxes' group; cannot auto-create GST tax ledgers.");
 
         // Auto-create the 6 tax ledgers (idempotent by classification: skip a head+direction already present).
-        foreach (var direction in new[] { GstTaxDirection.Output, GstTaxDirection.Input })
-            foreach (var head in new[] { GstTaxHead.Central, GstTaxHead.State, GstTaxHead.Integrated })
-                EnsureTaxLedger(dutiesAndTaxes.Id, head, direction);
+        // Phase 9 slice 3 (RQ-4): a Composition dealer collects no output tax and claims no ITC, so it needs NONE of
+        // the six Output/Input GST ledgers — creating them would pollute its ledger set. Gate them off for composition
+        // (a Regular/Unregistered company is byte-identical, ER-13). The RCM Output ledgers are still created LAZILY by
+        // RcmService when an inward RCM supply posts; the Round-Off ledger below is harmless and kept.
+        if (config.RegistrationType != GstRegistrationType.Composition)
+            foreach (var direction in new[] { GstTaxDirection.Output, GstTaxDirection.Input })
+                foreach (var head in new[] { GstTaxHead.Central, GstTaxHead.State, GstTaxHead.Integrated })
+                    EnsureTaxLedger(dutiesAndTaxes.Id, head, direction);
 
         // Round-Off ledger under Indirect Expenses (a P&L head; a round-off can be Dr or Cr).
         EnsureRoundOffLedger();
@@ -225,6 +230,28 @@ public sealed class GstService
             ?? throw new InvalidOperationException("Seed missing 'Indirect Expenses' group; cannot auto-create Round-Off ledger.");
         _company.AddLedger(new Domain.Ledger(
             Guid.NewGuid(), RoundOffLedgerName, indirectExp.Id, Money.Zero, openingIsDebit: true));
+    }
+
+    /// <summary>The auto-created non-creditable RCM-tax expense-ledger name (Phase 9 slice 3; ER-4).</summary>
+    public const string RcmNonCreditableCostLedgerName = "RCM Tax (Non-creditable)";
+
+    /// <summary>
+    /// Lazily creates (idempotently) the <b>RCM Tax (Non-creditable)</b> expense ledger under Indirect Expenses and
+    /// returns it (Phase 9 slice 3; ER-4). A <b>Composition</b> dealer pays inward reverse-charge tax in cash exactly
+    /// like a Regular dealer, but composition blocks ALL ITC — so the RCM tax is a <b>cost</b>, not a creditable input.
+    /// <see cref="RcmService"/> routes the balancing debit of a composition dealer's RCM liability here (instead of an
+    /// Input ITC ledger), so no ITC-tagged line exists. Created lazily (never in <see cref="EnableGst"/>) — a company
+    /// that never posts a composition RCM supply keeps the v39 ledger set (ER-13). Mirrors <see cref="EnsureRoundOffLedger"/>.
+    /// </summary>
+    public Domain.Ledger EnsureRcmNonCreditableCostLedger()
+    {
+        if (_company.FindLedgerByName(RcmNonCreditableCostLedgerName) is { } existing) return existing;
+        var indirectExp = _company.FindGroupByName("Indirect Expenses")
+            ?? throw new InvalidOperationException("Seed missing 'Indirect Expenses' group; cannot auto-create the non-creditable RCM-tax ledger.");
+        var ledger = new Domain.Ledger(
+            Guid.NewGuid(), RcmNonCreditableCostLedgerName, indirectExp.Id, Money.Zero, openingIsDebit: true);
+        _company.AddLedger(ledger);
+        return ledger;
     }
 
     /// <summary>The auto-created GST-on-advance tax-suspense ledger name (Phase 9 slice 2b; Rule 50).</summary>
@@ -540,6 +567,14 @@ public sealed class GstService
         bool applyInvoiceRoundOff = false)
     {
         ArgumentNullException.ThrowIfNull(lines);
+
+        // Phase 9 slice 3 (RQ-10; ER-4): a Composition dealer issues a Bill of Supply — it neither collects output GST
+        // (outward) nor avails ITC (inward). Suppress ALL forward CGST/SGST/IGST/Cess: no tax lines, no round-off, zero
+        // totals. The supply value flows untaxed to the party leg (the caller assembles party Dr = supply value). A
+        // Regular/Unregistered company never enters this branch ⇒ byte-identical (ER-13). Inward RCM is NOT computed here
+        // (it flows through RcmService, which still posts the composition dealer's cash-only RCM liability).
+        if (_company.Gst?.RegistrationType == GstRegistrationType.Composition)
+            return new InvoiceTax { TaxLines = [], LineBreakdown = [] };
 
         var breakdown = new List<LineTax>(lines.Count);
         var taxableTotal = 0m;

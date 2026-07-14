@@ -1016,6 +1016,10 @@ public sealed record GstConfigDto
     // Phase 9 slice 2 (RQ-3/RQ-7): dated reverse-charge categories. Default empty ⇒ an RCM-off company serialises
     // identically to a v38 company (ER-13). Appended at the END so existing field order is unchanged.
     public IReadOnlyList<RcmCategoryDto> RcmCategories { get; init; } = [];
+    // Phase 9 slice 3 (RQ-4): composition sub-type + opt-in date. Null when not a composition dealer ⇒ byte-identical
+    // (ER-13). Appended at the END so existing field order is unchanged.
+    public string? CompositionSubType { get; init; }   // CompositionSubType name, or null
+    public string? CompositionOptInDate { get; init; } // ISO yyyy-MM-dd, or null
 }
 
 /// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>

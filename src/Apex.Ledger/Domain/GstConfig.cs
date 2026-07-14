@@ -38,6 +38,16 @@ public sealed class GstConfig
     /// <summary>GSTR-1 (and paired 3B) periodicity election.</summary>
     public GstReturnPeriodicity Periodicity { get; set; } = GstReturnPeriodicity.Monthly;
 
+    /// <summary>
+    /// The composition sub-type (Phase 9 slice 3; RQ-4). Non-null only when <see cref="RegistrationType"/> is
+    /// Composition; drives the tax-on-turnover rate + base (<see cref="CompositionThreshold"/>). Null for a Regular
+    /// company (byte-identical, ER-13).
+    /// </summary>
+    public CompositionSubType? CompositionSubType { get; set; }
+
+    /// <summary>The date the dealer opted into composition (CMP-02); advisory (period-scoping), null when unset.</summary>
+    public DateOnly? CompositionOptInDate { get; set; }
+
     /// <summary>The seeded, config-driven GST rate slabs (RQ-25; Phase 4 seeds 0/5/18/40).</summary>
     public IReadOnlyList<GstRateSlab> RateSlabs => _rateSlabs;
 
@@ -93,7 +103,12 @@ public sealed class GstConfig
         if (Gstin is not null)
             Domain.Gstin.Validate(Gstin);
 
-        if (RegistrationType == GstRegistrationType.Regular && Gstin is null)
-            throw new ArgumentException("A Regular GST registration requires a GSTIN.");
+        // A Composition dealer is a registered person too, so it also requires a GSTIN (Phase 9 slice 3; RQ-4).
+        if (RegistrationType is GstRegistrationType.Regular or GstRegistrationType.Composition && Gstin is null)
+            throw new ArgumentException($"A {RegistrationType} GST registration requires a GSTIN.");
+
+        // A Composition registration must declare its sub-type (drives the tax-on-turnover rate + base).
+        if (RegistrationType == GstRegistrationType.Composition && CompositionSubType is null)
+            throw new ArgumentException("A Composition registration requires a composition sub-type.");
     }
 }

@@ -624,6 +624,9 @@ public static class CanonicalMapper
                 RecipientQualifier = c.RecipientQualifier.ToString(), EffectiveFrom = Iso(c.EffectiveFrom),
                 EffectiveTo = Iso(c.EffectiveTo), Label = c.Label, IsPredefined = c.IsPredefined,
             }).ToList(),
+        // Phase 9 slice 3: composition sub-type + opt-in date (null for a Regular company ⇒ byte-identical, ER-13).
+        CompositionSubType = g.CompositionSubType?.ToString(),
+        CompositionOptInDate = Iso(g.CompositionOptInDate),
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()

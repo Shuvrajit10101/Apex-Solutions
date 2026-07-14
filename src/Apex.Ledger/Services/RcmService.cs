@@ -196,16 +196,29 @@ public sealed class RcmService
         var tax = GstService.ComputeLineTax(taxableValue, resolution.RateBasisPoints, resolution.InterState);
         var halfBp = resolution.RateBasisPoints / 2;
 
+        // Phase 9 slice 3 (ER-4): a Composition dealer genuinely OWES + pays inward RCM in cash (→ CMP-08), but
+        // composition blocks ALL ITC — so the RCM tax is a COST, not a creditable input. Post the Output liability leg
+        // as usual, but route the balancing debit to the non-creditable RCM-tax expense ledger and DO NOT tag it, so no
+        // ITC-tagged line exists to feed any credit bucket. A Regular company keeps the ordinary dual leg (byte-identical).
+        var isComposition = _company.Gst?.RegistrationType == GstRegistrationType.Composition;
+
         void Pair(GstTaxHead head, Money amount, int headBp)
         {
             if (amount.Amount == 0m) return;
             var rcmOutput = _gst.EnsureRcmOutputLedger(head);
-            var input = _gst.FindTaxLedger(head, GstTaxDirection.Input)
-                ?? throw new InvalidOperationException(
-                    $"Input {head} ledger not found — enable GST first (EnableGst auto-creates it).");
             // Output liability (Cr, own RCM ledger, scheme null — it is a liability, not ITC).
             lines.Add(new EntryLine(rcmOutput.Id, amount, DrCr.Credit,
                 gst: new GstLineTax(head, headBp, taxableValue, isReverseCharge: true)));
+            if (isComposition)
+            {
+                // Non-creditable: the RCM tax lands in an expense ledger, untagged (no ITC line exists).
+                var cost = _gst.EnsureRcmNonCreditableCostLedger();
+                lines.Add(new EntryLine(cost.Id, amount, DrCr.Debit));
+                return;
+            }
+            var input = _gst.FindTaxLedger(head, GstTaxDirection.Input)
+                ?? throw new InvalidOperationException(
+                    $"Input {head} ledger not found — enable GST first (EnableGst auto-creates it).");
             // Input ITC (Dr, ordinary Input ledger, tagged with the return scheme) — the SAME amount, so the pair cancels.
             lines.Add(new EntryLine(input.Id, amount, DrCr.Debit,
                 gst: new GstLineTax(head, headBp, taxableValue, isReverseCharge: true, rcmScheme: resolution.Scheme)));
@@ -235,15 +248,24 @@ public sealed class RcmService
             var cess = cessCharge.ComputeCess(taxableValue);
             if (cess.Amount != 0m)
             {
-                _gst.EnsureCessLedgers(); // ensure the ordinary Input Cess ledger for the ITC leg
                 var cessBp = cessCharge.Mode == CessValuationMode.AdValorem ? cessCharge.RateBasisPoints : 0;
                 var rcmOutputCess = _gst.EnsureRcmOutputLedger(GstTaxHead.Cess);
-                var inputCess = _gst.FindTaxLedger(GstTaxHead.Cess, GstTaxDirection.Input)
-                    ?? throw new InvalidOperationException("Input Cess ledger not found after EnsureCessLedgers.");
                 lines.Add(new EntryLine(rcmOutputCess.Id, cess, DrCr.Credit,
                     gst: new GstLineTax(GstTaxHead.Cess, cessBp, taxableValue, isReverseCharge: true)));
-                lines.Add(new EntryLine(inputCess.Id, cess, DrCr.Debit,
-                    gst: new GstLineTax(GstTaxHead.Cess, cessBp, taxableValue, isReverseCharge: true, rcmScheme: resolution.Scheme)));
+                if (isComposition)
+                {
+                    // Non-creditable cess: route the balancing debit to the RCM-tax expense ledger, untagged (no ITC).
+                    var cost = _gst.EnsureRcmNonCreditableCostLedger();
+                    lines.Add(new EntryLine(cost.Id, cess, DrCr.Debit));
+                }
+                else
+                {
+                    _gst.EnsureCessLedgers(); // ensure the ordinary Input Cess ledger for the ITC leg
+                    var inputCess = _gst.FindTaxLedger(GstTaxHead.Cess, GstTaxDirection.Input)
+                        ?? throw new InvalidOperationException("Input Cess ledger not found after EnsureCessLedgers.");
+                    lines.Add(new EntryLine(inputCess.Id, cess, DrCr.Debit,
+                        gst: new GstLineTax(GstTaxHead.Cess, cessBp, taxableValue, isReverseCharge: true, rcmScheme: resolution.Scheme)));
+                }
             }
         }
 

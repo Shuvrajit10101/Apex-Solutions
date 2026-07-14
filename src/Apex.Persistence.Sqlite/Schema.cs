@@ -69,21 +69,23 @@ namespace Apex.Persistence.Sqlite;
 /// state/registration/wage-basis columns on companies, the pay-head PT statutory role, and the seeded per-state
 /// <c>pt_slab_bands</c> table) (v35); §192 salary-TDS (the <c>salary_tds_enabled</c> company flag and the
 /// <c>employee_tax_declarations</c> table of Chapter VI-A / HRA / other-income figures) (v36); and the establishment
-/// Gratuity-provision + statutory-Bonus config columns on companies (v37).
-/// <b><see cref="CurrentVersion"/> = 37</b>; a fresh DB is always stamped straight to the current version via
+/// Gratuity-provision + statutory-Bonus config columns on companies (v37). <b>v38–v40</b> add Phase-9 advanced GST:
+/// the GST 2.0 dated rate-history + Compensation-Cess seam (v38), the reverse-charge (RCM) core + §34-CDN/advances
+/// seam (v39), and the composition-scheme config columns (composition sub-type + opt-in date) on companies (v40).
+/// <b><see cref="CurrentVersion"/> = 40</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v37</b> is the latest bump (Phase 8
-    /// slice 9 — Gratuity provision + statutory Bonus: the establishment Gratuity config columns (enrolled flag,
-    /// §4(3) cap, wage basis, provision population) and statutory-Bonus config columns (enrolled flag, rate, §12
-    /// calc-ceiling, minimum wage, prorate) on companies). The full v1→v37 history is documented on each
-    /// <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight to
-    /// this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time.
-    /// Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
-    /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 39;
+    /// <summary>The current schema version this adapter reads and writes. <b>v40</b> is the latest bump (Phase 9
+    /// slice 3 — Composition scheme: the two composition config columns (<c>composition_sub_type</c>,
+    /// <c>composition_opt_in_date</c>) on companies; CMP-08 / GSTR-4 are recomputed projections, so there is no other
+    /// persistence footprint). The full v1→v40 history is documented on each <c>MigrateVNToVN+1</c> constant below and
+    /// summarised on the class; a fresh database is stamped straight to this version via <see cref="CreateV1"/>, while
+    /// an older database is migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>:
+    /// any table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the migration-equivalence
+    /// test enforces this).</summary>
+    public const int CurrentVersion = 40;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -129,6 +131,10 @@ public static class Schema
             gst_reg_type         INTEGER     NULL,             -- GstRegistrationType enum ordinal
             gst_applicable_from  TEXT        NULL,             -- ISO yyyy-MM-dd, or NULL
             gst_periodicity      INTEGER     NULL,             -- GstReturnPeriodicity enum ordinal
+            -- v40 (Phase 9 slice 3): composition-scheme config. Both NULL unless gst_reg_type = Composition, so an
+            -- existing (Regular/off) company is byte-identical (ER-13). CMP-08 / GSTR-4 are recomputed projections.
+            composition_sub_type    INTEGER     NULL,          -- CompositionSubType enum ordinal; NULL unless reg_type=Composition
+            composition_opt_in_date TEXT        NULL,          -- ISO yyyy-MM-dd (CMP-02 opt-in), or NULL
             -- v20 (Phase 6 slice 4; RQ-22; DP-7): F11 "Use separate Actual & Billed Quantity columns" — a pure
             -- persisted toggle (cannot be inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
             use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0,  -- 0/1
@@ -2857,5 +2863,19 @@ public static class Schema
         ALTER TABLE entry_lines ADD COLUMN gst_rcm_scheme            INTEGER     NULL;
 
         ALTER TABLE voucher_types ADD COLUMN is_rcm_payment_voucher  INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v39 → v40 (Phase 9 slice 3; Composition scheme): additive — two ALTER-added columns on <c>companies</c>
+    /// (<c>composition_sub_type</c>, <c>composition_opt_in_date</c>), <b>no new table</b> (CMP-08 / GSTR-4 are recomputed
+    /// projections, not persisted data). Run inside a transaction that bumps <c>schema_version</c> to 40. <b>No row
+    /// rewrites, no data backfill</b>: an existing v39 database keeps every row untouched and the two new columns default
+    /// NULL, so a company that is not a composition dealer serialises byte-identically to a v39 company (ER-13). Both
+    /// column definitions are byte-identical to their counterparts in <see cref="CreateV1"/> (the migration-equivalence
+    /// test enforces this). A fresh DB is stamped straight to v40 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV39ToV40 = """
+        ALTER TABLE companies ADD COLUMN composition_sub_type    INTEGER NULL;
+        ALTER TABLE companies ADD COLUMN composition_opt_in_date TEXT    NULL;
         """;
 }

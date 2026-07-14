@@ -21,6 +21,27 @@ public enum GstRegistrationType
 }
 
 /// <summary>
+/// The composition-dealer sub-type (Phase 9 slice 3; RQ-4; §10 + Rule 7). Drives the tax-on-turnover rate AND the
+/// turnover base: Manufacturer/Restaurant tax the TOTAL turnover in state (incl. exempt); Trader/ServiceProvider tax
+/// only TAXABLE supplies. Meaningful only when the company's <see cref="GstRegistrationType"/> is Composition. Stored
+/// as the enum ordinal (Manufacturer=0, Trader=1, Restaurant=2, ServiceProvider=3).
+/// </summary>
+public enum CompositionSubType
+{
+    /// <summary>§10(1) manufacturer of non-excluded goods — 1% (0.5% C + 0.5% S) on TOTAL turnover in State/UT.</summary>
+    Manufacturer,
+
+    /// <summary>§10(1) trader / other supplier of goods — 1% (0.5% + 0.5%) on TAXABLE supplies only.</summary>
+    Trader,
+
+    /// <summary>Sch-II 6(b) restaurant (non-alcohol) — 5% (2.5% + 2.5%) on TOTAL turnover in State/UT.</summary>
+    Restaurant,
+
+    /// <summary>§10(2A) service provider / mixed supplier — 6% (3% + 3%) on TAXABLE supplies; ₹50 L threshold.</summary>
+    ServiceProvider,
+}
+
+/// <summary>
 /// The GST taxability of a stock item / sales-purchase ledger line (catalog §12; phase4 RQ-8/RQ-15).
 /// Only <see cref="Taxable"/> lines attract tax; the other three attract zero tax but still record value
 /// for the returns.

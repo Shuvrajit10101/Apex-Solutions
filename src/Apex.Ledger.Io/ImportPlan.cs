@@ -1082,6 +1082,11 @@ internal sealed class ImportPlan
             RegistrationType = ParseEnum<GstRegistrationType>(g.RegistrationType),
             ApplicableFrom = CompanyImportService.ParseDateOpt(g.ApplicableFrom),
             Periodicity = ParseEnum<GstReturnPeriodicity>(g.Periodicity),
+            // Phase 9 slice 3: composition sub-type + opt-in date. A malformed sub-type throws in pre-flight (ParseEnum)
+            // ⇒ Applied = false, target untouched (all-or-nothing). GstConfig.EnsureValid then enforces the sub-type +
+            // GSTIN presence for a Composition config.
+            CompositionSubType = g.CompositionSubType is { } st ? ParseEnum<CompositionSubType>(st) : null,
+            CompositionOptInDate = CompanyImportService.ParseDateOpt(g.CompositionOptInDate),
         };
         // Preserve the exported slabs (EnableGst only seeds defaults when none are present).
         foreach (var s in g.RateSlabs)
