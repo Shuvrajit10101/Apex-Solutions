@@ -120,6 +120,35 @@ public sealed class CompositionTests
         Assert.DoesNotContain("Tally", GstReportSupport.BillOfSupplyDeclaration, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>A10 LOW consistency fix: <see cref="GstReportSupport.IsBillOfSupply"/> must also gate on
+    /// <see cref="GstConfig.Enabled"/>, not just <c>RegistrationType == Composition</c>. A company that enabled GST as
+    /// Composition and then toggled GST OFF (the F11 disable branch keeps <c>RegistrationType = Composition</c> while
+    /// setting <c>Enabled = false</c>) must render an ordinary Sales voucher — NOT a Bill of Supply with the §10
+    /// declaration — matching the CMP-08 / GSTR-4 / Composition-Returns gating (all <c>Gst is { Enabled: true,
+    /// RegistrationType: Composition }</c>). Pre-fix the badge persisted while the reports hid ⇒ inconsistent; fails on
+    /// the GST-off assertion. A genuine (Enabled) Composition company still returns true.</summary>
+    [Fact]
+    public void Is_bill_of_supply_is_false_for_a_composition_company_with_gst_toggled_off()
+    {
+        var c = NewCompositionCompany(CompositionSubType.Restaurant);
+        var salesType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id;
+        EntryLine[] SaleLines() => new[]
+        {
+            new EntryLine(Add(c, $"Cust-{Guid.NewGuid():N}", "Sundry Debtors", true).Id, Money.FromRupees(500m), DrCr.Debit),
+            new EntryLine(Add(c, $"Sales-{Guid.NewGuid():N}", "Sales Accounts", false).Id, Money.FromRupees(500m), DrCr.Credit),
+        };
+
+        // Genuine (Enabled) Composition company ⇒ Bill of Supply.
+        var enabledSale = new Voucher(Guid.NewGuid(), salesType, D1, SaleLines());
+        Assert.True(GstReportSupport.IsBillOfSupply(c, enabledSale));
+
+        // Toggle GST OFF the way the F11 disable branch does: Enabled=false, RegistrationType stays Composition.
+        c.Gst!.Enabled = false;
+        Assert.Equal(GstRegistrationType.Composition, c.Gst.RegistrationType); // reg-type is intentionally retained
+        var disabledSale = new Voucher(Guid.NewGuid(), salesType, D2, SaleLines());
+        Assert.False(GstReportSupport.IsBillOfSupply(c, disabledSale)); // GST-off ⇒ ordinary voucher, not a Bill of Supply
+    }
+
     // ---------------------------------------------------------------- Test 2: ITC blocked (inward)
 
     [Fact]

@@ -111,14 +111,18 @@ public static class GstReportSupport
 
     /// <summary>
     /// True iff a voucher is a composition dealer's <b>Bill of Supply</b> (Phase 9 slice 3; RQ-10): an outward supply
-    /// (<see cref="VoucherBaseType.Sales"/>) of a company whose GST registration type is Composition. A <b>derived</b>
-    /// property (no stored flag), mirroring <see cref="IsOutwardReverseChargeSupply"/>. A Regular/Unregistered company
-    /// always returns false (byte-identical, ER-13). The print layer titles the document "Bill of Supply" (not "Tax
-    /// Invoice") and prints <see cref="BillOfSupplyDeclaration"/>.
+    /// (<see cref="VoucherBaseType.Sales"/>) of a company whose GST is <b>enabled</b> as Composition
+    /// (<c>Gst is { Enabled: true, RegistrationType: Composition }</c>). A <b>derived</b> property (no stored flag),
+    /// mirroring <see cref="IsOutwardReverseChargeSupply"/>. The <c>Enabled: true</c> gate keeps the badge consistent
+    /// with the report gating: a company that enabled GST as Composition and then toggled GST OFF (the F11 disable
+    /// branch clears <see cref="GstConfig.Enabled"/> but retains <c>RegistrationType = Composition</c>) renders an
+    /// ordinary voucher — matching CMP-08 / GSTR-4 / the Composition-Returns menu, which all hide when GST is off. A
+    /// Regular/Unregistered or GST-off company always returns false (byte-identical, ER-13). The print layer titles the
+    /// document "Bill of Supply" (not "Tax Invoice") and prints <see cref="BillOfSupplyDeclaration"/>.
     /// </summary>
     public static bool IsBillOfSupply(Company company, Voucher voucher)
     {
-        if (company.Gst?.RegistrationType != GstRegistrationType.Composition) return false;
+        if (company.Gst is not { Enabled: true, RegistrationType: GstRegistrationType.Composition }) return false;
         var type = company.FindVoucherType(voucher.TypeId);
         return type?.BaseType == VoucherBaseType.Sales;
     }
