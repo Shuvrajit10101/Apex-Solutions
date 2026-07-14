@@ -151,7 +151,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>The invoice IGST total (paisa-exact display); "0.00" when off/intra-state/exempt.</summary>
     [ObservableProperty] private string _gstIgstText = "0.00";
 
-    /// <summary>The invoice party total = Σ taxable + Σ additional cost + Σ tax + Σ TCS (what the party is owed).</summary>
+    /// <summary>
+    /// The invoice Compensation-Cess total (paisa-exact display; Phase 9 slice 1). "0.00" for a company that bears
+    /// no cess (byte-identical when advanced-GST off, ER-13) — a cess line resolves only when a dated
+    /// <see cref="GstCessRate"/> window (or a per-item override) matches the item's HSN on the voucher date.
+    /// </summary>
+    [ObservableProperty] private string _gstCessText = "0.00";
+
+    /// <summary>The invoice party total = Σ taxable + Σ additional cost + Σ tax + Σ cess + Σ TCS (what the party is owed).</summary>
     [ObservableProperty] private string _partyTotalText = "0.00";
 
     // =============================================================== TCS additive collection on the Sales item-invoice (catalog §13; Phase 7 slice 5)
@@ -1199,11 +1206,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             // value uses the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
 
-            var res = _gst.ResolveRate(l.SelectedItem, valueLedger);
+            // Phase 9 slice 1: resolve the rate AS OF the voucher Date so a supply before 22-Sep-2025 resolves the
+            // legacy rate and one on/after resolves the GST 2.0 rate (the dated override only fires when the item's
+            // HSN matches a dated rate-history row — else byte-identical to Phase-4/8, ER-13).
+            var res = _gst.ResolveRate(l.SelectedItem, valueLedger, Date);
             if (GstService.IsUnresolved(res))
                 return new ItemInvoiceGst(EmptyInvoiceTax(), interState, l.SelectedItem);
             if (!res.IsTaxable) continue; // Exempt/Nil/Non-GST ⇒ no tax
-            taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints));
+            // Resolve the ring-fenced Compensation Cess for this line as of the same Date (null ⇒ no cess ⇒
+            // byte-identical when off). Specific/RSP cess needs the billed quantity; ad-valorem uses the value.
+            var cess = _gst.ResolveCess(l.SelectedItem, valueLedger, Date, l.ParsedBilledQuantity);
+            taxable.Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints, cess));
         }
 
         var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
@@ -1264,9 +1277,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             value[nature.Id] += lineValue.Amount;
 
             // The GST attributable to this line (for the base-incl-GST natures) — only for a GST-taxable line.
+            // Resolve the rate as of the voucher Date so the TCS-on-GST base tracks the dated rate too (Phase 9 S1).
             if (IsGstInvoice)
             {
-                var res = _gst.ResolveRate(l.SelectedItem, salesLedger);
+                var res = _gst.ResolveRate(l.SelectedItem, salesLedger, Date);
                 if (!GstService.IsUnresolved(res) && res.IsTaxable)
                     taxable[nature.Id].Add(new GstService.TaxableLine(lineValue, res.RateBasisPoints));
             }
@@ -1357,10 +1371,37 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
 
         // GST summary (only when wired in) — computed once, shown as CGST/SGST/IGST + party total, and folded
         // into the derived-Dr/Cr summary so it reflects the additive tax legs.
-        var gst = ComputeItemInvoiceGst();
+        // Phase 9 slice 1 (A10 fix, finding #1): the compute fails fast when a cess valuation input is missing —
+        // e.g. an RSP-factor Compensation-Cess item (HSN 2403 / 21069020 / …) carrying no declared Retail Sale
+        // Price. The Accept path already wraps the SAME compute (see Accept()); mirror the guard on the LIVE recalc
+        // so a mid-entry line does NOT let the exception propagate out of the property-change handler and break the
+        // voucher screen before the friendly Accept message is reachable. Surface the message, clear the tax/cess
+        // display + gate, and return; Accept re-runs the compute and blocks the post with the same message.
+        ItemInvoiceGst? gst;
+        try
+        {
+            gst = ComputeItemInvoiceGst();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            GstCgstText = "0.00";
+            GstSgstText = "0.00";
+            GstIgstText = "0.00";
+            GstCessText = "0.00";
+            var errorPartyTotal = total + additionalTotal;
+            PartyTotalText = IndianFormat.AmountAlways(errorPartyTotal);
+            UpdateTcsDisplay(null);
+            DerivedSummary = BuildDerivedSummary(party, total, additionalTotal, 0m, 0m, 0m, 0m, errorPartyTotal);
+            if (IsItemInvoice) CanAccept = false; // an unresolvable-cess line must not be acceptable
+            return;
+        }
         var cgst = gst?.Tax.TotalCgst.Amount ?? 0m;
         var sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
         var igst = gst?.Tax.TotalIgst.Amount ?? 0m;
+        // Compensation Cess (Phase 9 slice 1) is ring-fenced OUT of the CGST/SGST/IGST tax total but still added to
+        // the party total (the party pays it). 0 for a company that bears no cess (byte-identical when off, ER-13).
+        var cess = gst?.Tax.TotalCess.Amount ?? 0m;
         var taxTotal = cgst + sgst + igst;
 
         // TCS additive collection (Phase 7 slice 5) — Sales-only, goods-driven, collectee party. Computed via the
@@ -1370,18 +1411,19 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         var tcsTotal = tcs?.TotalTcs.Amount ?? 0m;
         UpdateTcsDisplay(tcs);
 
-        var partyTotal = total + additionalTotal + taxTotal + tcsTotal;
+        var partyTotal = total + additionalTotal + taxTotal + cess + tcsTotal;
 
         GstCgstText = IndianFormat.AmountAlways(cgst);
         GstSgstText = IndianFormat.AmountAlways(sgst);
         GstIgstText = IndianFormat.AmountAlways(igst);
+        GstCessText = IndianFormat.AmountAlways(cess);
         PartyTotalText = IndianFormat.AmountAlways(partyTotal);
 
         // Stamp the read-only landed (effective) stock rate onto each complete item line via the SAME engine the
         // post/valuation uses (ER-4). No-op when tracking is off (columns collapse — untracked screen unchanged).
         RefreshLandedRates(InventoryLines.Where(l => l.IsComplete).ToList());
 
-        DerivedSummary = BuildDerivedSummary(party, total, additionalTotal, cgst, sgst, igst, partyTotal);
+        DerivedSummary = BuildDerivedSummary(party, total, additionalTotal, cgst, sgst, igst, cess, partyTotal);
 
         if (!IsItemInvoice) return; // plain-mode Accept is governed by Recalculate()
 
@@ -1411,7 +1453,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// Output CGST/SGST (or IGST) on a sale — and the party leg carries taxable + tax, e.g.
     /// "Dr Purchases 1,000.00 · Dr Input CGST 90.00 · Dr Input SGST 90.00 · Cr Supplier 1,180.00".
     /// </summary>
-    private string BuildDerivedSummary(string party, decimal taxable, decimal additional, decimal cgst, decimal sgst, decimal igst, decimal partyTotal)
+    private string BuildDerivedSummary(string party, decimal taxable, decimal additional, decimal cgst, decimal sgst, decimal igst, decimal cess, decimal partyTotal)
     {
         string A(decimal v) => IndianFormat.AmountAlways(v);
         var stock = StockLedgerCaption;
@@ -1427,6 +1469,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             if (cgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} CGST {A(cgst)}");
             if (sgst != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} SGST {A(sgst)}");
         }
+        // Ring-fenced Compensation Cess leg (Phase 9 slice 1) — added only when a cess-bearing line resolves (0 ⇒
+        // omitted, so a non-cess invoice's summary is byte-identical to Phase-4/8, ER-13).
+        if (cess != 0m) extraLegs.Add($"{side} {(IsPurchaseInvoice ? "Input" : "Output")} Cess {A(cess)}");
         var taxPart = extraLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", extraLegs) : string.Empty;
 
         return IsPurchaseInvoice
@@ -1602,8 +1647,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 return false;
             }
             taxLines.AddRange(gst.Tax.TaxLines);
-            // party = taxable + additional cost + tax
-            partyAmount = new Money(taxable.Amount + additionalTotal.Amount + gst.Tax.TotalTax.Amount);
+            // party = taxable + additional cost + tax + cess. The engine's TaxLines already INCLUDE the ring-fenced
+            // Cess entry line(s) (Phase 9 slice 1), but TotalTax excludes cess — so the party leg must add TotalCess
+            // explicitly or a cess-bearing voucher would be out of balance. TotalCess is 0 when off (ER-13).
+            partyAmount = new Money(taxable.Amount + additionalTotal.Amount + gst.Tax.TotalTax.Amount + gst.Tax.TotalCess.Amount);
         }
 
         // TCS additive collection (Phase 7 slice 5) — Sales only, goods-driven, collectee party. Computed via the

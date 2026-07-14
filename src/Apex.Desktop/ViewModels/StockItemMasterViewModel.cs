@@ -59,6 +59,18 @@ public sealed class GstRateOption
 }
 
 /// <summary>
+/// A Compensation-Cess valuation-mode option for the item's cess-override picker (Phase 9 slice 1): "(none) —
+/// inherit from the dated cess master by HSN + date", or an explicit per-item ad-valorem / specific / RSP-factor
+/// override. <see cref="Mode"/> is null for the "(none)" entry.
+/// </summary>
+public sealed class CessValuationModeOption
+{
+    public CessValuationMode? Mode { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => Mode is null;
+}
+
+/// <summary>
 /// The Stock-Item creation master ("Masters → Create → Inventory Masters → Stock Item", catalog §9; RQ-6).
 /// Captures a name + optional alias, a required <b>Under</b> stock group, an optional <b>Category</b>, a
 /// required base <b>Unit</b>, GST placeholders (HSN/SAC + Taxable), a <b>Valuation method</b> (default
@@ -170,6 +182,39 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// <summary>True iff GST is enabled for the company — the item-GST sub-form is only offered then.</summary>
     public bool GstEnabled => _company.GstEnabled;
 
+    // ---- GST 2.0 RSP valuation + Compensation-Cess override (Phase 9 slice 1; RQ-1/RQ-2) — only offered when GST
+    // is enabled. All default off/blank so a plain GST item is byte-identical to a Phase-4/8 item (ER-13). ----
+
+    /// <summary>
+    /// The item's GST valuation basis: off ⇒ the §15 transaction value (the default for every item); on ⇒ the
+    /// declared Retail Sale Price (the tobacco/pan-masala carve-out). Drives <see cref="StockItemGstDetails.ValuationBasis"/>.
+    /// </summary>
+    [ObservableProperty] private bool _valuationIsRsp;
+
+    /// <summary>The declared Retail Sale Price per unit (₹, paisa-exact) — drives RSP-factor cess and RSP GST
+    /// valuation; blank ⇒ unset.</summary>
+    [ObservableProperty] private string _retailSalePriceText = string.Empty;
+
+    /// <summary>Whether the item declares an <b>explicit per-item Compensation-Cess override</b> (its own valuation
+    /// mode + figures). Off ⇒ the item still inherits any dated cess-master row for its HSN (cess is HSN-driven in
+    /// law); what suppresses cess entirely is a non-Taxable taxability, not this flag.</summary>
+    [ObservableProperty] private bool _cessApplicable;
+
+    /// <summary>The per-item cess valuation-mode override; "(none)" ⇒ inherit from the dated cess master by HSN + date.</summary>
+    [ObservableProperty] private CessValuationModeOption? _cessMode;
+
+    /// <summary>The ad-valorem cess rate override as a percent (e.g. "22"); only for the ad-valorem mode.</summary>
+    [ObservableProperty] private string _cessRatePercentText = string.Empty;
+
+    /// <summary>The specific per-unit cess override (₹/unit, paisa-exact); only for the specific mode.</summary>
+    [ObservableProperty] private string _cessPerUnitText = string.Empty;
+
+    /// <summary>The RSP-factor cess override (e.g. "0.32" ⇒ 0.32 × RSP per unit); only for the RSP-factor mode.</summary>
+    [ObservableProperty] private string _cessRspFactorText = string.Empty;
+
+    /// <summary>The per-item cess valuation-mode options ("(none)" + ad-valorem / specific / RSP-factor).</summary>
+    public ObservableCollection<CessValuationModeOption> CessValuationModes { get; } = new();
+
     // ---- TCS Nature of Goods (Phase 7 slice 1; catalog §13) — only offered when TCS is enabled ----
 
     /// <summary>True iff TCS is enabled for the company — the item-TCS nature field is only offered then.</summary>
@@ -215,6 +260,13 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         foreach (var slab in slabs.OrderBy(s => s.RateBasisPoints))
             GstRates.Add(new GstRateOption { RateBasisPoints = slab.RateBasisPoints, Display = slab.Label });
         GstRate = GstRates.First();
+
+        // Cess valuation-mode override picker (Phase 9 slice 1): "(none)" inherits the dated cess master by HSN.
+        CessValuationModes.Add(new CessValuationModeOption { Mode = null, Display = "◦ (inherit by HSN)" });
+        CessValuationModes.Add(new CessValuationModeOption { Mode = CessValuationMode.AdValorem, Display = "Ad-valorem (% of value)" });
+        CessValuationModes.Add(new CessValuationModeOption { Mode = CessValuationMode.Specific, Display = "Specific (₹ per unit)" });
+        CessValuationModes.Add(new CessValuationModeOption { Mode = CessValuationMode.RetailSalePriceFactor, Display = "RSP-factor (× retail price)" });
+        CessMode = CessValuationModes.First();
 
         TcsNatureChoices = TdsTcsDisplay.NatureOfGoodsChoices(company);
         SelectedTcsNature = TcsNatureChoices[0]; // (none)
@@ -318,6 +370,94 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 SupplyType = GstSupplyType.Goods,
             };
             isTaxableFlag = taxability == GstTaxability.Taxable; // keep the Phase-3 placeholder consistent
+
+            // GST 2.0 RSP valuation + Compensation-Cess override (Phase 9 slice 1). All optional; pre-validate to a
+            // friendly message before the engine's EnsureValid backstop. Blank/off ⇒ byte-identical to a Phase-4/8
+            // item (transaction-value basis, no cess override), ER-13.
+            gstBlock.ValuationBasis = ValuationIsRsp ? GstValuationBasis.RetailSalePrice : GstValuationBasis.TransactionValue;
+
+            if (!string.IsNullOrWhiteSpace(RetailSalePriceText))
+            {
+                if (!TryParseRate(RetailSalePriceText, out var rsp) || rsp < 0m)
+                {
+                    Message = "Retail Sale Price must be a number ≥ 0 (₹ per unit, to the paisa).";
+                    return false;
+                }
+                var rspMoney = Money.FromRupees(rsp);
+                if (!rspMoney.IsPaisaExact)
+                {
+                    Message = $"Retail Sale Price {rsp} must be to the paisa (2 decimal places).";
+                    return false;
+                }
+                gstBlock.RetailSalePrice = rspMoney;
+            }
+
+            // A10 fix (finding #4): an RSP valuation basis has nothing to value against without a declared Retail
+            // Sale Price — reject the "valuation is RSP" + blank-RSP combination up front (also enforced by
+            // StockItemGstDetails.EnsureValid) instead of persisting an item that claims RSP valuation with no RSP.
+            if (gstBlock.ValuationBasis == GstValuationBasis.RetailSalePrice && gstBlock.RetailSalePrice is null)
+            {
+                Message = "An RSP valuation basis needs a declared Retail Sale Price on the item.";
+                return false;
+            }
+
+            gstBlock.CessApplicable = CessApplicable;
+            if (CessApplicable && CessMode?.Mode is { } cessMode)
+            {
+                gstBlock.CessValuationMode = cessMode;
+                switch (cessMode)
+                {
+                    case CessValuationMode.AdValorem:
+                        if (!TryParseCessPercent(CessRatePercentText, out var cessBp)) return false;
+                        gstBlock.CessRateBasisPoints = cessBp;
+                        break;
+                    case CessValuationMode.Specific:
+                        if (!TryParseRate(CessPerUnitText, out var perUnit) || perUnit < 0m)
+                        {
+                            Message = "Specific cess needs a per-unit amount ≥ 0 (₹ per unit, to the paisa).";
+                            return false;
+                        }
+                        var perUnitMoney = Money.FromRupees(perUnit);
+                        if (!perUnitMoney.IsPaisaExact)
+                        {
+                            Message = $"Specific cess per-unit {perUnit} must be to the paisa (2 decimal places).";
+                            return false;
+                        }
+                        gstBlock.CessPerUnit = perUnitMoney;
+                        break;
+                    case CessValuationMode.RetailSalePriceFactor:
+                        if (!decimal.TryParse((CessRspFactorText ?? string.Empty).Trim(),
+                                NumberStyles.Number, CultureInfo.InvariantCulture, out var factor) || factor < 0m)
+                        {
+                            Message = "RSP-factor cess needs a factor ≥ 0 (e.g. 0.32 for 0.32 × RSP).";
+                            return false;
+                        }
+                        gstBlock.CessRspFactorMillis = (int)Math.Round(factor * 1000m, MidpointRounding.AwayFromZero);
+                        if (gstBlock.RetailSalePrice is null)
+                        {
+                            Message = "An RSP-factor cess needs a declared Retail Sale Price on the item.";
+                            return false;
+                        }
+                        break;
+                }
+            }
+
+            // A10 fix (finding #3): a taxable item whose HSN attracts RSP-factor Compensation Cess but carries no
+            // Retail Sale Price would persist cleanly (EnsureValid only demands an RSP for an EXPLICIT per-item
+            // override, not for an HSN-INHERITED cess row) then fail fast at EVERY sale voucher (ResolveCess →
+            // BuildCess refuses a silent ₹0). Pre-validate against the dated cess master and reject up front.
+            // Skipped when the item declares its own explicit cess override (that override wins in ResolveCess, so
+            // the HSN RSP-factor row is never consulted). Date-agnostic: any window counts. No-op for a company
+            // with no RSP-factor cess rows (byte-identical when advanced-GST off, ER-13).
+            var hasExplicitCessOverride = gstBlock.CessApplicable && gstBlock.CessValuationMode is not null;
+            if (taxability == GstTaxability.Taxable && hsn is not null && gstBlock.RetailSalePrice is null
+                && !hasExplicitCessOverride
+                && (_company.Gst?.CessRates ?? Array.Empty<GstCessRate>())
+                    .Any(r => r.HsnSac == hsn && r.ValuationMode == CessValuationMode.RetailSalePriceFactor))
+            {
+                Message = $"HSN {hsn} attracts RSP-factor Compensation Cess — a Retail Sale Price is required on the item.";
+                return false;
+            }
         }
 
         StockItem item;
@@ -383,6 +523,13 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         OpeningBatchLabel = string.Empty;
         Taxability = Taxabilities.First();
         GstRate = GstRates.First();
+        ValuationIsRsp = false;
+        RetailSalePriceText = string.Empty;
+        CessApplicable = false;
+        CessMode = CessValuationModes.First();
+        CessRatePercentText = string.Empty;
+        CessPerUnitText = string.Empty;
+        CessRspFactorText = string.Empty;
         SelectedTcsNature = TcsNatureChoices.Count > 0 ? TcsNatureChoices[0] : null;
         MaintainInBatches = false;
         TrackManufacturingDate = false;
@@ -430,6 +577,22 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         => decimal.TryParse((text ?? string.Empty).Trim(),
             NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands | NumberStyles.AllowLeadingSign,
             CultureInfo.InvariantCulture, out value);
+
+    /// <summary>Parses an ad-valorem cess rate as a percent (e.g. "22" ⇒ 2200 bp); surfaces a friendly message on a
+    /// bad/negative value. Phase 9 slice 1.</summary>
+    private bool TryParseCessPercent(string? text, out int basisPoints)
+    {
+        basisPoints = 0;
+        if (!decimal.TryParse((text ?? string.Empty).Trim(),
+                NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands | NumberStyles.AllowLeadingSign,
+                CultureInfo.InvariantCulture, out var percent) || percent < 0m)
+        {
+            Message = "Ad-valorem cess needs a rate ≥ 0 (percent, e.g. 22 for 22%).";
+            return false;
+        }
+        basisPoints = (int)Math.Round(percent * 100m, MidpointRounding.AwayFromZero);
+        return true;
+    }
 
     // ---- refresh ----
 

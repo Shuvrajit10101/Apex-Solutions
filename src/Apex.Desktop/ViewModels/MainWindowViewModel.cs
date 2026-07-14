@@ -59,6 +59,7 @@ public enum Screen
     MaterialMovementEntry,
     PosBilling,
     GstConfig,
+    GstRateSetup,
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
     TdsStatPayment,
@@ -291,6 +292,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
 
+    /// <summary>The GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance) view model, non-null only while open.</summary>
+    [ObservableProperty] private GstRateSetupViewModel? _gstRateSetup;
+
     /// <summary>The Nature-of-Payment (TDS section) master (Phase 7 slice 1), non-null only while that page is open.</summary>
     [ObservableProperty] private NatureOfPaymentMasterViewModel? _natureOfPaymentMaster;
 
@@ -464,7 +468,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && EsiContributionReport is null && ProfessionalTaxRegister is null
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
-        && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
+        && GstConfig is null && GstRateSetup is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
         && Form16A is null && Form27D is null && Form27A is null
@@ -505,6 +509,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstRateSetupChanged(GstRateSetupViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -708,6 +713,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // ---- STATUTORY (GST) ----
         col.Add(MenuItemViewModel.Header("Statutory"));
         col.Add(new MenuItemViewModel("GST", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
+        // GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — only once GST is enabled.
+        if (Company is { GstEnabled: true })
+            col.Add(new MenuItemViewModel("GST Rate Setup", () => { }, "Ctrl+R", isSubItem: true, kind: MenuItemKind.Page));
 
         // ---- TRANSACTIONS ----
         col.Add(MenuItemViewModel.Header("Transactions"));
@@ -2812,6 +2820,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the <b>GST Rate Setup</b> bulk-maintenance page (Statutory → GST Rate Setup; Phase 9 slice 1;
+    /// plan.md C-6 / DP-24 / RQ-24) as a page column: the dated GST 2.0 rate-history + Compensation-Cess windows,
+    /// a one-click "seed the GST 2.0 defaults" action, and add-a-window forms for mass HSN/rate maintenance. A no-op
+    /// unless GST is enabled (the menu item is itself gated on <see cref="Company.GstEnabled"/>).
+    /// </summary>
+    public void ShowGstRateSetup()
+    {
+        if (Company is not { GstEnabled: true }) return;
+
+        var page = new GstRateSetupViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("GST Rate Setup", page), Screen.GstRateSetup,
+            "GST Rate Setup — Dated Rates & Cess", () => GstRateSetup = page);
+    }
+
+    /// <summary>
     /// Opens the Nature-of-Payment (TDS section) master (Masters → Create → Statutory Masters → Nature of
     /// Payment; Phase 7 slice 1) as a page column: lists the seeded predefined TDS sections and creates customs.
     /// A no-op unless TDS is enabled (the menu item is itself gated on <see cref="Company.TdsEnabled"/>).
@@ -3648,6 +3671,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         MaterialMovementEntry = null;
         PosBilling = null;
         GstConfig = null;
+        GstRateSetup = null;
         NatureOfPaymentMaster = null;
         NatureOfGoodsMaster = null;
         TdsStatPayment = null;
@@ -3736,7 +3760,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
-                 or Screen.GstConfig
+                 or Screen.GstConfig or Screen.GstRateSetup
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
                  or Screen.TdsStatPayment or Screen.TcsStatPayment
                  or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
@@ -4107,6 +4131,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();
                 return;
+            case Screen.GstRateSetup:
+                GstRateSetup?.AddRateHistory(); // Ctrl+A appends the add-form's dated rate window (primary action)
+                return;
             case Screen.NatureOfPaymentMaster:
                 NatureOfPaymentMaster?.Create();
                 return;
@@ -4316,6 +4343,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
             case "GST": ShowGstConfig(); break;
+            case "GST Rate Setup": ShowGstRateSetup(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
             // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.

@@ -101,5 +101,11 @@ public sealed class StockItemGstDetails
 
         if (RetailSalePrice is { } rsp && rsp.Amount < 0)
             throw new ArgumentException("Retail Sale Price must be ≥ 0 when set.");
+
+        // A Retail-Sale-Price valuation basis has nothing to value against without a declared RSP (fail-fast, not a
+        // silent transaction-value fallback). Mirrors the UI's up-front reject in StockItemMasterViewModel.Create.
+        if (ValuationBasis == GstValuationBasis.RetailSalePrice && RetailSalePrice is null)
+            throw new ArgumentException(
+                "An item with a Retail-Sale-Price valuation basis requires a declared Retail Sale Price.");
     }
 }

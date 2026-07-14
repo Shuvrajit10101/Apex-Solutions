@@ -432,4 +432,26 @@ public sealed class GstAdvancedRateCessTests
         var ex = Assert.Throws<InvalidOperationException>(() => gst.ResolveCess(pan, null, PostCutover, 5m));
         Assert.Contains("Retail Sale Price", ex.Message);
     }
+
+    [Fact]
+    public void EnsureValid_rejects_rsp_valuation_basis_with_no_retail_sale_price()
+    {
+        // A10 fix (finding #4): a Retail-Sale-Price valuation basis has nothing to value against without a declared
+        // RSP — EnsureValid must reject it (fail-fast) rather than let it persist and silently fall back.
+        var gst = new StockItemGstDetails
+        {
+            HsnSac = "9999",
+            Taxability = GstTaxability.Taxable,
+            RateBasisPoints = 1800,
+            ValuationBasis = GstValuationBasis.RetailSalePrice,
+            // RetailSalePrice deliberately null.
+        };
+
+        var ex = Assert.Throws<ArgumentException>(() => gst.EnsureValid());
+        Assert.Contains("Retail Sale Price", ex.Message);
+
+        // With an RSP set, the same block validates cleanly (control).
+        gst.RetailSalePrice = Money.FromRupees(100m);
+        gst.EnsureValid();
+    }
 }
