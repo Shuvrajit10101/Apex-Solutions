@@ -32,6 +32,7 @@ public sealed class Company
     private readonly List<TdsChallan> _tdsChallans = new();
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<RcmDocument> _rcmDocuments = new();
+    private readonly List<EInvoiceRecord> _eInvoiceRecords = new();
     private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
     private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
     private readonly List<TcsChallan> _tcsChallans = new();
@@ -412,6 +413,10 @@ public sealed class Company
     /// Empty when reverse charge is unused (ER-13).</summary>
     public IReadOnlyList<RcmDocument> RcmDocuments => _rcmDocuments;
 
+    /// <summary>e-Invoice IRP artefacts (Phase 9 slice 4a; RQ-5): one per covered outward document. Empty when
+    /// e-invoicing is unused (ER-13).</summary>
+    public IReadOnlyList<EInvoiceRecord> EInvoiceRecords => _eInvoiceRecords;
+
     /// <summary>§34 credit/debit-note links (Phase 9; RQ-24): the original-invoice link + reason + 9B target. The
     /// table lands in the S2a schema but stays empty until the S2b CDN engine (ER-13).</summary>
     public IReadOnlyList<GstCreditDebitNoteLink> CreditDebitNoteLinks => _cdnLinks;
@@ -597,6 +602,20 @@ public sealed class Company
     /// <summary>The next consecutive per-company RCM self-invoice / payment-voucher series number for a document kind.</summary>
     public int NextRcmDocumentSeries(RcmDocumentKind kind) =>
         (_rcmDocuments.Where(d => d.Kind == kind).Select(d => (int?)d.SeriesNumber).Max() ?? 0) + 1;
+
+    /// <summary>Adds an e-invoice IRP artefact (Phase 9 slice 4a; also used by the store/import rehydration).</summary>
+    public void AddEInvoiceRecord(EInvoiceRecord record) => _eInvoiceRecords.Add(record ?? throw new ArgumentNullException(nameof(record)));
+    /// <summary>Removes an e-invoice IRP artefact (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveEInvoiceRecord(EInvoiceRecord record) => _eInvoiceRecords.Remove(record);
+    /// <summary>Finds an e-invoice IRP artefact by its id, or <c>null</c>.</summary>
+    public EInvoiceRecord? FindEInvoiceRecord(Guid id) => _eInvoiceRecords.FirstOrDefault(r => r.Id == id);
+    /// <summary>The e-invoice IRP artefact for a given source voucher (at most one per covered voucher), or <c>null</c>.</summary>
+    public EInvoiceRecord? FindEInvoiceRecordForVoucher(Guid sourceVoucherId) =>
+        _eInvoiceRecords.FirstOrDefault(r => r.SourceVoucherId == sourceVoucherId);
+    /// <summary>True iff any e-invoice record (even Cancelled) already carries the given uppercased document number — a
+    /// cancelled/used doc-no is NEVER reusable (§2.5), so <c>EInvoiceService.PrepareRecord</c> refuses a second record.</summary>
+    public bool HasEInvoiceDocumentNumber(string documentNumberUpper) =>
+        _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumberUpper, StringComparison.Ordinal));
 
     /// <summary>Adds a §34 credit/debit-note link (Phase 9; also used by the store/import rehydration).</summary>
     public void AddCreditDebitNoteLink(GstCreditDebitNoteLink link) => _cdnLinks.Add(link ?? throw new ArgumentNullException(nameof(link)));

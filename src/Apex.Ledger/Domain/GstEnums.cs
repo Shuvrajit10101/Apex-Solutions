@@ -254,3 +254,136 @@ public enum CdnType
     /// <summary>A debit note — increases the original supply's output tax (uncapped issuance).</summary>
     Debit,
 }
+
+/// <summary>
+/// The IRP lifecycle state of a per-voucher <see cref="EInvoiceRecord"/> (Phase 9 slice 4a; RQ-5; ER-5). Stored as the
+/// enum ordinal. The IRN and the signed QR are only ever populated by the IRP response (never computed locally): a fresh
+/// record is <see cref="Pending"/>, becomes <see cref="Generated"/> when the IRP returns the IRN/Ack/QR, and
+/// <see cref="Cancelled"/> after a 24-h full-document cancel. <see cref="NotApplicable"/> covers a voucher outside the
+/// covered set; <see cref="Failed"/> records an IRP rejection.
+/// </summary>
+public enum EInvoiceStatus
+{
+    /// <summary>The voucher is not an e-invoice candidate (excluded/exempt/not-applicable) — no request was built.</summary>
+    NotApplicable = 0,
+
+    /// <summary>An INV-01 request was assembled and staged/submitted; no IRN yet (the offline baseline stays here).</summary>
+    Pending = 1,
+
+    /// <summary>The IRP returned an IRN + Ack + signed QR — stored verbatim (ER-5); the document is e-invoiced.</summary>
+    Generated = 2,
+
+    /// <summary>The IRN was cancelled within 24 h (full document only); the document number is not reusable.</summary>
+    Cancelled = 3,
+
+    /// <summary>The IRP rejected the request (an error code + message was returned).</summary>
+    Failed = 4,
+}
+
+/// <summary>
+/// The typed e-invoicing exemptions a supplier's business class may carry (Phase 9 slice 4a; RQ-5; §2.5). A
+/// <c>[Flags]</c> set stored as the ordinal on <see cref="GstConfig"/>. When any flag matches the supplier's class the
+/// document is <see cref="EInvoiceCoverage.Exempt"/> regardless of turnover. <b>Note:</b> a SEZ <b>unit</b> is exempt
+/// (<see cref="SezUnit"/>); a SEZ <b>developer</b> is NOT — the two must not be conflated.
+/// </summary>
+[Flags]
+public enum EInvoiceExemptionClass
+{
+    /// <summary>No exemption (the default — an ordinary supplier is covered once over threshold).</summary>
+    None = 0,
+
+    /// <summary>An SEZ <b>unit</b> (exempt). A SEZ <b>developer</b> is not exempt and must NOT set this flag.</summary>
+    SezUnit = 1,
+
+    /// <summary>An insurer / banking company / NBFC (exempt).</summary>
+    InsurerBankNbfc = 2,
+
+    /// <summary>A goods-transport agency (GTA) (exempt).</summary>
+    Gta = 4,
+
+    /// <summary>A supplier of passenger-transport services (exempt).</summary>
+    PassengerTransport = 8,
+
+    /// <summary>A supplier of services by way of admission to a multiplex/cinema exhibition (exempt).</summary>
+    MultiplexCinema = 16,
+
+    /// <summary>A Government department / local authority (exempt).</summary>
+    GovtOrLocalAuthority = 32,
+
+    /// <summary>An OIDAR service provider (exempt).</summary>
+    Oidar = 64,
+}
+
+/// <summary>
+/// The GST-portal transport mode selected on the company config (Phase 9 slice 4a; RQ-30). Persisted selector; the
+/// Desktop composition root resolves it to an <c>IGstPortalConnector</c>. <see cref="OfflineJson"/> is the
+/// zero-credential default (writes/ingests INV-01 JSON); <see cref="CustomerNicDirect"/> is the optional live path using
+/// the customer's OWN NIC creds (wired-but-deferred); <see cref="Gsp"/> is a future GSP integration (stubbed, not built
+/// in Phase 9). Stored as the enum ordinal (OfflineJson=0, CustomerNicDirect=1, Gsp=2).
+/// </summary>
+public enum GstConnectorMode
+{
+    /// <summary>Offline JSON interchange — the zero-credential default (ER-16 baseline).</summary>
+    OfflineJson = 0,
+
+    /// <summary>The customer's own NIC-IRP API credentials (protected-at-rest; live path deferred).</summary>
+    CustomerNicDirect = 1,
+
+    /// <summary>A future GSP integration — stubbed (throws); NOT built in Phase 9.</summary>
+    Gsp = 2,
+}
+
+/// <summary>
+/// The e-invoice supply category of a covered outward document (Phase 9 slice 4a; RQ-18; §2.5) — drives the INV-01
+/// <c>TranDtls.SupTyp</c> (B2B/EXPWP/EXPWOP/SEZWP/SEZWOP/DEXP) and the covered-set membership. Resolved from the party
+/// GST block + voucher. Stored as the enum ordinal.
+/// <para>
+/// <b>Domain note:</b> the party GST block currently expresses only registered/B2C + place-of-supply, so S4a resolves
+/// <see cref="Regular"/> (ordinary B2B), <see cref="Export"/> (overseas place of supply, GST code 96/97) and
+/// <see cref="RcmSupplierLiable"/> (an outward reverse-charge supply). <see cref="SezWithPayment"/>,
+/// <see cref="SezWithoutPayment"/> and <see cref="DeemedExport"/> are modelled here (and mapped by the INV-01 writer) so
+/// no fidelity is lost when a later slice adds the party SEZ/deemed-export flag; the S4a resolver does not yet mint them.
+/// </para>
+/// </summary>
+public enum EInvoiceSupplyCategory
+{
+    /// <summary>A regular B2B supply to a registered recipient (INV-01 <c>SupTyp = B2B</c>).</summary>
+    Regular = 0,
+
+    /// <summary>An export supply (INV-01 <c>SupTyp = EXPWP</c> when made on payment of IGST).</summary>
+    Export = 1,
+
+    /// <summary>A supply to an SEZ unit/developer WITH payment of IGST (INV-01 <c>SupTyp = SEZWP</c>).</summary>
+    SezWithPayment = 2,
+
+    /// <summary>A supply to an SEZ unit/developer WITHOUT payment (LUT) (INV-01 <c>SupTyp = SEZWOP</c>).</summary>
+    SezWithoutPayment = 3,
+
+    /// <summary>A deemed export (INV-01 <c>SupTyp = DEXP</c>).</summary>
+    DeemedExport = 4,
+
+    /// <summary>An outward supply on which the recipient pays under reverse charge (RegRev = Y).</summary>
+    RcmSupplierLiable = 5,
+}
+
+/// <summary>
+/// The e-invoice applicability verdict for a single voucher (Phase 9 slice 4a; RQ-18; §2.2). Advisory classification
+/// returned by <c>EInvoiceService.CoverageOf</c>; not persisted (recomputed each time). <see cref="NotApplicable"/> when
+/// e-invoicing is off / the company is Composition / below threshold / the voucher pre-dates applicability;
+/// <see cref="Excluded"/> for a document class that never gets an IRN (B2C / Bill of Supply / ISD / import);
+/// <see cref="Exempt"/> when a typed exemption class matches; <see cref="Covered"/> when an IRN must be generated.
+/// </summary>
+public enum EInvoiceCoverage
+{
+    /// <summary>The document must be reported to the IRP and carry an IRN.</summary>
+    Covered,
+
+    /// <summary>A document class that is never e-invoiced (B2C / Bill of Supply / ISD / import).</summary>
+    Excluded,
+
+    /// <summary>The supplier's business class is exempt from e-invoicing (regardless of turnover).</summary>
+    Exempt,
+
+    /// <summary>e-invoicing is not applicable to this company/voucher (off / composition / below threshold / pre-date).</summary>
+    NotApplicable,
+}

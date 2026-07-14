@@ -303,6 +303,10 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS gst_cdn_links;");
         Exec(conn, "DROP INDEX IF EXISTS ix_gst_advance_receipts_company;");
         Exec(conn, "DROP TABLE IF EXISTS gst_advance_receipts;");
+        // v41 e-invoice IRP-artefact table (+ its index) — drop so the reopen's v40→v41 CREATE TABLE does not collide
+        // (the companies rebuild in DowngradeStripV13 strips the v41 e-invoice/B2C/mode/nic_*_enc columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_einvoice_records_company;");
+        Exec(conn, "DROP TABLE IF EXISTS einvoice_records;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
         Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");

@@ -72,20 +72,24 @@ namespace Apex.Persistence.Sqlite;
 /// Gratuity-provision + statutory-Bonus config columns on companies (v37). <b>v38–v40</b> add Phase-9 advanced GST:
 /// the GST 2.0 dated rate-history + Compensation-Cess seam (v38), the reverse-charge (RCM) core + §34-CDN/advances
 /// seam (v39), and the composition-scheme config columns (composition sub-type + opt-in date) on companies (v40).
-/// <b><see cref="CurrentVersion"/> = 40</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v41</b> adds the Phase-9 slice-4a e-invoice core: the <c>einvoice_records</c> table (per-voucher IRP artefacts)
+/// and the e-invoice / B2C-QR / connector-mode config columns on companies, plus the protected-at-rest NIC-credential
+/// ciphertext blob columns (<c>nic_*_enc</c>, ER-16 — written only by the credential store, never exported).
+/// <b><see cref="CurrentVersion"/> = 41</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v40</b> is the latest bump (Phase 9
-    /// slice 3 — Composition scheme: the two composition config columns (<c>composition_sub_type</c>,
-    /// <c>composition_opt_in_date</c>) on companies; CMP-08 / GSTR-4 are recomputed projections, so there is no other
-    /// persistence footprint). The full v1→v40 history is documented on each <c>MigrateVNToVN+1</c> constant below and
+    /// <summary>The current schema version this adapter reads and writes. <b>v41</b> is the latest bump (Phase 9
+    /// slice 4a — e-Invoice core: the <c>einvoice_records</c> table + its index; the e-invoice / B2C-QR / connector-mode
+    /// config columns on companies; and the <c>nic_*_enc</c> protected-credential blob columns — ER-16, the ONLY
+    /// secret-bearing storage, written exclusively by the credential store and never read into <c>GstConfig</c> or the
+    /// canonical export). The full v1→v41 history is documented on each <c>MigrateVNToVN+1</c> constant below and
     /// summarised on the class; a fresh database is stamped straight to this version via <see cref="CreateV1"/>, while
     /// an older database is migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>:
     /// any table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the migration-equivalence
     /// test enforces this).</summary>
-    public const int CurrentVersion = 40;
+    public const int CurrentVersion = 41;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -135,6 +139,28 @@ public static class Schema
             -- existing (Regular/off) company is byte-identical (ER-13). CMP-08 / GSTR-4 are recomputed projections.
             composition_sub_type    INTEGER     NULL,          -- CompositionSubType enum ordinal; NULL unless reg_type=Composition
             composition_opt_in_date TEXT        NULL,          -- ISO yyyy-MM-dd (CMP-02 opt-in), or NULL
+            -- v41 (Phase 9 slice 4a): e-invoice config (non-secret). All default off/NULL/threshold, so an e-invoicing-off
+            -- company is byte-identical (ER-13). einvoice_aato_threshold_paisa = ₹5 cr (5,000,000,000 paisa, DP-11).
+            einvoicing_enabled              INTEGER NOT NULL DEFAULT 0,           -- 0/1 (F11 e-invoicing gate)
+            einvoice_applicable_from        TEXT        NULL,                     -- ISO yyyy-MM-dd, or NULL
+            einvoice_aato_threshold_paisa   INTEGER NOT NULL DEFAULT 5000000000,  -- ₹5 cr in paisa (configurable, DP-11)
+            einvoice_applicability_override INTEGER NOT NULL DEFAULT 0,           -- 0/1 (sticky manual override)
+            einvoice_exemption_classes      INTEGER NOT NULL DEFAULT 0,           -- EInvoiceExemptionClass [Flags] ordinal
+            einvoice_reporting_age_applies  INTEGER NOT NULL DEFAULT 0,           -- 0/1 (30-day age limit; AATO >= ₹10 cr)
+            -- v41 connector mode (non-secret): GstConnectorMode ordinal (OfflineJson=0, CustomerNicDirect=1, Gsp=2).
+            gst_connector_mode              INTEGER NOT NULL DEFAULT 0,           -- OfflineJson=0
+            -- v41 B2C dynamic QR config (non-secret; the projection lands in S4b). b2c_qr_aato_threshold_paisa = ₹500 cr.
+            b2c_dynamic_qr_enabled          INTEGER NOT NULL DEFAULT 0,           -- 0/1
+            b2c_qr_aato_threshold_paisa     INTEGER NOT NULL DEFAULT 500000000000,-- ₹500 cr in paisa (configurable, DP-28)
+            b2c_qr_upi_id                   TEXT        NULL,                     -- payee UPI VPA, or NULL
+            b2c_qr_payee_name               TEXT        NULL,                     -- payee name, or NULL
+            -- v41 NIC live-path creds — PROTECTED-AT-REST ciphertext BLOBs (ER-16). NEVER plaintext, NEVER a GSP/vendor
+            -- cred, NEVER the portal password/DSC, NEVER exported and NEVER read into GstConfig. Written exclusively by
+            -- the INicCredentialStore impl; the pure company INSERT/SELECT leaves them out (they default NULL).
+            nic_client_id_enc               BLOB        NULL,
+            nic_client_secret_enc           BLOB        NULL,
+            nic_api_username_enc            BLOB        NULL,
+            nic_api_password_enc            BLOB        NULL,
             -- v20 (Phase 6 slice 4; RQ-22; DP-7): F11 "Use separate Actual & Billed Quantity columns" — a pure
             -- persisted toggle (cannot be inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
             use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0,  -- 0/1
@@ -346,6 +372,27 @@ public static class Schema
             refund_voucher_id              TEXT        NULL REFERENCES vouchers(id)
         );
         CREATE INDEX ix_gst_advance_receipts_company ON gst_advance_receipts(company_id);
+
+        -- v41 (Phase 9 slice 4a): per-voucher e-invoice IRP artefacts. The IRN / Ack / signed QR / signed INV-01 response
+        -- are populated ONLY from the IRP response (never computed locally, ER-5) — NULL until Generated. Empty when
+        -- e-invoicing is unused (ER-13). status = EInvoiceStatus ordinal (Pending=1).
+        CREATE TABLE einvoice_records (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            company_id            TEXT    NOT NULL REFERENCES companies(id),
+            source_voucher_id     TEXT    NOT NULL REFERENCES vouchers(id),
+            document_number_upper TEXT    NOT NULL,
+            status                INTEGER NOT NULL DEFAULT 1,   -- EInvoiceStatus ordinal (Pending=1)
+            irn                   TEXT        NULL,             -- 64-char, FROM the IRP; NULL until Generated
+            ack_no                TEXT        NULL,
+            ack_date              TEXT        NULL,             -- ISO yyyy-MM-dd
+            signed_qr             TEXT        NULL,             -- IRP-signed QR, stored verbatim
+            signed_json           BLOB        NULL,             -- IRP-signed INV-01 response, stored verbatim
+            cancelled_on          TEXT        NULL,
+            cancel_reason_code    TEXT        NULL,
+            error_code            TEXT        NULL,
+            error_message         TEXT        NULL
+        );
+        CREATE INDEX ix_einvoice_records_company ON einvoice_records(company_id);
 
         -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
         -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
@@ -2877,5 +2924,58 @@ public static class Schema
     public const string MigrateV39ToV40 = """
         ALTER TABLE companies ADD COLUMN composition_sub_type    INTEGER NULL;
         ALTER TABLE companies ADD COLUMN composition_opt_in_date TEXT    NULL;
+        """;
+
+    /// <summary>
+    /// v40 → v41 (Phase 9 slice 4a; e-Invoice core): additive — one new table (<c>einvoice_records</c> + its index) and
+    /// the e-invoice / B2C-QR / connector-mode config columns on <c>companies</c>, plus the four <c>nic_*_enc</c>
+    /// protected-credential BLOB columns (ER-16). Run inside a transaction that bumps <c>schema_version</c> to 41.
+    /// <b>No row rewrites, no data backfill</b>: an existing v40 database keeps every row untouched, the new table starts
+    /// empty and the new columns default 0/NULL/threshold, so an e-invoicing-off company serialises byte-identically to a
+    /// v40 company (ER-13). The <c>nic_*_enc</c> columns are the ONLY secret-bearing storage and are written exclusively
+    /// by the credential store — the pure company INSERT/SELECT leaves them out and never reads them into
+    /// <c>GstConfig</c>. Each added table / column / index is byte-identical to its counterpart in <see cref="CreateV1"/>
+    /// (the migration-equivalence test enforces this — note the two AATO defaults, ₹5 cr = 5,000,000,000 and ₹500 cr =
+    /// 500,000,000,000 paisa, pinned identically in both sites). A fresh DB is stamped straight to v41 via
+    /// <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV40ToV41 = """
+        CREATE TABLE einvoice_records (
+            id                    TEXT    NOT NULL PRIMARY KEY,
+            company_id            TEXT    NOT NULL REFERENCES companies(id),
+            source_voucher_id     TEXT    NOT NULL REFERENCES vouchers(id),
+            document_number_upper TEXT    NOT NULL,
+            status                INTEGER NOT NULL DEFAULT 1,
+            irn                   TEXT        NULL,
+            ack_no                TEXT        NULL,
+            ack_date              TEXT        NULL,
+            signed_qr             TEXT        NULL,
+            signed_json           BLOB        NULL,
+            cancelled_on          TEXT        NULL,
+            cancel_reason_code    TEXT        NULL,
+            error_code            TEXT        NULL,
+            error_message         TEXT        NULL
+        );
+        CREATE INDEX ix_einvoice_records_company ON einvoice_records(company_id);
+
+        -- companies: e-invoice config (non-secret)
+        ALTER TABLE companies ADD COLUMN einvoicing_enabled              INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN einvoice_applicable_from        TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN einvoice_aato_threshold_paisa   INTEGER NOT NULL DEFAULT 5000000000;
+        ALTER TABLE companies ADD COLUMN einvoice_applicability_override INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN einvoice_exemption_classes      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN einvoice_reporting_age_applies  INTEGER NOT NULL DEFAULT 0;
+        -- companies: connector mode (non-secret)
+        ALTER TABLE companies ADD COLUMN gst_connector_mode              INTEGER NOT NULL DEFAULT 0;
+        -- companies: B2C dynamic QR config (non-secret)
+        ALTER TABLE companies ADD COLUMN b2c_dynamic_qr_enabled          INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN b2c_qr_aato_threshold_paisa     INTEGER NOT NULL DEFAULT 500000000000;
+        ALTER TABLE companies ADD COLUMN b2c_qr_upi_id                   TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN b2c_qr_payee_name               TEXT        NULL;
+        -- companies: NIC live-path creds — PROTECTED-AT-REST ciphertext BLOBs, NEVER plaintext, NEVER exported (ER-16)
+        ALTER TABLE companies ADD COLUMN nic_client_id_enc               BLOB        NULL;
+        ALTER TABLE companies ADD COLUMN nic_client_secret_enc           BLOB        NULL;
+        ALTER TABLE companies ADD COLUMN nic_api_username_enc           BLOB        NULL;
+        ALTER TABLE companies ADD COLUMN nic_api_password_enc            BLOB        NULL;
         """;
 }

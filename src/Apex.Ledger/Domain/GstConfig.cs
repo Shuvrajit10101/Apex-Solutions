@@ -48,6 +48,51 @@ public sealed class GstConfig
     /// <summary>The date the dealer opted into composition (CMP-02); advisory (period-scoping), null when unset.</summary>
     public DateOnly? CompositionOptInDate { get; set; }
 
+    // --- e-Invoicing (Phase 9 slice 4a; RQ-5). All default off/null ⇒ an e-invoicing-off company is byte-identical
+    //     to a v40 company (ER-13). NO secret field lives here — NIC credentials flow ONLY through INicCredentialStore
+    //     (ER-16), so the pure CanonicalMapper cannot serialise a secret. ---
+
+    /// <summary>F11 master gate: whether e-invoicing (IRN generation) is enabled for the company.</summary>
+    public bool EInvoicingEnabled { get; set; }
+
+    /// <summary>The date e-invoicing applies from; a covered document dated before this is Not-Applicable.</summary>
+    public DateOnly? EInvoiceApplicableFrom { get; set; }
+
+    /// <summary>The AATO applicability threshold (DP-11; default ₹5 cr, CONFIGURABLE — NOT ₹2 cr, which is an unnotified
+    /// proposal). At/above it the company is covered; below it (and not overridden) e-invoicing is Not-Applicable.</summary>
+    public Money EInvoiceAatoThreshold { get; set; } = new Money(50_000_000m); // ₹5 cr
+
+    /// <summary>A sticky manual applicability override (a company that voluntarily e-invoices below the threshold).</summary>
+    public bool EInvoiceApplicabilityOverride { get; set; }
+
+    /// <summary>The typed e-invoicing exemptions the supplier's business class carries (SEZ unit/insurer/GTA/…). Any
+    /// matching flag makes a document Exempt regardless of turnover.</summary>
+    public EInvoiceExemptionClass ExemptionClasses { get; set; } = EInvoiceExemptionClass.None;
+
+    /// <summary>The 30-day reporting-age limit applies — true ONLY when AATO ≥ ₹10 cr. This is INDEPENDENT of the ₹5 cr
+    /// applicability threshold (a ₹6 cr taxpayer is covered but has no 30-day age limit).</summary>
+    public bool ReportingAgeLimitApplies { get; set; }
+
+    // --- connectivity (Phase 9 slice 4a; RQ-30) ---
+
+    /// <summary>The GST-portal transport mode (default <see cref="GstConnectorMode.OfflineJson"/> — the zero-credential
+    /// baseline, ER-16). Selected by the engine-agnostic connector at the Desktop composition root.</summary>
+    public GstConnectorMode ConnectorMode { get; set; } = GstConnectorMode.OfflineJson;
+
+    // --- B2C dynamic QR (Phase 9 slice 4a schema/config; RQ-28; the B2cQrService projection lands in S4b) ---
+
+    /// <summary>F11 gate: whether the self-generated B2C dynamic (UPI) QR is enabled (a supplier &gt; ₹500 cr).</summary>
+    public bool B2cDynamicQrEnabled { get; set; }
+
+    /// <summary>The B2C-QR AATO threshold (DP-28; default ₹500 cr, configurable). Gated above this turnover.</summary>
+    public Money B2cQrAatoThreshold { get; set; } = new Money(5_000_000_000m); // ₹500 cr
+
+    /// <summary>The payee UPI VPA the B2C QR pays to; required when <see cref="B2cDynamicQrEnabled"/>.</summary>
+    public string? B2cQrUpiId { get; set; }
+
+    /// <summary>The payee name shown in the B2C QR; required when <see cref="B2cDynamicQrEnabled"/>.</summary>
+    public string? B2cQrPayeeName { get; set; }
+
     /// <summary>The seeded, config-driven GST rate slabs (RQ-25; Phase 4 seeds 0/5/18/40).</summary>
     public IReadOnlyList<GstRateSlab> RateSlabs => _rateSlabs;
 
@@ -110,5 +155,18 @@ public sealed class GstConfig
         // A Composition registration must declare its sub-type (drives the tax-on-turnover rate + base).
         if (RegistrationType == GstRegistrationType.Composition && CompositionSubType is null)
             throw new ArgumentException("A Composition registration requires a composition sub-type.");
+
+        // e-Invoicing (Phase 9 slice 4a): requires a GSTIN + an applicable-from date when enabled.
+        if (EInvoicingEnabled)
+        {
+            if (Gstin is null)
+                throw new ArgumentException("e-Invoicing requires a GSTIN.");
+            if (EInvoiceApplicableFrom is null)
+                throw new ArgumentException("e-Invoicing requires an applicable-from date.");
+        }
+
+        // B2C dynamic QR (Phase 9 slice 4a): requires the payee UPI id + name when enabled.
+        if (B2cDynamicQrEnabled && (string.IsNullOrWhiteSpace(B2cQrUpiId) || string.IsNullOrWhiteSpace(B2cQrPayeeName)))
+            throw new ArgumentException("B2C dynamic QR requires a payee UPI id and payee name.");
     }
 }

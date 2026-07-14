@@ -222,6 +222,8 @@ public static class CanonicalMapper
             .Select(l => new ChallanVoucherLinkDto { ChallanId = l.ChallanId, VoucherId = l.VoucherId }).ToList(),
         // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts (ordered by id so stable).
         RcmDocuments = c.RcmDocuments.OrderBy(d => d.Id).Select(MapRcmDocument).ToList(),
+        // Phase 9 slice 4a: e-invoice IRP artefacts (deterministic order: source voucher, then id).
+        EInvoiceRecords = c.EInvoiceRecords.OrderBy(r => r.SourceVoucherId).ThenBy(r => r.Id).Select(MapEInvoiceRecord).ToList(),
         CreditDebitNoteLinks = c.CreditDebitNoteLinks.OrderBy(l => l.Id).Select(MapCdnLink).ToList(),
         AdvanceReceipts = c.AdvanceReceipts.OrderBy(a => a.Id).Select(MapAdvanceReceipt).ToList(),
     };
@@ -230,6 +232,15 @@ public static class CanonicalMapper
     {
         Id = d.Id, Kind = d.Kind.ToString(), SourceVoucherId = d.SourceVoucherId,
         SeriesNumber = d.SeriesNumber, DocDate = Iso(d.DocDate), SupplierLedgerId = d.SupplierLedgerId,
+    };
+
+    private static EInvoiceRecordDto MapEInvoiceRecord(EInvoiceRecord r) => new()
+    {
+        Id = r.Id, SourceVoucherId = r.SourceVoucherId, DocumentNumberUpper = r.DocumentNumberUpper,
+        Status = r.Status.ToString(), Irn = r.Irn, AckNo = r.AckNo, AckDate = Iso(r.AckDate), SignedQr = r.SignedQr,
+        SignedJsonBase64 = r.SignedJson is { } b ? Convert.ToBase64String(b) : null,
+        CancelledOn = Iso(r.CancelledOn), CancelReasonCode = r.CancelReasonCode,
+        ErrorCode = r.ErrorCode, ErrorMessage = r.ErrorMessage,
     };
 
     private static GstCdnLinkDto MapCdnLink(GstCreditDebitNoteLink l) => new()
@@ -627,6 +638,20 @@ public static class CanonicalMapper
         // Phase 9 slice 3: composition sub-type + opt-in date (null for a Regular company ⇒ byte-identical, ER-13).
         CompositionSubType = g.CompositionSubType?.ToString(),
         CompositionOptInDate = Iso(g.CompositionOptInDate),
+        // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config (defaults ⇒ byte-identical when off,
+        // ER-13). No NIC credential is mapped — it flows only through INicCredentialStore (ER-16), so this mapper cannot
+        // serialise a secret even by mistake.
+        EInvoicingEnabled = g.EInvoicingEnabled,
+        EInvoiceApplicableFrom = Iso(g.EInvoiceApplicableFrom),
+        EInvoiceAatoThresholdPaisa = MoneyCodec.ToPaisa(g.EInvoiceAatoThreshold),
+        EInvoiceApplicabilityOverride = g.EInvoiceApplicabilityOverride,
+        EInvoiceExemptionClasses = g.ExemptionClasses.ToString(),
+        EInvoiceReportingAgeApplies = g.ReportingAgeLimitApplies,
+        ConnectorMode = g.ConnectorMode.ToString(),
+        B2cDynamicQrEnabled = g.B2cDynamicQrEnabled,
+        B2cQrAatoThresholdPaisa = MoneyCodec.ToPaisa(g.B2cQrAatoThreshold),
+        B2cQrUpiId = g.B2cQrUpiId,
+        B2cQrPayeeName = g.B2cQrPayeeName,
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()

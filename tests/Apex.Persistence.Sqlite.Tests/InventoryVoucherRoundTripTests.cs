@@ -426,6 +426,10 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS gst_cdn_links;");
         Exec(conn, "DROP INDEX IF EXISTS ix_gst_advance_receipts_company;");
         Exec(conn, "DROP TABLE IF EXISTS gst_advance_receipts;");
+        // v41 e-invoice IRP-artefact table (+ its index) — drop so the reopen's v40→v41 CREATE TABLE does not collide
+        // (the companies_v12 rebuild below strips the v41 e-invoice/B2C/mode/nic_*_enc columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_einvoice_records_company;");
+        Exec(conn, "DROP TABLE IF EXISTS einvoice_records;");
         Exec(conn, """
             CREATE TABLE companies_v12 (
                 id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,

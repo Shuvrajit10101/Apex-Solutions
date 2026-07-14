@@ -111,6 +111,8 @@ public static class CanonicalXml
             List("tcsChallanVoucherLinks", "tcsChallanVoucherLink", p.TcsChallanVoucherLinks, BuildChallanVoucherLink),
             // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts (empty until used).
             List("rcmDocuments", "rcmDocument", p.RcmDocuments, BuildRcmDocument),
+            // Phase 9 slice 4a: e-invoice IRP artefacts (empty when e-invoicing is off, ER-13).
+            List("eInvoiceRecords", "eInvoiceRecord", p.EInvoiceRecords, BuildEInvoiceRecord),
             List("creditDebitNoteLinks", "creditDebitNoteLink", p.CreditDebitNoteLinks, BuildCdnLink),
             List("advanceReceipts", "advanceReceipt", p.AdvanceReceipts, BuildAdvanceReceipt));
         return root;
@@ -127,6 +129,12 @@ public static class CanonicalXml
     private static XElement BuildRcmDocument(RcmDocumentDto d) => new("rcmDocument",
         Attr("id", d.Id), Attr("kind", d.Kind), Attr("sourceVoucherId", d.SourceVoucherId),
         Attr("seriesNumber", d.SeriesNumber), Attr("docDate", d.DocDate), OptId("supplierLedgerId", d.SupplierLedgerId));
+
+    private static XElement BuildEInvoiceRecord(EInvoiceRecordDto r) => new("eInvoiceRecord",
+        Attr("id", r.Id), Attr("sourceVoucherId", r.SourceVoucherId), Attr("documentNumberUpper", r.DocumentNumberUpper),
+        Attr("status", r.Status), Opt("irn", r.Irn), Opt("ackNo", r.AckNo), Opt("ackDate", r.AckDate),
+        Opt("signedQr", r.SignedQr), Opt("signedJsonBase64", r.SignedJsonBase64), Opt("cancelledOn", r.CancelledOn),
+        Opt("cancelReasonCode", r.CancelReasonCode), Opt("errorCode", r.ErrorCode), Opt("errorMessage", r.ErrorMessage));
 
     private static XElement BuildCdnLink(GstCdnLinkDto l) => new("creditDebitNoteLink",
         Attr("id", l.Id), Attr("cdnVoucherId", l.CdnVoucherId), Attr("cdnType", l.CdnType),
@@ -443,7 +451,18 @@ public static class CanonicalXml
             Attr("registrationType", g.RegistrationType), Opt("applicableFrom", g.ApplicableFrom),
             Attr("periodicity", g.Periodicity),
             // Phase 9 slice 3: composition sub-type + opt-in date (null-omitting ⇒ byte-identical when off, ER-13).
-            Opt("compositionSubType", g.CompositionSubType), Opt("compositionOptInDate", g.CompositionOptInDate));
+            Opt("compositionSubType", g.CompositionSubType), Opt("compositionOptInDate", g.CompositionOptInDate),
+            // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config. No NIC credential attr exists here
+            // (ER-16). Booleans/mode/threshold always emitted (defaults ⇒ byte-identical when off, ER-13).
+            Attr("eInvoicingEnabled", g.EInvoicingEnabled), Opt("eInvoiceApplicableFrom", g.EInvoiceApplicableFrom),
+            Attr("eInvoiceAatoThresholdPaisa", g.EInvoiceAatoThresholdPaisa),
+            Attr("eInvoiceApplicabilityOverride", g.EInvoiceApplicabilityOverride),
+            Attr("eInvoiceExemptionClasses", g.EInvoiceExemptionClasses),
+            Attr("eInvoiceReportingAgeApplies", g.EInvoiceReportingAgeApplies),
+            Attr("connectorMode", g.ConnectorMode),
+            Attr("b2cDynamicQrEnabled", g.B2cDynamicQrEnabled),
+            Attr("b2cQrAatoThresholdPaisa", g.B2cQrAatoThresholdPaisa),
+            Opt("b2cQrUpiId", g.B2cQrUpiId), Opt("b2cQrPayeeName", g.B2cQrPayeeName));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
@@ -959,6 +978,8 @@ public static class CanonicalXml
                 TcsChallanVoucherLinks = ReadList(root, "tcsChallanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
                 // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts.
                 RcmDocuments = ReadList(root, "rcmDocuments", "rcmDocument", ReadRcmDocument),
+                // Phase 9 slice 4a: e-invoice IRP artefacts (absent element ⇒ empty list, ER-13).
+                EInvoiceRecords = ReadList(root, "eInvoiceRecords", "eInvoiceRecord", ReadEInvoiceRecord),
                 CreditDebitNoteLinks = ReadList(root, "creditDebitNoteLinks", "creditDebitNoteLink", ReadCdnLink),
                 AdvanceReceipts = ReadList(root, "advanceReceipts", "advanceReceipt", ReadAdvanceReceipt),
             };
@@ -1229,6 +1250,15 @@ public static class CanonicalXml
         SupplierLedgerId = OptGuid(e, "supplierLedgerId"),
     };
 
+    private static EInvoiceRecordDto ReadEInvoiceRecord(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SourceVoucherId = Guid(e, "sourceVoucherId"),
+        DocumentNumberUpper = Str(e, "documentNumberUpper") ?? string.Empty, Status = Str(e, "status")!,
+        Irn = Str(e, "irn"), AckNo = Str(e, "ackNo"), AckDate = Str(e, "ackDate"), SignedQr = Str(e, "signedQr"),
+        SignedJsonBase64 = Str(e, "signedJsonBase64"), CancelledOn = Str(e, "cancelledOn"),
+        CancelReasonCode = Str(e, "cancelReasonCode"), ErrorCode = Str(e, "errorCode"), ErrorMessage = Str(e, "errorMessage"),
+    };
+
     private static GstCdnLinkDto ReadCdnLink(XElement e) => new()
     {
         Id = Guid(e, "id"), CdnVoucherId = Guid(e, "cdnVoucherId"), CdnType = Str(e, "cdnType")!,
@@ -1371,6 +1401,17 @@ public static class CanonicalXml
             }).ToList(),
         // Phase 9 slice 3: composition sub-type + opt-in date (absent attributes ⇒ null, ER-13).
         CompositionSubType = Str(e, "compositionSubType"), CompositionOptInDate = Str(e, "compositionOptInDate"),
+        // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config (absent ⇒ off/default, ER-13). No NIC
+        // credential is read here (ER-16).
+        EInvoicingEnabled = Bool(e, "eInvoicingEnabled"), EInvoiceApplicableFrom = Str(e, "eInvoiceApplicableFrom"),
+        EInvoiceAatoThresholdPaisa = OptLong(e, "eInvoiceAatoThresholdPaisa") ?? 5_000_000_000L,
+        EInvoiceApplicabilityOverride = Bool(e, "eInvoiceApplicabilityOverride"),
+        EInvoiceExemptionClasses = Str(e, "eInvoiceExemptionClasses") ?? "None",
+        EInvoiceReportingAgeApplies = Bool(e, "eInvoiceReportingAgeApplies"),
+        ConnectorMode = Str(e, "connectorMode") ?? "OfflineJson",
+        B2cDynamicQrEnabled = Bool(e, "b2cDynamicQrEnabled"),
+        B2cQrAatoThresholdPaisa = OptLong(e, "b2cQrAatoThresholdPaisa") ?? 500_000_000_000L,
+        B2cQrUpiId = Str(e, "b2cQrUpiId"), B2cQrPayeeName = Str(e, "b2cQrPayeeName"),
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()

@@ -958,6 +958,20 @@ internal sealed class ImportPlan
             t.AddRcmDocument(doc);
             journal.RecordRcmDocument(doc);
         }
+        // Phase 9 slice 4a: e-invoice IRP artefacts — re-minted with a fresh Guid; the source voucher resolves to the
+        // re-minted target (orphans skipped). EInvoiceRecord.Rehydrate validates the invariant (a Generated record
+        // requires an IRN) in pre-flight, so a malformed record rejects the whole batch (Applied = false; all-or-nothing).
+        foreach (var r in _model.Payload.EInvoiceRecords)
+        {
+            if (MapVoucher(r.SourceVoucherId) is not { } src) continue; // orphan — source voucher not imported
+            var record = EInvoiceRecord.Rehydrate(
+                Guid.NewGuid(), src, r.DocumentNumberUpper, ParseEnum<EInvoiceStatus>(r.Status),
+                r.Irn, r.AckNo, CompanyImportService.ParseDateOpt(r.AckDate), r.SignedQr,
+                r.SignedJsonBase64 is { } b64 ? Convert.FromBase64String(b64) : null,
+                CompanyImportService.ParseDateOpt(r.CancelledOn), r.CancelReasonCode, r.ErrorCode, r.ErrorMessage);
+            t.AddEInvoiceRecord(record);
+            journal.RecordEInvoiceRecord(record);
+        }
         foreach (var l in _model.Payload.CreditDebitNoteLinks)
         {
             if (MapVoucher(l.CdnVoucherId) is not { } cdnv) continue; // orphan — CDN voucher not imported
@@ -1087,6 +1101,19 @@ internal sealed class ImportPlan
             // GSTIN presence for a Composition config.
             CompositionSubType = g.CompositionSubType is { } st ? ParseEnum<CompositionSubType>(st) : null,
             CompositionOptInDate = CompanyImportService.ParseDateOpt(g.CompositionOptInDate),
+            // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config. No NIC credential is imported —
+            // it is not in the DTO (ER-16). A malformed enum/date throws in pre-flight ⇒ all-or-nothing (RQ-23).
+            EInvoicingEnabled = g.EInvoicingEnabled,
+            EInvoiceApplicableFrom = CompanyImportService.ParseDateOpt(g.EInvoiceApplicableFrom),
+            EInvoiceAatoThreshold = MoneyCodec.FromPaisa(g.EInvoiceAatoThresholdPaisa),
+            EInvoiceApplicabilityOverride = g.EInvoiceApplicabilityOverride,
+            ExemptionClasses = ParseEnum<EInvoiceExemptionClass>(g.EInvoiceExemptionClasses),
+            ReportingAgeLimitApplies = g.EInvoiceReportingAgeApplies,
+            ConnectorMode = ParseEnum<GstConnectorMode>(g.ConnectorMode),
+            B2cDynamicQrEnabled = g.B2cDynamicQrEnabled,
+            B2cQrAatoThreshold = MoneyCodec.FromPaisa(g.B2cQrAatoThresholdPaisa),
+            B2cQrUpiId = g.B2cQrUpiId,
+            B2cQrPayeeName = g.B2cQrPayeeName,
         };
         // Preserve the exported slabs (EnableGst only seeds defaults when none are present).
         foreach (var s in g.RateSlabs)

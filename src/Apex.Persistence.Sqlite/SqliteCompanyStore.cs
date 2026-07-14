@@ -977,6 +977,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 40;
         }
 
+        // v40 → v41: apply the Phase-9 slice 4a e-invoice core (new einvoice_records table + index; e-invoice / B2C-QR /
+        // connector-mode config columns on companies; and the nic_*_enc protected-credential BLOB columns), then bump the
+        // marker. Existing v40 data survives untouched (CREATE TABLE/INDEX + ALTER … ADD COLUMN only; no row rewrites).
+        // ER-13 byte-identical when e-invoicing is off (new table empty, new columns default 0/NULL/threshold).
+        if (version == 40)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV40ToV41;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 41);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 41;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1006,7 +1030,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    salary_tds_enabled,
                    gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
                    bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate,
-                   composition_sub_type, composition_opt_in_date
+                   composition_sub_type, composition_opt_in_date,
+                   einvoicing_enabled, einvoice_applicable_from, einvoice_aato_threshold_paisa,
+                   einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
+                   gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1060,6 +1087,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     // v40 (Phase 9 slice 3): composition-scheme config — NULL unless the company is a composition dealer (ER-13).
                     CompositionSubType = r.IsDBNull(62) ? (CompositionSubType?)null : (CompositionSubType)(int)r.GetInt64(62),
                     CompositionOptInDate = r.IsDBNull(63) ? (DateOnly?)null : ParseDate(r.GetString(63)),
+                    // v41 (Phase 9 slice 4a): NON-SECRET e-invoice / B2C-QR / connector-mode config, read verbatim
+                    // (defaults ⇒ byte-identical when off, ER-13). The nic_*_enc credential BLOBs are DELIBERATELY NOT
+                    // selected/read here (ER-16) — they flow only through INicCredentialStore.
+                    EInvoicingEnabled = r.GetInt64(64) != 0,
+                    EInvoiceApplicableFrom = r.IsDBNull(65) ? (DateOnly?)null : ParseDate(r.GetString(65)),
+                    EInvoiceAatoThreshold = Paisa.ToMoney(r.GetInt64(66)),
+                    EInvoiceApplicabilityOverride = r.GetInt64(67) != 0,
+                    ExemptionClasses = (EInvoiceExemptionClass)(int)r.GetInt64(68),
+                    ReportingAgeLimitApplies = r.GetInt64(69) != 0,
+                    ConnectorMode = (GstConnectorMode)(int)r.GetInt64(70),
+                    B2cDynamicQrEnabled = r.GetInt64(71) != 0,
+                    B2cQrAatoThreshold = Paisa.ToMoney(r.GetInt64(72)),
+                    B2cQrUpiId = r.IsDBNull(73) ? null : r.GetString(73),
+                    B2cQrPayeeName = r.IsDBNull(74) ? null : r.GetString(74),
                 };
             }
 
@@ -1274,6 +1315,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // their source-voucher references resolve. The CDN/advance sets stay empty until S2b (ER-13).
         foreach (var doc in ReadRcmDocuments(companyId))
             company.AddRcmDocument(doc);
+        // e-Invoice IRP artefacts (Phase 9 slice 4a). Loaded after vouchers so their source-voucher references resolve;
+        // empty when e-invoicing is unused (ER-13).
+        foreach (var record in ReadEInvoiceRecords(companyId))
+            company.AddEInvoiceRecord(record);
         foreach (var link in ReadGstCdnLinks(companyId))
             company.AddCreditDebitNoteLink(link);
         foreach (var adv in ReadGstAdvanceReceipts(companyId))
@@ -1470,6 +1515,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // RCM generated documents + §34-CDN links + GST-on-advance receipts (Phase 9 slice 2): all FK vouchers (source /
         // cdn / receipt / adjustment / refund), inserted above, so insert them here.
         InsertRcmRecords(tx, company);
+        // e-Invoice IRP artefacts (Phase 9 slice 4a): FK the source voucher (inserted above).
+        InsertEInvoiceRecords(tx, company);
         // Payroll masters (Phase 8 slice 1). Categories + groups + payroll units first; then attendance types
         // (FK payroll_units) and employees (FK employee_groups + employee_categories). Hierarchical/compound
         // masters are inserted parents-before-children so their self-FK resolves.
@@ -1960,6 +2007,38 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (int)r.GetInt64(3),
                 ParseDate(r.GetString(4)),
                 r.IsDBNull(5) ? (Guid?)null : Guid.Parse(r.GetString(5))));
+        return list;
+    }
+
+    /// <summary>v41: reads the e-invoice IRP artefacts for a company (Phase 9 slice 4a). Rehydrates each record verbatim
+    /// via <see cref="EInvoiceRecord.Rehydrate"/> — the IRP-issued IRN/QR are copied, never derived (ER-5). Empty when
+    /// e-invoicing is unused (ER-13). The <c>nic_*_enc</c> credential BLOBs are NOT selected here (ER-16).</summary>
+    private IEnumerable<EInvoiceRecord> ReadEInvoiceRecords(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, source_voucher_id, document_number_upper, status, irn, ack_no, ack_date, signed_qr, signed_json,
+                   cancelled_on, cancel_reason_code, error_code, error_message
+            FROM einvoice_records WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<EInvoiceRecord>();
+        while (r.Read())
+            list.Add(EInvoiceRecord.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                r.GetString(2),
+                (EInvoiceStatus)(int)r.GetInt64(3),
+                r.IsDBNull(4) ? null : r.GetString(4),
+                r.IsDBNull(5) ? null : r.GetString(5),
+                r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6)),
+                r.IsDBNull(7) ? null : r.GetString(7),
+                r.IsDBNull(8) ? null : (byte[])r.GetValue(8),
+                r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9)),
+                r.IsDBNull(10) ? null : r.GetString(10),
+                r.IsDBNull(11) ? null : r.GetString(11),
+                r.IsDBNull(12) ? null : r.GetString(12)));
         return list;
     }
 
@@ -3557,6 +3636,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v39 RCM documents + §34-CDN links + GST-on-advance receipts FK vouchers (source/cdn/receipt/adjustment/refund) +
         // companies → delete before vouchers and the company row below (Phase 9 slice 2).
         ExecTx(tx, "DELETE FROM rcm_documents WHERE company_id = $cid;", ("$cid", cid));
+        // v41 e-invoice IRP artefacts FK the source voucher → delete before vouchers (Phase 9 slice 4a).
+        ExecTx(tx, "DELETE FROM einvoice_records WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_cdn_links WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_advance_receipts WHERE company_id = $cid;", ("$cid", cid));
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
@@ -3731,7 +3812,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  salary_tds_enabled,
                  gratuity_config_enabled, gratuity_cap_paisa, gratuity_wage_basis, gratuity_population,
                  bonus_config_enabled, bonus_rate_bp, bonus_calc_ceiling_paisa, bonus_minimum_wage_paisa, bonus_prorate,
-                 composition_sub_type, composition_opt_in_date)
+                 composition_sub_type, composition_opt_in_date,
+                 einvoicing_enabled, einvoice_applicable_from, einvoice_aato_threshold_paisa,
+                 einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
+                 gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3746,8 +3830,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $salarytds,
                  $graten, $gratcap, $gratbasis, $gratpop,
                  $bonusen, $bonusrate, $bonusceil, $bonusminwage, $bonusprorate,
-                 $compsub, $compdate);
+                 $compsub, $compdate,
+                 $eien, $eifrom, $eiaato, $eioverride, $eiexempt, $eiage,
+                 $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee);
             """;
+        // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
+        // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
+        // INicCredentialStore impl (a re-save resets them to NULL, matching the deferred live-path seam).
         cmd.Parameters.AddWithValue("$id", c.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$name", c.Name);
         cmd.Parameters.AddWithValue("$mail", c.MailingName);
@@ -3837,6 +3926,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v40 (Phase 9 slice 3): the composition-scheme config. NULL for a non-composition company (ER-13).
         cmd.Parameters.AddWithValue("$compsub", gst?.CompositionSubType is { } st ? (int)st : (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$compdate", gst?.CompositionOptInDate is { } d ? FormatDate(d) : (object)DBNull.Value);
+        // v41 (Phase 9 slice 4a): the NON-SECRET e-invoice / B2C-QR / connector-mode config, written verbatim. All
+        // default off/NULL/threshold for a company that does not e-invoice (ER-13). The nic_*_enc creds are NOT written
+        // here (ER-16). A null Gst writes the same defaults the schema column defaults carry.
+        cmd.Parameters.AddWithValue("$eien", (gst?.EInvoicingEnabled ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$eifrom", gst?.EInvoiceApplicableFrom is { } eiaf ? FormatDate(eiaf) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$eiaato", Paisa.FromMoney(gst?.EInvoiceAatoThreshold ?? new Money(50_000_000m)));
+        cmd.Parameters.AddWithValue("$eioverride", (gst?.EInvoiceApplicabilityOverride ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$eiexempt", (int)(gst?.ExemptionClasses ?? EInvoiceExemptionClass.None));
+        cmd.Parameters.AddWithValue("$eiage", (gst?.ReportingAgeLimitApplies ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$connmode", (int)(gst?.ConnectorMode ?? GstConnectorMode.OfflineJson));
+        cmd.Parameters.AddWithValue("$b2cqren", (gst?.B2cDynamicQrEnabled ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$b2caato", Paisa.FromMoney(gst?.B2cQrAatoThreshold ?? new Money(5_000_000_000m)));
+        cmd.Parameters.AddWithValue("$b2cupi", (object?)gst?.B2cQrUpiId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$b2cpayee", (object?)gst?.B2cQrPayeeName ?? DBNull.Value);
         cmd.ExecuteNonQuery();
 
         // v36 per-employee §192 income-tax declarations (only for employees that declared figures). All money in
@@ -4421,6 +4524,39 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tax", Paisa.FromMoney(a.AdvanceTax));
             cmd.Parameters.AddWithValue("$adj", (object?)a.AdjustedAgainstInvoiceVoucherId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ref", (object?)a.RefundVoucherId?.ToString("D") ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>v41: persists the e-invoice IRP artefacts (Phase 9 slice 4a). One row per covered voucher; the IRP-issued
+    /// IRN/QR/signed-JSON are stored verbatim (ER-5). <c>ack_date</c>/<c>cancelled_on</c> ⇒ ISO TEXT; <c>signed_json</c>
+    /// ⇒ BLOB. Empty when e-invoicing is unused (ER-13).</summary>
+    private void InsertEInvoiceRecords(SqliteTransaction tx, Company c)
+    {
+        foreach (var r in c.EInvoiceRecords)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO einvoice_records
+                    (id, company_id, source_voucher_id, document_number_upper, status, irn, ack_no, ack_date, signed_qr,
+                     signed_json, cancelled_on, cancel_reason_code, error_code, error_message)
+                VALUES ($id, $cid, $src, $doc, $status, $irn, $ack, $ackdate, $qr, $json, $cancelled, $reason, $ecode, $emsg);
+                """;
+            cmd.Parameters.AddWithValue("$id", r.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$src", r.SourceVoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$doc", r.DocumentNumberUpper);
+            cmd.Parameters.AddWithValue("$status", (int)r.Status);
+            cmd.Parameters.AddWithValue("$irn", (object?)r.Irn ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ack", (object?)r.AckNo ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ackdate", r.AckDate is { } ad ? FormatDate(ad) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$qr", (object?)r.SignedQr ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$json", (object?)r.SignedJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cancelled", r.CancelledOn is { } co ? FormatDate(co) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$reason", (object?)r.CancelReasonCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ecode", (object?)r.ErrorCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$emsg", (object?)r.ErrorMessage ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

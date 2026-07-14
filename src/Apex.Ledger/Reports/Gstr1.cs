@@ -18,7 +18,15 @@ public sealed record Gstr1B2BRow(
     Money TaxableValue,
     Money Cgst,
     Money Sgst,
-    Money Igst);
+    Money Igst)
+{
+    /// <summary>
+    /// The Invoice Reference Number of a <b>Generated</b> e-invoice for this document (Phase 9 slice 4a; RQ-18), or
+    /// <c>null</c> when the document carries no IRN. An <b>additive</b> annotation: a company that does not e-invoice
+    /// leaves it null on every row (byte-identical, ER-13); it is not written to the tabular export in S4a.
+    /// </summary>
+    public string? Irn { get; init; }
+}
 
 /// <summary>
 /// One consolidated <b>B2C</b> row of GSTR-1 (RQ-21; DP-8): outward supplies to unregistered/consumer parties
@@ -200,10 +208,16 @@ public sealed record Gstr1(
             var isB2B = party?.PartyGst is { } pg && !pg.IsB2C;
             if (isB2B)
             {
-                // One B2B invoice row carrying the whole-invoice taxable value and both heads' total tax.
+                // One B2B invoice row carrying the whole-invoice taxable value and both heads' total tax. Phase 9
+                // slice 4a: additively annotate it with the IRN of a Generated e-invoice for the voucher (null when the
+                // company does not e-invoice ⇒ byte-identical, ER-13). A stale record whose voucher changed simply no
+                // longer matches (surfaced in EInvoiceReconciliation, not auto-cleared).
+                var irn = company.FindEInvoiceRecordForVoucher(voucher.Id) is { Status: EInvoiceStatus.Generated } eiv
+                    ? eiv.Irn
+                    : null;
                 b2b.Add(new Gstr1B2BRow(
                     party!.Name, party.PartyGst!.Gstin, voucher.Number, voucher.Date, pos,
-                    taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst)));
+                    taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst)) { Irn = irn });
             }
             else
             {
@@ -253,6 +267,43 @@ public sealed record Gstr1(
             Table11A = table11A,
             Table11B = table11B,
         };
+    }
+
+    /// <summary>
+    /// The e-invoice reconciliation view (Phase 9 slice 4a; RQ-18): counts of the covered outward B2B/export/SEZ/RCM/CDN
+    /// documents in <c>[from, to]</c> versus how many carry a <b>Generated</b> IRN versus <b>Pending/Failed/Cancelled</b>,
+    /// plus <b>mismatched</b> — a Generated record whose voucher's current document number no longer matches (an edited
+    /// voucher; surfaced, not auto-cleared). Advisory; recomputed each call (no persistence). The "GSTR-1 reconciles to
+    /// IRN-tagged docs" gate: <see cref="Covered"/> == <see cref="Tagged"/> when every covered document has been IRN-tagged.
+    /// </summary>
+    public sealed record EInvoiceReconciliationView(
+        int Covered, int Tagged, int Pending, int Failed, int Cancelled, int Mismatched);
+
+    /// <summary>Builds the e-invoice reconciliation view over the covered outward documents in <c>[from, to]</c>.</summary>
+    public static EInvoiceReconciliationView EInvoiceReconciliation(Company company, DateOnly from, DateOnly to)
+    {
+        var svc = new EInvoiceService(company);
+        int covered = 0, tagged = 0, pending = 0, failed = 0, cancelled = 0, mismatched = 0;
+
+        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output))
+        {
+            if (svc.CoverageOf(voucher) != EInvoiceCoverage.Covered) continue;
+            covered++;
+            var record = company.FindEInvoiceRecordForVoucher(voucher.Id);
+            switch (record?.Status)
+            {
+                case EInvoiceStatus.Generated:
+                    tagged++;
+                    if (!string.Equals(record.DocumentNumberUpper, EInvoiceService.DocumentNumberOf(voucher), StringComparison.Ordinal))
+                        mismatched++;
+                    break;
+                case EInvoiceStatus.Pending: pending++; break;
+                case EInvoiceStatus.Failed: failed++; break;
+                case EInvoiceStatus.Cancelled: cancelled++; break;
+            }
+        }
+
+        return new EInvoiceReconciliationView(covered, tagged, pending, failed, cancelled, mismatched);
     }
 
     /// <summary>

@@ -298,6 +298,11 @@ public sealed record PayloadDto
     /// Empty when reverse charge is unused (ER-13).</summary>
     public IReadOnlyList<RcmDocumentDto> RcmDocuments { get; init; } = [];
 
+    /// <summary>e-Invoice IRP artefacts (Phase 9 slice 4a; RQ-5). Empty when e-invoicing is unused (ER-13). The
+    /// IRP-signed artefacts (IRN/QR/SignedJson) ARE exported — they are portal-issued receipts, NOT secrets. The NIC API
+    /// credentials are the only secret and are deliberately absent from the canonical model (ER-16).</summary>
+    public IReadOnlyList<EInvoiceRecordDto> EInvoiceRecords { get; init; } = [];
+
     /// <summary>§34 credit/debit-note links (Phase 9; RQ-24). Empty until the S2b CDN engine (ER-13).</summary>
     public IReadOnlyList<GstCdnLinkDto> CreditDebitNoteLinks { get; init; } = [];
 
@@ -315,6 +320,26 @@ public sealed record RcmDocumentDto
     public int SeriesNumber { get; init; }
     public required string DocDate { get; init; }          // ISO yyyy-MM-dd
     public Guid? SupplierLedgerId { get; init; }
+}
+
+/// <summary>An e-invoice IRP artefact (Phase 9 slice 4a), mirroring the domain <c>EInvoiceRecord</c> and the SQLite
+/// <c>einvoice_records</c> row. The IRP-issued IRN/AckNo/AckDate/SignedQr/SignedJson are portal receipts (exported); no
+/// NIC credential appears here — the only secret flows through <c>INicCredentialStore</c> alone (ER-16).</summary>
+public sealed record EInvoiceRecordDto
+{
+    public required Guid Id { get; init; }
+    public required Guid SourceVoucherId { get; init; }
+    public required string DocumentNumberUpper { get; init; }
+    public required string Status { get; init; }              // EInvoiceStatus name
+    public string? Irn { get; init; }
+    public string? AckNo { get; init; }
+    public string? AckDate { get; init; }                     // ISO or null
+    public string? SignedQr { get; init; }
+    public string? SignedJsonBase64 { get; init; }            // signed INV-01 response, base64 (an IRP artefact, NOT a secret)
+    public string? CancelledOn { get; init; }
+    public string? CancelReasonCode { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
 }
 
 /// <summary>A §34 credit/debit-note link (Phase 9), mirroring the domain <c>GstCreditDebitNoteLink</c> and the SQLite
@@ -1020,6 +1045,22 @@ public sealed record GstConfigDto
     // (ER-13). Appended at the END so existing field order is unchanged.
     public string? CompositionSubType { get; init; }   // CompositionSubType name, or null
     public string? CompositionOptInDate { get; init; } // ISO yyyy-MM-dd, or null
+    // Phase 9 slice 4a (RQ-5/RQ-28/RQ-30): the NON-SECRET e-invoice / B2C-QR / connector-mode config. Defaulting
+    // off/empty/"OfflineJson"/"None" ⇒ an e-invoicing-off company is byte-identical to a v40 company (ER-13). Appended
+    // at the END so existing field order is unchanged.
+    // DELIBERATE OMISSION (ER-16): there is NO Nic* / credential member here. The NIC API credentials are the ONLY secret
+    // and NEVER appear in the canonical model — they flow only through INicCredentialStore. Do NOT "helpfully" add them.
+    public bool EInvoicingEnabled { get; init; }
+    public string? EInvoiceApplicableFrom { get; init; }      // ISO yyyy-MM-dd, or null
+    public long EInvoiceAatoThresholdPaisa { get; init; } = 50_000_000_00L;   // ₹5 cr
+    public bool EInvoiceApplicabilityOverride { get; init; }
+    public string EInvoiceExemptionClasses { get; init; } = "None";           // EInvoiceExemptionClass [Flags] name
+    public bool EInvoiceReportingAgeApplies { get; init; }
+    public string ConnectorMode { get; init; } = "OfflineJson";               // GstConnectorMode name
+    public bool B2cDynamicQrEnabled { get; init; }
+    public long B2cQrAatoThresholdPaisa { get; init; } = 500_000_000_000L;     // ₹500 cr
+    public string? B2cQrUpiId { get; init; }
+    public string? B2cQrPayeeName { get; init; }
 }
 
 /// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>
