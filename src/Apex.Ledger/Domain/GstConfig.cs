@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Apex.Ledger.Domain;
 
 /// <summary>
@@ -93,6 +95,15 @@ public sealed class GstConfig
     /// <summary>The payee name shown in the B2C QR; required when <see cref="B2cDynamicQrEnabled"/>.</summary>
     public string? B2cQrPayeeName { get; set; }
 
+    /// <summary>The permitted shape of a payee UPI VPA — <c>name@handle</c> with only unreserved characters. A VPA
+    /// carrying a space, <c>&amp;</c>, <c>?</c> or any other reserved character would corrupt or inject into the UPI
+    /// deep link (<c>upi://pay?pa=…</c>), so it is rejected (Phase 9 slice 4b; finding #3).</summary>
+    private static readonly Regex UpiVpaShape = new(@"^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+$", RegexOptions.Compiled);
+
+    /// <summary>Whether <paramref name="vpa"/> is a well-formed UPI VPA (<c>name@handle</c>, unreserved characters only).
+    /// Shared by <see cref="EnsureValid"/> (fail-fast) and the B2C-QR projection (which yields no QR for a bad VPA).</summary>
+    public static bool IsValidUpiVpa(string? vpa) => vpa is not null && UpiVpaShape.IsMatch(vpa);
+
     /// <summary>The seeded, config-driven GST rate slabs (RQ-25; Phase 4 seeds 0/5/18/40).</summary>
     public IReadOnlyList<GstRateSlab> RateSlabs => _rateSlabs;
 
@@ -168,5 +179,9 @@ public sealed class GstConfig
         // B2C dynamic QR (Phase 9 slice 4a): requires the payee UPI id + name when enabled.
         if (B2cDynamicQrEnabled && (string.IsNullOrWhiteSpace(B2cQrUpiId) || string.IsNullOrWhiteSpace(B2cQrPayeeName)))
             throw new ArgumentException("B2C dynamic QR requires a payee UPI id and payee name.");
+
+        // The payee VPA must be a well-formed UPI id — a malformed VPA would corrupt/inject into the deep link (finding #3).
+        if (B2cDynamicQrEnabled && !IsValidUpiVpa(B2cQrUpiId))
+            throw new ArgumentException($"B2C dynamic QR payee UPI id '{B2cQrUpiId}' is not a well-formed UPI VPA (name@handle).");
     }
 }
