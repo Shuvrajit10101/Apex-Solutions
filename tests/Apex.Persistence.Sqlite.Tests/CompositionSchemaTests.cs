@@ -157,11 +157,13 @@ public sealed class CompositionSchemaTests
 
     /// <summary>A minimal pre-v40 (v39) DDL: the v39→v40 migration only ALTERs <c>companies</c>. <c>stock_items</c> +
     /// <c>ledgers</c> are included because the migrate-to-current chain runs through the v42→v43 §17(5) ALTER on both,
-    /// which needs the tables to exist.</summary>
+    /// and <c>entry_lines</c> + <c>voucher_types</c> because the v43→v44 ALTER touches both — all need the tables to exist.</summary>
     private const string MinimalV39Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT);
         """;
 }

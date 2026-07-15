@@ -39,6 +39,10 @@ public sealed class Company
     private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
     private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
     private readonly List<ImsAction> _imsActions = new();
+    private readonly List<GstSetoffLine> _gstSetoffLines = new();
+    private readonly List<ItcReversal> _itcReversals = new();
+    private readonly List<GstChallan> _gstChallans = new();
+    private readonly List<GstDrc03> _gstDrc03s = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
@@ -447,6 +451,21 @@ public sealed class Company
     /// acts (ER-13). ADVISORY only — the IMS mirror posts nothing (ER-14).</summary>
     public IReadOnlyList<ImsAction> ImsActions => _imsActions;
 
+    /// <summary>Posted Rule-88A set-off allocation rows (Phase 9 slice 7; RQ-21): the Table 6.1 audit behind the
+    /// electronic-credit-ledger utilisation. Empty until a period is set off (ER-13).</summary>
+    public IReadOnlyList<GstSetoffLine> GstSetoffLines => _gstSetoffLines;
+
+    /// <summary>Posted ITC-reversal audit rows (Phase 9 slice 7; RQ-27): Rule 37/37A/42/43/§17(5) reversals + reclaims.
+    /// The reversal engine is S7b, so this stays empty in S7a (ER-13).</summary>
+    public IReadOnlyList<ItcReversal> ItcReversals => _itcReversals;
+
+    /// <summary>PMT-06 GST deposit challans (Phase 9 slice 7; RQ-22): one per deposit into the electronic cash ledger.
+    /// Empty until the company deposits GST (ER-13).</summary>
+    public IReadOnlyList<GstChallan> GstChallans => _gstChallans;
+
+    /// <summary>DRC-03 voluntary / self-ascertained GST payments (Phase 9 slice 7; RQ-22). Empty until one is raised (ER-13).</summary>
+    public IReadOnlyList<GstDrc03> GstDrc03s => _gstDrc03s;
+
     /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
     /// unless Payroll is used.</summary>
     public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
@@ -697,6 +716,37 @@ public sealed class Company
     public ImsAction? FindImsAction(Guid id) => _imsActions.FirstOrDefault(a => a.Id == id);
     /// <summary>Finds the IMS decision for a given 2B line, or <c>null</c> (⇒ the line is deemed-accepted).</summary>
     public ImsAction? FindImsActionForLine(Guid lineId) => _imsActions.FirstOrDefault(a => a.LineId == lineId);
+
+    // ---- Electronic-ledger set-off / reversal / challan / DRC-03 records (Phase 9 slice 7; guards live in
+    //      GstSetOffService / GstDepositService / ItcReversalService[S7b]; also used by the store/import rehydration). ----
+
+    /// <summary>Adds a posted Rule-88A set-off allocation row (Phase 9 slice 7).</summary>
+    public void AddGstSetoffLine(GstSetoffLine line) => _gstSetoffLines.Add(line ?? throw new ArgumentNullException(nameof(line)));
+    /// <summary>Removes a set-off allocation row (a period re-run replace, or the transactional import roll-back).</summary>
+    public bool RemoveGstSetoffLine(GstSetoffLine line) => _gstSetoffLines.Remove(line);
+    /// <summary>The posted set-off allocation rows for a given set-off voucher (Phase 9 slice 7).</summary>
+    public IEnumerable<GstSetoffLine> SetoffLinesForVoucher(Guid voucherId) => _gstSetoffLines.Where(l => l.VoucherId == voucherId);
+
+    /// <summary>Adds a posted ITC-reversal audit row (Phase 9 slice 7b; also used by the store/import rehydration).</summary>
+    public void AddItcReversal(ItcReversal reversal) => _itcReversals.Add(reversal ?? throw new ArgumentNullException(nameof(reversal)));
+    /// <summary>Removes an ITC-reversal audit row (a re-compute replace, or the transactional import roll-back).</summary>
+    public bool RemoveItcReversal(ItcReversal reversal) => _itcReversals.Remove(reversal);
+    /// <summary>Finds an ITC-reversal audit row by its id, or <c>null</c>.</summary>
+    public ItcReversal? FindItcReversal(Guid id) => _itcReversals.FirstOrDefault(r => r.Id == id);
+
+    /// <summary>Adds a PMT-06 GST deposit challan (Phase 9 slice 7; also used by the store/import rehydration).</summary>
+    public void AddGstChallan(GstChallan challan) => _gstChallans.Add(challan ?? throw new ArgumentNullException(nameof(challan)));
+    /// <summary>Removes a PMT-06 GST deposit challan (an edit, or the transactional import roll-back).</summary>
+    public bool RemoveGstChallan(GstChallan challan) => _gstChallans.Remove(challan);
+    /// <summary>Finds a PMT-06 GST deposit challan by its id, or <c>null</c>.</summary>
+    public GstChallan? FindGstChallan(Guid id) => _gstChallans.FirstOrDefault(c => c.Id == id);
+
+    /// <summary>Adds a DRC-03 voluntary GST payment record (Phase 9 slice 7; also used by the store/import rehydration).</summary>
+    public void AddGstDrc03(GstDrc03 drc03) => _gstDrc03s.Add(drc03 ?? throw new ArgumentNullException(nameof(drc03)));
+    /// <summary>Removes a DRC-03 record (an edit, or the transactional import roll-back).</summary>
+    public bool RemoveGstDrc03(GstDrc03 drc03) => _gstDrc03s.Remove(drc03);
+    /// <summary>Finds a DRC-03 record by its id, or <c>null</c>.</summary>
+    public GstDrc03? FindGstDrc03(Guid id) => _gstDrc03s.FirstOrDefault(d => d.Id == id);
 
     // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
 

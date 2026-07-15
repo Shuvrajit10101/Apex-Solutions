@@ -200,7 +200,8 @@ internal sealed class ImportPlan
                 useForJobWork: vt.UseForJobWork,
                 allowConsumption: vt.AllowConsumption,
                 isStatPayment: vt.IsStatPayment,
-                isRcmPaymentVoucher: vt.IsRcmPaymentVoucher);
+                isRcmPaymentVoucher: vt.IsRcmPaymentVoucher,
+                isGstStatAdjustment: vt.IsGstStatAdjustment);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -1071,6 +1072,71 @@ internal sealed class ImportPlan
             journal.RecordImsAction(action);
         }
 
+        // 16) Phase 9 slice 7: the electronic-ledger records (set-off lines, PMT-06 challans, DRC-03 payments, and —
+        //     empty in S7a — ITC reversals). Unlike the S6 2B lines (external portal data that import unconditionally),
+        //     each of these is the AUDIT of a posted voucher that is always co-exported — so a dangling voucher FK
+        //     signals a corrupt batch and rejects the WHOLE import (all-or-nothing, RQ-23): RequireVoucher throws when a
+        //     referenced voucher is absent. Each record is re-minted with a fresh Guid; intra-batch cross-refs
+        //     (drc03_id, reclaim_of_id, source_line_id) resolve through the re-mint maps or reject. Journalled for rollback.
+        Guid RequireVoucher(Guid dtoId) => MapVoucher(dtoId)
+            ?? throw new InvalidOperationException(
+                $"An electronic-ledger record references voucher {dtoId}, which is not in the import batch (corrupt batch).");
+
+        foreach (var l in _model.Payload.GstSetoffLines)
+        {
+            var line = new GstSetoffLine(
+                Guid.NewGuid(), RequireVoucher(l.VoucherId), l.Period, ParseEnum<GstTaxHead>(l.CreditHead),
+                ParseEnum<GstTaxHead>(l.LiabilityHead), l.IsCash, l.AmountPaisa);
+            t.AddGstSetoffLine(line);
+            journal.RecordGstSetoffLine(line);
+        }
+        foreach (var ch in _model.Payload.GstChallans)
+        {
+            var challan = new GstChallan(
+                Guid.NewGuid(), ch.Cpin, ch.Cin, ch.Brn, CompanyImportService.ParseDate(ch.DepositDate),
+                ParseEnum<GstTaxHead>(ch.MajorHead), ParseEnum<GstMinorHead>(ch.MinorHead),
+                MoneyCodec.FromPaisa(ch.AmountPaisa), RequireVoucher(ch.VoucherId), ch.InterestFlag);
+            t.AddGstChallan(challan);
+            journal.RecordGstChallan(challan);
+        }
+        var drc03IdMap = new Dictionary<Guid, Guid>();
+        foreach (var d in _model.Payload.GstDrc03s)
+        {
+            var newId = Guid.NewGuid();
+            drc03IdMap[d.Id] = newId;
+            var drc03 = new GstDrc03(
+                newId, d.Drc03Ref, d.Cause, d.Period, d.CgstPaisa, d.SgstPaisa, d.IgstPaisa, d.CessPaisa, d.InterestPaisa,
+                d.Drc03aDemandRef, d.VoucherId is { } vid ? RequireVoucher(vid) : (Guid?)null,
+                ParseDateTimeOffsetOpt(d.CreatedAt) ?? default);
+            t.AddGstDrc03(drc03);
+            journal.RecordGstDrc03(drc03);
+        }
+        var reversalIdMap = new Dictionary<Guid, Guid>();
+        foreach (var r in _model.Payload.ItcReversals)
+        {
+            var newId = Guid.NewGuid();
+            reversalIdMap[r.Id] = newId;
+            Guid? reclaimOf = r.ReclaimOfId is { } rid
+                ? (reversalIdMap.TryGetValue(rid, out var m) ? m
+                    : throw new InvalidOperationException($"ITC reclaim references an unknown reversal {rid} (corrupt batch)."))
+                : null;
+            Guid? drc03 = r.Drc03Id is { } did
+                ? (drc03IdMap.TryGetValue(did, out var dm) ? dm
+                    : throw new InvalidOperationException($"ITC reversal references an unknown DRC-03 {did} (corrupt batch)."))
+                : null;
+            Guid? sourceLine = r.SourceLineId is { } slid
+                ? (reconLineId.TryGetValue(slid, out var lm) ? lm
+                    : throw new InvalidOperationException($"ITC reversal references an unknown 2B line {slid} (corrupt batch)."))
+                : null;
+            var reversal = new ItcReversal(
+                newId, ParseEnum<ItcReversalRule>(r.Rule), r.Period, r.CgstPaisa, r.SgstPaisa, r.IgstPaisa, r.CessPaisa,
+                r.D1BasisPaisa, r.D2BasisPaisa, MapVoucherOpt(r.SourceVoucherId), sourceLine,
+                RequireVoucher(r.ReversalVoucherId), reclaimOf, drc03, ParseEnum<Table4bBucket>(r.Table4bBucket),
+                ParseDateTimeOffsetOpt(r.CreatedAt) ?? default);
+            t.AddItcReversal(reversal);
+            journal.RecordItcReversal(reversal);
+        }
+
         return (created, reused, posted);
     }
 
@@ -1377,9 +1443,10 @@ internal sealed class ImportPlan
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
         ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa),
-        // Phase 9 slice 2: reverse-charge tag.
+        // Phase 9 slice 2: reverse-charge tag. Phase 9 slice 7: the set-off / reversal adjustment tag.
         isReverseCharge: g.IsReverseCharge,
-        rcmScheme: g.RcmScheme is { } s ? ParseEnum<RcmItcScheme>(s) : null);
+        rcmScheme: g.RcmScheme is { } s ? ParseEnum<RcmItcScheme>(s) : null,
+        adjustment: g.Adjustment is { } adj ? ParseEnum<GstAdjustmentKind>(adj) : null);
 
     /// <summary>Rebuilds a line's payroll detail (Phase 8 slice 3), re-mapping the source employee + pay-head ids
     /// into the target company's re-minted ids so the per-employee salary breakdown reconciles across companies

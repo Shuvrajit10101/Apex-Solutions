@@ -276,6 +276,49 @@ public sealed class GstService
         return ledger;
     }
 
+    /// <summary>The auto-created electronic-cash-ledger (PMT-05) ledger name (Phase 9 slice 7; RQ-20).</summary>
+    public const string ElectronicCashLedgerName = "Electronic Cash Ledger";
+
+    /// <summary>
+    /// Lazily creates (idempotently) the <b>Electronic Cash Ledger</b> (PMT-05) under Current Assets and returns it
+    /// (Phase 9 slice 7; RQ-20/RQ-22). A PMT-06 deposit debits this ledger (Dr Electronic Cash Ledger / Cr Bank); a
+    /// cash discharge of output tax draws it down (Dr Output {head} / Cr Electronic Cash Ledger). Its balance is the
+    /// electronic cash ledger; the (major, minor) matrix split is a <b>projection</b> from <c>gst_challans</c>, not a
+    /// stored balance. Created <b>lazily</b> (never in <see cref="EnableGst"/>), so a company that never deposits GST
+    /// keeps the v43 ledger set (ER-13). Mirrors <see cref="EnsureAdvanceTaxSuspenseLedger"/>.
+    /// </summary>
+    public Domain.Ledger EnsureElectronicCashLedger()
+    {
+        if (_company.FindLedgerByName(ElectronicCashLedgerName) is { } existing) return existing;
+        var currentAssets = _company.FindGroupByName("Current Assets")
+            ?? throw new InvalidOperationException("Seed missing 'Current Assets' group; cannot auto-create the electronic cash ledger.");
+        var ledger = new Domain.Ledger(
+            Guid.NewGuid(), ElectronicCashLedgerName, currentAssets.Id, Money.Zero, openingIsDebit: true);
+        _company.AddLedger(ledger);
+        return ledger;
+    }
+
+    /// <summary>The auto-created ITC-reversal cost ledger name (Phase 9 slice 7; RQ-27 — the reversal engine lands in S7b).</summary>
+    public const string ItcReversalCostLedgerName = "ITC Reversal (Non-creditable)";
+
+    /// <summary>
+    /// Lazily creates (idempotently) the <b>ITC Reversal (Non-creditable)</b> expense ledger under Indirect Expenses
+    /// and returns it (Phase 9 slice 7; RQ-27). An ITC reversal (Rule 42/43/37/37A/§17(5)) or a DRC-03 voluntary
+    /// payment routes its debit here — the reversed credit becomes a cost. Created <b>lazily</b> (never in
+    /// <see cref="EnableGst"/>), so a company that never reverses keeps the v43 ledger set (ER-13). Mirrors
+    /// <see cref="EnsureRcmNonCreditableCostLedger"/>.
+    /// </summary>
+    public Domain.Ledger EnsureItcReversalCostLedger()
+    {
+        if (_company.FindLedgerByName(ItcReversalCostLedgerName) is { } existing) return existing;
+        var indirectExp = _company.FindGroupByName("Indirect Expenses")
+            ?? throw new InvalidOperationException("Seed missing 'Indirect Expenses' group; cannot auto-create the ITC-reversal cost ledger.");
+        var ledger = new Domain.Ledger(
+            Guid.NewGuid(), ItcReversalCostLedgerName, indirectExp.Id, Money.Zero, openingIsDebit: true);
+        _company.AddLedger(ledger);
+        return ledger;
+    }
+
     // ---- RQ-11: intra vs inter routing ----
 
     /// <summary>

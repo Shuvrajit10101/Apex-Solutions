@@ -36,9 +36,19 @@ public sealed class GstLineTax
     /// </summary>
     public RcmItcScheme? RcmScheme { get; }
 
+    /// <summary>
+    /// The GST <b>adjustment</b> discriminant (Phase 9 slice 7; RQ-21/RQ-22/RQ-27), or <c>null</c> for an ordinary
+    /// <b>forward</b> outward/ITC tax line. A non-null value tags a posted Rule-88A set-off, a cash discharge, or an
+    /// ITC reversal / reclaim line — so the Table 6.1 (set-off) and Table 4(B) (reversal) projections classify it
+    /// without recomputing (ER-9) and, critically, <b>without polluting</b> the existing outward/ITC sums (the
+    /// adjustment vouchers are Journal/Payment base ⇒ already excluded from <c>PostedGstVouchers</c>). Default
+    /// <c>null</c> keeps a v43 line byte-identical (ER-13), mirroring how <see cref="RcmScheme"/> was added in S2.
+    /// </summary>
+    public GstAdjustmentKind? Adjustment { get; }
+
     public GstLineTax(
         GstTaxHead taxHead, int rateBasisPoints, Money taxableValue,
-        bool isReverseCharge = false, RcmItcScheme? rcmScheme = null)
+        bool isReverseCharge = false, RcmItcScheme? rcmScheme = null, GstAdjustmentKind? adjustment = null)
     {
         if (rateBasisPoints < 0)
             throw new ArgumentException("GST rate basis points must be ≥ 0.", nameof(rateBasisPoints));
@@ -52,5 +62,6 @@ public sealed class GstLineTax
         TaxableValue = taxableValue;
         IsReverseCharge = isReverseCharge;
         RcmScheme = rcmScheme;
+        Adjustment = adjustment;
     }
 }

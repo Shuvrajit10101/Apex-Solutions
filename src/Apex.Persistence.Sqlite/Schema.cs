@@ -95,7 +95,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 43;
+    public const int CurrentVersion = 44;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -534,6 +534,88 @@ public static class Schema
         CREATE INDEX ix_gstr2b_recon_company ON gstr2b_recon(company_id);
         CREATE INDEX ix_gstr2b_recon_line ON gstr2b_recon(line_id);
 
+        -- v44 (Phase 9 slice 7): the Table-6.1 Rule-88A set-off allocation rows (audit behind the electronic-credit-
+        -- ledger utilisation). The CHECK constraints enforce the CGST↔SGST cross-utilisation wall (ER-7) + the cess
+        -- ring-fence (ER-2) at the DB layer — a cross-head or cess↔non-cess allocation is impossible to persist. Empty
+        -- until a period is set off (ER-13). (Head ordinals: Central=0, State=1, Integrated=2, Cess=3.)
+        CREATE TABLE gst_setoff_lines (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            voucher_id     TEXT    NOT NULL REFERENCES vouchers(id),   -- the posted set-off Journal
+            period         TEXT    NOT NULL,                           -- "yyyy-MM"
+            credit_head    INTEGER NOT NULL,                           -- GstTaxHead of the credit pool used (Cash ⇒ = liability_head)
+            liability_head INTEGER NOT NULL,                           -- GstTaxHead of the liability discharged
+            is_cash        INTEGER NOT NULL DEFAULT 0,                 -- 1 ⇒ paid from the cash ledger
+            amount_paisa   INTEGER NOT NULL,
+            CHECK (NOT (credit_head = 0 AND liability_head = 1)),      -- no CGST(0)→SGST(1)
+            CHECK (NOT (credit_head = 1 AND liability_head = 0)),      -- no SGST(1)→CGST(0)
+            CHECK ((credit_head = 3) = (liability_head = 3))           -- Cess(3) only vs Cess (ER-2)
+        );
+        CREATE INDEX ix_gst_setoff_lines_company ON gst_setoff_lines(company_id);
+        CREATE INDEX ix_gst_setoff_lines_voucher ON gst_setoff_lines(voucher_id);
+
+        -- v44 (Phase 9 slice 7): the posted ITC-reversal audit rows (Rule 37/37A/42/43/§17(5) + reclaims). The reversal
+        -- ENGINE is S7b, so this table lands now but stays EMPTY until then. The UNIQUE key is the idempotency guard —
+        -- a re-posted reversal for the same (rule, period, source) is a DB error, not silent drift (§5.3). Empty ⇒ ER-13.
+        CREATE TABLE itc_reversals (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            rule                INTEGER NOT NULL,                       -- ItcReversalRule ordinal (Rule37=0, …)
+            period              TEXT    NOT NULL,                       -- "yyyy-MM" (or FY for the annual true-up)
+            cgst_paisa          INTEGER NOT NULL DEFAULT 0,
+            sgst_paisa          INTEGER NOT NULL DEFAULT 0,
+            igst_paisa          INTEGER NOT NULL DEFAULT 0,
+            cess_paisa          INTEGER NOT NULL DEFAULT 0,
+            d1_basis_paisa      INTEGER     NULL,                       -- Rule 42/43 apportionment basis (audit)
+            d2_basis_paisa      INTEGER     NULL,
+            source_voucher_id   TEXT        NULL REFERENCES vouchers(id),     -- the purchase whose ITC is reversed
+            source_line_id      TEXT        NULL REFERENCES gstr2b_lines(id), -- the 2B line (IMS-accepted CN / Rule 37A)
+            reversal_voucher_id TEXT    NOT NULL REFERENCES vouchers(id),     -- the posted stat-adjustment Journal
+            reclaim_of_id       TEXT        NULL REFERENCES itc_reversals(id),-- a reclaim row → its reversal (Rule 37/37A)
+            drc03_id            TEXT        NULL REFERENCES gst_drc03(id),     -- off-return landing instrument
+            table4b_bucket      INTEGER NOT NULL DEFAULT 0,             -- Table4bBucket ordinal (4B1=0, 4B2=1, 4D1=2)
+            created_at          TEXT    NOT NULL
+        );
+        CREATE UNIQUE INDEX ux_itc_reversals_key ON itc_reversals(company_id, rule, period, source_voucher_id, source_line_id);
+        CREATE INDEX ix_itc_reversals_company ON itc_reversals(company_id);
+
+        -- v44 (Phase 9 slice 7): PMT-06 GST deposit challans (money paid into the electronic cash ledger). CPIN generated
+        -- on creation; the cash ledger is credited only on CIN. major_head × minor_head is the 2-D cash matrix cell.
+        -- Empty until the company deposits GST (ER-13). amount_paisa is integer paisa.
+        CREATE TABLE gst_challans (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            cpin          TEXT        NULL,                             -- 14-digit Common Portal Identification Number
+            cin           TEXT        NULL,                             -- Challan Identification Number (on bank credit)
+            brn           TEXT        NULL,                             -- Bank Reference Number
+            deposit_date  TEXT    NOT NULL,                             -- ISO yyyy-MM-dd
+            major_head    INTEGER NOT NULL,                             -- GstTaxHead (IGST/CGST/SGST/Cess)
+            minor_head    INTEGER NOT NULL,                             -- GstMinorHead (Tax=0, Interest, Penalty, Fee, Other)
+            amount_paisa  INTEGER NOT NULL,
+            voucher_id    TEXT    NOT NULL REFERENCES vouchers(id),     -- the deposit voucher (Dr Cash Ledger / Cr Bank)
+            interest_flag INTEGER NOT NULL DEFAULT 0                    -- §50 flag-only (DP-34)
+        );
+        CREATE INDEX ix_gst_challans_company ON gst_challans(company_id);
+
+        -- v44 (Phase 9 slice 7): DRC-03 voluntary / self-ascertained payments (Rule 142(2)/(3)). One row per DRC-03,
+        -- with per-head tax + flag-only §50 interest (never auto-computed). Empty until one is raised (ER-13).
+        CREATE TABLE gst_drc03 (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            drc03_ref         TEXT        NULL,
+            cause             TEXT    NOT NULL,
+            period            TEXT    NOT NULL,
+            cgst_paisa        INTEGER NOT NULL DEFAULT 0,
+            sgst_paisa        INTEGER NOT NULL DEFAULT 0,
+            igst_paisa        INTEGER NOT NULL DEFAULT 0,
+            cess_paisa        INTEGER NOT NULL DEFAULT 0,
+            interest_paisa    INTEGER NOT NULL DEFAULT 0,               -- flag/field-only (DP-34), not auto-computed
+            drc03a_demand_ref TEXT        NULL,                         -- DRC-03A confirmed-demand link (Notn 12/2024-CT)
+            voucher_id        TEXT        NULL REFERENCES vouchers(id),
+            created_at        TEXT    NOT NULL
+        );
+        CREATE INDEX ix_gst_drc03_company ON gst_drc03(company_id);
+
         -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
         -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
         -- (slab_id) form one PtSlab. No rows for a company not enrolled for PT (ER-13).
@@ -725,7 +807,10 @@ public static class Schema
             is_stat_payment   INTEGER NOT NULL DEFAULT 0,            -- 0/1
             -- v39 (Phase 9 slice 2): "Use for RCM Payment Voucher (Rule 52)" — a Payment voucher-type flag marking a
             -- reverse-charge supplier payment. 0/1, default 0 so an existing Payment type is byte-identical (ER-13).
-            is_rcm_payment_voucher INTEGER NOT NULL DEFAULT 0       -- 0/1
+            is_rcm_payment_voucher INTEGER NOT NULL DEFAULT 0,      -- 0/1
+            -- v44 (Phase 9 slice 7): "Use for GST Statutory Adjustment (Alt+J)" — a Journal voucher-type flag marking a
+            -- Rule-88A set-off / ITC-reversal stat-adjustment. 0/1, default 0 so an existing Journal type is byte-identical (ER-13).
+            is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0       -- 0/1
         );
 
         CREATE TABLE vouchers (
@@ -761,7 +846,10 @@ public static class Schema
             -- v39 (Phase 9 slice 2): reverse-charge (RCM) tag on the tax line. Default 0/NULL ⇒ a forward-charge line is
             -- byte-identical to a v38 line (ER-13).
             gst_is_reverse_charge INTEGER NOT NULL DEFAULT 0, -- 0/1 RCM tax line
-            gst_rcm_scheme        INTEGER     NULL             -- RcmItcScheme ordinal (ImportOfServices=0, OtherRcm=1) or NULL
+            gst_rcm_scheme        INTEGER     NULL,            -- RcmItcScheme ordinal (ImportOfServices=0, OtherRcm=1) or NULL
+            -- v44 (Phase 9 slice 7): the set-off / cash-payment / reversal adjustment tag on the tax line. NULL ⇒ a
+            -- forward outward/ITC line, byte-identical to a v43 line (ER-13).
+            gst_adjustment_kind   INTEGER     NULL             -- GstAdjustmentKind ordinal (SetOff=0, …) or NULL
         );
 
         -- v26 TDS withholding detail (catalog §13; Phase 7 slice 2): one row per TDS-assessed line — the TDS
@@ -3275,5 +3363,93 @@ public static class Schema
 
         ALTER TABLE companies ADD COLUMN recon_value_tolerance_paisa INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE companies ADD COLUMN recon_date_window_days      INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>
+    /// v43 → v44 (Phase 9 slice 7; electronic ledgers + Rule-88A set-off + GST payment PMT-06/DRC-03 + ITC-reversal
+    /// seam): additive — four new tables (<c>gst_setoff_lines</c> with the CGST↔SGST cross-head + cess CHECKs,
+    /// <c>itc_reversals</c> with the UNIQUE idempotency key, <c>gst_challans</c>, <c>gst_drc03</c>) + their
+    /// company-scoped indexes, plus one ALTER-added column each on <c>entry_lines</c> (<c>gst_adjustment_kind</c>,
+    /// NULL) and <c>voucher_types</c> (<c>is_gst_stat_adjustment</c>, DEFAULT 0) — run inside a transaction that bumps
+    /// <c>schema_version</c> to 44. <b>No row rewrites, no data backfill</b>: an existing v43 database keeps every row
+    /// untouched, the new tables start empty and the new columns default NULL/0, so a company that never sets off /
+    /// pays / reverses serialises byte-identically to a v43 company (ER-13). The <c>itc_reversals</c> table stays unused
+    /// until the S7b reversal engine (only its schema lands now). Each added table / column / index is byte-identical to
+    /// its counterpart in <see cref="CreateV1"/> (the migration-equivalence test enforces this). A fresh DB is stamped
+    /// straight to v44 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV43ToV44 = """
+        CREATE TABLE gst_setoff_lines (
+            id             TEXT    NOT NULL PRIMARY KEY,
+            company_id     TEXT    NOT NULL REFERENCES companies(id),
+            voucher_id     TEXT    NOT NULL REFERENCES vouchers(id),
+            period         TEXT    NOT NULL,
+            credit_head    INTEGER NOT NULL,
+            liability_head INTEGER NOT NULL,
+            is_cash        INTEGER NOT NULL DEFAULT 0,
+            amount_paisa   INTEGER NOT NULL,
+            CHECK (NOT (credit_head = 0 AND liability_head = 1)),
+            CHECK (NOT (credit_head = 1 AND liability_head = 0)),
+            CHECK ((credit_head = 3) = (liability_head = 3))
+        );
+        CREATE INDEX ix_gst_setoff_lines_company ON gst_setoff_lines(company_id);
+        CREATE INDEX ix_gst_setoff_lines_voucher ON gst_setoff_lines(voucher_id);
+
+        CREATE TABLE itc_reversals (
+            id                  TEXT    NOT NULL PRIMARY KEY,
+            company_id          TEXT    NOT NULL REFERENCES companies(id),
+            rule                INTEGER NOT NULL,
+            period              TEXT    NOT NULL,
+            cgst_paisa          INTEGER NOT NULL DEFAULT 0,
+            sgst_paisa          INTEGER NOT NULL DEFAULT 0,
+            igst_paisa          INTEGER NOT NULL DEFAULT 0,
+            cess_paisa          INTEGER NOT NULL DEFAULT 0,
+            d1_basis_paisa      INTEGER     NULL,
+            d2_basis_paisa      INTEGER     NULL,
+            source_voucher_id   TEXT        NULL REFERENCES vouchers(id),
+            source_line_id      TEXT        NULL REFERENCES gstr2b_lines(id),
+            reversal_voucher_id TEXT    NOT NULL REFERENCES vouchers(id),
+            reclaim_of_id       TEXT        NULL REFERENCES itc_reversals(id),
+            drc03_id            TEXT        NULL REFERENCES gst_drc03(id),
+            table4b_bucket      INTEGER NOT NULL DEFAULT 0,
+            created_at          TEXT    NOT NULL
+        );
+        CREATE UNIQUE INDEX ux_itc_reversals_key ON itc_reversals(company_id, rule, period, source_voucher_id, source_line_id);
+        CREATE INDEX ix_itc_reversals_company ON itc_reversals(company_id);
+
+        CREATE TABLE gst_challans (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            cpin          TEXT        NULL,
+            cin           TEXT        NULL,
+            brn           TEXT        NULL,
+            deposit_date  TEXT    NOT NULL,
+            major_head    INTEGER NOT NULL,
+            minor_head    INTEGER NOT NULL,
+            amount_paisa  INTEGER NOT NULL,
+            voucher_id    TEXT    NOT NULL REFERENCES vouchers(id),
+            interest_flag INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gst_challans_company ON gst_challans(company_id);
+
+        CREATE TABLE gst_drc03 (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            drc03_ref         TEXT        NULL,
+            cause             TEXT    NOT NULL,
+            period            TEXT    NOT NULL,
+            cgst_paisa        INTEGER NOT NULL DEFAULT 0,
+            sgst_paisa        INTEGER NOT NULL DEFAULT 0,
+            igst_paisa        INTEGER NOT NULL DEFAULT 0,
+            cess_paisa        INTEGER NOT NULL DEFAULT 0,
+            interest_paisa    INTEGER NOT NULL DEFAULT 0,
+            drc03a_demand_ref TEXT        NULL,
+            voucher_id        TEXT        NULL REFERENCES vouchers(id),
+            created_at        TEXT    NOT NULL
+        );
+        CREATE INDEX ix_gst_drc03_company ON gst_drc03(company_id);
+
+        ALTER TABLE entry_lines   ADD COLUMN gst_adjustment_kind    INTEGER     NULL;
+        ALTER TABLE voucher_types ADD COLUMN is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0;
         """;
 }

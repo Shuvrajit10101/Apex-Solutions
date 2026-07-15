@@ -1049,6 +1049,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 43;
         }
 
+        // v43 → v44: apply the Phase-9 slice 7 electronic-ledger / Rule-88A set-off / GST-payment core (new
+        // gst_setoff_lines + itc_reversals + gst_challans + gst_drc03 tables + indexes; one adjustment-tag column on
+        // entry_lines + one stat-adjustment flag on voucher_types), then bump the marker. Existing v43 data survives
+        // untouched (CREATE TABLE/INDEX + ALTER … ADD COLUMN only; no row rewrites). The itc_reversals table stays
+        // unused until S7b. ER-13 byte-identical when the company never sets off / pays / reverses.
+        if (version == 43)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV43ToV44;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 44);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 44;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1401,6 +1426,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // user acts (a line with no row reads deemed-accepted, ER-13).
         foreach (var action in ReadImsStatus(companyId))
             company.AddImsAction(action);
+        // Electronic-ledger set-off / reversal / challan / DRC-03 records (Phase 9 slice 7). Loaded after vouchers so
+        // their voucher references resolve; empty when the company never sets off / pays / reverses (ER-13).
+        foreach (var line in ReadGstSetoffLines(companyId))
+            company.AddGstSetoffLine(line);
+        foreach (var challan in ReadGstChallans(companyId))
+            company.AddGstChallan(challan);
+        foreach (var drc03 in ReadGstDrc03s(companyId))
+            company.AddGstDrc03(drc03);
+        foreach (var reversal in ReadItcReversals(companyId))
+            company.AddItcReversal(reversal);
 
         // Payroll masters (Phase 8 slice 1). Order: categories + groups + payroll units first, then attendance
         // types (reference payroll units) and employees (reference groups + categories). Empty when Payroll off.
@@ -1600,6 +1635,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Imported GSTR-2B/2A snapshots + lines + reconciliation results (Phase 9 slice 6): snapshots/lines are external
         // data (no source-voucher FK); the recon rows FK the lines + an optional matched voucher (inserted above).
         InsertGstr2bRecords(tx, company);
+        // Electronic-ledger set-off / reversal / challan / DRC-03 records (Phase 9 slice 7): FK the posted vouchers
+        // (inserted above). All-rows-replace on save (the child-cleanup DELETEs above ran first).
+        InsertGstSetOffRecords(tx, company);
         // Payroll masters (Phase 8 slice 1). Categories + groups + payroll units first; then attendance types
         // (FK payroll_units) and employees (FK employee_groups + employee_categories). Hierarchical/compound
         // masters are inserted parents-before-children so their self-FK resolves.
@@ -1888,7 +1926,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
                    allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
-                   is_rcm_payment_voucher
+                   is_rcm_payment_voucher, is_gst_stat_adjustment
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1922,7 +1960,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v27 (Phase 7 slice 3): "Use for Statutory Payment" flag, read verbatim.
                 isStatPayment: r.GetInt64(16) != 0,
                 // v39 (Phase 9 slice 2): "Use for RCM Payment Voucher" flag, read verbatim.
-                isRcmPaymentVoucher: r.GetInt64(17) != 0);
+                isRcmPaymentVoucher: r.GetInt64(17) != 0,
+                // v44 (Phase 9 slice 7): "Use for GST Statutory Adjustment (Alt+J)" flag, read verbatim.
+                isGstStatAdjustment: r.GetInt64(18) != 0);
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -2359,6 +2399,115 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.IsDBNull(4) ? (long?)null : r.GetInt64(4),
                 r.GetInt64(5) != 0,
                 r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6))));
+        return list;
+    }
+
+    /// <summary>v44: reads the posted Rule-88A set-off Table-6.1 allocation rows for a company (Phase 9 slice 7). Empty
+    /// until a period is set off (ER-13).</summary>
+    private IEnumerable<GstSetoffLine> ReadGstSetoffLines(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, voucher_id, period, credit_head, liability_head, is_cash, amount_paisa
+            FROM gst_setoff_lines WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstSetoffLine>();
+        while (r.Read())
+            list.Add(GstSetoffLine.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                r.GetString(2),
+                (GstTaxHead)(int)r.GetInt64(3),
+                (GstTaxHead)(int)r.GetInt64(4),
+                r.GetInt64(5) != 0,
+                r.GetInt64(6)));
+        return list;
+    }
+
+    /// <summary>v44: reads the PMT-06 GST deposit challans for a company (Phase 9 slice 7). Empty until GST is
+    /// deposited (ER-13). amount_paisa is integer paisa.</summary>
+    private IEnumerable<GstChallan> ReadGstChallans(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, cpin, cin, brn, deposit_date, major_head, minor_head, amount_paisa, voucher_id, interest_flag
+            FROM gst_challans WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstChallan>();
+        while (r.Read())
+            list.Add(GstChallan.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                r.GetString(1),
+                r.IsDBNull(2) ? null : r.GetString(2),
+                r.IsDBNull(3) ? null : r.GetString(3),
+                ParseDate(r.GetString(4)),
+                (GstTaxHead)(int)r.GetInt64(5),
+                (GstMinorHead)(int)r.GetInt64(6),
+                Paisa.ToMoney(r.GetInt64(7)),
+                Guid.Parse(r.GetString(8)),
+                r.GetInt64(9) != 0));
+        return list;
+    }
+
+    /// <summary>v44: reads the DRC-03 voluntary GST payments for a company (Phase 9 slice 7). Empty until one is
+    /// raised (ER-13).</summary>
+    private IEnumerable<GstDrc03> ReadGstDrc03s(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, drc03_ref, cause, period, cgst_paisa, sgst_paisa, igst_paisa, cess_paisa, interest_paisa,
+                   drc03a_demand_ref, voucher_id, created_at
+            FROM gst_drc03 WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<GstDrc03>();
+        while (r.Read())
+            list.Add(GstDrc03.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                r.IsDBNull(1) ? null : r.GetString(1),
+                r.GetString(2),
+                r.GetString(3),
+                r.GetInt64(4), r.GetInt64(5), r.GetInt64(6), r.GetInt64(7), r.GetInt64(8),
+                r.IsDBNull(9) ? null : r.GetString(9),
+                r.IsDBNull(10) ? (Guid?)null : Guid.Parse(r.GetString(10)),
+                ParseDateTimeOffset(r.GetString(11))));
+        return list;
+    }
+
+    /// <summary>v44: reads the posted ITC-reversal audit rows for a company (Phase 9 slice 7). The reversal engine is
+    /// S7b, so this stays EMPTY in S7a (ER-13).</summary>
+    private IEnumerable<ItcReversal> ReadItcReversals(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, rule, period, cgst_paisa, sgst_paisa, igst_paisa, cess_paisa, d1_basis_paisa, d2_basis_paisa,
+                   source_voucher_id, source_line_id, reversal_voucher_id, reclaim_of_id, drc03_id, table4b_bucket,
+                   created_at
+            FROM itc_reversals WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<ItcReversal>();
+        while (r.Read())
+            list.Add(ItcReversal.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                (ItcReversalRule)(int)r.GetInt64(1),
+                r.GetString(2),
+                r.GetInt64(3), r.GetInt64(4), r.GetInt64(5), r.GetInt64(6),
+                r.IsDBNull(7) ? (long?)null : r.GetInt64(7),
+                r.IsDBNull(8) ? (long?)null : r.GetInt64(8),
+                r.IsDBNull(9) ? (Guid?)null : Guid.Parse(r.GetString(9)),
+                r.IsDBNull(10) ? (Guid?)null : Guid.Parse(r.GetString(10)),
+                Guid.Parse(r.GetString(11)),
+                r.IsDBNull(12) ? (Guid?)null : Guid.Parse(r.GetString(12)),
+                r.IsDBNull(13) ? (Guid?)null : Guid.Parse(r.GetString(13)),
+                (Table4bBucket)(int)r.GetInt64(14),
+                ParseDateTimeOffset(r.GetString(15))));
         return list;
     }
 
@@ -3658,7 +3807,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 SELECT id, ledger_id, amount_paisa, side,
                        forex_currency_id, forex_amount_micro, forex_rate_micro,
                        gst_tax_head, gst_rate_bp, gst_taxable_value_paisa,
-                       gst_is_reverse_charge, gst_rcm_scheme
+                       gst_is_reverse_charge, gst_rcm_scheme, gst_adjustment_kind
                 FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
                 """;
             cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -3684,7 +3833,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         (int)r.GetInt64(8),
                         Paisa.ToMoney(r.GetInt64(9)),
                         isReverseCharge: r.GetInt64(10) != 0,
-                        rcmScheme: r.IsDBNull(11) ? (RcmItcScheme?)null : (RcmItcScheme)(int)r.GetInt64(11));
+                        rcmScheme: r.IsDBNull(11) ? (RcmItcScheme?)null : (RcmItcScheme)(int)r.GetInt64(11),
+                        // v44 (Phase 9 slice 7): the set-off / cash-payment / reversal adjustment tag (NULL ⇒ forward line).
+                        adjustment: r.IsDBNull(12) ? (GstAdjustmentKind?)null : (GstAdjustmentKind)(int)r.GetInt64(12));
                 }
 
                 raw.Add((
@@ -3916,6 +4067,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM eway_state_thresholds WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_cdn_links WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_advance_receipts WHERE company_id = $cid;", ("$cid", cid));
+        // v44 set-off / reversal / challan / DRC-03 (Phase 9 slice 7): itc_reversals FKs gst_drc03 + gstr2b_lines +
+        // vouchers → delete it FIRST; the other three FK vouchers → delete before vouchers below. (itc_reversals is
+        // empty in S7a — the engine is S7b — but the order is correct for when it fills.)
+        ExecTx(tx, "DELETE FROM itc_reversals WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_setoff_lines WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_challans WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gst_drc03 WHERE company_id = $cid;", ("$cid", cid));
         // v43 GSTR-2B recon rows FK gstr2b_lines + vouchers; ims_status FK gstr2b_lines; gstr2b_lines FK
         // gstr2b_snapshots → delete children before parents, and all before vouchers below (Phase 9 slice 6).
         ExecTx(tx, "DELETE FROM gstr2b_recon WHERE company_id = $cid;", ("$cid", cid));
@@ -4680,8 +4838,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 INSERT INTO voucher_types
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
-                     use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv);
+                     use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher,
+                     is_gst_stat_adjustment)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4702,6 +4861,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$ac", t.AllowConsumption ? 1 : 0);            // v24 (RQ-49)
             cmd.Parameters.AddWithValue("$stat", t.IsStatPayment ? 1 : 0);             // v27 (Phase 7 slice 3)
             cmd.Parameters.AddWithValue("$rcmpv", t.IsRcmPaymentVoucher ? 1 : 0);      // v39 (Phase 9 slice 2)
+            cmd.Parameters.AddWithValue("$gstadj", t.IsGstStatAdjustment ? 1 : 0);     // v44 (Phase 9 slice 7)
             cmd.ExecuteNonQuery();
         }
     }
@@ -5043,6 +5203,119 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$rev", a.DeclaredReversalPaisa is { } drp ? drp : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$norev", a.NoReversalDeclared ? 1 : 0);
             cmd.Parameters.AddWithValue("$acted", a.ActedOn is { } ao ? FormatDate(ao) : (object)DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// v44: persists the Phase-9-slice-7 electronic-ledger records — PMT-06 challans, DRC-03 payments, Rule-88A set-off
+    /// allocation rows, and (empty in S7a) ITC-reversal audit rows. All-rows-replace on save (the child-cleanup DELETEs
+    /// above ran first). Insert order: gst_drc03 before itc_reversals (the reversal FKs drc03_id). A company that never
+    /// sets off / pays / reverses writes nothing — byte-identical (ER-13). Money is integer paisa.
+    /// </summary>
+    private void InsertGstSetOffRecords(SqliteTransaction tx, Company c)
+    {
+        foreach (var ch in c.GstChallans)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO gst_challans
+                    (id, company_id, cpin, cin, brn, deposit_date, major_head, minor_head, amount_paisa, voucher_id,
+                     interest_flag)
+                VALUES ($id, $cid, $cpin, $cin, $brn, $dd, $maj, $min, $amt, $vid, $int);
+                """;
+            cmd.Parameters.AddWithValue("$id", ch.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cpin", ch.Cpin);
+            cmd.Parameters.AddWithValue("$cin", (object?)ch.Cin ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$brn", (object?)ch.Brn ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dd", FormatDate(ch.DepositDate));
+            cmd.Parameters.AddWithValue("$maj", (int)ch.MajorHead);
+            cmd.Parameters.AddWithValue("$min", (int)ch.MinorHead);
+            cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(ch.Amount));
+            cmd.Parameters.AddWithValue("$vid", ch.VoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$int", ch.InterestFlag ? 1 : 0);
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var d in c.GstDrc03s)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO gst_drc03
+                    (id, company_id, drc03_ref, cause, period, cgst_paisa, sgst_paisa, igst_paisa, cess_paisa,
+                     interest_paisa, drc03a_demand_ref, voucher_id, created_at)
+                VALUES ($id, $cid, $ref, $cause, $period, $cgst, $sgst, $igst, $cess, $int, $dref, $vid, $created);
+                """;
+            cmd.Parameters.AddWithValue("$id", d.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$ref", (object?)d.Drc03Ref ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cause", d.Cause);
+            cmd.Parameters.AddWithValue("$period", d.Period);
+            cmd.Parameters.AddWithValue("$cgst", d.CgstPaisa);
+            cmd.Parameters.AddWithValue("$sgst", d.SgstPaisa);
+            cmd.Parameters.AddWithValue("$igst", d.IgstPaisa);
+            cmd.Parameters.AddWithValue("$cess", d.CessPaisa);
+            cmd.Parameters.AddWithValue("$int", d.InterestPaisa);
+            cmd.Parameters.AddWithValue("$dref", (object?)d.Drc03aDemandRef ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$vid", (object?)d.VoucherId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$created", FormatDateTimeOffset(d.CreatedAt));
+            cmd.ExecuteNonQuery();
+        }
+
+        foreach (var l in c.GstSetoffLines)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO gst_setoff_lines
+                    (id, company_id, voucher_id, period, credit_head, liability_head, is_cash, amount_paisa)
+                VALUES ($id, $cid, $vid, $period, $ch, $lh, $cash, $amt);
+                """;
+            cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$vid", l.VoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$period", l.Period);
+            cmd.Parameters.AddWithValue("$ch", (int)l.CreditHead);
+            cmd.Parameters.AddWithValue("$lh", (int)l.LiabilityHead);
+            cmd.Parameters.AddWithValue("$cash", l.IsCash ? 1 : 0);
+            cmd.Parameters.AddWithValue("$amt", l.AmountPaisa);
+            cmd.ExecuteNonQuery();
+        }
+
+        // itc_reversals lands empty in S7a (the reversal engine is S7b), but the saver is complete so the table
+        // round-trips the moment S7b fills it.
+        foreach (var rv in c.ItcReversals)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO itc_reversals
+                    (id, company_id, rule, period, cgst_paisa, sgst_paisa, igst_paisa, cess_paisa, d1_basis_paisa,
+                     d2_basis_paisa, source_voucher_id, source_line_id, reversal_voucher_id, reclaim_of_id, drc03_id,
+                     table4b_bucket, created_at)
+                VALUES ($id, $cid, $rule, $period, $cgst, $sgst, $igst, $cess, $d1, $d2, $sv, $sl, $rv, $reclaim,
+                        $drc03, $bucket, $created);
+                """;
+            cmd.Parameters.AddWithValue("$id", rv.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$rule", (int)rv.Rule);
+            cmd.Parameters.AddWithValue("$period", rv.Period);
+            cmd.Parameters.AddWithValue("$cgst", rv.CgstPaisa);
+            cmd.Parameters.AddWithValue("$sgst", rv.SgstPaisa);
+            cmd.Parameters.AddWithValue("$igst", rv.IgstPaisa);
+            cmd.Parameters.AddWithValue("$cess", rv.CessPaisa);
+            cmd.Parameters.AddWithValue("$d1", rv.D1BasisPaisa is { } d1 ? d1 : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$d2", rv.D2BasisPaisa is { } d2 ? d2 : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$sv", (object?)rv.SourceVoucherId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$sl", (object?)rv.SourceLineId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rv", rv.ReversalVoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$reclaim", (object?)rv.ReclaimOfId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$drc03", (object?)rv.Drc03Id?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bucket", (int)rv.Table4bBucket);
+            cmd.Parameters.AddWithValue("$created", FormatDateTimeOffset(rv.CreatedAt));
             cmd.ExecuteNonQuery();
         }
     }
@@ -6101,9 +6374,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         (voucher_id, line_order, ledger_id, amount_paisa, side,
                          forex_currency_id, forex_amount_micro, forex_rate_micro,
                          gst_tax_head, gst_rate_bp, gst_taxable_value_paisa,
-                         gst_is_reverse_charge, gst_rcm_scheme)
+                         gst_is_reverse_charge, gst_rcm_scheme, gst_adjustment_kind)
                     VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate, $gthead, $grate, $gtax,
-                            $grcm, $grcmsch)
+                            $grcm, $grcmsch, $gadj)
                     RETURNING id;
                     """;
                 cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
@@ -6126,6 +6399,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v39 (Phase 9 slice 2): reverse-charge tag (default 0/NULL for a forward-charge line).
                 cmd.Parameters.AddWithValue("$grcm", gt is { IsReverseCharge: true } ? 1 : 0);
                 cmd.Parameters.AddWithValue("$grcmsch", gt?.RcmScheme is { } sch ? (int)sch : (object)DBNull.Value);
+                // v44 (Phase 9 slice 7): the set-off / cash-payment / reversal adjustment tag (NULL for a forward line).
+                cmd.Parameters.AddWithValue("$gadj", gt?.Adjustment is { } adj ? (int)adj : (object)DBNull.Value);
                 lineId = Convert.ToInt64(cmd.ExecuteScalar());
             }
 

@@ -48,6 +48,10 @@ internal sealed class ApplyJournal
     private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
     private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
     private readonly List<ImsAction> _imsActions = new();
+    private readonly List<GstSetoffLine> _gstSetoffLines = new();
+    private readonly List<ItcReversal> _itcReversals = new();
+    private readonly List<GstChallan> _gstChallans = new();
+    private readonly List<GstDrc03> _gstDrc03s = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
     private readonly List<EmployeeGroup> _employeeGroups = new();
     private readonly List<Employee> _employees = new();
@@ -122,6 +126,10 @@ internal sealed class ApplyJournal
     public void RecordGstr2bSnapshot(Gstr2bSnapshot s) => _gstr2bSnapshots.Add(s);
     public void RecordGstr2bReconResult(Gstr2bReconResult r) => _gstr2bReconResults.Add(r);
     public void RecordImsAction(ImsAction a) => _imsActions.Add(a);
+    public void RecordGstSetoffLine(GstSetoffLine l) => _gstSetoffLines.Add(l);
+    public void RecordItcReversal(ItcReversal r) => _itcReversals.Add(r);
+    public void RecordGstChallan(GstChallan ch) => _gstChallans.Add(ch);
+    public void RecordGstDrc03(GstDrc03 d) => _gstDrc03s.Add(d);
     public void RecordEmployeeCategory(EmployeeCategory x) => _employeeCategories.Add(x);
     public void RecordEmployeeGroup(EmployeeGroup x) => _employeeGroups.Add(x);
     public void RecordEmployee(Employee x) => _employees.Add(x);
@@ -216,6 +224,12 @@ internal sealed class ApplyJournal
         for (var i = _imsActions.Count - 1; i >= 0; i--) _company.RemoveImsAction(_imsActions[i]);
         for (var i = _gstr2bReconResults.Count - 1; i >= 0; i--) _company.RemoveGstr2bReconResult(_gstr2bReconResults[i]);
         for (var i = _gstr2bSnapshots.Count - 1; i >= 0; i--) _company.RemoveGstr2bSnapshot(_gstr2bSnapshots[i]);
+        // Phase 9 slice 7: electronic-ledger records reference the imported vouchers (and each other: itc_reversals →
+        // gst_drc03) → prune reversals first, then set-off lines / challans / drc03, all before the vouchers below.
+        for (var i = _itcReversals.Count - 1; i >= 0; i--) _company.RemoveItcReversal(_itcReversals[i]);
+        for (var i = _gstSetoffLines.Count - 1; i >= 0; i--) _company.RemoveGstSetoffLine(_gstSetoffLines[i]);
+        for (var i = _gstChallans.Count - 1; i >= 0; i--) _company.RemoveGstChallan(_gstChallans[i]);
+        for (var i = _gstDrc03s.Count - 1; i >= 0; i--) _company.RemoveGstDrc03(_gstDrc03s[i]);
 
         // 1) Vouchers first (reverse posting order): inventory/order vouchers, then accounting vouchers.
         for (var i = _inventoryVouchers.Count - 1; i >= 0; i--) _company.RemoveInventoryVoucher(_inventoryVouchers[i]);

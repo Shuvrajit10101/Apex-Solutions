@@ -152,6 +152,20 @@ public sealed class VoucherType
     /// <summary>True iff this is an RCM Payment-Voucher type — a Payment base type with <see cref="IsRcmPaymentVoucher"/> on.</summary>
     public bool IsRcmPaymentVoucherType => BaseType == VoucherBaseType.Payment && IsRcmPaymentVoucher;
 
+    /// <summary>
+    /// "<b>Use for GST Statutory Adjustment (Alt+J)</b>" (Phase 9 slice 7; catalog §12; RQ-21/RQ-27). A <b>Journal</b>
+    /// voucher type flagged to book a Rule-88A ITC set-off (Dr Output {head} / Cr Input {head}) or an ITC reversal
+    /// (Dr reversal-cost / Cr Input {head}) — the Tally "Alt+J Stat Adjustment" mode. It reuses the Journal
+    /// <see cref="BaseType"/> unchanged (mirror <see cref="IsStatPayment"/>, no new <see cref="VoucherBaseType"/>) — so
+    /// <c>GstReportSupport.DirectionOf</c> (Journal ⇒ null direction) keeps these adjustment vouchers OUT of the Table
+    /// 3.1 / 4(A) sums, which is exactly why an S7 posting cannot corrupt the existing GSTR-3B figures. Defaults to
+    /// <c>false</c>, so every existing Journal type is byte-identical (ER-13). Only meaningful on a Journal base.
+    /// </summary>
+    public bool IsGstStatAdjustment { get; set; }
+
+    /// <summary>True iff this is a GST Stat-Adjustment type — a Journal base type with <see cref="IsGstStatAdjustment"/> on.</summary>
+    public bool IsGstStatAdjustmentType => BaseType == VoucherBaseType.Journal && IsGstStatAdjustment;
+
     public VoucherType(
         Guid id,
         string name,
@@ -171,7 +185,8 @@ public sealed class VoucherType
         bool useForJobWork = false,
         bool allowConsumption = false,
         bool isStatPayment = false,
-        bool isRcmPaymentVoucher = false)
+        bool isRcmPaymentVoucher = false,
+        bool isGstStatAdjustment = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -195,5 +210,6 @@ public sealed class VoucherType
         AllowConsumption = allowConsumption;
         IsStatPayment = isStatPayment;
         IsRcmPaymentVoucher = isRcmPaymentVoucher;
+        IsGstStatAdjustment = isGstStatAdjustment;
     }
 }

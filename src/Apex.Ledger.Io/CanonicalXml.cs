@@ -122,9 +122,39 @@ public static class CanonicalXml
             List("gstr2bSnapshots", "gstr2bSnapshot", p.Gstr2bSnapshots, BuildGstr2bSnapshot),
             List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult),
             // Phase 9 slice 6b: offline IMS decisions (empty until the user acts, ER-13).
-            List("imsActions", "imsAction", p.ImsActions, BuildImsAction));
+            List("imsActions", "imsAction", p.ImsActions, BuildImsAction),
+            // Phase 9 slice 7: electronic-ledger set-off / reversal / challan / DRC-03 records (empty until the
+            // company sets off / pays / reverses, ER-13).
+            List("gstSetoffLines", "gstSetoffLine", p.GstSetoffLines, BuildGstSetoffLine),
+            List("itcReversals", "itcReversal", p.ItcReversals, BuildItcReversal),
+            List("gstChallans", "gstChallan", p.GstChallans, BuildGstChallan),
+            List("gstDrc03s", "gstDrc03", p.GstDrc03s, BuildGstDrc03));
         return root;
     }
+
+    private static XElement BuildGstSetoffLine(GstSetoffLineDto l) => new("gstSetoffLine",
+        Attr("id", l.Id), Attr("voucherId", l.VoucherId), Attr("period", l.Period),
+        Attr("creditHead", l.CreditHead), Attr("liabilityHead", l.LiabilityHead),
+        OptTrue("isCash", l.IsCash), Attr("amountPaisa", l.AmountPaisa));
+
+    private static XElement BuildItcReversal(ItcReversalDto r) => new("itcReversal",
+        Attr("id", r.Id), Attr("rule", r.Rule), Attr("period", r.Period),
+        Attr("cgstPaisa", r.CgstPaisa), Attr("sgstPaisa", r.SgstPaisa), Attr("igstPaisa", r.IgstPaisa),
+        Attr("cessPaisa", r.CessPaisa), OptLong("d1BasisPaisa", r.D1BasisPaisa), OptLong("d2BasisPaisa", r.D2BasisPaisa),
+        OptId("sourceVoucherId", r.SourceVoucherId), OptId("sourceLineId", r.SourceLineId),
+        Attr("reversalVoucherId", r.ReversalVoucherId), OptId("reclaimOfId", r.ReclaimOfId),
+        OptId("drc03Id", r.Drc03Id), Attr("table4bBucket", r.Table4bBucket), Attr("createdAt", r.CreatedAt));
+
+    private static XElement BuildGstChallan(GstChallanDto ch) => new("gstChallan",
+        Attr("id", ch.Id), Attr("cpin", ch.Cpin), Opt("cin", ch.Cin), Opt("brn", ch.Brn),
+        Attr("depositDate", ch.DepositDate), Attr("majorHead", ch.MajorHead), Attr("minorHead", ch.MinorHead),
+        Attr("amountPaisa", ch.AmountPaisa), Attr("voucherId", ch.VoucherId), OptTrue("interestFlag", ch.InterestFlag));
+
+    private static XElement BuildGstDrc03(GstDrc03Dto d) => new("gstDrc03",
+        Attr("id", d.Id), Opt("drc03Ref", d.Drc03Ref), Attr("cause", d.Cause), Attr("period", d.Period),
+        Attr("cgstPaisa", d.CgstPaisa), Attr("sgstPaisa", d.SgstPaisa), Attr("igstPaisa", d.IgstPaisa),
+        Attr("cessPaisa", d.CessPaisa), Attr("interestPaisa", d.InterestPaisa),
+        Opt("drc03aDemandRef", d.Drc03aDemandRef), OptId("voucherId", d.VoucherId), Attr("createdAt", d.CreatedAt));
 
     private static XElement BuildGstr2bSnapshot(Gstr2bSnapshotDto s)
     {
@@ -419,7 +449,8 @@ public static class CanonicalXml
             Attr("useForJobWork", t.UseForJobWork),
             Attr("allowConsumption", t.AllowConsumption),
             Attr("isStatPayment", t.IsStatPayment),
-            Attr("isRcmPaymentVoucher", t.IsRcmPaymentVoucher));
+            Attr("isRcmPaymentVoucher", t.IsRcmPaymentVoucher),
+            Attr("isGstStatAdjustment", t.IsGstStatAdjustment));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
         return el;
     }
@@ -731,7 +762,9 @@ public static class CanonicalXml
             el.Add(new XElement("gst", Attr("taxHead", g.TaxHead), Attr("rateBasisPoints", g.RateBasisPoints),
                 Attr("taxableValuePaisa", g.TaxableValuePaisa),
                 // Phase 9 slice 2: reverse-charge tag (emitted only when set so a forward-charge line is byte-identical).
-                OptTrue("isReverseCharge", g.IsReverseCharge), Opt("rcmScheme", g.RcmScheme)));
+                // Phase 9 slice 7: the set-off / reversal adjustment tag (emitted only when set).
+                OptTrue("isReverseCharge", g.IsReverseCharge), Opt("rcmScheme", g.RcmScheme),
+                Opt("adjustment", g.Adjustment)));
         if (l.Tds is { } t)
             el.Add(new XElement("tds", Attr("natureId", t.NatureId), Attr("sectionCode", t.SectionCode),
                 Attr("assessableValuePaisa", t.AssessableValuePaisa), Attr("rateBasisPoints", t.RateBasisPoints),
@@ -1061,6 +1094,11 @@ public static class CanonicalXml
                 Gstr2bSnapshots = ReadList(root, "gstr2bSnapshots", "gstr2bSnapshot", ReadGstr2bSnapshot),
                 Gstr2bReconResults = ReadList(root, "gstr2bReconResults", "gstr2bReconResult", ReadGstr2bReconResult),
                 ImsActions = ReadList(root, "imsActions", "imsAction", ReadImsAction),
+                // Phase 9 slice 7: electronic-ledger records (absent element ⇒ empty list, ER-13).
+                GstSetoffLines = ReadList(root, "gstSetoffLines", "gstSetoffLine", ReadGstSetoffLine),
+                ItcReversals = ReadList(root, "itcReversals", "itcReversal", ReadItcReversal),
+                GstChallans = ReadList(root, "gstChallans", "gstChallan", ReadGstChallan),
+                GstDrc03s = ReadList(root, "gstDrc03s", "gstDrc03", ReadGstDrc03),
             };
         }
         catch (Exception ex)
@@ -1307,6 +1345,7 @@ public static class CanonicalXml
         AllowConsumption = Bool(e, "allowConsumption"),
         IsStatPayment = Bool(e, "isStatPayment"),
         IsRcmPaymentVoucher = Bool(e, "isRcmPaymentVoucher"),
+        IsGstStatAdjustment = Bool(e, "isGstStatAdjustment"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
     };
 
@@ -1395,6 +1434,38 @@ public static class CanonicalXml
         Id = Guid(e, "id"), LineId = Guid(e, "lineId"), Status = Str(e, "status")!, Remarks = Str(e, "remarks"),
         DeclaredReversalPaisa = OptLong(e, "declaredReversalPaisa"), NoReversalDeclared = Bool(e, "noReversalDeclared"),
         ActedOn = Str(e, "actedOn"),
+    };
+
+    private static GstSetoffLineDto ReadGstSetoffLine(XElement e) => new()
+    {
+        Id = Guid(e, "id"), VoucherId = Guid(e, "voucherId"), Period = Str(e, "period")!,
+        CreditHead = Str(e, "creditHead")!, LiabilityHead = Str(e, "liabilityHead")!,
+        IsCash = Bool(e, "isCash"), AmountPaisa = Long(e, "amountPaisa"),
+    };
+
+    private static ItcReversalDto ReadItcReversal(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Rule = Str(e, "rule")!, Period = Str(e, "period")!,
+        CgstPaisa = Long(e, "cgstPaisa"), SgstPaisa = Long(e, "sgstPaisa"), IgstPaisa = Long(e, "igstPaisa"),
+        CessPaisa = Long(e, "cessPaisa"), D1BasisPaisa = OptLong(e, "d1BasisPaisa"), D2BasisPaisa = OptLong(e, "d2BasisPaisa"),
+        SourceVoucherId = OptGuid(e, "sourceVoucherId"), SourceLineId = OptGuid(e, "sourceLineId"),
+        ReversalVoucherId = Guid(e, "reversalVoucherId"), ReclaimOfId = OptGuid(e, "reclaimOfId"),
+        Drc03Id = OptGuid(e, "drc03Id"), Table4bBucket = Str(e, "table4bBucket")!, CreatedAt = Str(e, "createdAt")!,
+    };
+
+    private static GstChallanDto ReadGstChallan(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Cpin = Str(e, "cpin")!, Cin = Str(e, "cin"), Brn = Str(e, "brn"),
+        DepositDate = Str(e, "depositDate")!, MajorHead = Str(e, "majorHead")!, MinorHead = Str(e, "minorHead")!,
+        AmountPaisa = Long(e, "amountPaisa"), VoucherId = Guid(e, "voucherId"), InterestFlag = Bool(e, "interestFlag"),
+    };
+
+    private static GstDrc03Dto ReadGstDrc03(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Drc03Ref = Str(e, "drc03Ref"), Cause = Str(e, "cause")!, Period = Str(e, "period")!,
+        CgstPaisa = Long(e, "cgstPaisa"), SgstPaisa = Long(e, "sgstPaisa"), IgstPaisa = Long(e, "igstPaisa"),
+        CessPaisa = Long(e, "cessPaisa"), InterestPaisa = Long(e, "interestPaisa"),
+        Drc03aDemandRef = Str(e, "drc03aDemandRef"), VoucherId = OptGuid(e, "voucherId"), CreatedAt = Str(e, "createdAt")!,
     };
 
     private static GstAdvanceReceiptDto ReadAdvanceReceipt(XElement e) => new()
@@ -1679,8 +1750,9 @@ public static class CanonicalXml
         {
             TaxHead = Str(g, "taxHead")!, RateBasisPoints = Int(g, "rateBasisPoints"),
             TaxableValuePaisa = Long(g, "taxableValuePaisa"),
-            // Phase 9 slice 2: reverse-charge tag (absent ⇒ false/null, ER-13).
+            // Phase 9 slice 2: reverse-charge tag (absent ⇒ false/null, ER-13). Phase 9 slice 7: adjustment tag.
             IsReverseCharge = Bool(g, "isReverseCharge"), RcmScheme = Str(g, "rcmScheme"),
+            Adjustment = Str(g, "adjustment"),
         } : null,
         Tds = e.Element("tds") is { } t ? new TdsLineTaxDto
         {

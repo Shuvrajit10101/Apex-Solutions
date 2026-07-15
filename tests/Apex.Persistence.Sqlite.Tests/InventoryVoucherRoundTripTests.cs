@@ -436,6 +436,19 @@ public sealed class InventoryVoucherRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS eway_bills;");
         Exec(conn, "DROP INDEX IF EXISTS ix_eway_state_thresholds_company;");
         Exec(conn, "DROP TABLE IF EXISTS eway_state_thresholds;");
+        // v44 GST set-off / reversal / challan / DRC-03 tables (+ indexes) — drop (child-first: itc_reversals FKs
+        // gst_drc03 + gstr2b_lines) so the reopen's v43→v44 CREATE TABLE does not collide (the entry_lines/voucher_types
+        // rebuilds below strip the v44 gst_adjustment_kind / is_gst_stat_adjustment columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_itc_reversals_company;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_itc_reversals_key;");
+        Exec(conn, "DROP TABLE IF EXISTS itc_reversals;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_drc03_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_drc03;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_challans_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_challans;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_setoff_lines_voucher;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_setoff_lines_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_setoff_lines;");
         // v43 GSTR-2B inbound tables (+ indexes) — drop (child-first) so the reopen's v42→v43 CREATE TABLE does not
         // collide (the stock_items/ledgers rebuild below strips the v43 §17(5) columns too).
         Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_recon_line;");

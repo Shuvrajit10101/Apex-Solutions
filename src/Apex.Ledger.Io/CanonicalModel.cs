@@ -326,6 +326,21 @@ public sealed record PayloadDto
     /// reversal declaration, keyed to the 2B lines. Empty until the user acts (a line with no action is deemed-accepted,
     /// ER-13). ADVISORY only — no NIC credential appears here (ER-16).</summary>
     public IReadOnlyList<ImsActionDto> ImsActions { get; init; } = [];
+
+    /// <summary>Posted Rule-88A set-off Table-6.1 allocation rows (Phase 9 slice 7; RQ-21). The audit of a posted
+    /// set-off Journal, so it is always co-exported with that voucher. Empty until a period is set off (ER-13).</summary>
+    public IReadOnlyList<GstSetoffLineDto> GstSetoffLines { get; init; } = [];
+
+    /// <summary>Posted ITC-reversal audit rows (Phase 9 slice 7; RQ-27). The reversal engine is S7b, so this stays
+    /// empty in S7a (ER-13).</summary>
+    public IReadOnlyList<ItcReversalDto> ItcReversals { get; init; } = [];
+
+    /// <summary>PMT-06 GST deposit challans (Phase 9 slice 7; RQ-22). The record of a posted cash-ledger deposit.
+    /// Empty until the company deposits GST (ER-13).</summary>
+    public IReadOnlyList<GstChallanDto> GstChallans { get; init; } = [];
+
+    /// <summary>DRC-03 voluntary GST payments (Phase 9 slice 7; RQ-22). Empty until one is raised (ER-13).</summary>
+    public IReadOnlyList<GstDrc03Dto> GstDrc03s { get; init; } = [];
 }
 
 /// <summary>An imported GSTR-2B/2A statement (Phase 9 slice 6), mirroring the domain <c>Gstr2bSnapshot</c> + the SQLite
@@ -398,6 +413,79 @@ public sealed record ImsActionDto
     public long? DeclaredReversalPaisa { get; init; }            // Oct-2025 partial CDN reversal, or null
     public bool NoReversalDeclared { get; init; }
     public string? ActedOn { get; init; }                        // ISO yyyy-MM-dd, or null
+}
+
+/// <summary>A posted Rule-88A set-off Table-6.1 allocation row (Phase 9 slice 7), mirroring the domain
+/// <c>GstSetoffLine</c> + the SQLite <c>gst_setoff_lines</c> row. <c>VoucherId</c> FKs the posted set-off Journal (it
+/// re-links through the voucher map on import). Money is integer paisa; heads are enum names.</summary>
+public sealed record GstSetoffLineDto
+{
+    public required Guid Id { get; init; }
+    public required Guid VoucherId { get; init; }                // FK the posted set-off Journal
+    public required string Period { get; init; }                 // "yyyy-MM"
+    public required string CreditHead { get; init; }             // GstTaxHead name
+    public required string LiabilityHead { get; init; }          // GstTaxHead name
+    public bool IsCash { get; init; }
+    public long AmountPaisa { get; init; }
+}
+
+/// <summary>A posted ITC-reversal audit row (Phase 9 slice 7), mirroring the domain <c>ItcReversal</c> + the SQLite
+/// <c>itc_reversals</c> row. The reversal engine is S7b, so this stays empty in S7a. Money is integer paisa; the rule +
+/// bucket are enum names. Every voucher FK re-links through the voucher map on import.</summary>
+public sealed record ItcReversalDto
+{
+    public required Guid Id { get; init; }
+    public required string Rule { get; init; }                   // ItcReversalRule name
+    public required string Period { get; init; }
+    public long CgstPaisa { get; init; }
+    public long SgstPaisa { get; init; }
+    public long IgstPaisa { get; init; }
+    public long CessPaisa { get; init; }
+    public long? D1BasisPaisa { get; init; }
+    public long? D2BasisPaisa { get; init; }
+    public Guid? SourceVoucherId { get; init; }
+    public Guid? SourceLineId { get; init; }                     // FK an imported Gstr2bLine DTO id
+    public required Guid ReversalVoucherId { get; init; }        // FK the posted stat-adjustment Journal
+    public Guid? ReclaimOfId { get; init; }                      // FK another ItcReversal DTO id (a reclaim)
+    public Guid? Drc03Id { get; init; }                          // FK a GstDrc03 DTO id
+    public required string Table4bBucket { get; init; }          // Table4bBucket name
+    public required string CreatedAt { get; init; }              // ISO round-trip (o)
+}
+
+/// <summary>A PMT-06 GST deposit challan (Phase 9 slice 7), mirroring the domain <c>GstChallan</c> + the SQLite
+/// <c>gst_challans</c> row. <c>VoucherId</c> FKs the deposit voucher (re-links through the voucher map on import).
+/// Money is integer paisa; the heads are enum names; <c>DepositDate</c> is ISO.</summary>
+public sealed record GstChallanDto
+{
+    public required Guid Id { get; init; }
+    public required string Cpin { get; init; }
+    public string? Cin { get; init; }
+    public string? Brn { get; init; }
+    public required string DepositDate { get; init; }            // ISO yyyy-MM-dd
+    public required string MajorHead { get; init; }              // GstTaxHead name
+    public required string MinorHead { get; init; }              // GstMinorHead name
+    public long AmountPaisa { get; init; }
+    public required Guid VoucherId { get; init; }                // FK the deposit voucher
+    public bool InterestFlag { get; init; }
+}
+
+/// <summary>A DRC-03 voluntary GST payment (Phase 9 slice 7), mirroring the domain <c>GstDrc03</c> + the SQLite
+/// <c>gst_drc03</c> row. <c>VoucherId</c> (if any) FKs the payment voucher (re-links through the voucher map on
+/// import). Money is integer paisa; <c>CreatedAt</c> is ISO round-trip (o).</summary>
+public sealed record GstDrc03Dto
+{
+    public required Guid Id { get; init; }
+    public string? Drc03Ref { get; init; }
+    public required string Cause { get; init; }
+    public required string Period { get; init; }
+    public long CgstPaisa { get; init; }
+    public long SgstPaisa { get; init; }
+    public long IgstPaisa { get; init; }
+    public long CessPaisa { get; init; }
+    public long InterestPaisa { get; init; }
+    public string? Drc03aDemandRef { get; init; }
+    public Guid? VoucherId { get; init; }                        // FK the payment voucher, or null
+    public required string CreatedAt { get; init; }              // ISO round-trip (o)
 }
 
 /// <summary>An RCM generated document (Phase 9 slice 2), mirroring the domain <c>RcmDocument</c> and the SQLite
@@ -668,6 +756,9 @@ public sealed record VoucherTypeDto
 
     /// <summary>"Use for RCM Payment Voucher (Rule 52)" (Phase 9 slice 2) — a Payment voucher-type flag. Default false.</summary>
     public bool IsRcmPaymentVoucher { get; init; }
+
+    /// <summary>"Use for GST Statutory Adjustment (Alt+J)" (Phase 9 slice 7) — a Journal voucher-type flag. Default false.</summary>
+    public bool IsGstStatAdjustment { get; init; }
 
     /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
     public PosConfigDto? PosConfig { get; init; }
@@ -1487,6 +1578,7 @@ public sealed record GstLineTaxDto
     // Phase 9 slice 2 (RQ-7): reverse-charge tag. Default false/null ⇒ a forward-charge line is byte-identical (ER-13).
     public bool IsReverseCharge { get; init; }
     public string? RcmScheme { get; init; }            // RcmItcScheme name, or null
+    public string? Adjustment { get; init; }           // GstAdjustmentKind name (SetOff/CashPayment/Reversal…/Reclaim), or null
 }
 
 /// <summary>The TDS withholding detail carried on an entry line (Phase 7 slice 2), mirroring the domain

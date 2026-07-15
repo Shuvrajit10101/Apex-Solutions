@@ -243,6 +243,50 @@ public static class CanonicalMapper
         // Phase 9 slice 6b: offline IMS decisions (ordered by line, then id so stable).
         ImsActions = c.ImsActions
             .OrderBy(a => a.LineId).ThenBy(a => a.Id).Select(MapImsAction).ToList(),
+        // Phase 9 slice 7: electronic-ledger set-off / reversal / challan / DRC-03 records, each deterministically
+        // ordered so serialisation is byte-stable (setoff-lines by period/voucher/heads; reversals by rule/period;
+        // challans by deposit date; DRC-03 by period).
+        GstSetoffLines = c.GstSetoffLines
+            .OrderBy(l => l.Period, StringComparer.Ordinal).ThenBy(l => l.VoucherId)
+            .ThenBy(l => (int)l.CreditHead).ThenBy(l => (int)l.LiabilityHead).ThenBy(l => l.Id)
+            .Select(MapGstSetoffLine).ToList(),
+        ItcReversals = c.ItcReversals
+            .OrderBy(r => (int)r.Rule).ThenBy(r => r.Period, StringComparer.Ordinal).ThenBy(r => r.Id)
+            .Select(MapItcReversal).ToList(),
+        GstChallans = c.GstChallans
+            .OrderBy(ch => ch.DepositDate).ThenBy(ch => ch.Id).Select(MapGstChallan).ToList(),
+        GstDrc03s = c.GstDrc03s
+            .OrderBy(d => d.Period, StringComparer.Ordinal).ThenBy(d => d.Id).Select(MapGstDrc03).ToList(),
+    };
+
+    private static GstSetoffLineDto MapGstSetoffLine(GstSetoffLine l) => new()
+    {
+        Id = l.Id, VoucherId = l.VoucherId, Period = l.Period, CreditHead = l.CreditHead.ToString(),
+        LiabilityHead = l.LiabilityHead.ToString(), IsCash = l.IsCash, AmountPaisa = l.AmountPaisa,
+    };
+
+    private static ItcReversalDto MapItcReversal(ItcReversal r) => new()
+    {
+        Id = r.Id, Rule = r.Rule.ToString(), Period = r.Period, CgstPaisa = r.CgstPaisa, SgstPaisa = r.SgstPaisa,
+        IgstPaisa = r.IgstPaisa, CessPaisa = r.CessPaisa, D1BasisPaisa = r.D1BasisPaisa, D2BasisPaisa = r.D2BasisPaisa,
+        SourceVoucherId = r.SourceVoucherId, SourceLineId = r.SourceLineId, ReversalVoucherId = r.ReversalVoucherId,
+        ReclaimOfId = r.ReclaimOfId, Drc03Id = r.Drc03Id, Table4bBucket = r.Table4bBucket.ToString(),
+        CreatedAt = r.CreatedAt.ToString("o", CultureInfo.InvariantCulture),
+    };
+
+    private static GstChallanDto MapGstChallan(GstChallan ch) => new()
+    {
+        Id = ch.Id, Cpin = ch.Cpin, Cin = ch.Cin, Brn = ch.Brn, DepositDate = Iso(ch.DepositDate),
+        MajorHead = ch.MajorHead.ToString(), MinorHead = ch.MinorHead.ToString(),
+        AmountPaisa = MoneyCodec.ToPaisa(ch.Amount), VoucherId = ch.VoucherId, InterestFlag = ch.InterestFlag,
+    };
+
+    private static GstDrc03Dto MapGstDrc03(GstDrc03 d) => new()
+    {
+        Id = d.Id, Drc03Ref = d.Drc03Ref, Cause = d.Cause, Period = d.Period, CgstPaisa = d.CgstPaisa,
+        SgstPaisa = d.SgstPaisa, IgstPaisa = d.IgstPaisa, CessPaisa = d.CessPaisa, InterestPaisa = d.InterestPaisa,
+        Drc03aDemandRef = d.Drc03aDemandRef, VoucherId = d.VoucherId,
+        CreatedAt = d.CreatedAt.ToString("o", CultureInfo.InvariantCulture),
     };
 
     private static Gstr2bSnapshotDto MapGstr2bSnapshot(Gstr2bSnapshot s) => new()
@@ -545,6 +589,7 @@ public static class CanonicalMapper
         AllowConsumption = t.AllowConsumption,
         IsStatPayment = t.IsStatPayment,
         IsRcmPaymentVoucher = t.IsRcmPaymentVoucher,
+        IsGstStatAdjustment = t.IsGstStatAdjustment, // Phase 9 slice 7
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
 
@@ -893,8 +938,9 @@ public static class CanonicalMapper
     {
         TaxHead = g.TaxHead.ToString(), RateBasisPoints = g.RateBasisPoints,
         TaxableValuePaisa = MoneyCodec.ToPaisa(g.TaxableValue),
-        // Phase 9 slice 2: reverse-charge tag.
+        // Phase 9 slice 2: reverse-charge tag. Phase 9 slice 7: the set-off / reversal adjustment tag.
         IsReverseCharge = g.IsReverseCharge, RcmScheme = g.RcmScheme?.ToString(),
+        Adjustment = g.Adjustment?.ToString(),
     };
 
     private static VoucherInventoryLineDto MapVoucherInventoryLine(VoucherInventoryLine l) => new()

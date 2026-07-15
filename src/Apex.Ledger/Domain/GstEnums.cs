@@ -651,3 +651,140 @@ public enum BlockedCreditCategory
     /// <summary>Any other §17(5) blocked credit.</summary>
     Other = 8,
 }
+
+// ==================================================================================================================
+//  Electronic ledgers + Rule-88A set-off + GST payment + ITC reversal (Phase 9 slice 7; RQ-20..RQ-22, RQ-27;
+//  §49/§49A, Rule 88A, Rules 85/86/87, PMT-01/02/05/06, DRC-03; ER-7/ER-2/ER-3/ER-10/ER-13/ER-14). S7 is the FIRST
+//  inbound-side slice that POSTS to the ledger. Every enum defaults to its 0-ordinal so a company that never sets
+//  off / pays / reverses is byte-identical (ER-13). S7a lands ResidualIgstSplit/GstMinorHead/GstAdjustmentKind/
+//  ItcReversalRule + the four v44 tables; the ITC-reversal engine (Rule 42/43/37/37A) is S7b.
+// ==================================================================================================================
+
+/// <summary>
+/// How the residual IGST credit (the IGST credit left after fully discharging the IGST liability) is split across the
+/// CGST and SGST/UTGST liabilities in the Rule-88A set-off (Phase 9 slice 7; RQ-21; DP-16). Rule 88A relaxed the old
+/// rigid order, so the intra-CGST/SGST split of the residual IGST credit is <b>discretionary / editable</b> on the
+/// portal (the IGST-first-and-fully-exhausted rule is hard-enforced; A14-CONFIRMED). The engine computes a compliant
+/// default (<see cref="CgstFirst"/>) but MUST allow the user to override via the editable Table 6.1. Stored as the
+/// enum ordinal (CgstFirst=0).
+/// </summary>
+public enum ResidualIgstSplit
+{
+    /// <summary>Pay the CGST liability from the residual IGST credit before the SGST liability (the default, DP-16).</summary>
+    CgstFirst = 0,
+
+    /// <summary>Pay the SGST/UTGST liability from the residual IGST credit before the CGST liability.</summary>
+    SgstFirst = 1,
+
+    /// <summary>Split the residual IGST credit across CGST + SGST liabilities in proportion to their outstanding amounts.</summary>
+    Proportionate = 2,
+}
+
+/// <summary>
+/// The <b>minor head</b> of the electronic cash ledger (PMT-05) — the second axis of its 2-D matrix MAJOR head
+/// {IGST/CGST/SGST-UTGST/Cess} × MINOR head (Phase 9 slice 7; RQ-20; §49 + Rule 87; A14-CONFIRMED §11.2). Cash
+/// deposited under one (major, minor) cell is drawable ONLY within that cell (cross-cell movement needs PMT-09,
+/// out of scope). The credit ledger (PMT-02) can settle <b>only</b> the <see cref="Tax"/> minor head — interest /
+/// penalty / fee / late-fee are cash-only (§49(4) / Rule 86(2)). Stored as the enum ordinal (Tax=0).
+/// </summary>
+public enum GstMinorHead
+{
+    /// <summary>Tax — the only minor head the credit ledger may discharge (§49(4)).</summary>
+    Tax = 0,
+
+    /// <summary>Interest (§50) — cash-only.</summary>
+    Interest = 1,
+
+    /// <summary>Penalty — cash-only.</summary>
+    Penalty = 2,
+
+    /// <summary>Fee / late fee — cash-only.</summary>
+    Fee = 3,
+
+    /// <summary>Other (any residual head) — cash-only.</summary>
+    Other = 4,
+}
+
+/// <summary>
+/// The kind of GST <b>adjustment</b> a posted set-off / cash-payment / reversal / reclaim line carries (Phase 9 slice 7;
+/// RQ-21/RQ-22/RQ-27). Carried as a nullable discriminant on <see cref="GstLineTax"/> (default <c>null</c> ⇒ an
+/// ordinary forward outward/ITC line — byte-identical to a v43 line, ER-13), mirroring how S2 added
+/// <see cref="RcmItcScheme"/>. It lets the Table 6.1 (set-off) and Table 4(B) (reversal) projections classify the
+/// posted adjustment lines <b>without</b> polluting the existing outward/ITC sums (the adjustment vouchers are
+/// Journal/Payment base ⇒ excluded from <c>PostedGstVouchers</c> anyway). Stored as the enum ordinal (SetOff=0).
+/// </summary>
+public enum GstAdjustmentKind
+{
+    /// <summary>A Rule-88A credit-utilisation set-off line (Dr Output {head} / Cr Input {head}) — Table 6.1.</summary>
+    SetOff = 0,
+
+    /// <summary>A cash discharge of output tax from the electronic cash ledger (Dr Output {head} / Cr Cash Ledger) — Table 6.1.</summary>
+    CashPayment = 1,
+
+    /// <summary>A Rule 37 (180-day non-payment) ITC reversal (S7b) — Table 4(B)(2), reclaimable.</summary>
+    ReversalRule37 = 2,
+
+    /// <summary>A Rule 37A (supplier non-filing) ITC reversal (S7b) — Table 4(B)(2), reclaimable.</summary>
+    ReversalRule37A = 3,
+
+    /// <summary>A Rule 42 (inputs / input-services common-credit) ITC reversal (S7b) — Table 4(B)(1), non-reclaimable.</summary>
+    ReversalRule42 = 4,
+
+    /// <summary>A Rule 43 (capital-goods common-credit) ITC reversal (S7b) — Table 4(B)(1), non-reclaimable.</summary>
+    ReversalRule43 = 5,
+
+    /// <summary>A §17(5) blocked-credit ITC reversal (S7b) — Table 4(B)(1), non-reclaimable.</summary>
+    ReversalSection17_5 = 6,
+
+    /// <summary>An "ineligible ITC" reversal / disclosure (S7b) — Table 4(D) / 4(B)(1) if availed.</summary>
+    ReversalIneligible = 7,
+
+    /// <summary>An IMS-accepted / §34 credit-note ITC reversal (S7b) — Table 4(B).</summary>
+    ReversalCreditNote = 8,
+
+    /// <summary>A re-availment (reclaim) of an earlier Rule 37 / 37A reversal (S7b) — Table 4(D)(1).</summary>
+    Reclaim = 9,
+}
+
+/// <summary>
+/// The statutory ITC-reversal rule an <c>itc_reversals</c> row records (Phase 9 slice 7; RQ-27; DP-30/DP-31). The
+/// reversal <b>engine</b> (which computes + posts each) arrives in S7b; the <c>itc_reversals</c> table + this enum land
+/// in S7a (empty). Stored as the enum ordinal (Rule37=0).
+/// </summary>
+public enum ItcReversalRule
+{
+    /// <summary>Rule 37 — 180-day non-payment to the supplier (reclaimable on later payment; no time bar).</summary>
+    Rule37 = 0,
+
+    /// <summary>Rule 37A — supplier has not filed GSTR-3B by 30-Sep following the FY (reclaimable on supplier filing).</summary>
+    Rule37A = 1,
+
+    /// <summary>Rule 42 — inputs &amp; input-services common-credit apportionment (D1 + D2; non-reclaimable).</summary>
+    Rule42 = 2,
+
+    /// <summary>Rule 43 — capital-goods common-credit apportionment (60-month tranche; non-reclaimable).</summary>
+    Rule43 = 3,
+
+    /// <summary>§17(5) blocked credit reversed after being availed (non-reclaimable).</summary>
+    Section17_5 = 4,
+
+    /// <summary>Ineligible ITC (non-business / time-barred) reversed after being availed.</summary>
+    Ineligible = 5,
+}
+
+/// <summary>
+/// The GSTR-3B Table-4 bucket a posted ITC reversal / reclaim routes to (Phase 9 slice 7; RQ-27; A14-CONFIRMED §11.5,
+/// GSTN advisory 01-Sep-2022). Persisted on <c>itc_reversals.table4b_bucket</c>. Stored as the enum ordinal
+/// (Table4B1=0). The reversal engine (S7b) sets it; the table lands empty in S7a.
+/// </summary>
+public enum Table4bBucket
+{
+    /// <summary>Table 4(B)(1) — non-reclaimable reversals (Rules 38 / 42 / 43 + §17(5)).</summary>
+    Table4B1 = 0,
+
+    /// <summary>Table 4(B)(2) — reclaimable reversals (Rule 37 / 37A).</summary>
+    Table4B2 = 1,
+
+    /// <summary>Table 4(D)(1) — a reclaim of an earlier reversal (pulled into net ITC via 4(A)(5)).</summary>
+    Table4D1 = 2,
+}
