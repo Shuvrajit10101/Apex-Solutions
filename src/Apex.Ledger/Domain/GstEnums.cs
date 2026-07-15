@@ -498,3 +498,156 @@ public enum EWayCoverage
     /// <summary>e-Way is not applicable to this company/voucher (off / pre-date / not a goods movement).</summary>
     NotApplicable,
 }
+
+// ==================================================================================================================
+//  GSTR-2A/2B inbound reconciliation + IMS + §17(5) (Phase 9 slice 6; §16(2)(aa); RQ-12..RQ-15, RQ-26; DP-13..DP-15,
+//  DP-31). The FIRST inbound GST data path — imported external portal data, reconciled ADVISORY-only against the books
+//  (ER-14: never posts ITC/a reversal). Every enum defaults to its 0-ordinal so a company that never imports 2B is
+//  byte-identical (ER-13). S6a lands GstStatementType/Gstr2bDocType/ReconBucket (the import + reconcile spine); the
+//  IMS + §17(5) enums (ImsStatus/ItcEligibility/BlockedCreditCategory) land now but their engines arrive in S6b.
+// ==================================================================================================================
+
+/// <summary>
+/// Which portal statement a <see cref="Gstr2bSnapshot"/> holds (Phase 9 slice 6; DP-13). Both share ONE staging
+/// table pair, discriminated by this. <see cref="Gstr2b"/> (the static monthly ITC gatekeeper) is the §16(2)(aa)
+/// ITC-eligibility basis; <see cref="Gstr2a"/> (the dynamic view) is supplementary — importable and reconcilable but
+/// never the statutory gate. Stored as the enum ordinal (Gstr2b=0, Gstr2a=1).
+/// </summary>
+public enum GstStatementType
+{
+    /// <summary>GSTR-2B — the static, monthly, ITC-eligibility statement (§16(2)(aa) basis).</summary>
+    Gstr2b = 0,
+
+    /// <summary>GSTR-2A — the dynamic, supplementary inward-supply statement (not the ITC gate).</summary>
+    Gstr2a = 1,
+}
+
+/// <summary>
+/// The document class of one imported <see cref="Gstr2bLine"/> (Phase 9 slice 6; the GSTN 2B <c>docdata</c> sections).
+/// Stored as the enum ordinal; drives no computation (advisory grouping only). Amendments (B2BA/CDNRA) are kept as
+/// distinct classes so a re-stated document is visible in the reconciliation.
+/// </summary>
+public enum Gstr2bDocType
+{
+    /// <summary>A regular B2B inward supply (2B <c>b2b</c> section).</summary>
+    B2b = 0,
+
+    /// <summary>An amendment to a B2B inward supply (2B <c>b2ba</c> section).</summary>
+    B2bAmendment = 1,
+
+    /// <summary>A supplier credit note reducing an inward supply (2B <c>cdnr</c>, note type C).</summary>
+    CreditNote = 2,
+
+    /// <summary>A supplier debit note increasing an inward supply (2B <c>cdnr</c>, note type D).</summary>
+    DebitNote = 3,
+
+    /// <summary>An amendment to a credit note (2B <c>cdnra</c>, note type C).</summary>
+    CreditNoteAmendment = 4,
+
+    /// <summary>An amendment to a debit note (2B <c>cdnra</c>, note type D).</summary>
+    DebitNoteAmendment = 5,
+
+    /// <summary>Import of goods from overseas (2B <c>impg</c>, from the Bill of Entry).</summary>
+    ImportOfGoods = 6,
+
+    /// <summary>Import of goods from an SEZ unit/developer (2B <c>impgsez</c>).</summary>
+    ImportOfGoodsSez = 7,
+
+    /// <summary>An Input-Service-Distributor credit (2B <c>isd</c>).</summary>
+    Isd = 8,
+}
+
+/// <summary>
+/// The reconciliation bucket a 2B line (or a booked purchase) falls into (Phase 9 slice 6; RQ-13; DP-13). The three
+/// portal-side buckets are persisted on <c>gstr2b_recon</c> (keyed to the immutable <see cref="Gstr2bLine"/>);
+/// <see cref="InBooksOnly"/> has no 2B line to key on and is a report-time derivation only (§6.4). Stored as the enum
+/// ordinal (Matched=0, PartialMismatch=1, InPortalOnly=2, InBooksOnly=3).
+/// </summary>
+public enum ReconBucket
+{
+    /// <summary>The 2B line matched a booked purchase — keys equal AND value/tax within tolerance.</summary>
+    Matched = 0,
+
+    /// <summary>The keys matched (GSTIN + normalised doc-no + date window) but value/tax differ beyond tolerance.</summary>
+    PartialMismatch = 1,
+
+    /// <summary>The 2B line has no booked purchase — the portal has it, the books do not.</summary>
+    InPortalOnly = 2,
+
+    /// <summary>A booked purchase with no 2B line — the supplier has not filed ⇒ ITC ineligible (§16(2)(aa)). Report-only.</summary>
+    InBooksOnly = 3,
+}
+
+/// <summary>
+/// The offline mirror of a portal <b>IMS</b> (Invoice Management System) decision on a 2B line (Phase 9 slice 6; RQ-14;
+/// DP-14). Kept as a separate mutable <c>ImsAction</c> record keyed to the immutable line (ER-6), never a line edit.
+/// <see cref="NoAction"/> is <b>deemed-accepted</b> at 2B generation (a derived view, not a stored flip). Stored as the
+/// enum ordinal (NoAction=0, Accepted=1, Rejected=2, Pending=3). <b>The IMS engine lands in S6b; the enum lands now.</b>
+/// </summary>
+public enum ImsStatus
+{
+    /// <summary>No action taken ⇒ deemed-accepted at 2B generation (the default; empty when unused, ER-13).</summary>
+    NoAction = 0,
+
+    /// <summary>The recipient accepted the record on the portal (mirrored here).</summary>
+    Accepted = 1,
+
+    /// <summary>The recipient rejected the record on the portal (mirrored here).</summary>
+    Rejected = 2,
+
+    /// <summary>The recipient kept the record pending one period (mirrored here).</summary>
+    Pending = 3,
+}
+
+/// <summary>
+/// The §17(5) ITC-eligibility of a purchase's item/expense ledger GST block (Phase 9 slice 6; RQ-26; DP-31) — a
+/// per-purchase master flag distinct from the portal 2B "ITC-available" flag. Default <see cref="Eligible"/> ⇒
+/// byte-identical when off (ER-13). Stored as the enum ordinal. <b>The ITC-gate logic lands in S6b; the enum + the
+/// shared-block columns land now.</b>
+/// </summary>
+public enum ItcEligibility
+{
+    /// <summary>Fully eligible input tax credit (the default for every existing item/ledger).</summary>
+    Eligible = 0,
+
+    /// <summary>Blocked under §17(5) (the blocked-credit sub-clause is in <see cref="BlockedCreditCategory"/>).</summary>
+    BlockedSection17_5 = 1,
+
+    /// <summary>Ineligible for another reason (e.g. non-business / personal use, time-barred).</summary>
+    Ineligible = 2,
+}
+
+/// <summary>
+/// The §17(5) blocked-credit sub-clause a purchase falls under (Phase 9 slice 6; RQ-26; advisory grouping). Meaningful
+/// only when <see cref="ItcEligibility.BlockedSection17_5"/>. Default <see cref="None"/> ⇒ byte-identical when off
+/// (ER-13). Stored as the enum ordinal. <b>Used by the S6b ITC-gate; the enum lands now.</b>
+/// </summary>
+public enum BlockedCreditCategory
+{
+    /// <summary>No blocked-credit category (the default; consistent with <see cref="ItcEligibility.Eligible"/>).</summary>
+    None = 0,
+
+    /// <summary>§17(5)(a)/(aa) motor vehicles + vessels/aircraft.</summary>
+    MotorVehicles = 1,
+
+    /// <summary>§17(5)(b) food &amp; beverages, health services, club membership, travel benefits.</summary>
+    FoodBeveragesHealth = 2,
+
+    /// <summary>§17(5)(c)/(d) works-contract &amp; construction of immovable property (on own account).</summary>
+    WorksContractConstruction = 3,
+
+    /// <summary>§17(5)(b)(ii) membership of a club, health &amp; fitness centre.</summary>
+    MembershipClubs = 4,
+
+    /// <summary>§17(5)(g) goods/services for personal consumption.</summary>
+    PersonalConsumption = 5,
+
+    /// <summary>§17(5)(h) goods lost, stolen, destroyed, written off, or disposed of as gifts/free samples.</summary>
+    GiftsFreeSamples = 6,
+
+    /// <summary>§17(5)(h) goods lost/stolen/destroyed/written off.</summary>
+    LostStolenWrittenOff = 7,
+
+    /// <summary>Any other §17(5) blocked credit.</summary>
+    Other = 8,
+}

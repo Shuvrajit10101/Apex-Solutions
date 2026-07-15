@@ -93,6 +93,16 @@ public sealed class CustomerNicDirectConnector : IGstPortalConnector
         throw new NotSupportedException(NotConfigured);
     }
 
+    /// <inheritdoc />
+    public Gstr2bImportResult FetchStatement(Gstr2bFetchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        // GSTR-2A/2B stay OFFLINE-ONLY in Phase 9 (RQ-30/DP-25): even the live NIC path has no inbound returns fetch —
+        // that is a future-GSP capability. Only e-Invoice / e-Way have a live path.
+        throw new NotSupportedException(
+            "Live GSTR-2B/2A fetch is not available: import the portal-downloaded JSON via the offline path.");
+    }
+
     private void EnsureConfigured()
     {
         if (_httpClient is null || !_credentials.HasCredentials(_gstin))

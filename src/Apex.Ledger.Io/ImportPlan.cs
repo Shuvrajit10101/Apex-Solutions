@@ -1009,6 +1009,49 @@ internal sealed class ImportPlan
             journal.RecordAdvanceReceipt(adv);
         }
 
+        // 15) Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results. CRITICAL
+        //     divergence from S4/S5 (§7): snapshots + lines import UNCONDITIONALLY — they are external portal data, NOT
+        //     orphans of a source voucher (the "in-2B-only" bucket is precisely a line with no booked purchase). Each
+        //     snapshot + line is re-minted with a fresh Guid; a lineId map re-links the recon results. Only the recon
+        //     matched_voucher_id is an OPTIONAL reference (MapVoucherOpt): a Matched/PartialMismatch result whose voucher
+        //     is absent resolves to null → Gstr2bReconResult.Rehydrate fails the bucket invariant → the whole batch is
+        //     rejected (all-or-nothing); an InPortalOnly result carries no voucher and imports cleanly. Recorded in the
+        //     journal so a rollback prunes them.
+        var reconLineId = new Dictionary<Guid, Guid>();
+        foreach (var s in _model.Payload.Gstr2bSnapshots)
+        {
+            var lines = new List<Gstr2bLine>(s.Lines.Count);
+            foreach (var l in s.Lines)
+            {
+                var newLineId = Guid.NewGuid();
+                reconLineId[l.Id] = newLineId;
+                lines.Add(new Gstr2bLine(
+                    newLineId, l.SupplierGstin, l.SupplierTradeName, ParseEnum<Gstr2bDocType>(l.DocType), l.DocNumber,
+                    l.DocNumberNorm, CompanyImportService.ParseDate(l.DocDate), l.PosStateCode, l.TaxableValuePaisa,
+                    l.IgstPaisa, l.CgstPaisa, l.SgstPaisa, l.CessPaisa, l.ItcAvailable, l.ItcUnavailableReason,
+                    l.ReverseCharge));
+            }
+            var snap = Gstr2bSnapshot.Rehydrate(
+                Guid.NewGuid(), ParseEnum<GstStatementType>(s.StatementType), s.ReturnPeriod, s.RecipientGstin,
+                CompanyImportService.ParseDateOpt(s.GeneratedOn), s.SourceFileHash,
+                ParseDateTimeOffsetOpt(s.ImportedAt) ?? default, s.SummaryIgstPaisa, s.SummaryCgstPaisa,
+                s.SummarySgstPaisa, s.SummaryCessPaisa, lines);
+            t.AddGstr2bSnapshot(snap);
+            journal.RecordGstr2bSnapshot(snap);
+        }
+        foreach (var rr in _model.Payload.Gstr2bReconResults)
+        {
+            // A recon result is a child of an imported 2B line — a dangling line ref is a malformed batch (reject).
+            if (!reconLineId.TryGetValue(rr.LineId, out var lineId))
+                throw new InvalidOperationException(
+                    $"GSTR-2B reconciliation result references an unknown imported 2B line {rr.LineId}.");
+            var result = Gstr2bReconResult.Rehydrate(
+                Guid.NewGuid(), lineId, ParseEnum<ReconBucket>(rr.Bucket), MapVoucherOpt(rr.MatchedVoucherId),
+                rr.TaxableVariancePaisa, rr.TaxVariancePaisa, rr.MatchPinned, ParseDateTimeOffsetOpt(rr.ReconciledAt));
+            t.AddGstr2bReconResult(result);
+            journal.RecordGstr2bReconResult(result);
+        }
+
         return (created, reused, posted);
     }
 
@@ -1139,6 +1182,9 @@ internal sealed class ImportPlan
             EWayThreshold = MoneyCodec.FromPaisa(g.EWayThresholdPaisa),
             ConsignmentBasis = ParseEnum<EWayConsignmentBasis>(g.ConsignmentBasis),
             EWayIntraStateApplicable = g.EWayIntraStateApplicable,
+            // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
+            ReconValueTolerance = MoneyCodec.FromPaisa(g.ReconValueTolerancePaisa),
+            ReconDateWindowDays = g.ReconDateWindowDays,
         };
         // Phase 9 slice 5: preserve the exported per-state e-Way threshold overrides (fresh ids). A malformed row throws
         // here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).

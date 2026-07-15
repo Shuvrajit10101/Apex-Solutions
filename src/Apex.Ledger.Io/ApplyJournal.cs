@@ -45,6 +45,8 @@ internal sealed class ApplyJournal
     private readonly List<EWayBillRecord> _eWayBillRecords = new();
     private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
     private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
+    private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
+    private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
     private readonly List<EmployeeGroup> _employeeGroups = new();
     private readonly List<Employee> _employees = new();
@@ -116,6 +118,8 @@ internal sealed class ApplyJournal
     public void RecordEWayBillRecord(EWayBillRecord r) => _eWayBillRecords.Add(r);
     public void RecordCreditDebitNoteLink(GstCreditDebitNoteLink l) => _cdnLinks.Add(l);
     public void RecordAdvanceReceipt(GstAdvanceReceipt a) => _advanceReceipts.Add(a);
+    public void RecordGstr2bSnapshot(Gstr2bSnapshot s) => _gstr2bSnapshots.Add(s);
+    public void RecordGstr2bReconResult(Gstr2bReconResult r) => _gstr2bReconResults.Add(r);
     public void RecordEmployeeCategory(EmployeeCategory x) => _employeeCategories.Add(x);
     public void RecordEmployeeGroup(EmployeeGroup x) => _employeeGroups.Add(x);
     public void RecordEmployee(Employee x) => _employees.Add(x);
@@ -205,6 +209,10 @@ internal sealed class ApplyJournal
         for (var i = _eWayBillRecords.Count - 1; i >= 0; i--) _company.RemoveEWayBillRecord(_eWayBillRecords[i]);
         for (var i = _cdnLinks.Count - 1; i >= 0; i--) _company.RemoveCreditDebitNoteLink(_cdnLinks[i]);
         for (var i = _advanceReceipts.Count - 1; i >= 0; i--) _company.RemoveAdvanceReceipt(_advanceReceipts[i]);
+        // Phase 9 slice 6: GSTR-2B reconciliation results reference the imported lines → prune before the snapshots
+        // (which own the lines) below.
+        for (var i = _gstr2bReconResults.Count - 1; i >= 0; i--) _company.RemoveGstr2bReconResult(_gstr2bReconResults[i]);
+        for (var i = _gstr2bSnapshots.Count - 1; i >= 0; i--) _company.RemoveGstr2bSnapshot(_gstr2bSnapshots[i]);
 
         // 1) Vouchers first (reverse posting order): inventory/order vouchers, then accounting vouchers.
         for (var i = _inventoryVouchers.Count - 1; i >= 0; i--) _company.RemoveInventoryVoucher(_inventoryVouchers[i]);

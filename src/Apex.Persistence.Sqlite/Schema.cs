@@ -78,20 +78,24 @@ namespace Apex.Persistence.Sqlite;
 /// adds the Phase-9 slice-5 e-Way Bill core: the <c>eway_bills</c> table (per-voucher EWB Part-A/B + validity + status)
 /// and the <c>eway_state_thresholds</c> per-state override table, plus five non-secret e-Way config columns on companies
 /// — the live NIC path REUSES the shared <c>gst_connector_mode</c> + <c>nic_*_enc</c> columns (no new secret surface).
-/// <b><see cref="CurrentVersion"/> = 42</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v43</b> adds the Phase-9 slice-6 GSTR-2A/2B inbound core: four new tables (<c>gstr2b_snapshots</c>,
+/// <c>gstr2b_lines</c>, <c>ims_status</c>, <c>gstr2b_recon</c>) + their indexes, two §17(5) ITC-eligibility columns each
+/// on <c>stock_items</c> and <c>ledgers</c>, and the two GSTR-2B reconciliation-tolerance columns on companies
+/// (<c>recon_value_tolerance_paisa</c> + <c>recon_date_window_days</c>, both DEFAULT 0 = exact-match).
+/// <b><see cref="CurrentVersion"/> = 43</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v42</b> is the latest bump (Phase 9
-    /// slice 5 — e-Way Bill core: the <c>eway_bills</c> + <c>eway_state_thresholds</c> tables + their indexes and the five
-    /// non-secret e-Way config columns on companies; the live NIC path REUSES the shared <c>gst_connector_mode</c> +
-    /// <c>nic_*_enc</c> columns, so no new secret column is added). The full v1→v42 history is documented on each
-    /// <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight to this
-    /// version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time. Keep this
-    /// in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also appear in
-    /// <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 42;
+    /// <summary>The current schema version this adapter reads and writes. <b>v43</b> is the latest bump (Phase 9
+    /// slice 6 — GSTR-2A/2B inbound core: the <c>gstr2b_snapshots</c> + <c>gstr2b_lines</c> + <c>ims_status</c> +
+    /// <c>gstr2b_recon</c> tables + their indexes, the §17(5) ITC-eligibility columns on <c>stock_items</c> +
+    /// <c>ledgers</c>, and the GSTR-2B reconciliation-tolerance columns on companies). The full v1→v43 history is
+    /// documented on each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped
+    /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
+    /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
+    /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
+    public const int CurrentVersion = 43;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -171,6 +175,11 @@ public static class Schema
             eway_threshold_paisa            INTEGER NOT NULL DEFAULT 5000000,     -- ₹50,000 in paisa (configurable)
             eway_consignment_basis          INTEGER NOT NULL DEFAULT 0,           -- EWayConsignmentBasis ordinal (Rule138Default=0)
             eway_intrastate_applicable      INTEGER NOT NULL DEFAULT 1,           -- 0/1 (some states exempt intra-state)
+            -- v43 (Phase 9 slice 6): the GSTR-2B reconciliation tolerance (a MATCHING parameter only, never a posted
+            -- figure — ER-14). Both default 0 ⇒ exact-match reconciliation ⇒ a company that never touches 2B is
+            -- byte-identical (ER-13). Persisted so a saved tolerance survives reload (finding #5).
+            recon_value_tolerance_paisa     INTEGER NOT NULL DEFAULT 0,           -- paisa slack on taxable/tax (0 = exact)
+            recon_date_window_days          INTEGER NOT NULL DEFAULT 0,           -- ± day window on doc-date (0 = same-day)
             -- v20 (Phase 6 slice 4; RQ-22; DP-7): F11 "Use separate Actual & Billed Quantity columns" — a pure
             -- persisted toggle (cannot be inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
             use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0,  -- 0/1
@@ -450,6 +459,81 @@ public static class Schema
         );
         CREATE INDEX ix_eway_state_thresholds_company ON eway_state_thresholds(company_id);
 
+        -- v43 (Phase 9 slice 6): the immutable dated GSTR-2B/2A statement (imported external portal data — NOT the app's
+        -- postings). One row = one dated statement + its source-file hash. Empty when 2B is never imported (ER-13).
+        CREATE TABLE gstr2b_snapshots (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            statement_type         INTEGER NOT NULL DEFAULT 0,   -- GstStatementType (Gstr2b=0, Gstr2a=1)
+            return_period          TEXT    NOT NULL,             -- "yyyy-MM"
+            recipient_gstin        TEXT    NOT NULL,
+            generated_on           TEXT        NULL,             -- ISO yyyy-MM-dd (portal gendt)
+            source_file_hash       TEXT    NOT NULL,             -- SHA-256 hex of imported JSON (dedupe + immutability audit)
+            imported_at            TEXT    NOT NULL,             -- ISO round-trip (o)
+            summary_igst_paisa     INTEGER NOT NULL DEFAULT 0,
+            summary_cgst_paisa     INTEGER NOT NULL DEFAULT 0,
+            summary_sgst_paisa     INTEGER NOT NULL DEFAULT 0,
+            summary_cess_paisa     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gstr2b_snapshots_company ON gstr2b_snapshots(company_id);
+
+        -- v43 (Phase 9 slice 6): one imported inward-supply record (child of a snapshot). Carries cess + the 2B
+        -- ITC-Available bifurcation + the supplier-RCM flag; statement_type on the parent discriminates 2A vs 2B.
+        CREATE TABLE gstr2b_lines (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            snapshot_id            TEXT    NOT NULL REFERENCES gstr2b_snapshots(id),
+            supplier_gstin         TEXT    NOT NULL,
+            supplier_trade_name    TEXT        NULL,
+            doc_type               INTEGER NOT NULL,             -- Gstr2bDocType ordinal
+            doc_number             TEXT    NOT NULL,
+            doc_number_norm        TEXT        NULL,             -- normalised match key (NULL = no recoverable ref)
+            doc_date               TEXT    NOT NULL,             -- ISO yyyy-MM-dd
+            pos_state_code         TEXT        NULL,
+            taxable_value_paisa    INTEGER NOT NULL DEFAULT 0,
+            igst_paisa             INTEGER NOT NULL DEFAULT 0,
+            cgst_paisa             INTEGER NOT NULL DEFAULT 0,
+            sgst_paisa             INTEGER NOT NULL DEFAULT 0,
+            cess_paisa             INTEGER NOT NULL DEFAULT 0,
+            itc_available          INTEGER NOT NULL DEFAULT 1,   -- portal 2B ITC-Available Y/N bifurcation
+            itc_unavailable_reason TEXT        NULL,
+            reverse_charge         INTEGER NOT NULL DEFAULT 0    -- supplier-flagged RCM (bypasses IMS)
+        );
+        CREATE INDEX ix_gstr2b_lines_company ON gstr2b_lines(company_id);
+        CREATE INDEX ix_gstr2b_lines_snapshot ON gstr2b_lines(snapshot_id);
+
+        -- v43 (Phase 9 slice 6): per-line IMS Accept/Reject/Pending mirror (the table lands now; the IMS engine is S6b,
+        -- so it stays EMPTY until then). action = ImsStatus ordinal (NoAction=0 ⇒ deemed-accept). Empty ⇒ ER-13.
+        CREATE TABLE ims_status (
+            id                      TEXT    NOT NULL PRIMARY KEY,
+            company_id              TEXT    NOT NULL REFERENCES companies(id),
+            line_id                 TEXT    NOT NULL REFERENCES gstr2b_lines(id),
+            action                  INTEGER NOT NULL DEFAULT 0,  -- ImsStatus ordinal (NoAction=0)
+            remarks                 TEXT        NULL,
+            declared_reversal_paisa INTEGER     NULL,            -- Oct-2025 partial CN reversal declaration
+            no_reversal_declared    INTEGER NOT NULL DEFAULT 0,
+            acted_on                TEXT        NULL             -- ISO yyyy-MM-dd
+        );
+        CREATE INDEX ix_ims_status_company ON ims_status(company_id);
+        CREATE INDEX ix_ims_status_line ON ims_status(line_id);
+
+        -- v43 (Phase 9 slice 6): per-2B-line reconciliation result (audit snapshot + manual pin). ADVISORY only —
+        -- matched_voucher_id is a READ-ONLY pointer to an existing purchase, never a mutation (ER-14). InBooksOnly is
+        -- NOT persisted here (no 2B line to key on, §6.4). bucket = ReconBucket ordinal. Empty until a reconcile ⇒ ER-13.
+        CREATE TABLE gstr2b_recon (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            line_id                TEXT    NOT NULL REFERENCES gstr2b_lines(id),
+            bucket                 INTEGER NOT NULL,             -- ReconBucket (Matched=0, PartialMismatch=1, InPortalOnly=2)
+            matched_voucher_id     TEXT        NULL REFERENCES vouchers(id),
+            taxable_variance_paisa INTEGER NOT NULL DEFAULT 0,
+            tax_variance_paisa     INTEGER NOT NULL DEFAULT 0,
+            match_pinned           INTEGER NOT NULL DEFAULT 0,   -- user manually pinned this match (overrides auto-matcher)
+            reconciled_at          TEXT        NULL              -- ISO round-trip (o)
+        );
+        CREATE INDEX ix_gstr2b_recon_company ON gstr2b_recon(company_id);
+        CREATE INDEX ix_gstr2b_recon_line ON gstr2b_recon(line_id);
+
         -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
         -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
         -- (slab_id) form one PtSlab. No rows for a company not enrolled for PT (ER-13).
@@ -578,7 +662,11 @@ public static class Schema
             sp_rcm_category_id           TEXT        NULL,            -- linked RcmCategory id (bare id, no FK)
             party_is_promoter            INTEGER NOT NULL DEFAULT 0,  -- 0/1 §9(4) promoter recipient
             party_is_body_corporate      INTEGER NOT NULL DEFAULT 0,  -- 0/1 body-corporate qualifier
-            gst_class_reverse_charge     INTEGER NOT NULL DEFAULT 0   -- 0/1 the RCM Output tax-ledger discriminator
+            gst_class_reverse_charge     INTEGER NOT NULL DEFAULT 0,  -- 0/1 the RCM Output tax-ledger discriminator
+            -- v43 (Phase 9 slice 6): §17(5) ITC-eligibility on the sales/purchase-ledger GST block. DEFAULT 0/0
+            -- (Eligible/None) ⇒ byte-identical to a v42 ledger (ER-13). Used by the S6b ITC-gate; the columns land now.
+            itc_eligibility              INTEGER NOT NULL DEFAULT 0,  -- ItcEligibility ordinal (Eligible=0)
+            blocked_credit_category      INTEGER NOT NULL DEFAULT 0   -- BlockedCreditCategory ordinal (None=0)
         );
 
         CREATE TABLE currencies (
@@ -921,7 +1009,11 @@ public static class Schema
             -- item with no RCM data is byte-identical to a v38 item (ER-13).
             reverse_charge_applicable INTEGER NOT NULL DEFAULT 0, -- 0/1 "Is reverse charge applicable"
             gta_forward_charge        INTEGER NOT NULL DEFAULT 0, -- 0/1 GTA Annexure-V forward-charge opt-out
-            rcm_category_id           TEXT        NULL            -- linked RcmCategory id (bare id, no FK)
+            rcm_category_id           TEXT        NULL,           -- linked RcmCategory id (bare id, no FK)
+            -- v43 (Phase 9 slice 6): §17(5) ITC-eligibility on the shared item/S-P GST block. DEFAULT 0/0 (Eligible/None)
+            -- ⇒ byte-identical to a v42 item (ER-13). Used by the S6b ITC-gate; the columns land now.
+            itc_eligibility           INTEGER NOT NULL DEFAULT 0, -- ItcEligibility ordinal (Eligible=0)
+            blocked_credit_category   INTEGER NOT NULL DEFAULT 0  -- BlockedCreditCategory ordinal (None=0)
         );
 
         CREATE TABLE stock_opening_balances (
@@ -3093,5 +3185,95 @@ public static class Schema
         ALTER TABLE companies ADD COLUMN eway_threshold_paisa            INTEGER NOT NULL DEFAULT 5000000;
         ALTER TABLE companies ADD COLUMN eway_consignment_basis          INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE companies ADD COLUMN eway_intrastate_applicable      INTEGER NOT NULL DEFAULT 1;
+        """;
+
+    /// <summary>
+    /// v42 → v43 (Phase 9 slice 6; GSTR-2A/2B import + reconciliation + IMS + §17(5) seam): additive — four new tables
+    /// (<c>gstr2b_snapshots</c>, <c>gstr2b_lines</c>, <c>ims_status</c>, <c>gstr2b_recon</c>) + their company-scoped
+    /// indexes, two §17(5) ALTER-added columns each on <c>stock_items</c> and <c>ledgers</c>, and the two GSTR-2B
+    /// reconciliation-tolerance columns on <c>companies</c> (<c>recon_value_tolerance_paisa</c> +
+    /// <c>recon_date_window_days</c>, both DEFAULT 0 = exact-match) — run inside a transaction that bumps
+    /// <c>schema_version</c> to 43. <b>No row rewrites, no data backfill</b>: an existing v42 database keeps every row
+    /// untouched, the new tables start empty and the new columns default 0/0 (Eligible/None, exact-match tolerance), so
+    /// a company that never imports 2B nor sets a §17(5) flag serialises byte-identically to a v42 company (ER-13). The
+    /// <c>ims_status</c> table + the §17(5) columns stay unused until the S6b IMS/ITC-gate engines (only their schema
+    /// lands now). Each added table / column / index is byte-identical to its counterpart in <see cref="CreateV1"/> (the
+    /// migration-equivalence test enforces this). A fresh DB is stamped straight to v43 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV42ToV43 = """
+        CREATE TABLE gstr2b_snapshots (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            statement_type         INTEGER NOT NULL DEFAULT 0,
+            return_period          TEXT    NOT NULL,
+            recipient_gstin        TEXT    NOT NULL,
+            generated_on           TEXT        NULL,
+            source_file_hash       TEXT    NOT NULL,
+            imported_at            TEXT    NOT NULL,
+            summary_igst_paisa     INTEGER NOT NULL DEFAULT 0,
+            summary_cgst_paisa     INTEGER NOT NULL DEFAULT 0,
+            summary_sgst_paisa     INTEGER NOT NULL DEFAULT 0,
+            summary_cess_paisa     INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gstr2b_snapshots_company ON gstr2b_snapshots(company_id);
+
+        CREATE TABLE gstr2b_lines (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            snapshot_id            TEXT    NOT NULL REFERENCES gstr2b_snapshots(id),
+            supplier_gstin         TEXT    NOT NULL,
+            supplier_trade_name    TEXT        NULL,
+            doc_type               INTEGER NOT NULL,
+            doc_number             TEXT    NOT NULL,
+            doc_number_norm        TEXT        NULL,
+            doc_date               TEXT    NOT NULL,
+            pos_state_code         TEXT        NULL,
+            taxable_value_paisa    INTEGER NOT NULL DEFAULT 0,
+            igst_paisa             INTEGER NOT NULL DEFAULT 0,
+            cgst_paisa             INTEGER NOT NULL DEFAULT 0,
+            sgst_paisa             INTEGER NOT NULL DEFAULT 0,
+            cess_paisa             INTEGER NOT NULL DEFAULT 0,
+            itc_available          INTEGER NOT NULL DEFAULT 1,
+            itc_unavailable_reason TEXT        NULL,
+            reverse_charge         INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX ix_gstr2b_lines_company ON gstr2b_lines(company_id);
+        CREATE INDEX ix_gstr2b_lines_snapshot ON gstr2b_lines(snapshot_id);
+
+        CREATE TABLE ims_status (
+            id                      TEXT    NOT NULL PRIMARY KEY,
+            company_id              TEXT    NOT NULL REFERENCES companies(id),
+            line_id                 TEXT    NOT NULL REFERENCES gstr2b_lines(id),
+            action                  INTEGER NOT NULL DEFAULT 0,
+            remarks                 TEXT        NULL,
+            declared_reversal_paisa INTEGER     NULL,
+            no_reversal_declared    INTEGER NOT NULL DEFAULT 0,
+            acted_on                TEXT        NULL
+        );
+        CREATE INDEX ix_ims_status_company ON ims_status(company_id);
+        CREATE INDEX ix_ims_status_line ON ims_status(line_id);
+
+        CREATE TABLE gstr2b_recon (
+            id                     TEXT    NOT NULL PRIMARY KEY,
+            company_id             TEXT    NOT NULL REFERENCES companies(id),
+            line_id                TEXT    NOT NULL REFERENCES gstr2b_lines(id),
+            bucket                 INTEGER NOT NULL,
+            matched_voucher_id     TEXT        NULL REFERENCES vouchers(id),
+            taxable_variance_paisa INTEGER NOT NULL DEFAULT 0,
+            tax_variance_paisa     INTEGER NOT NULL DEFAULT 0,
+            match_pinned           INTEGER NOT NULL DEFAULT 0,
+            reconciled_at          TEXT        NULL
+        );
+        CREATE INDEX ix_gstr2b_recon_company ON gstr2b_recon(company_id);
+        CREATE INDEX ix_gstr2b_recon_line ON gstr2b_recon(line_id);
+
+        ALTER TABLE stock_items ADD COLUMN itc_eligibility         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN blocked_credit_category INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE ledgers ADD COLUMN itc_eligibility         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ledgers ADD COLUMN blocked_credit_category INTEGER NOT NULL DEFAULT 0;
+
+        ALTER TABLE companies ADD COLUMN recon_value_tolerance_paisa INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN recon_date_window_days      INTEGER NOT NULL DEFAULT 0;
         """;
 }

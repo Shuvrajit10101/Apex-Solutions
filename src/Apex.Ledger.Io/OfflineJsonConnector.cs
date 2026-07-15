@@ -61,4 +61,12 @@ public sealed class OfflineJsonConnector : IGstPortalConnector
         return new EwbSubmissionResult(
             Accepted: false, EwbNumber: null, GeneratedAt: null, ValidUpto: null, ErrorCode: null, ErrorMessage: null);
     }
+
+    /// <summary>Imports a portal GSTR-2B/2A statement offline (Phase 9 slice 6; RQ-12) — deterministically parses the
+    /// supplied JSON bytes with <b>zero credentials</b> (ER-16 baseline). A malformed / wrong-recipient file fails fast.</summary>
+    public Gstr2bImportResult FetchStatement(Gstr2bFetchRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Gstr2bJsonParser.Parse(request.Json, request.StatementType, request.RecipientGstin);
+    }
 }

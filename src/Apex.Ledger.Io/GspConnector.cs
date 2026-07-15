@@ -33,4 +33,7 @@ public sealed class GspConnector : IGstPortalConnector
 
     /// <inheritdoc />
     public EwbSubmissionResult SubmitConsolidatedEway(Ewb02Request request) => throw new NotSupportedException(NotBuilt);
+
+    /// <inheritdoc />
+    public Gstr2bImportResult FetchStatement(Gstr2bFetchRequest request) => throw new NotSupportedException(NotBuilt);
 }

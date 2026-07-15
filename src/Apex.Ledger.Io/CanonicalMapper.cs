@@ -233,6 +233,39 @@ public static class CanonicalMapper
         EWayBillRecords = c.EWayBillRecords.OrderBy(r => r.SourceVoucherId).ThenBy(r => r.Id).Select(MapEWayBillRecord).ToList(),
         CreditDebitNoteLinks = c.CreditDebitNoteLinks.OrderBy(l => l.Id).Select(MapCdnLink).ToList(),
         AdvanceReceipts = c.AdvanceReceipts.OrderBy(a => a.Id).Select(MapAdvanceReceipt).ToList(),
+        // Phase 9 slice 6: imported GSTR-2B/2A snapshots (ordered by period, import instant, then id so stable) + the
+        // persisted reconciliation results (ordered by line, then id).
+        Gstr2bSnapshots = c.Gstr2bSnapshots
+            .OrderBy(s => s.ReturnPeriod, StringComparer.Ordinal).ThenBy(s => s.ImportedAt).ThenBy(s => s.Id)
+            .Select(MapGstr2bSnapshot).ToList(),
+        Gstr2bReconResults = c.Gstr2bReconResults
+            .OrderBy(r => r.LineId).ThenBy(r => r.Id).Select(MapGstr2bReconResult).ToList(),
+    };
+
+    private static Gstr2bSnapshotDto MapGstr2bSnapshot(Gstr2bSnapshot s) => new()
+    {
+        Id = s.Id, StatementType = s.StatementType.ToString(), ReturnPeriod = s.ReturnPeriod,
+        RecipientGstin = s.RecipientGstin, GeneratedOn = Iso(s.GeneratedOn), SourceFileHash = s.SourceFileHash,
+        ImportedAt = s.ImportedAt.ToString("o", CultureInfo.InvariantCulture),
+        SummaryIgstPaisa = s.SummaryIgstPaisa, SummaryCgstPaisa = s.SummaryCgstPaisa,
+        SummarySgstPaisa = s.SummarySgstPaisa, SummaryCessPaisa = s.SummaryCessPaisa,
+        Lines = s.Lines.OrderBy(l => l.Id).Select(MapGstr2bLine).ToList(),
+    };
+
+    private static Gstr2bLineDto MapGstr2bLine(Gstr2bLine l) => new()
+    {
+        Id = l.Id, SupplierGstin = l.SupplierGstin, SupplierTradeName = l.SupplierTradeName,
+        DocType = l.DocType.ToString(), DocNumber = l.DocNumber, DocNumberNorm = l.DocNumberNorm,
+        DocDate = Iso(l.DocDate), PosStateCode = l.PosStateCode, TaxableValuePaisa = l.TaxableValuePaisa,
+        IgstPaisa = l.IgstPaisa, CgstPaisa = l.CgstPaisa, SgstPaisa = l.SgstPaisa, CessPaisa = l.CessPaisa,
+        ItcAvailable = l.ItcAvailable, ItcUnavailableReason = l.ItcUnavailableReason, ReverseCharge = l.ReverseCharge,
+    };
+
+    private static Gstr2bReconResultDto MapGstr2bReconResult(Gstr2bReconResult r) => new()
+    {
+        Id = r.Id, LineId = r.LineId, Bucket = r.Bucket.ToString(), MatchedVoucherId = r.MatchedVoucherId,
+        TaxableVariancePaisa = r.TaxableVariancePaisa, TaxVariancePaisa = r.TaxVariancePaisa,
+        MatchPinned = r.MatchPinned, ReconciledAt = IsoDateTimeOffset(r.ReconciledAt),
     };
 
     private static RcmDocumentDto MapRcmDocument(RcmDocument d) => new()
@@ -687,6 +720,9 @@ public static class CanonicalMapper
                 Id = t.Id, StateCode = t.StateCode, TxnType = t.TxnType.ToString(),
                 ThresholdPaisa = MoneyCodec.ToPaisa(t.Threshold),
             }).ToList(),
+        // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
+        ReconValueTolerancePaisa = MoneyCodec.ToPaisa(g.ReconValueTolerance),
+        ReconDateWindowDays = g.ReconDateWindowDays,
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()

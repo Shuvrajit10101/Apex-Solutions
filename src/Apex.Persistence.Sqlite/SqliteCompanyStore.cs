@@ -1025,6 +1025,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 42;
         }
 
+        // v42 → v43: apply the Phase-9 slice 6 GSTR-2A/2B inbound core (new gstr2b_snapshots + gstr2b_lines + ims_status
+        // + gstr2b_recon tables + indexes; two §17(5) columns each on stock_items + ledgers), then bump the marker.
+        // Existing v42 data survives untouched (CREATE TABLE/INDEX + ALTER … ADD COLUMN only; no row rewrites). The
+        // ims_status table + the §17(5) columns stay unused until S6b. ER-13 byte-identical when 2B is never imported.
+        if (version == 42)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV42ToV43;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 43);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 43;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1058,7 +1082,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    einvoicing_enabled, einvoice_applicable_from, einvoice_aato_threshold_paisa,
                    einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
                    gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
-                   eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable
+                   eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
+                   recon_value_tolerance_paisa, recon_date_window_days
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1133,6 +1158,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     EWayThreshold = Paisa.ToMoney(r.GetInt64(77)),
                     ConsignmentBasis = (EWayConsignmentBasis)(int)r.GetInt64(78),
                     EWayIntraStateApplicable = r.GetInt64(79) != 0,
+                    // v43 (Phase 9 slice 6): the GSTR-2B reconciliation tolerance, read verbatim (default 0/0 = exact ⇒
+                    // byte-identical when off, ER-13; a matching parameter only, ER-14; finding #5).
+                    ReconValueTolerance = Paisa.ToMoney(r.GetInt64(80)),
+                    ReconDateWindowDays = (int)r.GetInt64(81),
                 };
                 foreach (var t in ReadEWayStateThresholds(companyId))
                     company.Gst.AddEWayStateThreshold(t);
@@ -1361,6 +1390,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             company.AddCreditDebitNoteLink(link);
         foreach (var adv in ReadGstAdvanceReceipts(companyId))
             company.AddAdvanceReceipt(adv);
+        // Imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (Phase 9 slice 6). Snapshots load
+        // first (they own the lines); the recon results reference the loaded lines by id + an optional matched voucher.
+        // Empty when 2B is never imported (ER-13).
+        foreach (var snapshot in ReadGstr2bSnapshots(companyId))
+            company.AddGstr2bSnapshot(snapshot);
+        foreach (var result in ReadGstr2bReconResults(companyId))
+            company.AddGstr2bReconResult(result);
 
         // Payroll masters (Phase 8 slice 1). Order: categories + groups + payroll units first, then attendance
         // types (reference payroll units) and employees (reference groups + categories). Empty when Payroll off.
@@ -1557,6 +1593,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertEInvoiceRecords(tx, company);
         // e-Way Bill artefacts (Phase 9 slice 5): FK the source voucher (inserted above).
         InsertEWayBillRecords(tx, company);
+        // Imported GSTR-2B/2A snapshots + lines + reconciliation results (Phase 9 slice 6): snapshots/lines are external
+        // data (no source-voucher FK); the recon rows FK the lines + an optional matched voucher (inserted above).
+        InsertGstr2bRecords(tx, company);
         // Payroll masters (Phase 8 slice 1). Categories + groups + payroll units first; then attendance types
         // (FK payroll_units) and employees (FK employee_groups + employee_categories). Hierarchical/compound
         // masters are inserted parents-before-children so their self-FK resolves.
@@ -2197,6 +2236,96 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 Paisa.ToMoney(r.GetInt64(7)),
                 r.IsDBNull(8) ? (Guid?)null : Guid.Parse(r.GetString(8)),
                 r.IsDBNull(9) ? (Guid?)null : Guid.Parse(r.GetString(9))));
+        return list;
+    }
+
+    /// <summary>v43: reads the imported GSTR-2B/2A snapshots for a company, each with its child inward-supply lines
+    /// (Phase 9 slice 6). Snapshots are external portal data (NOT the app's postings); each is rehydrated verbatim with
+    /// its immutable lines. Empty when 2B is never imported (ER-13).</summary>
+    private IEnumerable<Gstr2bSnapshot> ReadGstr2bSnapshots(Guid companyId)
+    {
+        // Read every line once, grouped by snapshot id (ordered by rowid), then assemble each snapshot with its lines.
+        var linesBySnapshot = new Dictionary<Guid, List<Gstr2bLine>>();
+        using (var lineCmd = _connection.CreateCommand())
+        {
+            lineCmd.CommandText = """
+                SELECT snapshot_id, id, supplier_gstin, supplier_trade_name, doc_type, doc_number, doc_number_norm,
+                       doc_date, pos_state_code, taxable_value_paisa, igst_paisa, cgst_paisa, sgst_paisa, cess_paisa,
+                       itc_available, itc_unavailable_reason, reverse_charge
+                FROM gstr2b_lines WHERE company_id = $cid ORDER BY rowid;
+                """;
+            lineCmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+            using var lr = lineCmd.ExecuteReader();
+            while (lr.Read())
+            {
+                var snapshotId = Guid.Parse(lr.GetString(0));
+                if (!linesBySnapshot.TryGetValue(snapshotId, out var bucket))
+                    linesBySnapshot[snapshotId] = bucket = new List<Gstr2bLine>();
+                bucket.Add(new Gstr2bLine(
+                    Guid.Parse(lr.GetString(1)),
+                    lr.GetString(2),
+                    lr.IsDBNull(3) ? null : lr.GetString(3),
+                    (Gstr2bDocType)(int)lr.GetInt64(4),
+                    lr.GetString(5),
+                    lr.IsDBNull(6) ? null : lr.GetString(6),
+                    ParseDate(lr.GetString(7)),
+                    lr.IsDBNull(8) ? null : lr.GetString(8),
+                    lr.GetInt64(9), lr.GetInt64(10), lr.GetInt64(11), lr.GetInt64(12), lr.GetInt64(13),
+                    lr.GetInt64(14) != 0,
+                    lr.IsDBNull(15) ? null : lr.GetString(15),
+                    lr.GetInt64(16) != 0));
+            }
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, statement_type, return_period, recipient_gstin, generated_on, source_file_hash, imported_at,
+                   summary_igst_paisa, summary_cgst_paisa, summary_sgst_paisa, summary_cess_paisa
+            FROM gstr2b_snapshots WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Gstr2bSnapshot>();
+        while (r.Read())
+        {
+            var id = Guid.Parse(r.GetString(0));
+            list.Add(Gstr2bSnapshot.Rehydrate(
+                id,
+                (GstStatementType)(int)r.GetInt64(1),
+                r.GetString(2),
+                r.GetString(3),
+                r.IsDBNull(4) ? (DateOnly?)null : ParseDate(r.GetString(4)),
+                r.GetString(5),
+                ParseDateTimeOffset(r.GetString(6)),
+                r.GetInt64(7), r.GetInt64(8), r.GetInt64(9), r.GetInt64(10),
+                linesBySnapshot.TryGetValue(id, out var lines) ? lines : new List<Gstr2bLine>()));
+        }
+        return list;
+    }
+
+    /// <summary>v43: reads the persisted GSTR-2B reconciliation results for a company (Phase 9 slice 6). ADVISORY only —
+    /// <c>matched_voucher_id</c> is a read-only pointer (ER-14). Empty until a reconciliation is run (ER-13).</summary>
+    private IEnumerable<Gstr2bReconResult> ReadGstr2bReconResults(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, line_id, bucket, matched_voucher_id, taxable_variance_paisa, tax_variance_paisa, match_pinned,
+                   reconciled_at
+            FROM gstr2b_recon WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<Gstr2bReconResult>();
+        while (r.Read())
+            list.Add(Gstr2bReconResult.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                (ReconBucket)(int)r.GetInt64(2),
+                r.IsDBNull(3) ? (Guid?)null : Guid.Parse(r.GetString(3)),
+                r.GetInt64(4),
+                r.GetInt64(5),
+                r.GetInt64(6) != 0,
+                r.IsDBNull(7) ? (DateTimeOffset?)null : ParseDateTimeOffset(r.GetString(7))));
         return list;
     }
 
@@ -3750,6 +3879,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM eway_state_thresholds WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_cdn_links WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_advance_receipts WHERE company_id = $cid;", ("$cid", cid));
+        // v43 GSTR-2B recon rows FK gstr2b_lines + vouchers; ims_status FK gstr2b_lines; gstr2b_lines FK
+        // gstr2b_snapshots → delete children before parents, and all before vouchers below (Phase 9 slice 6).
+        ExecTx(tx, "DELETE FROM gstr2b_recon WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM ims_status WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gstr2b_lines WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM gstr2b_snapshots WHERE company_id = $cid;", ("$cid", cid));
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
         ExecTx(tx, """
             DELETE FROM tds_lines WHERE entry_line_id IN (
@@ -3926,7 +4061,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  einvoicing_enabled, einvoice_applicable_from, einvoice_aato_threshold_paisa,
                  einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
                  gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
-                 eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable)
+                 eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
+                 recon_value_tolerance_paisa, recon_date_window_days)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3944,7 +4080,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $compsub, $compdate,
                  $eien, $eifrom, $eiaato, $eioverride, $eiexempt, $eiage,
                  $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee,
-                 $ewayen, $ewayfrom, $ewaythresh, $ewaybasis, $ewayintra);
+                 $ewayen, $ewayfrom, $ewaythresh, $ewaybasis, $ewayintra,
+                 $reconval, $recondays);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -4060,6 +4197,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$ewaythresh", Paisa.FromMoney(gst?.EWayThreshold ?? new Money(50_000m)));
         cmd.Parameters.AddWithValue("$ewaybasis", (int)(gst?.ConsignmentBasis ?? EWayConsignmentBasis.Rule138Default));
         cmd.Parameters.AddWithValue("$ewayintra", (gst?.EWayIntraStateApplicable ?? true) ? 1 : 0);
+        // v43 (Phase 9 slice 6): the GSTR-2B reconciliation tolerance, written verbatim. Default 0/0 (exact-match) for a
+        // company that never sets it (ER-13). A matching parameter only — never a posted figure (ER-14; finding #5).
+        cmd.Parameters.AddWithValue("$reconval", Paisa.FromMoney(gst?.ReconValueTolerance ?? Money.Zero));
+        cmd.Parameters.AddWithValue("$recondays", gst?.ReconDateWindowDays ?? 0);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
@@ -4747,6 +4888,95 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$reason", (object?)r.CancelReasonCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ecode", (object?)r.ErrorCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$emsg", (object?)r.ErrorMessage ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>v43: persists the imported GSTR-2B/2A snapshots + their child lines + the reconciliation results (Phase 9
+    /// slice 6). Snapshots/lines are external portal data (no source-voucher FK); each snapshot is written then its lines
+    /// (FK the snapshot). The recon rows FK the lines + an optional matched voucher — ADVISORY only (ER-14). Empty when
+    /// 2B is never imported (ER-13).</summary>
+    private void InsertGstr2bRecords(SqliteTransaction tx, Company c)
+    {
+        foreach (var s in c.Gstr2bSnapshots)
+        {
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO gstr2b_snapshots
+                        (id, company_id, statement_type, return_period, recipient_gstin, generated_on, source_file_hash,
+                         imported_at, summary_igst_paisa, summary_cgst_paisa, summary_sgst_paisa, summary_cess_paisa)
+                    VALUES ($id, $cid, $type, $period, $gstin, $gen, $hash, $imp, $igst, $cgst, $sgst, $cess);
+                    """;
+                cmd.Parameters.AddWithValue("$id", s.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$type", (int)s.StatementType);
+                cmd.Parameters.AddWithValue("$period", s.ReturnPeriod);
+                cmd.Parameters.AddWithValue("$gstin", s.RecipientGstin);
+                cmd.Parameters.AddWithValue("$gen", s.GeneratedOn is { } g ? FormatDate(g) : (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("$hash", s.SourceFileHash);
+                cmd.Parameters.AddWithValue("$imp", FormatDateTimeOffset(s.ImportedAt));
+                cmd.Parameters.AddWithValue("$igst", s.SummaryIgstPaisa);
+                cmd.Parameters.AddWithValue("$cgst", s.SummaryCgstPaisa);
+                cmd.Parameters.AddWithValue("$sgst", s.SummarySgstPaisa);
+                cmd.Parameters.AddWithValue("$cess", s.SummaryCessPaisa);
+                cmd.ExecuteNonQuery();
+            }
+
+            foreach (var l in s.Lines)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO gstr2b_lines
+                        (id, company_id, snapshot_id, supplier_gstin, supplier_trade_name, doc_type, doc_number,
+                         doc_number_norm, doc_date, pos_state_code, taxable_value_paisa, igst_paisa, cgst_paisa,
+                         sgst_paisa, cess_paisa, itc_available, itc_unavailable_reason, reverse_charge)
+                    VALUES ($id, $cid, $sid, $sup, $trd, $dt, $dnum, $dnorm, $ddate, $pos, $txval, $igst, $cgst, $sgst,
+                            $cess, $itc, $rsn, $rev);
+                    """;
+                cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$sid", s.Id.ToString("D"));
+                cmd.Parameters.AddWithValue("$sup", l.SupplierGstin);
+                cmd.Parameters.AddWithValue("$trd", (object?)l.SupplierTradeName ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$dt", (int)l.DocType);
+                cmd.Parameters.AddWithValue("$dnum", l.DocNumber);
+                cmd.Parameters.AddWithValue("$dnorm", (object?)l.DocNumberNorm ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$ddate", FormatDate(l.DocDate));
+                cmd.Parameters.AddWithValue("$pos", (object?)l.PosStateCode ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$txval", l.TaxableValuePaisa);
+                cmd.Parameters.AddWithValue("$igst", l.IgstPaisa);
+                cmd.Parameters.AddWithValue("$cgst", l.CgstPaisa);
+                cmd.Parameters.AddWithValue("$sgst", l.SgstPaisa);
+                cmd.Parameters.AddWithValue("$cess", l.CessPaisa);
+                cmd.Parameters.AddWithValue("$itc", l.ItcAvailable ? 1 : 0);
+                cmd.Parameters.AddWithValue("$rsn", (object?)l.ItcUnavailableReason ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$rev", l.ReverseCharge ? 1 : 0);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        foreach (var r in c.Gstr2bReconResults)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO gstr2b_recon
+                    (id, company_id, line_id, bucket, matched_voucher_id, taxable_variance_paisa, tax_variance_paisa,
+                     match_pinned, reconciled_at)
+                VALUES ($id, $cid, $lid, $bucket, $vid, $txvar, $taxvar, $pinned, $recon);
+                """;
+            cmd.Parameters.AddWithValue("$id", r.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$lid", r.LineId.ToString("D"));
+            cmd.Parameters.AddWithValue("$bucket", (int)r.Bucket);
+            cmd.Parameters.AddWithValue("$vid", (object?)r.MatchedVoucherId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$txvar", r.TaxableVariancePaisa);
+            cmd.Parameters.AddWithValue("$taxvar", r.TaxVariancePaisa);
+            cmd.Parameters.AddWithValue("$pinned", r.MatchPinned ? 1 : 0);
+            cmd.Parameters.AddWithValue("$recon", r.ReconciledAt is { } dto ? FormatDateTimeOffset(dto) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

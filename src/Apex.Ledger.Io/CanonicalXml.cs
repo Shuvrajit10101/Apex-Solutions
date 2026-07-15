@@ -116,9 +116,41 @@ public static class CanonicalXml
             // Phase 9 slice 5: e-Way Bill artefacts (empty when e-Way is off, ER-13).
             List("eWayBillRecords", "eWayBillRecord", p.EWayBillRecords, BuildEWayBillRecord),
             List("creditDebitNoteLinks", "creditDebitNoteLink", p.CreditDebitNoteLinks, BuildCdnLink),
-            List("advanceReceipts", "advanceReceipt", p.AdvanceReceipts, BuildAdvanceReceipt));
+            List("advanceReceipts", "advanceReceipt", p.AdvanceReceipts, BuildAdvanceReceipt),
+            // Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (empty when
+            // 2B is never imported, ER-13).
+            List("gstr2bSnapshots", "gstr2bSnapshot", p.Gstr2bSnapshots, BuildGstr2bSnapshot),
+            List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult));
         return root;
     }
+
+    private static XElement BuildGstr2bSnapshot(Gstr2bSnapshotDto s)
+    {
+        var el = new XElement("gstr2bSnapshot",
+            Attr("id", s.Id), Attr("statementType", s.StatementType), Attr("returnPeriod", s.ReturnPeriod),
+            Attr("recipientGstin", s.RecipientGstin), Opt("generatedOn", s.GeneratedOn),
+            Attr("sourceFileHash", s.SourceFileHash), Attr("importedAt", s.ImportedAt),
+            Attr("summaryIgstPaisa", s.SummaryIgstPaisa), Attr("summaryCgstPaisa", s.SummaryCgstPaisa),
+            Attr("summarySgstPaisa", s.SummarySgstPaisa), Attr("summaryCessPaisa", s.SummaryCessPaisa));
+        var lines = new XElement("lines");
+        foreach (var l in s.Lines) lines.Add(BuildGstr2bLine(l));
+        el.Add(lines);
+        return el;
+    }
+
+    private static XElement BuildGstr2bLine(Gstr2bLineDto l) => new("gstr2bLine",
+        Attr("id", l.Id), Attr("supplierGstin", l.SupplierGstin), Opt("supplierTradeName", l.SupplierTradeName),
+        Attr("docType", l.DocType), Attr("docNumber", l.DocNumber), Opt("docNumberNorm", l.DocNumberNorm),
+        Attr("docDate", l.DocDate), Opt("posStateCode", l.PosStateCode),
+        Attr("taxableValuePaisa", l.TaxableValuePaisa), Attr("igstPaisa", l.IgstPaisa), Attr("cgstPaisa", l.CgstPaisa),
+        Attr("sgstPaisa", l.SgstPaisa), Attr("cessPaisa", l.CessPaisa), Attr("itcAvailable", l.ItcAvailable),
+        Opt("itcUnavailableReason", l.ItcUnavailableReason), Attr("reverseCharge", l.ReverseCharge));
+
+    private static XElement BuildGstr2bReconResult(Gstr2bReconResultDto r) => new("gstr2bReconResult",
+        Attr("id", r.Id), Attr("lineId", r.LineId), Attr("bucket", r.Bucket),
+        OptId("matchedVoucherId", r.MatchedVoucherId), Attr("taxableVariancePaisa", r.TaxableVariancePaisa),
+        Attr("taxVariancePaisa", r.TaxVariancePaisa), Attr("matchPinned", r.MatchPinned),
+        Opt("reconciledAt", r.ReconciledAt));
 
     private static XElement BuildTdsChallan(TdsChallanDto ch) => new("tdsChallan",
         Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
@@ -481,7 +513,10 @@ public static class CanonicalXml
             // credential attr exists here (ER-16). Booleans/threshold/basis always emitted.
             Attr("eWayBillEnabled", g.EWayBillEnabled), Opt("eWayApplicableFrom", g.EWayApplicableFrom),
             Attr("eWayThresholdPaisa", g.EWayThresholdPaisa), Attr("consignmentBasis", g.ConsignmentBasis),
-            Attr("eWayIntraStateApplicable", g.EWayIntraStateApplicable));
+            Attr("eWayIntraStateApplicable", g.EWayIntraStateApplicable),
+            // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (always emitted; defaults 0/0 ⇒ byte-stable, finding #5).
+            Attr("reconValueTolerancePaisa", g.ReconValueTolerancePaisa),
+            Attr("reconDateWindowDays", g.ReconDateWindowDays));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
@@ -1011,6 +1046,10 @@ public static class CanonicalXml
                 EWayBillRecords = ReadList(root, "eWayBillRecords", "eWayBillRecord", ReadEWayBillRecord),
                 CreditDebitNoteLinks = ReadList(root, "creditDebitNoteLinks", "creditDebitNoteLink", ReadCdnLink),
                 AdvanceReceipts = ReadList(root, "advanceReceipts", "advanceReceipt", ReadAdvanceReceipt),
+                // Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (absent
+                // element ⇒ empty list, ER-13).
+                Gstr2bSnapshots = ReadList(root, "gstr2bSnapshots", "gstr2bSnapshot", ReadGstr2bSnapshot),
+                Gstr2bReconResults = ReadList(root, "gstr2bReconResults", "gstr2bReconResult", ReadGstr2bReconResult),
             };
         }
         catch (Exception ex)
@@ -1311,6 +1350,35 @@ public static class CanonicalXml
         ReasonCode = Str(e, "reasonCode")!, Is9BTarget = Bool(e, "is9BTarget"),
     };
 
+    private static Gstr2bSnapshotDto ReadGstr2bSnapshot(XElement e) => new()
+    {
+        Id = Guid(e, "id"), StatementType = Str(e, "statementType")!, ReturnPeriod = Str(e, "returnPeriod") ?? string.Empty,
+        RecipientGstin = Str(e, "recipientGstin") ?? string.Empty, GeneratedOn = Str(e, "generatedOn"),
+        SourceFileHash = Str(e, "sourceFileHash") ?? string.Empty, ImportedAt = Str(e, "importedAt") ?? string.Empty,
+        SummaryIgstPaisa = Long(e, "summaryIgstPaisa"), SummaryCgstPaisa = Long(e, "summaryCgstPaisa"),
+        SummarySgstPaisa = Long(e, "summarySgstPaisa"), SummaryCessPaisa = Long(e, "summaryCessPaisa"),
+        Lines = (e.Element("lines")?.Elements("gstr2bLine") ?? Enumerable.Empty<XElement>()).Select(ReadGstr2bLine).ToList(),
+    };
+
+    private static Gstr2bLineDto ReadGstr2bLine(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SupplierGstin = Str(e, "supplierGstin") ?? string.Empty,
+        SupplierTradeName = Str(e, "supplierTradeName"), DocType = Str(e, "docType")!,
+        DocNumber = Str(e, "docNumber") ?? string.Empty, DocNumberNorm = Str(e, "docNumberNorm"),
+        DocDate = Str(e, "docDate") ?? string.Empty, PosStateCode = Str(e, "posStateCode"),
+        TaxableValuePaisa = Long(e, "taxableValuePaisa"), IgstPaisa = Long(e, "igstPaisa"), CgstPaisa = Long(e, "cgstPaisa"),
+        SgstPaisa = Long(e, "sgstPaisa"), CessPaisa = Long(e, "cessPaisa"), ItcAvailable = Bool(e, "itcAvailable"),
+        ItcUnavailableReason = Str(e, "itcUnavailableReason"), ReverseCharge = Bool(e, "reverseCharge"),
+    };
+
+    private static Gstr2bReconResultDto ReadGstr2bReconResult(XElement e) => new()
+    {
+        Id = Guid(e, "id"), LineId = Guid(e, "lineId"), Bucket = Str(e, "bucket")!,
+        MatchedVoucherId = OptGuid(e, "matchedVoucherId"), TaxableVariancePaisa = Long(e, "taxableVariancePaisa"),
+        TaxVariancePaisa = Long(e, "taxVariancePaisa"), MatchPinned = Bool(e, "matchPinned"),
+        ReconciledAt = Str(e, "reconciledAt"),
+    };
+
     private static GstAdvanceReceiptDto ReadAdvanceReceipt(XElement e) => new()
     {
         Id = Guid(e, "id"), ReceiptVoucherId = Guid(e, "receiptVoucherId"), IsService = Bool(e, "isService"),
@@ -1468,6 +1536,9 @@ public static class CanonicalXml
                 Id = Guid(t, "id"), StateCode = Str(t, "stateCode")!, TxnType = Str(t, "txnType")!,
                 ThresholdPaisa = Long(t, "thresholdPaisa"),
             }).ToList(),
+        // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (absent ⇒ 0/0 exact-match, ER-13; finding #5).
+        ReconValueTolerancePaisa = OptLong(e, "reconValueTolerancePaisa") ?? 0L,
+        ReconDateWindowDays = OptInt(e, "reconDateWindowDays") ?? 0,
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()

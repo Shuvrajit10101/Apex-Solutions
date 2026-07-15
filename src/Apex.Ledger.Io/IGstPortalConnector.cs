@@ -47,7 +47,24 @@ public interface IGstPortalConnector
 
     /// <summary>Submits a consolidated EWB-02 request. <b>Offline</b>: stages the request. <b>Live</b>: calls the CEWB API.</summary>
     EwbSubmissionResult SubmitConsolidatedEway(Ewb02Request request);
+
+    /// <summary>
+    /// Imports a portal statement (GSTR-2B / GSTR-2A) — the first <b>INBOUND</b> operation (Phase 9 slice 6; RQ-12;
+    /// RQ-30). <b>Offline (OfflineJson)</b>: deterministically parses the supplied portal-downloaded JSON bytes into a
+    /// neutral <see cref="Gstr2bStatementDto"/> (zero credentials, ER-16 baseline). <b>Live (CustomerNicDirect) / GSP</b>:
+    /// <see cref="NotSupportedException"/> — returns/2A/2B stay <b>offline-only</b> in Phase 9 (a future GSP fills the
+    /// live inbound path). The transport never reconciles or posts (ER-14).
+    /// </summary>
+    Gstr2bImportResult FetchStatement(Gstr2bFetchRequest request);
 }
+
+/// <summary>An inbound GSTR-2B/2A import request (Phase 9 slice 6): the portal-downloaded JSON bytes, which statement it
+/// is (2B/2A), and this taxpayer's recipient GSTIN (checked against the file).</summary>
+public sealed record Gstr2bFetchRequest(byte[] Json, GstStatementType StatementType, string RecipientGstin);
+
+/// <summary>The result of an inbound statement import (Phase 9 slice 6): the deterministically-parsed neutral statement,
+/// or a fail-fast error (no partial statement is ever returned).</summary>
+public sealed record Gstr2bImportResult(bool Parsed, Gstr2bStatementDto? Statement, string? ErrorCode, string? ErrorMessage);
 
 /// <summary>An INV-01 IRN request: the deterministic request bytes, the uppercased document number, and the source
 /// voucher id. Carries NO IRN (the IRN is what the request asks the IRP to mint — ER-5).</summary>

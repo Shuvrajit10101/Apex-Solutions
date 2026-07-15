@@ -312,6 +312,73 @@ public sealed record PayloadDto
 
     /// <summary>GST-on-advance receipts (Phase 9; RQ-25). Empty until the S2b advance engine (ER-13).</summary>
     public IReadOnlyList<GstAdvanceReceiptDto> AdvanceReceipts { get; init; } = [];
+
+    /// <summary>Imported GSTR-2B/2A statements (Phase 9 slice 6; RQ-12). External portal data the taxpayer downloaded —
+    /// worth preserving, so it round-trips. Empty when 2B is never imported (ER-13). No NIC credential appears here — the
+    /// only secret flows through <c>INicCredentialStore</c> alone (ER-16).</summary>
+    public IReadOnlyList<Gstr2bSnapshotDto> Gstr2bSnapshots { get; init; } = [];
+
+    /// <summary>Persisted GSTR-2B reconciliation results (Phase 9 slice 6; RQ-13). Advisory audit rows keyed to the 2B
+    /// lines. Empty until a reconciliation is run (ER-13).</summary>
+    public IReadOnlyList<Gstr2bReconResultDto> Gstr2bReconResults { get; init; } = [];
+}
+
+/// <summary>An imported GSTR-2B/2A statement (Phase 9 slice 6), mirroring the domain <c>Gstr2bSnapshot</c> + the SQLite
+/// <c>gstr2b_snapshots</c> row, owning its <see cref="Lines"/> (the <c>gstr2b_lines</c> children). Money is integer
+/// paisa; <c>GeneratedOn</c> is ISO or null; <c>ImportedAt</c> is ISO round-trip (o). External portal data (not a
+/// secret) — exported. No NIC credential appears (ER-16).</summary>
+public sealed record Gstr2bSnapshotDto
+{
+    public required Guid Id { get; init; }
+    public required string StatementType { get; init; }          // GstStatementType name
+    public required string ReturnPeriod { get; init; }           // "yyyy-MM"
+    public required string RecipientGstin { get; init; }
+    public string? GeneratedOn { get; init; }                    // ISO yyyy-MM-dd, or null
+    public required string SourceFileHash { get; init; }         // SHA-256 hex
+    public required string ImportedAt { get; init; }             // ISO round-trip (o)
+    public long SummaryIgstPaisa { get; init; }
+    public long SummaryCgstPaisa { get; init; }
+    public long SummarySgstPaisa { get; init; }
+    public long SummaryCessPaisa { get; init; }
+    public IReadOnlyList<Gstr2bLineDto> Lines { get; init; } = [];
+}
+
+/// <summary>One imported inward-supply record (Phase 9 slice 6), mirroring the domain <c>Gstr2bLine</c> + the SQLite
+/// <c>gstr2b_lines</c> row. Money is integer paisa.</summary>
+public sealed record Gstr2bLineDto
+{
+    public required Guid Id { get; init; }
+    public required string SupplierGstin { get; init; }
+    public string? SupplierTradeName { get; init; }
+    public required string DocType { get; init; }                // Gstr2bDocType name
+    public required string DocNumber { get; init; }
+    public string? DocNumberNorm { get; init; }
+    public required string DocDate { get; init; }                // ISO yyyy-MM-dd
+    public string? PosStateCode { get; init; }
+    public long TaxableValuePaisa { get; init; }
+    public long IgstPaisa { get; init; }
+    public long CgstPaisa { get; init; }
+    public long SgstPaisa { get; init; }
+    public long CessPaisa { get; init; }
+    public bool ItcAvailable { get; init; }
+    public string? ItcUnavailableReason { get; init; }
+    public bool ReverseCharge { get; init; }
+}
+
+/// <summary>A persisted GSTR-2B reconciliation result (Phase 9 slice 6), mirroring the domain <c>Gstr2bReconResult</c> +
+/// the SQLite <c>gstr2b_recon</c> row. <c>MatchedVoucherId</c> is an optional read-only pointer to a books voucher
+/// (ER-14); it re-links via the voucher map on import (null ⇒ the pin is dropped, unless the bucket requires it). Money
+/// is integer paisa.</summary>
+public sealed record Gstr2bReconResultDto
+{
+    public required Guid Id { get; init; }
+    public required Guid LineId { get; init; }                   // FK the imported Gstr2bLine DTO id
+    public required string Bucket { get; init; }                 // ReconBucket name (Matched/PartialMismatch/InPortalOnly)
+    public Guid? MatchedVoucherId { get; init; }
+    public long TaxableVariancePaisa { get; init; }
+    public long TaxVariancePaisa { get; init; }
+    public bool MatchPinned { get; init; }
+    public string? ReconciledAt { get; init; }                   // ISO round-trip (o), or null
 }
 
 /// <summary>An RCM generated document (Phase 9 slice 2), mirroring the domain <c>RcmDocument</c> and the SQLite
@@ -1118,6 +1185,11 @@ public sealed record GstConfigDto
     public string ConsignmentBasis { get; init; } = "Rule138Default";        // EWayConsignmentBasis name
     public bool EWayIntraStateApplicable { get; init; } = true;
     public IReadOnlyList<EWayStateThresholdDto> EWayStateThresholds { get; init; } = [];
+    // Phase 9 slice 6 (RQ-13): the GSTR-2B reconciliation tolerance (paisa slack + ± day window). Default 0/0 (exact) ⇒ a
+    // company that never touches 2B serialises identically to a v42 company (ER-13). A matching parameter only (ER-14).
+    // Appended at the END so existing field order is unchanged (finding #5).
+    public long ReconValueTolerancePaisa { get; init; }
+    public int ReconDateWindowDays { get; init; }
 }
 
 /// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>

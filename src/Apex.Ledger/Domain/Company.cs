@@ -36,6 +36,8 @@ public sealed class Company
     private readonly List<EWayBillRecord> _eWayBillRecords = new();
     private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
     private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
+    private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
+    private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
@@ -430,6 +432,15 @@ public sealed class Company
     /// schema but stays empty until the S2b advance engine (ER-13).</summary>
     public IReadOnlyList<GstAdvanceReceipt> AdvanceReceipts => _advanceReceipts;
 
+    /// <summary>Imported GSTR-2B/2A statements (Phase 9 slice 6; RQ-12): immutable dated snapshots, each owning its
+    /// inward-supply lines. External portal data (NOT the app's own postings). Empty when 2B is never imported (ER-13).</summary>
+    public IReadOnlyList<Gstr2bSnapshot> Gstr2bSnapshots => _gstr2bSnapshots;
+
+    /// <summary>Persisted GSTR-2B reconciliation results (Phase 9 slice 6; RQ-13): one per reconciled 2B line (the three
+    /// portal-side buckets). ADVISORY only — a read-only pointer to the matched purchase, never a posting (ER-14). Empty
+    /// until a reconciliation is run (ER-13).</summary>
+    public IReadOnlyList<Gstr2bReconResult> Gstr2bReconResults => _gstr2bReconResults;
+
     /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
     /// unless Payroll is used.</summary>
     public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
@@ -646,6 +657,30 @@ public sealed class Company
     public bool RemoveAdvanceReceipt(GstAdvanceReceipt receipt) => _advanceReceipts.Remove(receipt);
     /// <summary>Finds a GST-on-advance receipt record by its id, or <c>null</c>.</summary>
     public GstAdvanceReceipt? FindAdvanceReceipt(Guid id) => _advanceReceipts.FirstOrDefault(a => a.Id == id);
+
+    // ---- GSTR-2B/2A imported statements + reconciliation results (Phase 9 slice 6; guards live in Gstr2bImportService /
+    //      Gstr2bReconciler). Both are staging collections physically separate from the ledger (ER-14). ----
+
+    /// <summary>Adds an imported GSTR-2B/2A snapshot (Phase 9 slice 6; also used by the store/import rehydration).</summary>
+    public void AddGstr2bSnapshot(Gstr2bSnapshot snapshot) => _gstr2bSnapshots.Add(snapshot ?? throw new ArgumentNullException(nameof(snapshot)));
+    /// <summary>Removes an imported GSTR-2B/2A snapshot (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveGstr2bSnapshot(Gstr2bSnapshot snapshot) => _gstr2bSnapshots.Remove(snapshot);
+    /// <summary>Finds an imported GSTR-2B/2A snapshot by its id, or <c>null</c>.</summary>
+    public Gstr2bSnapshot? FindGstr2bSnapshot(Guid id) => _gstr2bSnapshots.FirstOrDefault(s => s.Id == id);
+    /// <summary>Finds the imported 2B line with the given id across every snapshot, or <c>null</c>.</summary>
+    public Gstr2bLine? FindGstr2bLine(Guid lineId)
+    {
+        foreach (var s in _gstr2bSnapshots)
+            if (s.FindLine(lineId) is { } line) return line;
+        return null;
+    }
+
+    /// <summary>Adds a persisted reconciliation result (Phase 9 slice 6; also used by the store/import rehydration).</summary>
+    public void AddGstr2bReconResult(Gstr2bReconResult result) => _gstr2bReconResults.Add(result ?? throw new ArgumentNullException(nameof(result)));
+    /// <summary>Removes a persisted reconciliation result (used by a re-run / the transactional import roll-back).</summary>
+    public bool RemoveGstr2bReconResult(Gstr2bReconResult result) => _gstr2bReconResults.Remove(result);
+    /// <summary>Finds a persisted reconciliation result by its id, or <c>null</c>.</summary>
+    public Gstr2bReconResult? FindGstr2bReconResult(Guid id) => _gstr2bReconResults.FirstOrDefault(r => r.Id == id);
 
     // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
 

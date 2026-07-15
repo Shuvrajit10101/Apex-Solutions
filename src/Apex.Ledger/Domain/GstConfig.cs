@@ -116,6 +116,20 @@ public sealed class GstConfig
     /// <summary>Whether intra-state movements attract e-Way at all (default true; some states exempt intra-state entirely).</summary>
     public bool EWayIntraStateApplicable { get; set; } = true;
 
+    // --- GSTR-2B reconciliation tolerance (Phase 9 slice 6; RQ-13; DP-13). Default Zero/0 ⇒ exact-match reconciliation
+    //     ⇒ a company that never touches 2B is byte-identical (ER-13). A MATCHING parameter only — never changes a
+    //     posted figure (ER-14). ---
+
+    /// <summary>The paisa slack on the taxable/tax comparison during 2B reconciliation (default <see cref="Money.Zero"/>
+    /// ⇒ exact).</summary>
+    public Money ReconValueTolerance { get; set; } = Money.Zero;
+
+    /// <summary>The ± day window on the document-date comparison during 2B reconciliation (default 0 ⇒ same-day).</summary>
+    public int ReconDateWindowDays { get; set; }
+
+    /// <summary>The reconciliation tolerance as a value object (paisa + days), built from the two config fields.</summary>
+    public ReconTolerance ReconTolerance => new((long)(ReconValueTolerance.Amount * 100m), ReconDateWindowDays);
+
     /// <summary>The per-state / per-transaction-type consignment-threshold overrides (Phase 9 slice 5; §2.6). <b>Empty</b>
     /// for a company that never provisions them — every state then uses the flat <see cref="EWayThreshold"/> (ER-13
     /// byte-identical when off). An override resolves on the <b>place-of-supply</b> state for <b>intra-state</b> movements.</summary>

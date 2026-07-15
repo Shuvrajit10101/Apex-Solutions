@@ -238,11 +238,13 @@ public sealed class EWaySchemaTests
     }
 
     /// <summary>A minimal pre-v42 (v41) DDL: the v41→v42 migration creates <c>eway_bills</c> (FK companies + vouchers) +
-    /// <c>eway_state_thresholds</c> (FK companies) and ALTERs <c>companies</c>, so a bare <c>schema_version</c> +
-    /// <c>companies</c> + <c>vouchers</c> is enough to exercise the migration and its data-preservation.</summary>
+    /// <c>eway_state_thresholds</c> (FK companies) and ALTERs <c>companies</c>. <c>stock_items</c> + <c>ledgers</c> are
+    /// included because the migrate-to-current chain runs through the v42→v43 §17(5) ALTER on both, which needs them.</summary>
     private const string MinimalV41Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         """;
 }

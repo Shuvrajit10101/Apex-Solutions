@@ -155,10 +155,13 @@ public sealed class CompositionSchemaTests
         cmd.ExecuteNonQuery();
     }
 
-    /// <summary>A minimal pre-v40 (v39) DDL: the v39→v40 migration only ALTERs <c>companies</c>, so a bare
-    /// <c>schema_version</c> + <c>companies</c> is enough to exercise the migration and its data-preservation.</summary>
+    /// <summary>A minimal pre-v40 (v39) DDL: the v39→v40 migration only ALTERs <c>companies</c>. <c>stock_items</c> +
+    /// <c>ledgers</c> are included because the migrate-to-current chain runs through the v42→v43 §17(5) ALTER on both,
+    /// which needs the tables to exist.</summary>
     private const string MinimalV39Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         """;
 }

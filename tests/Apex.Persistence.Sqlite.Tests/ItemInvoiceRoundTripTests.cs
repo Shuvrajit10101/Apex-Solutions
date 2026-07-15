@@ -313,6 +313,19 @@ public sealed class ItemInvoiceRoundTripTests
         Exec(conn, "DROP TABLE IF EXISTS eway_bills;");
         Exec(conn, "DROP INDEX IF EXISTS ix_eway_state_thresholds_company;");
         Exec(conn, "DROP TABLE IF EXISTS eway_state_thresholds;");
+        // v43 GSTR-2B inbound tables (+ indexes) — drop (child-first) so the reopen's v42→v43 CREATE TABLE does not
+        // collide (the stock_items/ledgers rebuild in DowngradeStripV13 strips the v43 §17(5) columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_recon_line;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_recon_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gstr2b_recon;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_ims_status_line;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_ims_status_company;");
+        Exec(conn, "DROP TABLE IF EXISTS ims_status;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_lines_snapshot;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_lines_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gstr2b_lines;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_snapshots_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gstr2b_snapshots;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
         Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");
