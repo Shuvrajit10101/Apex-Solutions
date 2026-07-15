@@ -1001,6 +1001,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 41;
         }
 
+        // v41 → v42: apply the Phase-9 slice 5 e-Way Bill core (new eway_bills + eway_state_thresholds tables + indexes;
+        // five non-secret e-Way config columns on companies), then bump the marker. Existing v41 data survives untouched
+        // (CREATE TABLE/INDEX + ALTER … ADD COLUMN only; no row rewrites). The live NIC path REUSES the shared
+        // gst_connector_mode + nic_*_enc columns — no new secret column. ER-13 byte-identical when e-Way is off.
+        if (version == 41)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV41ToV42;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 42);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 42;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1033,7 +1057,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    composition_sub_type, composition_opt_in_date,
                    einvoicing_enabled, einvoice_applicable_from, einvoice_aato_threshold_paisa,
                    einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
-                   gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name
+                   gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
+                   eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1101,7 +1126,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     B2cQrAatoThreshold = Paisa.ToMoney(r.GetInt64(72)),
                     B2cQrUpiId = r.IsDBNull(73) ? null : r.GetString(73),
                     B2cQrPayeeName = r.IsDBNull(74) ? null : r.GetString(74),
+                    // v42 (Phase 9 slice 5): NON-SECRET e-Way Bill config, read verbatim (defaults ⇒ byte-identical when
+                    // off, ER-13). The live NIC path reuses gst_connector_mode + nic_*_enc — no new secret column here.
+                    EWayBillEnabled = r.GetInt64(75) != 0,
+                    EWayApplicableFrom = r.IsDBNull(76) ? (DateOnly?)null : ParseDate(r.GetString(76)),
+                    EWayThreshold = Paisa.ToMoney(r.GetInt64(77)),
+                    ConsignmentBasis = (EWayConsignmentBasis)(int)r.GetInt64(78),
+                    EWayIntraStateApplicable = r.GetInt64(79) != 0,
                 };
+                foreach (var t in ReadEWayStateThresholds(companyId))
+                    company.Gst.AddEWayStateThreshold(t);
             }
 
             // v25 (Phase 7 slice 1): TDS/TCS deductor config. The deductor identity (TAN/type/responsible person/
@@ -1319,6 +1353,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // empty when e-invoicing is unused (ER-13).
         foreach (var record in ReadEInvoiceRecords(companyId))
             company.AddEInvoiceRecord(record);
+        // e-Way Bill artefacts (Phase 9 slice 5). Loaded after vouchers so their source-voucher references resolve; empty
+        // when e-Way is unused (ER-13). (The per-state threshold overrides load with the GstConfig, above.)
+        foreach (var record in ReadEWayBillRecords(companyId))
+            company.AddEWayBillRecord(record);
         foreach (var link in ReadGstCdnLinks(companyId))
             company.AddCreditDebitNoteLink(link);
         foreach (var adv in ReadGstAdvanceReceipts(companyId))
@@ -1517,6 +1555,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertRcmRecords(tx, company);
         // e-Invoice IRP artefacts (Phase 9 slice 4a): FK the source voucher (inserted above).
         InsertEInvoiceRecords(tx, company);
+        // e-Way Bill artefacts (Phase 9 slice 5): FK the source voucher (inserted above).
+        InsertEWayBillRecords(tx, company);
         // Payroll masters (Phase 8 slice 1). Categories + groups + payroll units first; then attendance types
         // (FK payroll_units) and employees (FK employee_groups + employee_categories). Hierarchical/compound
         // masters are inserted parents-before-children so their self-FK resolves.
@@ -2039,6 +2079,72 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.IsDBNull(10) ? null : r.GetString(10),
                 r.IsDBNull(11) ? null : r.GetString(11),
                 r.IsDBNull(12) ? null : r.GetString(12)));
+        return list;
+    }
+
+    /// <summary>v42: reads the e-Way Bill artefacts for a company (Phase 9 slice 5). Rehydrates each record verbatim via
+    /// <see cref="EWayBillRecord.Rehydrate"/> — the portal-issued EWB number / validity are copied, never derived (ER-5).
+    /// Empty when e-Way is unused (ER-13).</summary>
+    private IEnumerable<EWayBillRecord> ReadEWayBillRecords(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, source_voucher_id, document_number_upper, status, supply_type, sub_supply_type, doc_type,
+                   consignment_value_paisa, transporter_id, trans_mode, vehicle_number, distance_km, transport_doc_no,
+                   ship_from_state_code, ship_to_state_code, is_odc, ship_to_gstin, closure_requested, closed_on,
+                   ewb_number, generated_at, valid_upto, cancelled_on, cancel_reason_code, error_code, error_message
+            FROM eway_bills WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<EWayBillRecord>();
+        while (r.Read())
+            list.Add(EWayBillRecord.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                r.GetString(2),
+                (EWayStatus)(int)r.GetInt64(3),
+                r.IsDBNull(4) ? null : r.GetString(4),
+                r.IsDBNull(5) ? null : r.GetString(5),
+                r.IsDBNull(6) ? null : r.GetString(6),
+                r.GetInt64(7),
+                r.IsDBNull(8) ? null : r.GetString(8),
+                r.IsDBNull(9) ? (EWayTransportMode?)null : (EWayTransportMode)(int)r.GetInt64(9),
+                r.IsDBNull(10) ? null : r.GetString(10),
+                (int)r.GetInt64(11),
+                r.IsDBNull(12) ? null : r.GetString(12),
+                r.IsDBNull(13) ? null : r.GetString(13),
+                r.IsDBNull(14) ? null : r.GetString(14),
+                r.GetInt64(15) != 0,
+                r.IsDBNull(16) ? null : r.GetString(16),
+                r.GetInt64(17) != 0,
+                r.IsDBNull(18) ? (DateOnly?)null : ParseDate(r.GetString(18)),
+                r.IsDBNull(19) ? null : r.GetString(19),
+                r.IsDBNull(20) ? (DateTimeOffset?)null : ParseDateTimeOffset(r.GetString(20)),
+                r.IsDBNull(21) ? (DateTimeOffset?)null : ParseDateTimeOffset(r.GetString(21)),
+                r.IsDBNull(22) ? (DateOnly?)null : ParseDate(r.GetString(22)),
+                r.IsDBNull(23) ? null : r.GetString(23),
+                r.IsDBNull(24) ? null : r.GetString(24),
+                r.IsDBNull(25) ? null : r.GetString(25)));
+        return list;
+    }
+
+    /// <summary>v42: reads the per-state e-Way threshold overrides for a company (Phase 9 slice 5). Empty on the flat
+    /// ₹50,000 default (ER-13).</summary>
+    private IEnumerable<EWayStateThreshold> ReadEWayStateThresholds(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, state_code, txn_type, threshold_paisa
+            FROM eway_state_thresholds WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<EWayStateThreshold>();
+        while (r.Read())
+            list.Add(new EWayStateThreshold(
+                Guid.Parse(r.GetString(0)), r.GetString(1), (EWayTransactionType)(int)r.GetInt64(2),
+                Paisa.ToMoney(r.GetInt64(3))));
         return list;
     }
 
@@ -3638,6 +3744,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM rcm_documents WHERE company_id = $cid;", ("$cid", cid));
         // v41 e-invoice IRP artefacts FK the source voucher → delete before vouchers (Phase 9 slice 4a).
         ExecTx(tx, "DELETE FROM einvoice_records WHERE company_id = $cid;", ("$cid", cid));
+        // v42 e-Way Bill artefacts FK the source voucher → delete before vouchers; state overrides FK companies only
+        // (Phase 9 slice 5).
+        ExecTx(tx, "DELETE FROM eway_bills WHERE company_id = $cid;", ("$cid", cid));
+        ExecTx(tx, "DELETE FROM eway_state_thresholds WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_cdn_links WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM gst_advance_receipts WHERE company_id = $cid;", ("$cid", cid));
         // v26 TDS withholding detail FKs the entry line → delete before entry_lines (Phase 7 slice 2).
@@ -3815,7 +3925,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  composition_sub_type, composition_opt_in_date,
                  einvoicing_enabled, einvoice_applicable_from, einvoice_aato_threshold_paisa,
                  einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
-                 gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name)
+                 gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
+                 eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -3832,7 +3943,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $bonusen, $bonusrate, $bonusceil, $bonusminwage, $bonusprorate,
                  $compsub, $compdate,
                  $eien, $eifrom, $eiaato, $eioverride, $eiexempt, $eiage,
-                 $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee);
+                 $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee,
+                 $ewayen, $ewayfrom, $ewaythresh, $ewaybasis, $ewayintra);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -3940,7 +4052,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$b2caato", Paisa.FromMoney(gst?.B2cQrAatoThreshold ?? new Money(5_000_000_000m)));
         cmd.Parameters.AddWithValue("$b2cupi", (object?)gst?.B2cQrUpiId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$b2cpayee", (object?)gst?.B2cQrPayeeName ?? DBNull.Value);
+        // v42 (Phase 9 slice 5): the NON-SECRET e-Way Bill config, written verbatim. All default off/NULL/₹50,000/0/1 for
+        // a company that does not e-Way-bill (ER-13). No secret is written here — the live path reuses gst_connector_mode
+        // + nic_*_enc (ER-16). A null Gst writes the same defaults the schema column defaults carry.
+        cmd.Parameters.AddWithValue("$ewayen", (gst?.EWayBillEnabled ?? false) ? 1 : 0);
+        cmd.Parameters.AddWithValue("$ewayfrom", gst?.EWayApplicableFrom is { } ewaf ? FormatDate(ewaf) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$ewaythresh", Paisa.FromMoney(gst?.EWayThreshold ?? new Money(50_000m)));
+        cmd.Parameters.AddWithValue("$ewaybasis", (int)(gst?.ConsignmentBasis ?? EWayConsignmentBasis.Rule138Default));
+        cmd.Parameters.AddWithValue("$ewayintra", (gst?.EWayIntraStateApplicable ?? true) ? 1 : 0);
         cmd.ExecuteNonQuery();
+
+        // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
+        // on the flat ₹50,000 default (ER-13).
+        if (gst is not null)
+            foreach (var t in gst.EWayStateThresholds)
+            {
+                using var s = _connection.CreateCommand();
+                s.Transaction = tx;
+                s.CommandText = """
+                    INSERT INTO eway_state_thresholds (id, company_id, state_code, txn_type, threshold_paisa)
+                    VALUES ($id, $cid, $state, $txn, $thresh);
+                    """;
+                s.Parameters.AddWithValue("$id", t.Id.ToString("D"));
+                s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+                s.Parameters.AddWithValue("$state", t.StateCode);
+                s.Parameters.AddWithValue("$txn", (int)t.TxnType);
+                s.Parameters.AddWithValue("$thresh", Paisa.FromMoney(t.Threshold));
+                s.ExecuteNonQuery();
+            }
 
         // v36 per-employee §192 income-tax declarations (only for employees that declared figures). All money in
         // integer paisa. One row per declaration; a company with none writes nothing (ER-13).
@@ -4553,6 +4692,57 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$ackdate", r.AckDate is { } ad ? FormatDate(ad) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$qr", (object?)r.SignedQr ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$json", (object?)r.SignedJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cancelled", r.CancelledOn is { } co ? FormatDate(co) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$reason", (object?)r.CancelReasonCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$ecode", (object?)r.ErrorCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$emsg", (object?)r.ErrorMessage ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>v42: persists the e-Way Bill artefacts (Phase 9 slice 5). The 12-digit EWB number, generation timestamp
+    /// and validity are stored verbatim from the portal response (never derived, ER-5). FK the source voucher (inserted
+    /// above). Empty when e-Way is unused (ER-13).</summary>
+    private void InsertEWayBillRecords(SqliteTransaction tx, Company c)
+    {
+        foreach (var r in c.EWayBillRecords)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO eway_bills
+                    (id, company_id, source_voucher_id, document_number_upper, status, supply_type, sub_supply_type,
+                     doc_type, consignment_value_paisa, transporter_id, trans_mode, vehicle_number, distance_km,
+                     transport_doc_no, ship_from_state_code, ship_to_state_code, is_odc, ship_to_gstin, closure_requested,
+                     closed_on, ewb_number, generated_at, valid_upto, cancelled_on, cancel_reason_code, error_code,
+                     error_message)
+                VALUES ($id, $cid, $src, $doc, $status, $supt, $subt, $doct, $cv, $tid, $mode, $veh, $dist, $tdoc,
+                        $from, $to, $odc, $shipgstin, $closreq, $closed, $ewb, $genat, $valid, $cancelled, $reason,
+                        $ecode, $emsg);
+                """;
+            cmd.Parameters.AddWithValue("$id", r.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$src", r.SourceVoucherId.ToString("D"));
+            cmd.Parameters.AddWithValue("$doc", r.DocumentNumberUpper);
+            cmd.Parameters.AddWithValue("$status", (int)r.Status);
+            cmd.Parameters.AddWithValue("$supt", (object?)r.SupplyType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$subt", (object?)r.SubSupplyType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$doct", (object?)r.DocType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$cv", r.ConsignmentValuePaisa);
+            cmd.Parameters.AddWithValue("$tid", (object?)r.TransporterId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mode", r.Mode is { } m ? (int)m : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$veh", (object?)r.VehicleNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dist", r.DistanceKm);
+            cmd.Parameters.AddWithValue("$tdoc", (object?)r.TransportDocNo ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$from", (object?)r.ShipFromStateCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$to", (object?)r.ShipToStateCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$odc", r.IsOverDimensionalCargo ? 1 : 0);
+            cmd.Parameters.AddWithValue("$shipgstin", (object?)r.ShipToGstin ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$closreq", r.ClosureRequested ? 1 : 0);
+            cmd.Parameters.AddWithValue("$closed", r.ClosedOn is { } cd ? FormatDate(cd) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$ewb", (object?)r.EwbNumber ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$genat", r.GeneratedAt is { } ga ? FormatDateTimeOffset(ga) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$valid", r.ValidUpto is { } vu ? FormatDateTimeOffset(vu) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$cancelled", r.CancelledOn is { } co ? FormatDate(co) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$reason", (object?)r.CancelReasonCode ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ecode", (object?)r.ErrorCode ?? DBNull.Value);
@@ -6127,6 +6317,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     private static DateOnly ParseDate(string s) =>
         DateOnly.ParseExact(s, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>ISO-8601 round-trip format (o) for a portal <see cref="DateTimeOffset"/> (v42 e-Way generation timestamp /
+    /// validity) — preserves the offset so the value round-trips byte-stably (never a clock read, always portal-issued).</summary>
+    private static string FormatDateTimeOffset(DateTimeOffset dto) =>
+        dto.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset ParseDateTimeOffset(string s) =>
+        DateTimeOffset.Parse(s, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind);
 
     /// <summary>Closes the underlying connection and releases the database file handle.</summary>
     public void Dispose()

@@ -306,14 +306,12 @@ public static class EInvoiceJson
             .ToList();
     }
 
-    private static long ReadCessTotalPaisa(Voucher voucher)
-    {
-        long cess = 0;
-        foreach (var line in voucher.Lines)
-            if (line.Gst is { TaxHead: GstTaxHead.Cess, IsReverseCharge: false })
-                cess += MoneyCodec.ToPaisa(line.Amount);
-        return cess;
-    }
+    // Phase 9 slice 5: the ring-fenced posted-cess total is read via the ONE shared GstReportSupport.PostedCessTotal helper
+    // so this writer and the e-Way consignment-value / EWayBillJson writers can never drift (risk #1). Converting the
+    // summed decimal-rupee total to paisa is exact (Σ amount × 100 == Σ (amount × 100) for paisa-exact amounts), so the
+    // emitted bytes are unchanged from the previous per-line paisa fold.
+    private static long ReadCessTotalPaisa(Voucher voucher) =>
+        MoneyCodec.ToPaisa(GstReportSupport.PostedCessTotal(voucher));
 
     private static byte[] Serialize(object dto)
     {

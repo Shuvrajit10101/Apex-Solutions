@@ -387,3 +387,114 @@ public enum EInvoiceCoverage
     /// <summary>e-invoicing is not applicable to this company/voucher (off / composition / below threshold / pre-date).</summary>
     NotApplicable,
 }
+
+// ==================================================================================================================
+//  e-Way Bill (Phase 9 slice 5; Rule 138; RQ-6/RQ-19; DP-12). The outbound-artefact sibling of the S4a e-Invoice —
+//  it REUSES the GstConnectorMode + INicCredentialStore seams (no new secret surface) and adds a validity/
+//  consignment-value engine. Every enum defaults to its 0-ordinal so an e-Way-off company is byte-identical (ER-13).
+// ==================================================================================================================
+
+/// <summary>
+/// How the Rule-138 <b>consignment value</b> is composed (Phase 9 slice 5; §2.6). The threshold check <b>always</b>
+/// includes CGST/SGST/IGST + Compensation-Cess; the basis only decides whether the <b>exempt-supply</b> portion is
+/// added in. <see cref="Rule138Default"/> (the statutory default) is §15 taxable value + taxes + cess with the exempt
+/// portion <b>excluded</b>. Stored as the enum ordinal (Rule138Default=0).
+/// </summary>
+public enum EWayConsignmentBasis
+{
+    /// <summary>§15 taxable value + CGST/SGST/IGST + cess, <b>excluding</b> the exempt-supply portion (the Rule-138 default).</summary>
+    Rule138Default = 0,
+
+    /// <summary>Adds the exempt/nil-supply line value on top of the taxable value + taxes + cess.</summary>
+    TaxablePlusExempt = 1,
+
+    /// <summary>The whole invoice value (all supply lines incl. exempt) + taxes + cess.</summary>
+    InvoiceValue = 2,
+}
+
+/// <summary>
+/// The e-Way transaction nature that drives the "mandatory irrespective of value" carve-out (Phase 9 slice 5; §2.6). An
+/// inter-state principal↔job-worker (<see cref="JobWork"/>) or inter-state handicraft (<see cref="Handicraft"/>) movement
+/// requires an EWB <b>regardless</b> of consignment value. Stored as the enum ordinal (Regular=0).
+/// </summary>
+public enum EWayTransactionType
+{
+    /// <summary>An ordinary supply — the threshold test applies.</summary>
+    Regular = 0,
+
+    /// <summary>Principal↔job-worker movement — mandatory irrespective of value when inter-state.</summary>
+    JobWork = 1,
+
+    /// <summary>Handicraft goods movement — mandatory irrespective of value when inter-state.</summary>
+    Handicraft = 2,
+}
+
+/// <summary>
+/// The transport mode for the EWB Part-B (Phase 9 slice 5; NIC transMode codes). <see cref="Ship"/> (and any multimodal
+/// over-dimensional cargo) triggers the 20-km-per-day validity rule; the others use 200 km/day. Stored as the NIC code
+/// (Road=1, Rail=2, Air=3, Ship=4).
+/// </summary>
+public enum EWayTransportMode
+{
+    /// <summary>Road (NIC transMode = 1).</summary>
+    Road = 1,
+
+    /// <summary>Rail (NIC transMode = 2).</summary>
+    Rail = 2,
+
+    /// <summary>Air (NIC transMode = 3).</summary>
+    Air = 3,
+
+    /// <summary>Ship / vessel (NIC transMode = 4) — multimodal-shipping / ODC uses the 20-km/day validity rule.</summary>
+    Ship = 4,
+}
+
+/// <summary>
+/// The EWB lifecycle state of a per-voucher <see cref="EWayBillRecord"/> (Phase 9 slice 5; ER-5 twin). Mirrors
+/// <see cref="EInvoiceStatus"/> plus an <see cref="Expired"/> state the validity engine <b>derives</b> (the stored status
+/// stays <see cref="Generated"/>; expiry is a view over <c>ValidUpto</c>). The 12-digit EWB number + validity are only
+/// ever populated by the portal response (never computed locally, ER-5). Stored as the enum ordinal.
+/// </summary>
+public enum EWayStatus
+{
+    /// <summary>The voucher is not an e-Way candidate (below threshold / not a goods movement / pre-date / off).</summary>
+    NotApplicable = 0,
+
+    /// <summary>An EWB-01 request was assembled and staged/submitted; no EWB number yet (the offline baseline stays here).</summary>
+    Pending = 1,
+
+    /// <summary>The portal returned the 12-digit EWB number + validity — stored verbatim (ER-5); the movement is covered.</summary>
+    Generated = 2,
+
+    /// <summary>The EWB was cancelled within 24 h (full document only); the movement may be re-billed.</summary>
+    Cancelled = 3,
+
+    /// <summary>The portal rejected the request (an error code + message was returned).</summary>
+    Failed = 4,
+
+    /// <summary>A <b>derived</b> terminal view (not stored): the validity window has elapsed for a Generated EWB.</summary>
+    Expired = 5,
+}
+
+/// <summary>
+/// The Rule-138 applicability verdict for a voucher (Phase 9 slice 5; §2.6). Advisory classification returned by
+/// <c>EWayBillService.CoverageOf</c>; not persisted. <see cref="NotApplicable"/> when e-Way is off / the voucher pre-dates
+/// applicability / it is not a goods-movement document; <see cref="MandatoryIrrespectiveOfValue"/> for inter-state
+/// job-work / handicraft (short-circuits the threshold); <see cref="NotRequired"/> when the consignment value is at or
+/// below the effective threshold (or an intra-state movement in a state that exempts intra-state e-Way);
+/// <see cref="Required"/> when the consignment value strictly exceeds the effective threshold.
+/// </summary>
+public enum EWayCoverage
+{
+    /// <summary>An EWB must be generated (consignment value strictly exceeds the effective threshold).</summary>
+    Required,
+
+    /// <summary>No EWB is required (value ≤ threshold, or an intra-state movement the state exempts).</summary>
+    NotRequired,
+
+    /// <summary>An EWB is mandatory regardless of value (inter-state job-work / handicraft).</summary>
+    MandatoryIrrespectiveOfValue,
+
+    /// <summary>e-Way is not applicable to this company/voucher (off / pre-date / not a goods movement).</summary>
+    NotApplicable,
+}

@@ -59,6 +59,40 @@ public sealed class CustomerNicDirectConnector : IGstPortalConnector
         throw new NotSupportedException(NotConfigured);
     }
 
+    /// <inheritdoc />
+    public EwbSubmissionResult SubmitEway(Ewb01Request request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConfigured();
+        // Deferred: the live NIC EWB call is a later slice's build-time detail; the customer's own creds from
+        // _credentials.Get(_gstin) would be used ONLY at the point of this call, never stored in the aggregate (ER-16).
+        throw new NotSupportedException(NotConfigured);
+    }
+
+    /// <inheritdoc />
+    public EwbCancelResult CancelEway(EwbCancelRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConfigured();
+        throw new NotSupportedException(NotConfigured);
+    }
+
+    /// <inheritdoc />
+    public EwbExtendResult ExtendEway(EwbExtendRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConfigured();
+        throw new NotSupportedException(NotConfigured);
+    }
+
+    /// <inheritdoc />
+    public EwbSubmissionResult SubmitConsolidatedEway(Ewb02Request request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureConfigured();
+        throw new NotSupportedException(NotConfigured);
+    }
+
     private void EnsureConfigured()
     {
         if (_httpClient is null || !_credentials.HasCredentials(_gstin))

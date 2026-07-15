@@ -113,6 +113,8 @@ public static class CanonicalXml
             List("rcmDocuments", "rcmDocument", p.RcmDocuments, BuildRcmDocument),
             // Phase 9 slice 4a: e-invoice IRP artefacts (empty when e-invoicing is off, ER-13).
             List("eInvoiceRecords", "eInvoiceRecord", p.EInvoiceRecords, BuildEInvoiceRecord),
+            // Phase 9 slice 5: e-Way Bill artefacts (empty when e-Way is off, ER-13).
+            List("eWayBillRecords", "eWayBillRecord", p.EWayBillRecords, BuildEWayBillRecord),
             List("creditDebitNoteLinks", "creditDebitNoteLink", p.CreditDebitNoteLinks, BuildCdnLink),
             List("advanceReceipts", "advanceReceipt", p.AdvanceReceipts, BuildAdvanceReceipt));
         return root;
@@ -134,6 +136,18 @@ public static class CanonicalXml
         Attr("id", r.Id), Attr("sourceVoucherId", r.SourceVoucherId), Attr("documentNumberUpper", r.DocumentNumberUpper),
         Attr("status", r.Status), Opt("irn", r.Irn), Opt("ackNo", r.AckNo), Opt("ackDate", r.AckDate),
         Opt("signedQr", r.SignedQr), Opt("signedJsonBase64", r.SignedJsonBase64), Opt("cancelledOn", r.CancelledOn),
+        Opt("cancelReasonCode", r.CancelReasonCode), Opt("errorCode", r.ErrorCode), Opt("errorMessage", r.ErrorMessage));
+
+    private static XElement BuildEWayBillRecord(EWayBillRecordDto r) => new("eWayBillRecord",
+        Attr("id", r.Id), Attr("sourceVoucherId", r.SourceVoucherId), Attr("documentNumberUpper", r.DocumentNumberUpper),
+        Attr("status", r.Status), Opt("supplyType", r.SupplyType), Opt("subSupplyType", r.SubSupplyType),
+        Opt("docType", r.DocType), Attr("consignmentValuePaisa", r.ConsignmentValuePaisa),
+        Opt("transporterId", r.TransporterId), Opt("transMode", r.TransMode), Opt("vehicleNumber", r.VehicleNumber),
+        Attr("distanceKm", r.DistanceKm), Opt("transportDocNo", r.TransportDocNo),
+        Opt("shipFromStateCode", r.ShipFromStateCode), Opt("shipToStateCode", r.ShipToStateCode),
+        Attr("isOverDimensionalCargo", r.IsOverDimensionalCargo), Opt("shipToGstin", r.ShipToGstin),
+        Attr("closureRequested", r.ClosureRequested), Opt("closedOn", r.ClosedOn), Opt("ewbNumber", r.EwbNumber),
+        Opt("generatedAt", r.GeneratedAt), Opt("validUpto", r.ValidUpto), Opt("cancelledOn", r.CancelledOn),
         Opt("cancelReasonCode", r.CancelReasonCode), Opt("errorCode", r.ErrorCode), Opt("errorMessage", r.ErrorMessage));
 
     private static XElement BuildCdnLink(GstCdnLinkDto l) => new("creditDebitNoteLink",
@@ -462,7 +476,12 @@ public static class CanonicalXml
             Attr("connectorMode", g.ConnectorMode),
             Attr("b2cDynamicQrEnabled", g.B2cDynamicQrEnabled),
             Attr("b2cQrAatoThresholdPaisa", g.B2cQrAatoThresholdPaisa),
-            Opt("b2cQrUpiId", g.B2cQrUpiId), Opt("b2cQrPayeeName", g.B2cQrPayeeName));
+            Opt("b2cQrUpiId", g.B2cQrUpiId), Opt("b2cQrPayeeName", g.B2cQrPayeeName),
+            // Phase 9 slice 5: NON-SECRET e-Way Bill config (defaults ⇒ byte-identical when off, ER-13). No NIC
+            // credential attr exists here (ER-16). Booleans/threshold/basis always emitted.
+            Attr("eWayBillEnabled", g.EWayBillEnabled), Opt("eWayApplicableFrom", g.EWayApplicableFrom),
+            Attr("eWayThresholdPaisa", g.EWayThresholdPaisa), Attr("consignmentBasis", g.ConsignmentBasis),
+            Attr("eWayIntraStateApplicable", g.EWayIntraStateApplicable));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
@@ -497,6 +516,14 @@ public static class CanonicalXml
                 Attr("recipientQualifier", c.RecipientQualifier), Attr("effectiveFrom", c.EffectiveFrom),
                 Opt("effectiveTo", c.EffectiveTo), Attr("label", c.Label), Attr("isPredefined", c.IsPredefined)));
         el.Add(rcm);
+
+        // Phase 9 slice 5: per-state e-Way threshold overrides (empty element when on the flat ₹50,000 default).
+        var ewayThresholds = new XElement("ewayStateThresholds");
+        foreach (var t in g.EWayStateThresholds)
+            ewayThresholds.Add(new XElement("ewayStateThreshold",
+                Attr("id", t.Id), Attr("stateCode", t.StateCode), Attr("txnType", t.TxnType),
+                Attr("thresholdPaisa", t.ThresholdPaisa)));
+        el.Add(ewayThresholds);
         return el;
     }
 
@@ -980,6 +1007,8 @@ public static class CanonicalXml
                 RcmDocuments = ReadList(root, "rcmDocuments", "rcmDocument", ReadRcmDocument),
                 // Phase 9 slice 4a: e-invoice IRP artefacts (absent element ⇒ empty list, ER-13).
                 EInvoiceRecords = ReadList(root, "eInvoiceRecords", "eInvoiceRecord", ReadEInvoiceRecord),
+                // Phase 9 slice 5: e-Way Bill artefacts (absent element ⇒ empty list, ER-13).
+                EWayBillRecords = ReadList(root, "eWayBillRecords", "eWayBillRecord", ReadEWayBillRecord),
                 CreditDebitNoteLinks = ReadList(root, "creditDebitNoteLinks", "creditDebitNoteLink", ReadCdnLink),
                 AdvanceReceipts = ReadList(root, "advanceReceipts", "advanceReceipt", ReadAdvanceReceipt),
             };
@@ -1259,6 +1288,21 @@ public static class CanonicalXml
         CancelReasonCode = Str(e, "cancelReasonCode"), ErrorCode = Str(e, "errorCode"), ErrorMessage = Str(e, "errorMessage"),
     };
 
+    private static EWayBillRecordDto ReadEWayBillRecord(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SourceVoucherId = Guid(e, "sourceVoucherId"),
+        DocumentNumberUpper = Str(e, "documentNumberUpper") ?? string.Empty, Status = Str(e, "status")!,
+        SupplyType = Str(e, "supplyType"), SubSupplyType = Str(e, "subSupplyType"), DocType = Str(e, "docType"),
+        ConsignmentValuePaisa = Long(e, "consignmentValuePaisa"), TransporterId = Str(e, "transporterId"),
+        TransMode = Str(e, "transMode"), VehicleNumber = Str(e, "vehicleNumber"), DistanceKm = Int(e, "distanceKm"),
+        TransportDocNo = Str(e, "transportDocNo"), ShipFromStateCode = Str(e, "shipFromStateCode"),
+        ShipToStateCode = Str(e, "shipToStateCode"), IsOverDimensionalCargo = Bool(e, "isOverDimensionalCargo"),
+        ShipToGstin = Str(e, "shipToGstin"), ClosureRequested = Bool(e, "closureRequested"), ClosedOn = Str(e, "closedOn"),
+        EwbNumber = Str(e, "ewbNumber"), GeneratedAt = Str(e, "generatedAt"), ValidUpto = Str(e, "validUpto"),
+        CancelledOn = Str(e, "cancelledOn"), CancelReasonCode = Str(e, "cancelReasonCode"),
+        ErrorCode = Str(e, "errorCode"), ErrorMessage = Str(e, "errorMessage"),
+    };
+
     private static GstCdnLinkDto ReadCdnLink(XElement e) => new()
     {
         Id = Guid(e, "id"), CdnVoucherId = Guid(e, "cdnVoucherId"), CdnType = Str(e, "cdnType")!,
@@ -1412,6 +1456,18 @@ public static class CanonicalXml
         B2cDynamicQrEnabled = Bool(e, "b2cDynamicQrEnabled"),
         B2cQrAatoThresholdPaisa = OptLong(e, "b2cQrAatoThresholdPaisa") ?? 500_000_000_000L,
         B2cQrUpiId = Str(e, "b2cQrUpiId"), B2cQrPayeeName = Str(e, "b2cQrPayeeName"),
+        // Phase 9 slice 5: NON-SECRET e-Way Bill config + per-state overrides (absent ⇒ off/default, ER-13). No NIC
+        // credential is read here (ER-16).
+        EWayBillEnabled = Bool(e, "eWayBillEnabled"), EWayApplicableFrom = Str(e, "eWayApplicableFrom"),
+        EWayThresholdPaisa = OptLong(e, "eWayThresholdPaisa") ?? 5_000_000L,
+        ConsignmentBasis = Str(e, "consignmentBasis") ?? "Rule138Default",
+        EWayIntraStateApplicable = e.Attribute("eWayIntraStateApplicable") is null ? true : Bool(e, "eWayIntraStateApplicable"),
+        EWayStateThresholds = (e.Element("ewayStateThresholds")?.Elements("ewayStateThreshold") ?? Enumerable.Empty<XElement>())
+            .Select(t => new EWayStateThresholdDto
+            {
+                Id = Guid(t, "id"), StateCode = Str(t, "stateCode")!, TxnType = Str(t, "txnType")!,
+                ThresholdPaisa = Long(t, "thresholdPaisa"),
+            }).ToList(),
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()

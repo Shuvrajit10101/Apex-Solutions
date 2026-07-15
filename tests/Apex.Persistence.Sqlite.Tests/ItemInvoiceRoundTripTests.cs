@@ -307,6 +307,12 @@ public sealed class ItemInvoiceRoundTripTests
         // (the companies rebuild in DowngradeStripV13 strips the v41 e-invoice/B2C/mode/nic_*_enc columns too).
         Exec(conn, "DROP INDEX IF EXISTS ix_einvoice_records_company;");
         Exec(conn, "DROP TABLE IF EXISTS einvoice_records;");
+        // v42 e-Way Bill tables (+ indexes) — drop so the reopen's v41→v42 CREATE TABLE does not collide (the companies
+        // rebuild strips the v42 eway_* config columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_eway_bills_company;");
+        Exec(conn, "DROP TABLE IF EXISTS eway_bills;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_eway_state_thresholds_company;");
+        Exec(conn, "DROP TABLE IF EXISTS eway_state_thresholds;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
         Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");

@@ -303,6 +303,10 @@ public sealed record PayloadDto
     /// credentials are the only secret and are deliberately absent from the canonical model (ER-16).</summary>
     public IReadOnlyList<EInvoiceRecordDto> EInvoiceRecords { get; init; } = [];
 
+    /// <summary>e-Way Bill artefacts (Phase 9 slice 5; RQ-6). Empty when e-Way is unused (ER-13). The portal-issued EWB
+    /// number + validity ARE exported — they are portal receipts, NOT secrets. No NIC credential appears here (ER-16).</summary>
+    public IReadOnlyList<EWayBillRecordDto> EWayBillRecords { get; init; } = [];
+
     /// <summary>§34 credit/debit-note links (Phase 9; RQ-24). Empty until the S2b CDN engine (ER-13).</summary>
     public IReadOnlyList<GstCdnLinkDto> CreditDebitNoteLinks { get; init; } = [];
 
@@ -340,6 +344,50 @@ public sealed record EInvoiceRecordDto
     public string? CancelReasonCode { get; init; }
     public string? ErrorCode { get; init; }
     public string? ErrorMessage { get; init; }
+}
+
+/// <summary>An e-Way Bill artefact (Phase 9 slice 5), mirroring the domain <c>EWayBillRecord</c> and the SQLite
+/// <c>eway_bills</c> row. The portal-issued EWB number + validity ARE exported (portal receipts, not secrets); no NIC
+/// credential appears here — the only secret flows through <c>INicCredentialStore</c> alone (ER-16). <c>GeneratedAt</c> /
+/// <c>ValidUpto</c> are ISO round-trip (o) strings.</summary>
+public sealed record EWayBillRecordDto
+{
+    public required Guid Id { get; init; }
+    public required Guid SourceVoucherId { get; init; }
+    public required string DocumentNumberUpper { get; init; }
+    public required string Status { get; init; }              // EWayStatus name
+    public string? SupplyType { get; init; }
+    public string? SubSupplyType { get; init; }
+    public string? DocType { get; init; }
+    public long ConsignmentValuePaisa { get; init; }
+    public string? TransporterId { get; init; }
+    public string? TransMode { get; init; }                   // EWayTransportMode name, or null
+    public string? VehicleNumber { get; init; }
+    public int DistanceKm { get; init; }
+    public string? TransportDocNo { get; init; }
+    public string? ShipFromStateCode { get; init; }
+    public string? ShipToStateCode { get; init; }
+    public bool IsOverDimensionalCargo { get; init; }
+    public string? ShipToGstin { get; init; }
+    public bool ClosureRequested { get; init; }
+    public string? ClosedOn { get; init; }                    // ISO yyyy-MM-dd, or null
+    public string? EwbNumber { get; init; }                   // 12-digit, FROM the portal
+    public string? GeneratedAt { get; init; }                 // ISO round-trip (o), or null
+    public string? ValidUpto { get; init; }                   // ISO round-trip (o), or null
+    public string? CancelledOn { get; init; }                 // ISO yyyy-MM-dd, or null
+    public string? CancelReasonCode { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
+}
+
+/// <summary>A per-state / per-transaction-type e-Way consignment-threshold override (Phase 9 slice 5), mirroring the
+/// domain <c>EWayStateThreshold</c> and the SQLite <c>eway_state_thresholds</c> row. Empty on the flat ₹50,000 default.</summary>
+public sealed record EWayStateThresholdDto
+{
+    public required Guid Id { get; init; }
+    public required string StateCode { get; init; }
+    public required string TxnType { get; init; }             // EWayTransactionType name
+    public long ThresholdPaisa { get; init; }
 }
 
 /// <summary>A §34 credit/debit-note link (Phase 9), mirroring the domain <c>GstCreditDebitNoteLink</c> and the SQLite
@@ -1061,6 +1109,15 @@ public sealed record GstConfigDto
     public long B2cQrAatoThresholdPaisa { get; init; } = 500_000_000_000L;     // ₹500 cr
     public string? B2cQrUpiId { get; init; }
     public string? B2cQrPayeeName { get; init; }
+    // Phase 9 slice 5 (RQ-6): the NON-SECRET e-Way Bill config + per-state overrides. Defaulting off/NULL/₹50,000/
+    // Rule138Default/true ⇒ an e-Way-off company is byte-identical to a v41 company (ER-13). Appended at the END so
+    // existing field order is unchanged. No NIC credential here — the live path reuses ConnectorMode + the store (ER-16).
+    public bool EWayBillEnabled { get; init; }
+    public string? EWayApplicableFrom { get; init; }                          // ISO yyyy-MM-dd, or null
+    public long EWayThresholdPaisa { get; init; } = 5_000_000L;               // ₹50,000
+    public string ConsignmentBasis { get; init; } = "Rule138Default";        // EWayConsignmentBasis name
+    public bool EWayIntraStateApplicable { get; init; } = true;
+    public IReadOnlyList<EWayStateThresholdDto> EWayStateThresholds { get; init; } = [];
 }
 
 /// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>

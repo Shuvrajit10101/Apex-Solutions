@@ -21,4 +21,16 @@ public sealed class GspConnector : IGstPortalConnector
 
     /// <inheritdoc />
     public IrnCancelResult CancelIrn(IrnCancelRequest request) => throw new NotSupportedException(NotBuilt);
+
+    /// <inheritdoc />
+    public EwbSubmissionResult SubmitEway(Ewb01Request request) => throw new NotSupportedException(NotBuilt);
+
+    /// <inheritdoc />
+    public EwbCancelResult CancelEway(EwbCancelRequest request) => throw new NotSupportedException(NotBuilt);
+
+    /// <inheritdoc />
+    public EwbExtendResult ExtendEway(EwbExtendRequest request) => throw new NotSupportedException(NotBuilt);
+
+    /// <inheritdoc />
+    public EwbSubmissionResult SubmitConsolidatedEway(Ewb02Request request) => throw new NotSupportedException(NotBuilt);
 }

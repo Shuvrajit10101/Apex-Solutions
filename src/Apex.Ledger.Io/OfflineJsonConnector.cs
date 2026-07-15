@@ -30,4 +30,35 @@ public sealed class OfflineJsonConnector : IGstPortalConnector
         ArgumentNullException.ThrowIfNull(request);
         return new IrnCancelResult(Cancelled: false, ErrorCode: null, ErrorMessage: null);
     }
+
+    /// <summary>Stages the EWB-01 request for offline upload; returns non-accepted (no EWB number yet — the caller retains
+    /// the request bytes and imports the portal write-back separately, so the number still arrives inbound — ER-5).</summary>
+    public EwbSubmissionResult SubmitEway(Ewb01Request request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new EwbSubmissionResult(
+            Accepted: false, EwbNumber: null, GeneratedAt: null, ValidUpto: null, ErrorCode: null, ErrorMessage: null);
+    }
+
+    /// <summary>Stages an offline EWB cancel request; finalised when the write-back is imported.</summary>
+    public EwbCancelResult CancelEway(EwbCancelRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new EwbCancelResult(Cancelled: false, ErrorCode: null, ErrorMessage: null);
+    }
+
+    /// <summary>Stages an offline EWB extend request; finalised when the write-back is imported.</summary>
+    public EwbExtendResult ExtendEway(EwbExtendRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new EwbExtendResult(Extended: false, NewValidUpto: null, ErrorCode: null, ErrorMessage: null);
+    }
+
+    /// <summary>Stages the consolidated EWB-02 request for offline upload; returns non-accepted (no CEWB number yet).</summary>
+    public EwbSubmissionResult SubmitConsolidatedEway(Ewb02Request request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new EwbSubmissionResult(
+            Accepted: false, EwbNumber: null, GeneratedAt: null, ValidUpto: null, ErrorCode: null, ErrorMessage: null);
+    }
 }

@@ -33,6 +33,7 @@ public sealed class Company
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<RcmDocument> _rcmDocuments = new();
     private readonly List<EInvoiceRecord> _eInvoiceRecords = new();
+    private readonly List<EWayBillRecord> _eWayBillRecords = new();
     private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
     private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
     private readonly List<TcsChallan> _tcsChallans = new();
@@ -417,6 +418,10 @@ public sealed class Company
     /// e-invoicing is unused (ER-13).</summary>
     public IReadOnlyList<EInvoiceRecord> EInvoiceRecords => _eInvoiceRecords;
 
+    /// <summary>e-Way Bill artefacts (Phase 9 slice 5; RQ-6): one per covered goods-movement document. Empty when
+    /// e-Way is unused (ER-13).</summary>
+    public IReadOnlyList<EWayBillRecord> EWayBillRecords => _eWayBillRecords;
+
     /// <summary>§34 credit/debit-note links (Phase 9; RQ-24): the original-invoice link + reason + 9B target. The
     /// table lands in the S2a schema but stays empty until the S2b CDN engine (ER-13).</summary>
     public IReadOnlyList<GstCreditDebitNoteLink> CreditDebitNoteLinks => _cdnLinks;
@@ -616,6 +621,17 @@ public sealed class Company
     /// cancelled/used doc-no is NEVER reusable (§2.5), so <c>EInvoiceService.PrepareRecord</c> refuses a second record.</summary>
     public bool HasEInvoiceDocumentNumber(string documentNumberUpper) =>
         _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumberUpper, StringComparison.Ordinal));
+
+    /// <summary>Adds an e-Way Bill artefact (Phase 9 slice 5; also used by the store/import rehydration).</summary>
+    public void AddEWayBillRecord(EWayBillRecord record) => _eWayBillRecords.Add(record ?? throw new ArgumentNullException(nameof(record)));
+    /// <summary>Removes an e-Way Bill artefact (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveEWayBillRecord(EWayBillRecord record) => _eWayBillRecords.Remove(record);
+    /// <summary>Finds an e-Way Bill artefact by its id, or <c>null</c>.</summary>
+    public EWayBillRecord? FindEWayBillRecord(Guid id) => _eWayBillRecords.FirstOrDefault(r => r.Id == id);
+    /// <summary>The e-Way Bill artefact for a given source voucher (at most one active per movement), or <c>null</c>. Unlike
+    /// e-invoice there is NO doc-no reuse-block — a cancelled EWB frees the movement to be re-billed.</summary>
+    public EWayBillRecord? FindEWayBillRecordForVoucher(Guid sourceVoucherId) =>
+        _eWayBillRecords.FirstOrDefault(r => r.SourceVoucherId == sourceVoucherId && r.Status != EWayStatus.Cancelled);
 
     /// <summary>Adds a §34 credit/debit-note link (Phase 9; also used by the store/import rehydration).</summary>
     public void AddCreditDebitNoteLink(GstCreditDebitNoteLink link) => _cdnLinks.Add(link ?? throw new ArgumentNullException(nameof(link)));

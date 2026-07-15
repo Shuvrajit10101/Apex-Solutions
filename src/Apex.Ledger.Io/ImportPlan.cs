@@ -972,6 +972,24 @@ internal sealed class ImportPlan
             t.AddEInvoiceRecord(record);
             journal.RecordEInvoiceRecord(record);
         }
+        // Phase 9 slice 5: e-Way Bill artefacts — re-minted with a fresh Guid; the source voucher resolves to the
+        // re-minted target (orphans skipped). EWayBillRecord.Rehydrate validates the invariant (a Generated record
+        // requires an EWB number AND a validity) in pre-flight, so a malformed record rejects the whole batch (Applied =
+        // false; all-or-nothing).
+        foreach (var r in _model.Payload.EWayBillRecords)
+        {
+            if (MapVoucher(r.SourceVoucherId) is not { } src) continue; // orphan — source voucher not imported
+            var record = EWayBillRecord.Rehydrate(
+                Guid.NewGuid(), src, r.DocumentNumberUpper, ParseEnum<EWayStatus>(r.Status),
+                r.SupplyType, r.SubSupplyType, r.DocType, r.ConsignmentValuePaisa,
+                r.TransporterId, r.TransMode is { } tm ? ParseEnum<EWayTransportMode>(tm) : null, r.VehicleNumber,
+                r.DistanceKm, r.TransportDocNo, r.ShipFromStateCode, r.ShipToStateCode, r.IsOverDimensionalCargo,
+                r.ShipToGstin, r.ClosureRequested, CompanyImportService.ParseDateOpt(r.ClosedOn),
+                r.EwbNumber, ParseDateTimeOffsetOpt(r.GeneratedAt), ParseDateTimeOffsetOpt(r.ValidUpto),
+                CompanyImportService.ParseDateOpt(r.CancelledOn), r.CancelReasonCode, r.ErrorCode, r.ErrorMessage);
+            t.AddEWayBillRecord(record);
+            journal.RecordEWayBillRecord(record);
+        }
         foreach (var l in _model.Payload.CreditDebitNoteLinks)
         {
             if (MapVoucher(l.CdnVoucherId) is not { } cdnv) continue; // orphan — CDN voucher not imported
@@ -1114,7 +1132,19 @@ internal sealed class ImportPlan
             B2cQrAatoThreshold = MoneyCodec.FromPaisa(g.B2cQrAatoThresholdPaisa),
             B2cQrUpiId = g.B2cQrUpiId,
             B2cQrPayeeName = g.B2cQrPayeeName,
+            // Phase 9 slice 5: NON-SECRET e-Way Bill config. No NIC credential is imported — it is not in the DTO
+            // (ER-16). A malformed enum/date throws in pre-flight ⇒ all-or-nothing (RQ-23).
+            EWayBillEnabled = g.EWayBillEnabled,
+            EWayApplicableFrom = CompanyImportService.ParseDateOpt(g.EWayApplicableFrom),
+            EWayThreshold = MoneyCodec.FromPaisa(g.EWayThresholdPaisa),
+            ConsignmentBasis = ParseEnum<EWayConsignmentBasis>(g.ConsignmentBasis),
+            EWayIntraStateApplicable = g.EWayIntraStateApplicable,
         };
+        // Phase 9 slice 5: preserve the exported per-state e-Way threshold overrides (fresh ids). A malformed row throws
+        // here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).
+        foreach (var t in g.EWayStateThresholds)
+            config.AddEWayStateThreshold(new EWayStateThreshold(
+                Guid.NewGuid(), t.StateCode, ParseEnum<EWayTransactionType>(t.TxnType), MoneyCodec.FromPaisa(t.ThresholdPaisa)));
         // Preserve the exported slabs (EnableGst only seeds defaults when none are present).
         foreach (var s in g.RateSlabs)
             config.AddRateSlab(new GstRateSlab(Guid.NewGuid(), s.RateBasisPoints, s.Label, s.IsPredefined));
@@ -1587,4 +1617,12 @@ internal sealed class ImportPlan
     }
 
     private static TEnum ParseEnum<TEnum>(string name) where TEnum : struct, Enum => Enum.Parse<TEnum>(name);
+
+    /// <summary>Parses an optional ISO round-trip (o) <see cref="DateTimeOffset"/> (Phase 9 slice 5 e-Way generation
+    /// timestamp / validity); a malformed value throws in pre-flight ⇒ all-or-nothing (RQ-23).</summary>
+    private static DateTimeOffset? ParseDateTimeOffsetOpt(string? iso) =>
+        string.IsNullOrEmpty(iso)
+            ? null
+            : DateTimeOffset.Parse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind);
 }

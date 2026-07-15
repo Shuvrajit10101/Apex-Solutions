@@ -74,22 +74,24 @@ namespace Apex.Persistence.Sqlite;
 /// seam (v39), and the composition-scheme config columns (composition sub-type + opt-in date) on companies (v40).
 /// <b>v41</b> adds the Phase-9 slice-4a e-invoice core: the <c>einvoice_records</c> table (per-voucher IRP artefacts)
 /// and the e-invoice / B2C-QR / connector-mode config columns on companies, plus the protected-at-rest NIC-credential
-/// ciphertext blob columns (<c>nic_*_enc</c>, ER-16 — written only by the credential store, never exported).
-/// <b><see cref="CurrentVersion"/> = 41</b>; a fresh DB is always stamped straight to the current version via
+/// ciphertext blob columns (<c>nic_*_enc</c>, ER-16 — written only by the credential store, never exported). <b>v42</b>
+/// adds the Phase-9 slice-5 e-Way Bill core: the <c>eway_bills</c> table (per-voucher EWB Part-A/B + validity + status)
+/// and the <c>eway_state_thresholds</c> per-state override table, plus five non-secret e-Way config columns on companies
+/// — the live NIC path REUSES the shared <c>gst_connector_mode</c> + <c>nic_*_enc</c> columns (no new secret surface).
+/// <b><see cref="CurrentVersion"/> = 42</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v41</b> is the latest bump (Phase 9
-    /// slice 4a — e-Invoice core: the <c>einvoice_records</c> table + its index; the e-invoice / B2C-QR / connector-mode
-    /// config columns on companies; and the <c>nic_*_enc</c> protected-credential blob columns — ER-16, the ONLY
-    /// secret-bearing storage, written exclusively by the credential store and never read into <c>GstConfig</c> or the
-    /// canonical export). The full v1→v41 history is documented on each <c>MigrateVNToVN+1</c> constant below and
-    /// summarised on the class; a fresh database is stamped straight to this version via <see cref="CreateV1"/>, while
-    /// an older database is migrated up to it one version at a time. Keep this in lock-step with <see cref="CreateV1"/>:
-    /// any table/column/index added to a migration must also appear in <see cref="CreateV1"/> (the migration-equivalence
-    /// test enforces this).</summary>
-    public const int CurrentVersion = 41;
+    /// <summary>The current schema version this adapter reads and writes. <b>v42</b> is the latest bump (Phase 9
+    /// slice 5 — e-Way Bill core: the <c>eway_bills</c> + <c>eway_state_thresholds</c> tables + their indexes and the five
+    /// non-secret e-Way config columns on companies; the live NIC path REUSES the shared <c>gst_connector_mode</c> +
+    /// <c>nic_*_enc</c> columns, so no new secret column is added). The full v1→v42 history is documented on each
+    /// <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped straight to this
+    /// version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a time. Keep this
+    /// in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also appear in
+    /// <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
+    public const int CurrentVersion = 42;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -161,6 +163,14 @@ public static class Schema
             nic_client_secret_enc           BLOB        NULL,
             nic_api_username_enc            BLOB        NULL,
             nic_api_password_enc            BLOB        NULL,
+            -- v42 (Phase 9 slice 5): e-Way Bill config (non-secret). All default off/NULL/₹50,000/Rule138Default/1, so an
+            -- e-Way-off company is byte-identical (ER-13). The live NIC path REUSES gst_connector_mode + nic_*_enc above
+            -- (no new secret column). eway_threshold_paisa = ₹50,000 (5,000,000 paisa, Rule 138 default; STRICT >).
+            eway_bill_enabled               INTEGER NOT NULL DEFAULT 0,           -- 0/1 (F11 e-Way gate)
+            eway_applicable_from            TEXT        NULL,                     -- ISO yyyy-MM-dd, or NULL
+            eway_threshold_paisa            INTEGER NOT NULL DEFAULT 5000000,     -- ₹50,000 in paisa (configurable)
+            eway_consignment_basis          INTEGER NOT NULL DEFAULT 0,           -- EWayConsignmentBasis ordinal (Rule138Default=0)
+            eway_intrastate_applicable      INTEGER NOT NULL DEFAULT 1,           -- 0/1 (some states exempt intra-state)
             -- v20 (Phase 6 slice 4; RQ-22; DP-7): F11 "Use separate Actual & Billed Quantity columns" — a pure
             -- persisted toggle (cannot be inferred). 0/1, default 0 so an existing company is byte-identical (ER-13).
             use_separate_actual_billed_qty INTEGER NOT NULL DEFAULT 0,  -- 0/1
@@ -393,6 +403,52 @@ public static class Schema
             error_message         TEXT        NULL
         );
         CREATE INDEX ix_einvoice_records_company ON einvoice_records(company_id);
+
+        -- v42 (Phase 9 slice 5): per-voucher e-Way Bill artefacts (Part A/B + validity + status). The 12-digit EWB number,
+        -- generation timestamp and validity are populated ONLY from the portal response (never computed locally, ER-5) —
+        -- NULL until Generated. Empty when e-Way is unused (ER-13). status = EWayStatus ordinal (Pending=1). The Ship-To
+        -- GSTIN / closure columns exist now but only activate for a movement dated on/after 01-Aug-2026 (DP-12).
+        CREATE TABLE eway_bills (
+            id                      TEXT    NOT NULL PRIMARY KEY,
+            company_id              TEXT    NOT NULL REFERENCES companies(id),
+            source_voucher_id       TEXT    NOT NULL REFERENCES vouchers(id),
+            document_number_upper   TEXT    NOT NULL,
+            status                  INTEGER NOT NULL DEFAULT 1,   -- EWayStatus ordinal (Pending=1)
+            supply_type             TEXT        NULL,
+            sub_supply_type         TEXT        NULL,
+            doc_type                TEXT        NULL,
+            consignment_value_paisa INTEGER NOT NULL DEFAULT 0,
+            transporter_id          TEXT        NULL,
+            trans_mode              INTEGER     NULL,             -- EWayTransportMode NIC code (Road=1..Ship=4)
+            vehicle_number          TEXT        NULL,
+            distance_km             INTEGER NOT NULL DEFAULT 0,
+            transport_doc_no        TEXT        NULL,
+            ship_from_state_code    TEXT        NULL,
+            ship_to_state_code      TEXT        NULL,
+            is_odc                  INTEGER NOT NULL DEFAULT 0,   -- over-dimensional-cargo / multimodal-ship (20 km/day)
+            ship_to_gstin           TEXT        NULL,             -- gated to 01-Aug-2026 (col exists now)
+            closure_requested       INTEGER NOT NULL DEFAULT 0,
+            closed_on               TEXT        NULL,
+            ewb_number              TEXT        NULL,             -- 12-digit, FROM the portal; NULL until Generated
+            generated_at            TEXT        NULL,             -- ISO round-trip (o), FROM the portal
+            valid_upto              TEXT        NULL,             -- ISO round-trip (o), FROM the portal
+            cancelled_on            TEXT        NULL,             -- ISO yyyy-MM-dd
+            cancel_reason_code      TEXT        NULL,
+            error_code              TEXT        NULL,
+            error_message           TEXT        NULL
+        );
+        CREATE INDEX ix_eway_bills_company ON eway_bills(company_id);
+
+        -- v42 (Phase 9 slice 5): per-state / per-transaction-type e-Way consignment-threshold overrides. Empty when a
+        -- company keeps the flat ₹50,000 default (ER-13). Resolves on the place-of-supply state for intra-state movements.
+        CREATE TABLE eway_state_thresholds (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            state_code       TEXT    NOT NULL,   -- 2-digit GST state code
+            txn_type         INTEGER NOT NULL DEFAULT 0,   -- EWayTransactionType ordinal (Regular=0)
+            threshold_paisa  INTEGER NOT NULL
+        );
+        CREATE INDEX ix_eway_state_thresholds_company ON eway_state_thresholds(company_id);
 
         -- v35 (Phase 8 slice 6): the editable per-state Professional-Tax slab bands (only present when the
         -- establishment is enrolled for PT). Each row is one band of a state+gender slab table; bands sharing a
@@ -2977,5 +3033,65 @@ public static class Schema
         ALTER TABLE companies ADD COLUMN nic_client_secret_enc           BLOB        NULL;
         ALTER TABLE companies ADD COLUMN nic_api_username_enc           BLOB        NULL;
         ALTER TABLE companies ADD COLUMN nic_api_password_enc            BLOB        NULL;
+        """;
+
+    /// <summary>
+    /// v41 → v42 (Phase 9 slice 5; e-Way Bill core): additive — two new tables (<c>eway_bills</c> + its index and
+    /// <c>eway_state_thresholds</c> + its index) and the five non-secret e-Way config columns on <c>companies</c>. Run
+    /// inside a transaction that bumps <c>schema_version</c> to 42. <b>No row rewrites, no data backfill</b>: an existing
+    /// v41 database keeps every row untouched, the new tables start empty and the new columns default
+    /// 0/NULL/5,000,000/0/1, so an e-Way-off company serialises byte-identically to a v41 company (ER-13). The live NIC
+    /// path REUSES the shared <c>gst_connector_mode</c> + <c>nic_*_enc</c> columns from v41 — <b>no new secret column is
+    /// added</b>. Each added table / column / index is byte-identical to its counterpart in <see cref="CreateV1"/> (the
+    /// migration-equivalence test enforces this — note <c>eway_threshold_paisa</c> defaults 5,000,000 = ₹50,000, pinned
+    /// identically in both sites). A fresh DB is stamped straight to v42 via <see cref="CreateV1"/>.
+    /// </summary>
+    public const string MigrateV41ToV42 = """
+        CREATE TABLE eway_bills (
+            id                      TEXT    NOT NULL PRIMARY KEY,
+            company_id              TEXT    NOT NULL REFERENCES companies(id),
+            source_voucher_id       TEXT    NOT NULL REFERENCES vouchers(id),
+            document_number_upper   TEXT    NOT NULL,
+            status                  INTEGER NOT NULL DEFAULT 1,
+            supply_type             TEXT        NULL,
+            sub_supply_type         TEXT        NULL,
+            doc_type                TEXT        NULL,
+            consignment_value_paisa INTEGER NOT NULL DEFAULT 0,
+            transporter_id          TEXT        NULL,
+            trans_mode              INTEGER     NULL,
+            vehicle_number          TEXT        NULL,
+            distance_km             INTEGER NOT NULL DEFAULT 0,
+            transport_doc_no        TEXT        NULL,
+            ship_from_state_code    TEXT        NULL,
+            ship_to_state_code      TEXT        NULL,
+            is_odc                  INTEGER NOT NULL DEFAULT 0,
+            ship_to_gstin           TEXT        NULL,
+            closure_requested       INTEGER NOT NULL DEFAULT 0,
+            closed_on               TEXT        NULL,
+            ewb_number              TEXT        NULL,
+            generated_at            TEXT        NULL,
+            valid_upto              TEXT        NULL,
+            cancelled_on            TEXT        NULL,
+            cancel_reason_code      TEXT        NULL,
+            error_code              TEXT        NULL,
+            error_message           TEXT        NULL
+        );
+        CREATE INDEX ix_eway_bills_company ON eway_bills(company_id);
+
+        CREATE TABLE eway_state_thresholds (
+            id               TEXT    NOT NULL PRIMARY KEY,
+            company_id       TEXT    NOT NULL REFERENCES companies(id),
+            state_code       TEXT    NOT NULL,
+            txn_type         INTEGER NOT NULL DEFAULT 0,
+            threshold_paisa  INTEGER NOT NULL
+        );
+        CREATE INDEX ix_eway_state_thresholds_company ON eway_state_thresholds(company_id);
+
+        -- companies: e-Way Bill config (non-secret)
+        ALTER TABLE companies ADD COLUMN eway_bill_enabled               INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN eway_applicable_from            TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN eway_threshold_paisa            INTEGER NOT NULL DEFAULT 5000000;
+        ALTER TABLE companies ADD COLUMN eway_consignment_basis          INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN eway_intrastate_applicable      INTEGER NOT NULL DEFAULT 1;
         """;
 }

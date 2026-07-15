@@ -225,6 +225,61 @@ public static class GstReportSupport
         return new Money(maxByRate.Values.Sum());
     }
 
+    /// <summary>
+    /// The total posted <b>Compensation-Cess</b> on a voucher — the sum of the <see cref="GstTaxHead.Cess"/>,
+    /// non-reverse-charge tax-line amounts (Phase 9 slice 5; ER-9). A <b>pure read of the posted lines</b>: because S1's
+    /// cess compute already dropped non-tobacco cess on/after 22-Sep-2025 (no cess line posted), this is <b>date-aware by
+    /// construction</b> with <b>zero</b> date logic — reading the posted lines IS the date-aware mechanism (risk #1). This
+    /// single implementation is shared by <c>EInvoiceJson</c> and the e-Way consignment-value / <c>EWayBillJson</c> writers
+    /// so the two can never drift. A voucher with no posted cess line returns <see cref="Money.Zero"/>.
+    /// </summary>
+    public static Money PostedCessTotal(Voucher voucher)
+    {
+        var cess = 0m;
+        foreach (var line in voucher.Lines)
+            if (line.Gst is { TaxHead: GstTaxHead.Cess, IsReverseCharge: false })
+                cess += line.Amount.Amount;
+        return new Money(cess);
+    }
+
+    /// <summary>
+    /// The total posted <b>forward</b> GST (CGST + SGST + IGST) on a voucher — the sum of the non-cess,
+    /// non-reverse-charge tax-line amounts (Phase 9 slice 5; ER-9). A pure read of the posted lines, mirroring the head
+    /// exclusions of <see cref="InvoiceTaxableValue"/> (ring-fenced cess and RCM lines never inflate the forward tax). Used
+    /// by the e-Way consignment-value engine; a voucher with no forward tax returns <see cref="Money.Zero"/>.
+    /// </summary>
+    public static Money PostedForwardTaxTotal(Voucher voucher)
+    {
+        var tax = 0m;
+        foreach (var line in voucher.Lines)
+        {
+            if (line.Gst is not { } g || g.IsReverseCharge) continue;
+            if (g.TaxHead is GstTaxHead.Central or GstTaxHead.State or GstTaxHead.Integrated)
+                tax += line.Amount.Amount;
+        }
+        return new Money(tax);
+    }
+
+    /// <summary>
+    /// True iff a voucher posts at least one <b>forward</b> GST tax line (a non-reverse-charge CGST/SGST/IGST line) —
+    /// i.e. it is a <b>regular tax-scheme</b> supply whose assessable value lives on its tax lines
+    /// (<see cref="InvoiceTaxableValue"/>). A supply with <b>no</b> forward tax line — a Composition dealer's Bill of
+    /// Supply, an exempt-only movement, or any other no-tax goods movement — carries its value only on the posted
+    /// stock/sales lines, so its consignment value must be read from <see cref="OutwardSupplyValue"/> instead (Phase 9
+    /// slice 5, finding #1). Mirrors the head/RCM exclusions of <see cref="PostedForwardTaxTotal"/> exactly, so the two
+    /// can never disagree on what "carries forward tax" means. A voucher with no tax line returns <c>false</c>.
+    /// </summary>
+    public static bool HasForwardTaxLines(Voucher voucher)
+    {
+        foreach (var line in voucher.Lines)
+        {
+            if (line.Gst is not { } g || g.IsReverseCharge) continue;
+            if (g.TaxHead is GstTaxHead.Central or GstTaxHead.State or GstTaxHead.Integrated)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>One posted reverse-charge tax line in a report window (Phase 9 slice 2; RQ-7).</summary>
     /// <param name="Voucher">The voucher the RCM line was posted on (a Purchase for an inward RCM supply).</param>
     /// <param name="Gst">The line's GST detail (head, rate, taxable value; carries the RCM tag + scheme).</param>

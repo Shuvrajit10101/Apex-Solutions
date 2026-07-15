@@ -27,6 +27,11 @@ public static class CanonicalMapper
     private static string Iso(DateOnly d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     private static string? Iso(DateOnly? d) => d is { } v ? Iso(v) : null;
 
+    /// <summary>ISO-8601 round-trip (o) for a portal <see cref="DateTimeOffset"/> — preserves the offset so it round-trips
+    /// byte-stably (Phase 9 slice 5 e-Way generation timestamp / validity).</summary>
+    private static string? IsoDateTimeOffset(DateTimeOffset? dto) =>
+        dto is { } v ? v.ToString("o", CultureInfo.InvariantCulture) : null;
+
     /// <summary>Exact rate → integer micros (rate × 1,000,000); throws if the rate carries a sub-micro tail.</summary>
     private static long ToMicro(decimal rate)
     {
@@ -224,6 +229,8 @@ public static class CanonicalMapper
         RcmDocuments = c.RcmDocuments.OrderBy(d => d.Id).Select(MapRcmDocument).ToList(),
         // Phase 9 slice 4a: e-invoice IRP artefacts (deterministic order: source voucher, then id).
         EInvoiceRecords = c.EInvoiceRecords.OrderBy(r => r.SourceVoucherId).ThenBy(r => r.Id).Select(MapEInvoiceRecord).ToList(),
+        // Phase 9 slice 5: e-Way Bill artefacts (deterministic order: source voucher, then id).
+        EWayBillRecords = c.EWayBillRecords.OrderBy(r => r.SourceVoucherId).ThenBy(r => r.Id).Select(MapEWayBillRecord).ToList(),
         CreditDebitNoteLinks = c.CreditDebitNoteLinks.OrderBy(l => l.Id).Select(MapCdnLink).ToList(),
         AdvanceReceipts = c.AdvanceReceipts.OrderBy(a => a.Id).Select(MapAdvanceReceipt).ToList(),
     };
@@ -239,6 +246,20 @@ public static class CanonicalMapper
         Id = r.Id, SourceVoucherId = r.SourceVoucherId, DocumentNumberUpper = r.DocumentNumberUpper,
         Status = r.Status.ToString(), Irn = r.Irn, AckNo = r.AckNo, AckDate = Iso(r.AckDate), SignedQr = r.SignedQr,
         SignedJsonBase64 = r.SignedJson is { } b ? Convert.ToBase64String(b) : null,
+        CancelledOn = Iso(r.CancelledOn), CancelReasonCode = r.CancelReasonCode,
+        ErrorCode = r.ErrorCode, ErrorMessage = r.ErrorMessage,
+    };
+
+    private static EWayBillRecordDto MapEWayBillRecord(EWayBillRecord r) => new()
+    {
+        Id = r.Id, SourceVoucherId = r.SourceVoucherId, DocumentNumberUpper = r.DocumentNumberUpper,
+        Status = r.Status.ToString(), SupplyType = r.SupplyType, SubSupplyType = r.SubSupplyType, DocType = r.DocType,
+        ConsignmentValuePaisa = r.ConsignmentValuePaisa, TransporterId = r.TransporterId,
+        TransMode = r.Mode?.ToString(), VehicleNumber = r.VehicleNumber, DistanceKm = r.DistanceKm,
+        TransportDocNo = r.TransportDocNo, ShipFromStateCode = r.ShipFromStateCode, ShipToStateCode = r.ShipToStateCode,
+        IsOverDimensionalCargo = r.IsOverDimensionalCargo, ShipToGstin = r.ShipToGstin,
+        ClosureRequested = r.ClosureRequested, ClosedOn = Iso(r.ClosedOn),
+        EwbNumber = r.EwbNumber, GeneratedAt = IsoDateTimeOffset(r.GeneratedAt), ValidUpto = IsoDateTimeOffset(r.ValidUpto),
         CancelledOn = Iso(r.CancelledOn), CancelReasonCode = r.CancelReasonCode,
         ErrorCode = r.ErrorCode, ErrorMessage = r.ErrorMessage,
     };
@@ -652,6 +673,20 @@ public static class CanonicalMapper
         B2cQrAatoThresholdPaisa = MoneyCodec.ToPaisa(g.B2cQrAatoThreshold),
         B2cQrUpiId = g.B2cQrUpiId,
         B2cQrPayeeName = g.B2cQrPayeeName,
+        // Phase 9 slice 5: NON-SECRET e-Way Bill config + per-state overrides (defaults ⇒ byte-identical when off,
+        // ER-13). No NIC credential is mapped — the live path reuses ConnectorMode + INicCredentialStore (ER-16).
+        EWayBillEnabled = g.EWayBillEnabled,
+        EWayApplicableFrom = Iso(g.EWayApplicableFrom),
+        EWayThresholdPaisa = MoneyCodec.ToPaisa(g.EWayThreshold),
+        ConsignmentBasis = g.ConsignmentBasis.ToString(),
+        EWayIntraStateApplicable = g.EWayIntraStateApplicable,
+        EWayStateThresholds = g.EWayStateThresholds
+            .OrderBy(t => t.StateCode, StringComparer.Ordinal).ThenBy(t => (int)t.TxnType).ThenBy(t => t.Id)
+            .Select(t => new EWayStateThresholdDto
+            {
+                Id = t.Id, StateCode = t.StateCode, TxnType = t.TxnType.ToString(),
+                ThresholdPaisa = MoneyCodec.ToPaisa(t.Threshold),
+            }).ToList(),
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()

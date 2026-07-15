@@ -430,6 +430,12 @@ public sealed class InventoryVoucherRoundTripTests
         // (the companies_v12 rebuild below strips the v41 e-invoice/B2C/mode/nic_*_enc columns too).
         Exec(conn, "DROP INDEX IF EXISTS ix_einvoice_records_company;");
         Exec(conn, "DROP TABLE IF EXISTS einvoice_records;");
+        // v42 e-Way Bill tables (+ indexes) — drop so the reopen's v41→v42 CREATE TABLE does not collide (the
+        // companies_v12 rebuild below strips the v42 eway_* config columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_eway_bills_company;");
+        Exec(conn, "DROP TABLE IF EXISTS eway_bills;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_eway_state_thresholds_company;");
+        Exec(conn, "DROP TABLE IF EXISTS eway_state_thresholds;");
         Exec(conn, """
             CREATE TABLE companies_v12 (
                 id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, mailing_name TEXT NOT NULL,

@@ -21,6 +21,7 @@ public sealed class GstConfig
     private readonly List<GstRateHistoryEntry> _rateHistory = new();
     private readonly List<GstCessRate> _cessRates = new();
     private readonly List<RcmCategory> _rcmCategories = new();
+    private readonly List<EWayStateThreshold> _eWayStateThresholds = new();
 
     /// <summary>Whether GST is enabled for the company. When false, no GST field or report is active.</summary>
     public bool Enabled { get; set; }
@@ -94,6 +95,35 @@ public sealed class GstConfig
 
     /// <summary>The payee name shown in the B2C QR; required when <see cref="B2cDynamicQrEnabled"/>.</summary>
     public string? B2cQrPayeeName { get; set; }
+
+    // --- e-Way Bill (Phase 9 slice 5; RQ-6; DP-12). All default off/₹50,000/Rule138Default ⇒ an e-Way-off company is
+    //     byte-identical (ER-13). NO secret field here — the live NIC path REUSES the S4a INicCredentialStore + the
+    //     shared ConnectorMode (no new secret surface, ER-16). ---
+
+    /// <summary>F11 master gate: whether e-Way Bill generation is enabled for the company.</summary>
+    public bool EWayBillEnabled { get; set; }
+
+    /// <summary>The date e-Way applies from; a movement dated before this is Not-Applicable (mirror EInvoiceApplicableFrom).</summary>
+    public DateOnly? EWayApplicableFrom { get; set; }
+
+    /// <summary>The Rule-138 consignment threshold (default ₹50,000 = 5,000,000 paisa; STRICT &gt;). NOTE: this is NOT the
+    /// ₹5 cr AATO that gates the live NIC path (that qualification lives at the composition root, not as a turnover column).</summary>
+    public Money EWayThreshold { get; set; } = new Money(50_000m);
+
+    /// <summary>How the consignment value is composed (default <see cref="EWayConsignmentBasis.Rule138Default"/>).</summary>
+    public EWayConsignmentBasis ConsignmentBasis { get; set; } = EWayConsignmentBasis.Rule138Default;
+
+    /// <summary>Whether intra-state movements attract e-Way at all (default true; some states exempt intra-state entirely).</summary>
+    public bool EWayIntraStateApplicable { get; set; } = true;
+
+    /// <summary>The per-state / per-transaction-type consignment-threshold overrides (Phase 9 slice 5; §2.6). <b>Empty</b>
+    /// for a company that never provisions them — every state then uses the flat <see cref="EWayThreshold"/> (ER-13
+    /// byte-identical when off). An override resolves on the <b>place-of-supply</b> state for <b>intra-state</b> movements.</summary>
+    public IReadOnlyList<EWayStateThreshold> EWayStateThresholds => _eWayStateThresholds;
+
+    /// <summary>Adds a per-state e-Way threshold override (used by the seed / import).</summary>
+    public void AddEWayStateThreshold(EWayStateThreshold threshold) =>
+        _eWayStateThresholds.Add(threshold ?? throw new ArgumentNullException(nameof(threshold)));
 
     /// <summary>The permitted shape of a payee UPI VPA — <c>name@handle</c> with only unreserved characters. A VPA
     /// carrying a space, <c>&amp;</c>, <c>?</c> or any other reserved character would corrupt or inject into the UPI
@@ -183,5 +213,24 @@ public sealed class GstConfig
         // The payee VPA must be a well-formed UPI id — a malformed VPA would corrupt/inject into the deep link (finding #3).
         if (B2cDynamicQrEnabled && !IsValidUpiVpa(B2cQrUpiId))
             throw new ArgumentException($"B2C dynamic QR payee UPI id '{B2cQrUpiId}' is not a well-formed UPI VPA (name@handle).");
+
+        // e-Way Bill (Phase 9 slice 5): requires a GSTIN + an applicable-from date when enabled; a threshold must be ≥ 0
+        // and every state-override row must carry a valid 2-digit state code + a non-negative threshold.
+        if (EWayBillEnabled)
+        {
+            if (Gstin is null)
+                throw new ArgumentException("e-Way Bill requires a GSTIN.");
+            if (EWayApplicableFrom is null)
+                throw new ArgumentException("e-Way Bill requires an applicable-from date.");
+            if (EWayThreshold.Amount < 0)
+                throw new ArgumentException("The e-Way Bill consignment threshold must be ≥ 0.");
+        }
+        foreach (var t in _eWayStateThresholds)
+        {
+            if (!IndianState.IsValidCode(t.StateCode))
+                throw new ArgumentException($"e-Way state-threshold override state code '{t.StateCode}' is not a valid Indian State/UT code.");
+            if (t.Threshold.Amount < 0)
+                throw new ArgumentException("An e-Way state-threshold override must be ≥ 0.");
+        }
     }
 }

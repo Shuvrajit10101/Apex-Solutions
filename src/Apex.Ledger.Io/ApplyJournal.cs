@@ -42,6 +42,7 @@ internal sealed class ApplyJournal
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
     private readonly List<RcmDocument> _rcmDocuments = new();
     private readonly List<EInvoiceRecord> _eInvoiceRecords = new();
+    private readonly List<EWayBillRecord> _eWayBillRecords = new();
     private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
     private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
@@ -112,6 +113,7 @@ internal sealed class ApplyJournal
     public void RecordTcsChallanVoucherLink(ChallanVoucherLink l) => _tcsChallanVoucherLinks.Add(l);
     public void RecordRcmDocument(RcmDocument d) => _rcmDocuments.Add(d);
     public void RecordEInvoiceRecord(EInvoiceRecord r) => _eInvoiceRecords.Add(r);
+    public void RecordEWayBillRecord(EWayBillRecord r) => _eWayBillRecords.Add(r);
     public void RecordCreditDebitNoteLink(GstCreditDebitNoteLink l) => _cdnLinks.Add(l);
     public void RecordAdvanceReceipt(GstAdvanceReceipt a) => _advanceReceipts.Add(a);
     public void RecordEmployeeCategory(EmployeeCategory x) => _employeeCategories.Add(x);
@@ -200,6 +202,7 @@ internal sealed class ApplyJournal
         // vouchers they reference are removed below.
         for (var i = _rcmDocuments.Count - 1; i >= 0; i--) _company.RemoveRcmDocument(_rcmDocuments[i]);
         for (var i = _eInvoiceRecords.Count - 1; i >= 0; i--) _company.RemoveEInvoiceRecord(_eInvoiceRecords[i]);
+        for (var i = _eWayBillRecords.Count - 1; i >= 0; i--) _company.RemoveEWayBillRecord(_eWayBillRecords[i]);
         for (var i = _cdnLinks.Count - 1; i >= 0; i--) _company.RemoveCreditDebitNoteLink(_cdnLinks[i]);
         for (var i = _advanceReceipts.Count - 1; i >= 0; i--) _company.RemoveAdvanceReceipt(_advanceReceipts[i]);
 
