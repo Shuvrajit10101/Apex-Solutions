@@ -82,15 +82,16 @@ namespace Apex.Persistence.Sqlite;
 /// <c>gstr2b_lines</c>, <c>ims_status</c>, <c>gstr2b_recon</c>) + their indexes, two §17(5) ITC-eligibility columns each
 /// on <c>stock_items</c> and <c>ledgers</c>, and the two GSTR-2B reconciliation-tolerance columns on companies
 /// (<c>recon_value_tolerance_paisa</c> + <c>recon_date_window_days</c>, both DEFAULT 0 = exact-match).
-/// <b><see cref="CurrentVersion"/> = 43</b>; a fresh DB is always stamped straight to the current version via
+/// <b><see cref="CurrentVersion"/> = 44</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v43</b> is the latest bump (Phase 9
-    /// slice 6 — GSTR-2A/2B inbound core: the <c>gstr2b_snapshots</c> + <c>gstr2b_lines</c> + <c>ims_status</c> +
-    /// <c>gstr2b_recon</c> tables + their indexes, the §17(5) ITC-eligibility columns on <c>stock_items</c> +
-    /// <c>ledgers</c>, and the GSTR-2B reconciliation-tolerance columns on companies). The full v1→v43 history is
+    /// <summary>The current schema version this adapter reads and writes. <b>v44</b> is the latest bump (Phase 9
+    /// slice 7a — Rule-88A set-off + electronic ledgers + PMT-06/DRC-03: the <c>gst_setoff_lines</c> +
+    /// <c>itc_reversals</c> + <c>gst_challans</c> + <c>gst_drc03</c> tables + their indexes, and the adjustment
+    /// columns on <c>entry_lines</c>/<c>voucher_types</c>; v43 = Phase 9 slice 6 GSTR-2A/2B inbound core with the
+    /// <c>gstr2b_*</c>/<c>ims_status</c> tables + §17(5) columns). The full v1→v44 history is
     /// documented on each <c>MigrateVNToVN+1</c> constant below and summarised on the class; a fresh database is stamped
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also

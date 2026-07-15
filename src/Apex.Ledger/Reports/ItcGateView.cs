@@ -80,7 +80,9 @@ public sealed record ItcGateView(
         foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input))
         {
             // Per-head forward (non-RCM) input tax posted on this voucher — RCM ITC is its own 3B bucket (excluded here).
-            decimal hCgst = 0m, hSgst = 0m, hIgst = 0m;
+            // Cess is ring-fenced OUT of the CGST/SGST/IGST triple (ER-2) but IS accumulated here so a blocked / ineligible
+            // item's cess ITC can be reversed as its own ring-fenced cess leg (S7b), never bled into a GST head.
+            decimal hCgst = 0m, hSgst = 0m, hIgst = 0m, hCess = 0m;
             foreach (var line in voucher.Lines)
             {
                 if (line.Gst is not { } g || g.IsReverseCharge) continue;
@@ -89,7 +91,7 @@ public sealed record ItcGateView(
                     case GstTaxHead.Central: hCgst += line.Amount.Amount; break;
                     case GstTaxHead.State: hSgst += line.Amount.Amount; break;
                     case GstTaxHead.Integrated: hIgst += line.Amount.Amount; break;
-                    // Cess (ring-fenced) is not part of the CGST/SGST/IGST ITC triple.
+                    case GstTaxHead.Cess: hCess += line.Amount.Amount; break;
                 }
             }
             if (hCgst <= 0m && hSgst <= 0m && hIgst <= 0m) continue; // no forward ITC on this voucher (all RCM / none)
@@ -101,6 +103,9 @@ public sealed record ItcGateView(
             var (eC, blC, ieC) = SplitHeadTax(hCgst, eligBase, blockedBase, ineligBase);
             var (eS, blS, ieS) = SplitHeadTax(hSgst, eligBase, blockedBase, ineligBase);
             var (eI, blI, ieI) = SplitHeadTax(hIgst, eligBase, blockedBase, ineligBase);
+            // The cess split mirrors the GST-head split (same per-line eligibility bases) — kept OUT of the triples, used
+            // only to give each candidate its exact ring-fenced cess so the reversal never carves cess out of a GST pool.
+            var (eCess, blCess, ieCess) = SplitHeadTax(hCess, eligBase, blockedBase, ineligBase);
 
             var inPortal = matchedVoucherIds.Contains(voucher.Id);
             // A booked purchase whose eligible ITC has no 2B line this period is §16(2)(aa)-ineligible: either the
@@ -127,15 +132,18 @@ public sealed record ItcGateView(
             if (vBlocked > 0m)
                 candidates.Add(new ItcReversalCandidate(
                     ItcReversalReason.Section17_5Blocked, voucher.Id, null, new Money(vBlocked),
-                    "§17(5) blocked credit — ITC must not be availed."));
+                    "§17(5) blocked credit — ITC must not be availed.",
+                    ToPaisa(blC), ToPaisa(blS), ToPaisa(blI), ToPaisa(blCess)));
             if (vInelig > 0m)
                 candidates.Add(new ItcReversalCandidate(
                     ItcReversalReason.Ineligible, voucher.Id, null, new Money(vInelig),
-                    "Ineligible ITC (Table 4(D)) — non-business / personal / time-barred."));
+                    "Ineligible ITC (Table 4(D)) — non-business / personal / time-barred.",
+                    ToPaisa(ieC), ToPaisa(ieS), ToPaisa(ieI), ToPaisa(ieCess)));
             if (notInPortal && vElig > 0m)
                 candidates.Add(new ItcReversalCandidate(
                     ItcReversalReason.Section16_2aaNotInPortal, voucher.Id, null, new Money(vElig),
-                    "§16(2)(aa) — booked ITC not reflected in GSTR-2B this period."));
+                    "§16(2)(aa) — booked ITC not reflected in GSTR-2B this period.",
+                    ToPaisa(eC), ToPaisa(eS), ToPaisa(eI), ToPaisa(eCess)));
         }
 
         // Portal 2B ITC-Available figure (§16(2)(aa) basis). Exclude the supplier-flagged RCM lines (they bypass 2B ITC).
@@ -157,16 +165,35 @@ public sealed record ItcGateView(
             if (!IsCreditDebitNote(l.DocType) || l.ReverseCharge) continue;
             if (ImsService.EffectiveStatus(company, l) != ImsStatus.Accepted) continue; // Rejected/Pending ⇒ no reversal
             var action = company.FindImsActionForLine(l.Id);
-            decimal suggested;
+
+            // Reverse the forward tax of the note per head. A partial declared reversal (Oct-2025 IMS) is apportioned
+            // across the GST heads by their per-head tax weight (paisa-exact); its cess is reversed in the SAME
+            // proportion (ring-fenced, ER-2). Full / deemed-accept reverses the whole forward tax head-for-head. This
+            // per-head breakdown is what S7b posts head-for-head (never a re-split of the GST-only total across weights
+            // that include cess — the S7b FIX-1 cess-bleed bug).
+            long fullGst = l.CgstPaisa + l.SgstPaisa + l.IgstPaisa;
+            long cgstRev, sgstRev, igstRev, cessRev;
             if (action is { NoReversalDeclared: true })
-                suggested = 0m;                                                    // explicit no-reversal declaration
-            else if (action is { DeclaredReversalPaisa: > 0 } a)
-                suggested = PaisaToRupees(a.DeclaredReversalPaisa!.Value);         // Oct-2025 partial declared reversal
+            {
+                cgstRev = sgstRev = igstRev = cessRev = 0;                          // explicit no-reversal declaration
+            }
+            else if (action is { DeclaredReversalPaisa: > 0 } a && a.DeclaredReversalPaisa!.Value < fullGst)
+            {
+                long declared = a.DeclaredReversalPaisa!.Value;                     // partial declared reversal
+                var sh = AdditionalCostApportionment.Allocate(
+                    new decimal[] { l.CgstPaisa, l.SgstPaisa, l.IgstPaisa }, new Money(declared / 100m));
+                cgstRev = ToPaisa(sh[0]); sgstRev = ToPaisa(sh[1]); igstRev = ToPaisa(sh[2]);
+                cessRev = fullGst > 0
+                    ? (long)Math.Round((decimal)l.CessPaisa * declared / fullGst, MidpointRounding.AwayFromZero) : 0;
+            }
             else
-                suggested = PaisaToRupees(l.IgstPaisa + l.CgstPaisa + l.SgstPaisa); // full forward tax (incl. deemed-accept)
+            {
+                cgstRev = l.CgstPaisa; sgstRev = l.SgstPaisa; igstRev = l.IgstPaisa; cessRev = l.CessPaisa; // full forward tax
+            }
             candidates.Add(new ItcReversalCandidate(
-                ItcReversalReason.ImsAcceptedCreditNote, null, l.Id, new Money(suggested),
-                "Accepted (or deemed-accepted) supplier credit/debit note — ITC reversal."));
+                ItcReversalReason.ImsAcceptedCreditNote, null, l.Id, new Money(PaisaToRupees(cgstRev + sgstRev + igstRev)),
+                "Accepted (or deemed-accepted) supplier credit/debit note — ITC reversal.",
+                cgstRev, sgstRev, igstRev, cessRev));
         }
 
         var g3b = Gstr3b.Build(company, from, to);
@@ -256,6 +283,10 @@ public sealed record ItcGateView(
         Gstr2bDocType.CreditNoteAmendment or Gstr2bDocType.DebitNoteAmendment;
 
     private static decimal PaisaToRupees(long paisa) => paisa / 100m;
+
+    /// <summary>A paisa-exact rupee Money → integer paisa (the split shares are already paisa-exact, so this never rounds
+    /// off a real fraction — it only crosses the rupees↔paisa boundary for the candidate's per-head fields).</summary>
+    private static long ToPaisa(Money money) => (long)Math.Round(money.Amount * 100m, MidpointRounding.AwayFromZero);
 }
 
 /// <summary>A CGST/SGST/IGST money triple for the ITC-gate (Phase 9 slice 6b). Compensation Cess is ring-fenced out of the
@@ -287,11 +318,20 @@ public enum ItcReversalReason
 
 /// <summary>An ITC reversal <b>candidate</b> surfaced for the S7 poster (Phase 9 slice 6b; RQ-27) — carries the identity of
 /// the affected purchase (<paramref name="VoucherId"/>) or 2B line (<paramref name="LineId"/>) + the <i>suggested</i>
-/// reversal amount. The ITC-gate NEVER posts a reversal (ER-14); S7 is the sole poster.</summary>
+/// reversal amount AND its exact <b>per-head</b> breakdown. The ITC-gate NEVER posts a reversal (ER-14); S7 is the sole
+/// poster — and it reverses <b>head-for-head</b> from the per-head fields (never a weight-based re-split of the total,
+/// which bled a cess-excluded pool into the cess head — Phase 9 S7b FIX 1).</summary>
 /// <param name="Reason">Why the candidate was surfaced.</param>
 /// <param name="VoucherId">The affected books purchase voucher, or <c>null</c> (for a 2B-line-keyed candidate).</param>
 /// <param name="LineId">The affected 2B line, or <c>null</c> (for a voucher-keyed candidate).</param>
-/// <param name="SuggestedReversal">The suggested reversal amount (forward CGST+SGST+IGST); S7 decides the actual figure.</param>
+/// <param name="SuggestedReversal">The suggested reversal amount (forward CGST+SGST+IGST; cess ring-fenced out, ER-2);
+/// S7 decides the actual figure. Equals <see cref="CgstPaisa"/>+<see cref="SgstPaisa"/>+<see cref="IgstPaisa"/> (÷100).</param>
 /// <param name="Description">A human-readable reason for the reversal.</param>
+/// <param name="CgstPaisa">The exact CGST reversal for this candidate, in paisa (the blocked / ineligible / accepted-CN share).</param>
+/// <param name="SgstPaisa">The exact SGST/UTGST reversal for this candidate, in paisa.</param>
+/// <param name="IgstPaisa">The exact IGST reversal for this candidate, in paisa.</param>
+/// <param name="CessPaisa">The exact <b>ring-fenced</b> Compensation-Cess reversal for this candidate, in paisa (a blocked /
+/// ineligible item's cess ITC is blocked too; for an accepted credit note, the cess proportional to the accepted reversal).</param>
 public readonly record struct ItcReversalCandidate(
-    ItcReversalReason Reason, Guid? VoucherId, Guid? LineId, Money SuggestedReversal, string Description);
+    ItcReversalReason Reason, Guid? VoucherId, Guid? LineId, Money SuggestedReversal, string Description,
+    long CgstPaisa = 0, long SgstPaisa = 0, long IgstPaisa = 0, long CessPaisa = 0);

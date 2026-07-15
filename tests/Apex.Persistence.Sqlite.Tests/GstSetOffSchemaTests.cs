@@ -187,9 +187,79 @@ public sealed class GstSetOffSchemaTests
             Assert.Equal(200, drc.InterestPaisa);
             Assert.Equal("AD-1", drc.Drc03aDemandRef);
 
-            Assert.Empty(r.ItcReversals); // the reversal engine is S7b — the table stays empty
+            Assert.Empty(r.ItcReversals); // this fixture posts no reversal — the table stays empty for it
         }
         finally { TempDbFile.Delete(dbPath); }
+    }
+
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Posted_itc_reversals_reclaim_and_credit_note_round_trip_through_the_store()
+    {
+        // Phase-9 slice-7b: the reversal engine now writes real itc_reversals rows — a Rule-37 reversal (4B2), its
+        // reclaim (4D1, reclaim_of_id → the reversal, a self-FK), and a credit-note reversal (4B1, the new CreditNote
+        // rule ordinal). All three must save + load verbatim (rule, bucket, per-head paisa, reclaim link).
+        var dbPath = TempDbFile.NewPath("apex-s7b-reversal-roundtrip");
+        try
+        {
+            var c = CompanyFactory.CreateSeeded("S7b Co", FyStart);
+            var gst = new GstService(c);
+            gst.EnableGst(new GstConfig
+            {
+                HomeStateCode = "27", Gstin = Gstin, RegistrationType = GstRegistrationType.Regular,
+                ApplicableFrom = FyStart, Periodicity = GstReturnPeriodicity.Monthly,
+            });
+            var bank = new Apex.Ledger.Domain.Ledger(Guid.NewGuid(), "Bank", c.FindGroupByName("Bank Accounts")!.Id, Money.Zero, true);
+            c.AddLedger(bank);
+            var vid = AccrueInterPurchaseItc(c, gst, bank, 100000m); // Input IGST 18000
+
+            var svc = new GstReversalService(c);
+            var reversal = svc.PostRule37(vid, "2024-04", D);
+            var reclaim = svc.Reclaim(reversal.Id, "2024-09", D);
+            var cn = svc.PostReversal(ItcReversalRule.CreditNote, "2024-10",
+                new GstReversalService.ReversalAmount(0, 0, 30_000, 0), D, sourceVoucherId: vid)!;
+
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+            Company r;
+            using (var store = new SqliteCompanyStore(dbPath)) r = store.Load(c.Id)!;
+
+            Assert.Equal(3, r.ItcReversals.Count);
+
+            var rev = Assert.Single(r.ItcReversals, x => x.Rule == ItcReversalRule.Rule37 && x.ReclaimOfId is null);
+            Assert.Equal(Table4bBucket.Table4B2, rev.Table4bBucket);
+            Assert.Equal(1_800_000, rev.IgstPaisa);
+            Assert.Equal(vid, rev.SourceVoucherId);
+
+            var rec = Assert.Single(r.ItcReversals, x => x.ReclaimOfId is not null);
+            Assert.Equal(reversal.Id, rec.ReclaimOfId);               // the self-FK reclaim link survived
+            Assert.Equal(Table4bBucket.Table4D1, rec.Table4bBucket);
+            Assert.Equal(1_800_000, rec.IgstPaisa);
+
+            var note = Assert.Single(r.ItcReversals, x => x.Rule == ItcReversalRule.CreditNote);
+            Assert.Equal(Table4bBucket.Table4B1, note.Table4bBucket);  // the new CreditNote rule ordinal round-tripped
+            Assert.Equal(30_000, note.IgstPaisa);
+            Assert.Equal(cn.Id, note.Id);
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    /// <summary>Accrues Input IGST credit by posting a bank-funded inter-state purchase of <paramref name="taxable"/> @18%;
+    /// returns the posted voucher id (its ITC lands in Input IGST).</summary>
+    private static Guid AccrueInterPurchaseItc(Company c, GstService gst, Apex.Ledger.Domain.Ledger bank, decimal taxable)
+    {
+        var purchases = new Apex.Ledger.Domain.Ledger(
+            Guid.NewGuid(), "Purchases", c.FindGroupByName("Purchase Accounts")!.Id, Money.Zero, true);
+        c.AddLedger(purchases);
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(new Money(taxable), 1800) }, interState: true, GstTaxDirection.Input);
+        var lines = new List<EntryLine>
+        {
+            new(purchases.Id, new Money(taxable), DrCr.Debit),
+            new(bank.Id, new Money(taxable + tax.TotalTax.Amount), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        var type = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id;
+        return new LedgerService(c).Post(new Voucher(Guid.NewGuid(), type, D, lines)).Id;
     }
 
     // ---- helpers ----

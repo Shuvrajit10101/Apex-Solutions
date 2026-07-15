@@ -163,6 +163,76 @@ public sealed class CanonicalSetOffRoundTripTests
         Assert.DoesNotContain("\"cpin\"", text);
     }
 
+    [Fact]
+    public void Export_import_reconciles_posted_reversals_reclaim_and_credit_note_json_and_xml()
+    {
+        // Phase-9 slice-7b: a company with posted ITC reversals — a Rule-37 reversal (4B2), its reclaim (4D1, a
+        // reclaim_of_id self-FK), and a credit-note reversal (4B1, the new CreditNote rule) — must export + re-import
+        // into a fresh, differently-Guid'd company through the engine-routed importer, count + paisa exact, in JSON AND
+        // XML, with the reclaim self-FK re-mapped through the import's reversal-id map.
+        var (source, reversalId) = BuildReversalCompany();
+
+        foreach (var bytes in new[] { CanonicalJson.Export(source), CanonicalXml.Export(source) })
+        {
+            var (model, errors) = bytes[0] == (byte)'{' ? CanonicalJson.Parse(bytes) : CanonicalXml.Parse(bytes);
+            Assert.Empty(errors);
+            AssertNoTally(bytes);
+            Assert.Equal(3, model!.Payload.ItcReversals.Count);
+
+            var fresh = CompanyFactory.CreateSeeded("Fresh Reversal Co", Fy, Fy);
+            var result = new CompanyImportService(fresh).Apply(model);
+            Assert.True(result.Applied, string.Join("; ", result.Errors));
+
+            Assert.Equal(3, fresh.ItcReversals.Count);
+            var rev = Assert.Single(fresh.ItcReversals, x => x.Rule == ItcReversalRule.Rule37 && x.ReclaimOfId is null);
+            Assert.Equal(Table4bBucket.Table4B2, rev.Table4bBucket);
+            Assert.Equal(1_800_000, rev.IgstPaisa);
+
+            var rec = Assert.Single(fresh.ItcReversals, x => x.ReclaimOfId is not null);
+            Assert.Equal(rev.Id, rec.ReclaimOfId);                 // the reclaim self-FK re-mapped to the re-minted reversal
+            Assert.Equal(Table4bBucket.Table4D1, rec.Table4bBucket);
+
+            var note = Assert.Single(fresh.ItcReversals, x => x.Rule == ItcReversalRule.CreditNote);
+            Assert.Equal(Table4bBucket.Table4B1, note.Table4bBucket); // the new CreditNote rule name round-tripped
+            Assert.Equal(30_000, note.IgstPaisa);
+        }
+
+        _ = reversalId; // (the source id differs from the re-minted target id — the reclaim link is what must reconcile)
+    }
+
+    private static (Company Company, Guid ReversalId) BuildReversalCompany()
+    {
+        var c = CompanyFactory.CreateSeeded("Reversal Io Co", Fy, Fy);
+        var gst = new GstService(c);
+        gst.EnableGst(new GstConfig
+        {
+            HomeStateCode = "27", Gstin = "27AAPFU0939F1ZV", RegistrationType = GstRegistrationType.Regular,
+            ApplicableFrom = Fy, Periodicity = GstReturnPeriodicity.Monthly,
+        });
+        var bank = new Domain.Ledger(Guid.NewGuid(), "Bank", c.FindGroupByName("Bank Accounts")!.Id, Money.Zero, true);
+        c.AddLedger(bank);
+        var purchases = new Domain.Ledger(Guid.NewGuid(), "Purchases", c.FindGroupByName("Purchase Accounts")!.Id, Money.Zero, true);
+        c.AddLedger(purchases);
+
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(new Money(100000m), 1800) }, interState: true, GstTaxDirection.Input);
+        var lines = new List<EntryLine>
+        {
+            new(purchases.Id, new Money(100000m), DrCr.Debit),
+            new(bank.Id, new Money(100000m + tax.TotalTax.Amount), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        var vid = new LedgerService(c).Post(new Voucher(
+            Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id, D, lines)).Id;
+
+        var svc = new GstReversalService(c);
+        var reversal = svc.PostRule37(vid, "2024-04", D);
+        svc.Reclaim(reversal.Id, "2024-09", D);
+        svc.PostReversal(ItcReversalRule.CreditNote, "2024-10",
+            new GstReversalService.ReversalAmount(0, 0, 30_000, 0), D, sourceVoucherId: vid);
+        return (c, reversal.Id);
+    }
+
     private static void AssertProjection(CanonicalModel model)
     {
         Assert.Equal(2, model.Payload.GstSetoffLines.Count);

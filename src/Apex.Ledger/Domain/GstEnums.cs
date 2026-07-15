@@ -749,7 +749,8 @@ public enum GstAdjustmentKind
 /// <summary>
 /// The statutory ITC-reversal rule an <c>itc_reversals</c> row records (Phase 9 slice 7; RQ-27; DP-30/DP-31). The
 /// reversal <b>engine</b> (which computes + posts each) arrives in S7b; the <c>itc_reversals</c> table + this enum land
-/// in S7a (empty). Stored as the enum ordinal (Rule37=0).
+/// in S7a (empty). Stored as the enum ordinal (Rule37=0). The column is a plain <c>INTEGER</c>, and Io maps by name,
+/// so adding a value (e.g. <see cref="CreditNote"/>, folded in with the S7b engine) is NOT a schema change.
 /// </summary>
 public enum ItcReversalRule
 {
@@ -770,6 +771,11 @@ public enum ItcReversalRule
 
     /// <summary>Ineligible ITC (non-business / time-barred) reversed after being availed.</summary>
     Ineligible = 5,
+
+    /// <summary>An IMS-accepted / §34 supplier credit note that reverses the recipient's ITC (non-reclaimable). Added
+    /// with the S7b engine for the <c>ItcReversalReason.ImsAcceptedCreditNote</c> candidate; there is no matching
+    /// statutory "rule" number, so it is named for the instrument. Routes to GSTR-3B Table 4(B)(1).</summary>
+    CreditNote = 6,
 }
 
 /// <summary>

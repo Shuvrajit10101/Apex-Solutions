@@ -55,6 +55,49 @@ public sealed record Gstr3b(
     /// <summary>Table 4(A)(3) — ITC on other reverse-charge inward supplies, Compensation Cess (ring-fenced, ER-2).</summary>
     public Money RcmItcOtherCess { get; init; }
 
+    // ---- Phase 9 slice 7b: ITC-reversal projection (RQ-27; A14-CONFIRMED §11.5). Additive init-only fields defaulting
+    // to Money.Zero so a company that never reverses is byte-identical to a pre-S7b 3B (ER-13). Computed by Build ONLY
+    // from the posted stat-adjustment vouchers' reversal/reclaim-tagged lines (by GstAdjustmentKind) — the set-off /
+    // reversal vouchers are Journal base ⇒ excluded from PostedGstVouchers, so these additions cannot move the 3.1
+    // outward or 4(A) ITC sums above (§0 fact 2). Table 4(B)(1) = non-reclaimable (Rules 38/42/43 + §17(5) + credit
+    // notes); 4(B)(2) = reclaimable (Rule 37/37A); 4(D)(1) = a reclaim of an earlier reversal. ----
+
+    /// <summary>Table 4(B)(1) — non-reclaimable ITC reversal (Rules 38/42/43, §17(5), credit notes), CGST.</summary>
+    public Money ItcReversed4B1Cgst { get; init; }
+    /// <summary>Table 4(B)(1) — non-reclaimable ITC reversal, SGST/UTGST.</summary>
+    public Money ItcReversed4B1Sgst { get; init; }
+    /// <summary>Table 4(B)(1) — non-reclaimable ITC reversal, IGST.</summary>
+    public Money ItcReversed4B1Igst { get; init; }
+    /// <summary>Table 4(B)(1) — non-reclaimable ITC reversal, Compensation Cess (ring-fenced, ER-2).</summary>
+    public Money ItcReversed4B1Cess { get; init; }
+
+    /// <summary>Table 4(B)(2) — reclaimable ITC reversal (Rule 37 / 37A), CGST.</summary>
+    public Money ItcReversed4B2Cgst { get; init; }
+    /// <summary>Table 4(B)(2) — reclaimable ITC reversal (Rule 37 / 37A), SGST/UTGST.</summary>
+    public Money ItcReversed4B2Sgst { get; init; }
+    /// <summary>Table 4(B)(2) — reclaimable ITC reversal (Rule 37 / 37A), IGST.</summary>
+    public Money ItcReversed4B2Igst { get; init; }
+    /// <summary>Table 4(B)(2) — reclaimable ITC reversal (Rule 37 / 37A), Compensation Cess (ring-fenced, ER-2).</summary>
+    public Money ItcReversed4B2Cess { get; init; }
+
+    /// <summary>Table 4(D)(1) — reclaim of an earlier reversal (pulled back into net ITC via 4(A)(5)), CGST.</summary>
+    public Money ItcReclaimed4D1Cgst { get; init; }
+    /// <summary>Table 4(D)(1) — reclaim of an earlier reversal, SGST/UTGST.</summary>
+    public Money ItcReclaimed4D1Sgst { get; init; }
+    /// <summary>Table 4(D)(1) — reclaim of an earlier reversal, IGST.</summary>
+    public Money ItcReclaimed4D1Igst { get; init; }
+    /// <summary>Table 4(D)(1) — reclaim of an earlier reversal, Compensation Cess (ring-fenced, ER-2).</summary>
+    public Money ItcReclaimed4D1Cess { get; init; }
+
+    /// <summary>Σ Table 4(B) ITC reversed across the GST heads (4(B)(1) + 4(B)(2); excludes cess, ER-2).</summary>
+    public Money TotalItcReversed => new(
+        ItcReversed4B1Cgst.Amount + ItcReversed4B1Sgst.Amount + ItcReversed4B1Igst.Amount +
+        ItcReversed4B2Cgst.Amount + ItcReversed4B2Sgst.Amount + ItcReversed4B2Igst.Amount);
+
+    /// <summary>Σ Table 4(D)(1) ITC reclaimed across the GST heads (excludes cess, ER-2).</summary>
+    public Money TotalItcReclaimed =>
+        new(ItcReclaimed4D1Cgst.Amount + ItcReclaimed4D1Sgst.Amount + ItcReclaimed4D1Igst.Amount);
+
     /// <summary>Net CGST payable = outward − ITC (display-only, DP-9; negative ⇒ carried-forward credit).</summary>
     public Money NetCgst => new(OutwardCgst.Amount - ItcCgst.Amount);
 
@@ -104,6 +147,11 @@ public sealed record Gstr3b(
         var cdn = ReadCdn(company, from, to);
         outCgst += cdn.Cgst; outSgst += cdn.Sgst; outIgst += cdn.Igst; taxable += cdn.Taxable;
 
+        // Phase 9 slice 7b: Table 4(B)/4(D) ITC-reversal projection — Σ the posted stat-adjustment reversal/reclaim
+        // lines by their GstAdjustmentKind tag (routed to 4(B)(1) / 4(B)(2) / 4(D)(1)). Zero when no reversal was
+        // posted ⇒ byte-identical (ER-13). These vouchers are Journal base ⇒ already out of the 3.1/4(A) sums.
+        var rev = ReadReversals(company, from, to);
+
         return new Gstr3b(from, to,
             new Money(taxable), new Money(exempt),
             new Money(outCgst), new Money(outSgst), new Money(outIgst),
@@ -114,8 +162,75 @@ public sealed record Gstr3b(
             RcmItcImportIgst = new Money(rcm.ImportIgst),
             RcmItcOtherCgst = new Money(rcm.OtherCgst), RcmItcOtherSgst = new Money(rcm.OtherSgst),
             RcmItcOtherIgst = new Money(rcm.OtherIgst), RcmItcOtherCess = new Money(rcm.OtherCess),
+            ItcReversed4B1Cgst = new Money(rev.B1Cgst), ItcReversed4B1Sgst = new Money(rev.B1Sgst),
+            ItcReversed4B1Igst = new Money(rev.B1Igst), ItcReversed4B1Cess = new Money(rev.B1Cess),
+            ItcReversed4B2Cgst = new Money(rev.B2Cgst), ItcReversed4B2Sgst = new Money(rev.B2Sgst),
+            ItcReversed4B2Igst = new Money(rev.B2Igst), ItcReversed4B2Cess = new Money(rev.B2Cess),
+            ItcReclaimed4D1Cgst = new Money(rev.D1Cgst), ItcReclaimed4D1Sgst = new Money(rev.D1Sgst),
+            ItcReclaimed4D1Igst = new Money(rev.D1Igst), ItcReclaimed4D1Cess = new Money(rev.D1Cess),
         };
     }
+
+    /// <summary>
+    /// Reads the Table 4(B)/4(D) ITC-reversal buckets (Phase 9 slice 7b; RQ-27): Σ the posted stat-adjustment lines
+    /// whose <see cref="GstLineTax.Adjustment"/> is a reversal (Rule 37/37A/42/43/§17(5)/Ineligible/CreditNote) or a
+    /// reclaim, routed to 4(B)(1) (non-reclaimable) / 4(B)(2) (reclaimable) / 4(D)(1) (reclaim) by the tag. A pure
+    /// projection over the posted adjustment vouchers, never recomputed (ER-9). No reversal posted ⇒ all zero (ER-13).
+    /// </summary>
+    private static (decimal B1Cgst, decimal B1Sgst, decimal B1Igst, decimal B1Cess,
+        decimal B2Cgst, decimal B2Sgst, decimal B2Igst, decimal B2Cess,
+        decimal D1Cgst, decimal D1Sgst, decimal D1Igst, decimal D1Cess) ReadReversals(
+        Company company, DateOnly from, DateOnly to)
+    {
+        decimal b1C = 0m, b1S = 0m, b1I = 0m, b1Cess = 0m;
+        decimal b2C = 0m, b2S = 0m, b2I = 0m, b2Cess = 0m;
+        decimal d1C = 0m, d1S = 0m, d1I = 0m, d1Cess = 0m;
+
+        foreach (var v in company.Vouchers)
+        {
+            if (v.Date < from) continue;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+
+            foreach (var line in v.Lines)
+            {
+                if (line.Gst is not { Adjustment: { } adj } g) continue;
+                var bucket = Table4bBucketOf(adj);
+                if (bucket is not { } b) continue; // SetOff / CashPayment are Table 6.1, not 4(B)/4(D)
+                var amt = line.Amount.Amount;
+                switch (b, g.TaxHead)
+                {
+                    case (Table4bBucket.Table4B1, GstTaxHead.Central): b1C += amt; break;
+                    case (Table4bBucket.Table4B1, GstTaxHead.State): b1S += amt; break;
+                    case (Table4bBucket.Table4B1, GstTaxHead.Integrated): b1I += amt; break;
+                    case (Table4bBucket.Table4B1, GstTaxHead.Cess): b1Cess += amt; break;
+                    case (Table4bBucket.Table4B2, GstTaxHead.Central): b2C += amt; break;
+                    case (Table4bBucket.Table4B2, GstTaxHead.State): b2S += amt; break;
+                    case (Table4bBucket.Table4B2, GstTaxHead.Integrated): b2I += amt; break;
+                    case (Table4bBucket.Table4B2, GstTaxHead.Cess): b2Cess += amt; break;
+                    case (Table4bBucket.Table4D1, GstTaxHead.Central): d1C += amt; break;
+                    case (Table4bBucket.Table4D1, GstTaxHead.State): d1S += amt; break;
+                    case (Table4bBucket.Table4D1, GstTaxHead.Integrated): d1I += amt; break;
+                    case (Table4bBucket.Table4D1, GstTaxHead.Cess): d1Cess += amt; break;
+                }
+            }
+        }
+
+        return (b1C, b1S, b1I, b1Cess, b2C, b2S, b2I, b2Cess, d1C, d1S, d1I, d1Cess);
+    }
+
+    /// <summary>Maps a posted line's <see cref="GstAdjustmentKind"/> to its GSTR-3B Table-4 reversal bucket, or
+    /// <c>null</c> for a set-off / cash-payment tag (Table 6.1, not a 4(B)/4(D) reversal). A14-CONFIRMED §11.5:
+    /// Rule 37/37A ⇒ 4(B)(2); Rule 42/43/§17(5)/Ineligible/CreditNote ⇒ 4(B)(1); a reclaim ⇒ 4(D)(1).</summary>
+    private static Table4bBucket? Table4bBucketOf(GstAdjustmentKind adj) => adj switch
+    {
+        GstAdjustmentKind.ReversalRule37 or GstAdjustmentKind.ReversalRule37A => Table4bBucket.Table4B2,
+        GstAdjustmentKind.ReversalRule42 or GstAdjustmentKind.ReversalRule43
+            or GstAdjustmentKind.ReversalSection17_5 or GstAdjustmentKind.ReversalIneligible
+            or GstAdjustmentKind.ReversalCreditNote => Table4bBucket.Table4B1,
+        GstAdjustmentKind.Reclaim => Table4bBucket.Table4D1,
+        _ => null, // SetOff / CashPayment
+    };
 
     /// <summary>
     /// Reads the reverse-charge buckets (Phase 9 slice 2; RQ-7): 3.1(d) = Σ RCM output-liability lines by head; 4A(2) =
