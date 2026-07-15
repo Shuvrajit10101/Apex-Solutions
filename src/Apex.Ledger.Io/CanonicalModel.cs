@@ -321,6 +321,10 @@ public sealed record PayloadDto
     /// <summary>Persisted GSTR-2B reconciliation results (Phase 9 slice 6; RQ-13). Advisory audit rows keyed to the 2B
     /// lines. Empty until a reconciliation is run (ER-13).</summary>
     public IReadOnlyList<Gstr2bReconResultDto> Gstr2bReconResults { get; init; } = [];
+
+    /// <summary>Per-line IMS Accept/Reject/Pending actions (Phase 9 slice 6b; RQ-14). The offline mirror of the portal
+    /// decisions, keyed to the 2B lines. Deemed-accept is derived (not stored), so this is empty on a fresh import (ER-13).</summary>
+    public IReadOnlyList<ImsActionDto> ImsActions { get; init; } = [];
 }
 
 /// <summary>An imported GSTR-2B/2A statement (Phase 9 slice 6), mirroring the domain <c>Gstr2bSnapshot</c> + the SQLite
@@ -379,6 +383,20 @@ public sealed record Gstr2bReconResultDto
     public long TaxVariancePaisa { get; init; }
     public bool MatchPinned { get; init; }
     public string? ReconciledAt { get; init; }                   // ISO round-trip (o), or null
+}
+
+/// <summary>An offline IMS action (Phase 9 slice 6b), mirroring the domain <c>ImsAction</c> + the SQLite <c>ims_status</c>
+/// row, keyed to a 2B line by <see cref="LineId"/>. Money is integer paisa; <c>ActedOn</c> is ISO or null. The declared
+/// reversal is stored only — never posted (ER-14).</summary>
+public sealed record ImsActionDto
+{
+    public required Guid Id { get; init; }
+    public required Guid LineId { get; init; }                   // FK the imported Gstr2bLine DTO id
+    public required string Status { get; init; }                 // ImsStatus name (NoAction/Accepted/Rejected/Pending)
+    public string? Remarks { get; init; }
+    public long? DeclaredReversalPaisa { get; init; }            // Oct-2025 partial CN reversal, or null
+    public bool NoReversalDeclared { get; init; }
+    public string? ActedOn { get; init; }                        // ISO yyyy-MM-dd, or null
 }
 
 /// <summary>An RCM generated document (Phase 9 slice 2), mirroring the domain <c>RcmDocument</c> and the SQLite
@@ -1277,6 +1295,10 @@ public sealed record StockItemGstDto
     public bool ReverseChargeApplicable { get; init; }
     public bool GtaForwardCharge { get; init; }
     public Guid? RcmCategoryId { get; init; }
+    // Phase 9 slice 6 (RQ-26/DP-31): §17(5) ITC-eligibility on the shared block. Default Eligible/None ⇒ byte-identical to
+    // a v42 block (ER-13). Enum-name strings; appended at the END so existing field order is unchanged.
+    public string ItcEligibility { get; init; } = "Eligible";        // ItcEligibility name
+    public string BlockedCreditCategory { get; init; } = "None";     // BlockedCreditCategory name
 }
 
 public sealed record LedgerGstClassificationDto

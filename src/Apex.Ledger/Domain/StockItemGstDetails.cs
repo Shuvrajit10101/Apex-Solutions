@@ -78,6 +78,22 @@ public sealed class StockItemGstDetails
     /// qualifiers. Bare id (no FK, mirrors <c>tds_nature_id</c>).</summary>
     public Guid? RcmCategoryId { get; set; }
 
+    // ---- Phase 9 slice 6: §17(5) blocked-credit / ITC-eligibility on the shared item / sales-purchase-ledger GST block
+    // (RQ-26; DP-31). A per-purchase master flag, distinct from the portal 2B "ITC-available" flag. Both default
+    // Eligible/None so an item or ledger with no §17(5) tagging serialises byte-identically to a v42 block (ER-13). ----
+
+    /// <summary>
+    /// The §17(5) ITC-eligibility determination for a purchase of this item/ledger (RQ-26; DP-31). <see cref="Domain.ItcEligibility.Eligible"/>
+    /// (the default) ⇒ fully eligible ITC; <see cref="Domain.ItcEligibility.BlockedSection17_5"/> ⇒ blocked under §17(5)
+    /// (the sub-clause is <see cref="BlockedCreditCategory"/>) ⇒ the S6b ITC-gate reports it to GSTR-3B Table 4(B)(1);
+    /// <see cref="Domain.ItcEligibility.Ineligible"/> ⇒ ineligible for another reason ⇒ Table 4(D). Advisory only.
+    /// </summary>
+    public ItcEligibility ItcEligibility { get; set; } = ItcEligibility.Eligible;
+
+    /// <summary>The §17(5) blocked-credit sub-clause (advisory grouping), meaningful only when <see cref="ItcEligibility"/>
+    /// is <see cref="Domain.ItcEligibility.BlockedSection17_5"/>. Default <see cref="Domain.BlockedCreditCategory.None"/>.</summary>
+    public BlockedCreditCategory BlockedCreditCategory { get; set; } = BlockedCreditCategory.None;
+
     /// <summary>True iff this block is taxable (attracts tax when a rate resolves).</summary>
     public bool IsTaxable => Taxability == GstTaxability.Taxable;
 
@@ -128,5 +144,17 @@ public sealed class StockItemGstDetails
         if (ValuationBasis == GstValuationBasis.RetailSalePrice && RetailSalePrice is null)
             throw new ArgumentException(
                 "An item with a Retail-Sale-Price valuation basis requires a declared Retail Sale Price.");
+
+        // Phase 9 slice 6: §17(5) ITC-eligibility ⇔ blocked-credit-category consistency (fail-fast, bidirectional). A
+        // §17(5)-blocked block must name its sub-clause; any other eligibility (Eligible/Ineligible) must carry None — a
+        // None category with a BlockedSection17_5 eligibility, or a category with an Eligible/Ineligible one, is a
+        // contradiction (DP-31).
+        var blockedSection17_5 = ItcEligibility == ItcEligibility.BlockedSection17_5;
+        if (blockedSection17_5 && BlockedCreditCategory == BlockedCreditCategory.None)
+            throw new ArgumentException(
+                "A §17(5)-blocked item/line must specify a blocked-credit category (not None).");
+        if (!blockedSection17_5 && BlockedCreditCategory != BlockedCreditCategory.None)
+            throw new ArgumentException(
+                $"A {ItcEligibility} item/line must not carry a blocked-credit category ({BlockedCreditCategory}).");
     }
 }

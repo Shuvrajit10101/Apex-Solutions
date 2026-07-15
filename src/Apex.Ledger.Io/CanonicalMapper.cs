@@ -240,6 +240,15 @@ public static class CanonicalMapper
             .Select(MapGstr2bSnapshot).ToList(),
         Gstr2bReconResults = c.Gstr2bReconResults
             .OrderBy(r => r.LineId).ThenBy(r => r.Id).Select(MapGstr2bReconResult).ToList(),
+        // Phase 9 slice 6b: IMS actions (ordered by line, then id so stable). Empty on a fresh import (deemed-accept).
+        ImsActions = c.ImsActions.OrderBy(a => a.LineId).ThenBy(a => a.Id).Select(MapImsAction).ToList(),
+    };
+
+    private static ImsActionDto MapImsAction(ImsAction a) => new()
+    {
+        Id = a.Id, LineId = a.LineId, Status = a.Status.ToString(), Remarks = a.Remarks,
+        DeclaredReversalPaisa = a.DeclaredReversalPaisa, NoReversalDeclared = a.NoReversalDeclared,
+        ActedOn = Iso(a.ActedOn),
     };
 
     private static Gstr2bSnapshotDto MapGstr2bSnapshot(Gstr2bSnapshot s) => new()
@@ -744,6 +753,8 @@ public static class CanonicalMapper
         // Phase 9 slice 2: reverse-charge flags.
         ReverseChargeApplicable = s.ReverseChargeApplicable, GtaForwardCharge = s.GtaForwardCharge,
         RcmCategoryId = s.RcmCategoryId,
+        // Phase 9 slice 6: §17(5) ITC-eligibility (enum names; default Eligible/None ⇒ byte-identical when off, ER-13).
+        ItcEligibility = s.ItcEligibility.ToString(), BlockedCreditCategory = s.BlockedCreditCategory.ToString(),
     };
 
     private static LedgerGstClassificationDto MapGstClassification(LedgerGstClassification c) => new()

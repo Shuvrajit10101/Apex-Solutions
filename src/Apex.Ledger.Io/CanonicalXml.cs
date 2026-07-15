@@ -120,7 +120,9 @@ public static class CanonicalXml
             // Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (empty when
             // 2B is never imported, ER-13).
             List("gstr2bSnapshots", "gstr2bSnapshot", p.Gstr2bSnapshots, BuildGstr2bSnapshot),
-            List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult));
+            List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult),
+            // Phase 9 slice 6b: IMS actions (empty on a fresh import — deemed-accept, ER-13).
+            List("imsActions", "imsAction", p.ImsActions, BuildImsAction));
         return root;
     }
 
@@ -151,6 +153,11 @@ public static class CanonicalXml
         OptId("matchedVoucherId", r.MatchedVoucherId), Attr("taxableVariancePaisa", r.TaxableVariancePaisa),
         Attr("taxVariancePaisa", r.TaxVariancePaisa), Attr("matchPinned", r.MatchPinned),
         Opt("reconciledAt", r.ReconciledAt));
+
+    private static XElement BuildImsAction(ImsActionDto a) => new("imsAction",
+        Attr("id", a.Id), Attr("lineId", a.LineId), Attr("status", a.Status), Opt("remarks", a.Remarks),
+        OptLong("declaredReversalPaisa", a.DeclaredReversalPaisa), OptTrue("noReversalDeclared", a.NoReversalDeclared),
+        Opt("actedOn", a.ActedOn));
 
     private static XElement BuildTdsChallan(TdsChallanDto ch) => new("tdsChallan",
         Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
@@ -1050,6 +1057,8 @@ public static class CanonicalXml
                 // element ⇒ empty list, ER-13).
                 Gstr2bSnapshots = ReadList(root, "gstr2bSnapshots", "gstr2bSnapshot", ReadGstr2bSnapshot),
                 Gstr2bReconResults = ReadList(root, "gstr2bReconResults", "gstr2bReconResult", ReadGstr2bReconResult),
+                // Phase 9 slice 6b: IMS actions (absent element ⇒ empty list, ER-13).
+                ImsActions = ReadList(root, "imsActions", "imsAction", ReadImsAction),
             };
         }
         catch (Exception ex)
