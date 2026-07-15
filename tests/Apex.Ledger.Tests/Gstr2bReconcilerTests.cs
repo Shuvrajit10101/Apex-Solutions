@@ -317,23 +317,59 @@ public sealed class Gstr2bReconcilerTests
                 $"{v.Id}:{l.LedgerId}:{l.Amount}:{l.Side}:{(l.Gst is { } g ? $"{g.TaxHead}/{g.RateBasisPoints}/{g.IsReverseCharge}" : "-")}")));
 
     [Fact]
+    public void Advisory_only_ims_and_itc_gate_cycle_leaves_the_ledger_byte_identical()
+    {
+        // ER-14 structural (S6b): a full import → reconcile → IMS accept + §17(5) gate cycle posts NOTHING — GSTR-3B and
+        // the ledger fingerprint are byte-identical before/after. The IMS decisions + the ITC-gate build are advisory only.
+        var c = BuildReconCompany(out var a, out _);
+        PostPurchase(c, a, 10000m, "INV-001", D1);
+        PostPurchase(c, a, 2000m, "INV-777", D1);
+
+        var beforeGstr3b = Gstr3b.Build(c, From, To);
+        var beforeLedger = LedgerFingerprint(c);
+
+        var snapshot = Snapshot(c,
+            Line(GstinSupplierA, "INV001", 10000m, 1800m, D1),
+            Line(GstinSupplierA, "OTHER-1", 999m, 179.82m, D1));
+        c.AddGstr2bSnapshot(snapshot);
+        var report = Gstr2bReconciler.Reconcile(c, snapshot, From, To, ReconTolerance.Exact);
+        foreach (var result in report.ToPersistedResults(Guid.NewGuid, Imported))
+            c.AddGstr2bReconResult(result);
+
+        // IMS accept every actionable line + build the advisory ITC gate.
+        foreach (var line in snapshot.Lines)
+            ImsService.SetAction(c, line.Id, ImsStatus.Accepted, actedOn: D1);
+        _ = ItcGateView.Build(c, snapshot, From, To);
+
+        Assert.Equal(beforeGstr3b, Gstr3b.Build(c, From, To));
+        Assert.Equal(beforeLedger, LedgerFingerprint(c));
+        Assert.NotEmpty(c.ImsActions);            // the advisory IMS decisions exist in staging only
+    }
+
+    [Fact]
     public void No_S6_type_takes_a_ledger_service_or_emits_an_entry_line()
     {
         // ER-14 structural: the advisory guarantee is the ABSENCE of any posting surface. No S6 engine/record may accept
-        // a LedgerService or emit an EntryLine. Reflection-driven over the WHOLE Apex.Ledger assembly (finding #7) — every
-        // type whose name starts with "Gstr2b" or "Recon" — so a NEW S6 type is covered automatically, not just a
-        // hard-coded list of eight.
+        // a LedgerService or PRODUCE a posting. Reflection-driven over the WHOLE Apex.Ledger assembly (finding #7) — every
+        // type whose name starts with "Gstr2b", "Recon", "Ims" or "Itc" (the S6b IMS mirror + the whole ITC-gate surface —
+        // ItcGateView, ItcTriple, ItcReversalCandidate, ItcReversalReason — land here too) — so a NEW S6/S6b type is
+        // covered automatically, not just a hard-coded list.
         var ledgerService = typeof(LedgerService);
         var s6Types = ledgerService.Assembly.GetTypes()
             .Where(t => t.Name.StartsWith("Gstr2b", StringComparison.Ordinal)
-                     || t.Name.StartsWith("Recon", StringComparison.Ordinal))
+                     || t.Name.StartsWith("Recon", StringComparison.Ordinal)
+                     || t.Name.StartsWith("Ims", StringComparison.Ordinal)
+                     || t.Name.StartsWith("Itc", StringComparison.Ordinal))
             .ToList();
 
-        // Sanity-guard the scan actually found the known S6 surface (a prefix typo would otherwise silently pass).
+        // Sanity-guard the scan actually found the known S6/S6b surface (a prefix typo would otherwise silently pass) —
+        // INCLUDING the new S6b ITC-gate record/enum types, so a missing type fails this assertion.
         foreach (var known in new[]
         {
             typeof(Gstr2bReconciler), typeof(Gstr2bReconciliationReport), typeof(Gstr2bSnapshot), typeof(Gstr2bLine),
             typeof(Gstr2bReconResult), typeof(ReconTolerance), typeof(ReconMatch), typeof(ReconBooksEntry),
+            typeof(ImsAction), typeof(ImsService), typeof(ItcGateView),
+            typeof(ItcTriple), typeof(ItcReversalCandidate), typeof(ItcReversalReason),
         })
             Assert.Contains(known, s6Types);
 
@@ -341,8 +377,15 @@ public sealed class Gstr2bReconcilerTests
         {
             foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
             {
+                // No S6 member may TAKE a posting service …
                 Assert.DoesNotContain(m.GetParameters(), p => p.ParameterType == ledgerService);
-                Assert.DoesNotContain("EntryLine", m.ReturnType.FullName ?? "");
+                // … nor RETURN a ledger posting (an EntryLine), a Voucher, or a GstLineTax — the structural marks of a
+                // poster. (Reading a Voucher as a PARAMETER is fine + necessary — the reconciler/ITC-gate read the books;
+                // it is PRODUCING one of these that would be a posting surface.)
+                var returned = m.ReturnType.FullName ?? "";
+                Assert.DoesNotContain("EntryLine", returned);
+                Assert.DoesNotContain("Domain.Voucher", returned);
+                Assert.DoesNotContain("GstLineTax", returned);
             }
             foreach (var ctor in t.GetConstructors())
                 Assert.DoesNotContain(ctor.GetParameters(), p => p.ParameterType == ledgerService);

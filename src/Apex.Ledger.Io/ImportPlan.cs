@@ -574,6 +574,11 @@ internal sealed class ImportPlan
             // A payable-ledger classification only appears on the auto-created TDS/TCS Payable ledgers (reused above);
             // an ordinary imported ledger never carries one, so this stays null here.
             domain.TdsTcsClassification = l.TdsTcsClassification is { } k ? ParseEnum<TdsTcsLedgerKind>(k) : null;
+            // Phase 9: mirror the item-GST guard onto the sales/purchase LEDGER block (the recurring Io-bypass defect
+            // class) — a malformed §17(5)/cess/RSP block (e.g. a BlockedCreditCategory with a non-blocked eligibility)
+            // throws here in pre-flight, so the whole batch rejects all-or-nothing (Applied = false, target untouched)
+            // rather than persisting a block that bypasses the domain's fail-fast bijection guard.
+            domain.SalesPurchaseGst?.EnsureValid();
             t.AddLedger(domain);
             journal.RecordLedger(domain);
             ledgerId[l.Id] = domain.Id;
@@ -1051,6 +1056,20 @@ internal sealed class ImportPlan
             t.AddGstr2bReconResult(result);
             journal.RecordGstr2bReconResult(result);
         }
+        // Phase 9 slice 6b: the offline IMS decisions re-link to the imported 2B lines through the SAME line-id remap.
+        // A dangling line ref is a malformed batch (reject). Rehydrate runs the reversal-declaration invariant fail-fast
+        // in pre-flight, so a malformed IMS action rejects the whole batch (all-or-nothing, RQ-23). Journalled for rollback.
+        foreach (var ia in _model.Payload.ImsActions)
+        {
+            if (!reconLineId.TryGetValue(ia.LineId, out var lineId))
+                throw new InvalidOperationException(
+                    $"IMS action references an unknown imported 2B line {ia.LineId}.");
+            var action = ImsAction.Rehydrate(
+                Guid.NewGuid(), lineId, ParseEnum<ImsStatus>(ia.Status), ia.Remarks, ia.DeclaredReversalPaisa,
+                ia.NoReversalDeclared, CompanyImportService.ParseDateOpt(ia.ActedOn));
+            t.AddImsAction(action);
+            journal.RecordImsAction(action);
+        }
 
         return (created, reused, posted);
     }
@@ -1514,6 +1533,9 @@ internal sealed class ImportPlan
         ReverseChargeApplicable = s.ReverseChargeApplicable,
         GtaForwardCharge = s.GtaForwardCharge,
         RcmCategoryId = s.RcmCategoryId,
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (default Eligible/None ⇒ byte-identical, ER-13).
+        ItcEligibility = ParseEnum<ItcEligibility>(s.ItcEligibility),
+        BlockedCreditCategory = ParseEnum<BlockedCreditCategory>(s.BlockedCreditCategory),
     };
 
     private static LedgerGstClassification? BuildGstClassification(LedgerGstClassificationDto? c) => c is null ? null

@@ -199,6 +199,80 @@ public sealed class Gstr2bSchemaTests
         finally { Delete(dbPath); }
     }
 
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Save_load_round_trips_ims_actions_and_section17_5_flags()
+    {
+        // Phase 9 slice 6b: the ims_status table + the §17(5) columns on ledgers/stock_items persist + reload exact.
+        var dbPath = TempDb("apex-2b-ims");
+        try
+        {
+            var c = CompanyFactory.CreateSeeded("IMS Co", FyStart);
+            new GstService(c).EnableGst(new GstConfig
+            {
+                HomeStateCode = "27", Gstin = GstinMe, RegistrationType = GstRegistrationType.Regular,
+                ApplicableFrom = FyStart, Periodicity = GstReturnPeriodicity.Monthly,
+            });
+
+            // A §17(5)-flagged Purchases ledger (Ineligible) + a §17(5)-blocked stock item (BlockedSection17_5).
+            var purchases = new Apex.Ledger.Domain.Ledger(Guid.NewGuid(), "Purchases",
+                c.FindGroupByName("Purchase Accounts")!.Id, Money.Zero, true)
+            {
+                SalesPurchaseGst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, ItcEligibility = ItcEligibility.Ineligible },
+            };
+            c.AddLedger(purchases);
+            var inv = new InventoryService(c);
+            var sg = inv.CreateStockGroup("Vehicles");
+            var nos = inv.CreateSimpleUnit("Nos", "Numbers", decimalPlaces: 0);
+            var car = inv.CreateStockItem("Company Car", sg.Id, nos.Id);
+            car.Gst = new StockItemGstDetails
+            {
+                HsnSac = "8703", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+                ItcEligibility = ItcEligibility.BlockedSection17_5, BlockedCreditCategory = BlockedCreditCategory.MotorVehicles,
+            };
+
+            // A snapshot with two non-RCM lines + an IMS decision on each (an Accept + Oct-2025 partial reversal, and a Pending).
+            var snapshot = new Gstr2bSnapshot(Guid.NewGuid(), GstStatementType.Gstr2b, "2025-10", GstinMe,
+                new DateOnly(2025, 11, 14), "IMSHASH", Imported, 0, 0, 0, 0, new[]
+                {
+                    new Gstr2bLine(Guid.NewGuid(), GstinSupplierA, "Supplier A", Gstr2bDocType.CreditNote, "CN-7", "CN7", D1,
+                        "27", 200_000, 36_000, 0, 0, 0, itcAvailable: true, null, reverseCharge: false),
+                    new Gstr2bLine(Guid.NewGuid(), GstinSupplierA, "Supplier A", Gstr2bDocType.B2b, "INV-9", "INV9", D1,
+                        "27", 500_000, 90_000, 0, 0, 0, itcAvailable: true, null, reverseCharge: false),
+                });
+            c.AddGstr2bSnapshot(snapshot);
+            var cn = snapshot.Lines.Single(l => l.DocNumber == "CN-7");
+            var b2b = snapshot.Lines.Single(l => l.DocNumber == "INV-9");
+            ImsService.SetAction(c, cn.Id, ImsStatus.Accepted, remarks: "partial per contract",
+                declaredReversalPaisa: 12_000, actedOn: new DateOnly(2025, 11, 18));
+            ImsService.SetAction(c, b2b.Id, ImsStatus.Pending);
+
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+            Company reloaded;
+            using (var store = new SqliteCompanyStore(dbPath)) reloaded = store.Load(c.Id)!;
+
+            // IMS decisions survived (status + paisa + remarks + acted-on exact), keyed to their reloaded lines.
+            Assert.Equal(2, reloaded.ImsActions.Count);
+            var snap = Assert.Single(reloaded.Gstr2bSnapshots);
+            var rcn = snap.Lines.Single(l => l.DocNumber == "CN-7");
+            var cnAction = reloaded.FindImsActionForLine(rcn.Id)!;
+            Assert.Equal(ImsStatus.Accepted, cnAction.Status);
+            Assert.Equal(12_000, cnAction.DeclaredReversalPaisa);
+            Assert.Equal("partial per contract", cnAction.Remarks);
+            Assert.Equal(new DateOnly(2025, 11, 18), cnAction.ActedOn);
+            var rb2b = snap.Lines.Single(l => l.DocNumber == "INV-9");
+            Assert.Equal(ImsStatus.Pending, reloaded.FindImsActionForLine(rb2b.Id)!.Status);
+            Assert.Null(reloaded.FindImsActionForLine(rb2b.Id)!.DeclaredReversalPaisa);
+
+            // §17(5) flags survived on BOTH the ledger block and the item block.
+            Assert.Equal(ItcEligibility.Ineligible, reloaded.FindLedgerByName("Purchases")!.SalesPurchaseGst!.ItcEligibility);
+            var reCar = reloaded.StockItems.Single(i => i.Name == "Company Car");
+            Assert.Equal(ItcEligibility.BlockedSection17_5, reCar.Gst!.ItcEligibility);
+            Assert.Equal(BlockedCreditCategory.MotorVehicles, reCar.Gst!.BlockedCreditCategory);
+        }
+        finally { Delete(dbPath); }
+    }
+
     // ---- helpers ----
 
     private static string TempDb(string prefix) => Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}.db");

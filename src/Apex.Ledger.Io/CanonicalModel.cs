@@ -321,6 +321,11 @@ public sealed record PayloadDto
     /// <summary>Persisted GSTR-2B reconciliation results (Phase 9 slice 6; RQ-13). Advisory audit rows keyed to the 2B
     /// lines. Empty until a reconciliation is run (ER-13).</summary>
     public IReadOnlyList<Gstr2bReconResultDto> Gstr2bReconResults { get; init; } = [];
+
+    /// <summary>Offline IMS decisions (Phase 9 slice 6b; RQ-14). The taxpayer's Accept/Reject/Pending + Oct-2025 CDN
+    /// reversal declaration, keyed to the 2B lines. Empty until the user acts (a line with no action is deemed-accepted,
+    /// ER-13). ADVISORY only — no NIC credential appears here (ER-16).</summary>
+    public IReadOnlyList<ImsActionDto> ImsActions { get; init; } = [];
 }
 
 /// <summary>An imported GSTR-2B/2A statement (Phase 9 slice 6), mirroring the domain <c>Gstr2bSnapshot</c> + the SQLite
@@ -379,6 +384,20 @@ public sealed record Gstr2bReconResultDto
     public long TaxVariancePaisa { get; init; }
     public bool MatchPinned { get; init; }
     public string? ReconciledAt { get; init; }                   // ISO round-trip (o), or null
+}
+
+/// <summary>An offline IMS decision (Phase 9 slice 6b), mirroring the domain <c>ImsAction</c> + the SQLite
+/// <c>ims_status</c> row. Keyed to the imported <c>Gstr2bLine</c> by <c>LineId</c>; re-links through the same line-id
+/// remap the recon results use on import. Money is integer paisa; <c>ActedOn</c> is ISO or null.</summary>
+public sealed record ImsActionDto
+{
+    public required Guid Id { get; init; }
+    public required Guid LineId { get; init; }                   // FK the imported Gstr2bLine DTO id
+    public required string Status { get; init; }                 // ImsStatus name (NoAction/Accepted/Rejected/Pending)
+    public string? Remarks { get; init; }
+    public long? DeclaredReversalPaisa { get; init; }            // Oct-2025 partial CDN reversal, or null
+    public bool NoReversalDeclared { get; init; }
+    public string? ActedOn { get; init; }                        // ISO yyyy-MM-dd, or null
 }
 
 /// <summary>An RCM generated document (Phase 9 slice 2), mirroring the domain <c>RcmDocument</c> and the SQLite
@@ -1277,6 +1296,10 @@ public sealed record StockItemGstDto
     public bool ReverseChargeApplicable { get; init; }
     public bool GtaForwardCharge { get; init; }
     public Guid? RcmCategoryId { get; init; }
+    // Phase 9 slice 6b (RQ-26): §17(5) ITC-eligibility on the shared item / S-P-ledger GST block. Default
+    // Eligible/None ⇒ byte-identical to a v42 block (ER-13). Appended at the END so existing field order is unchanged.
+    public string ItcEligibility { get; init; } = "Eligible";              // ItcEligibility name
+    public string BlockedCreditCategory { get; init; } = "None";           // BlockedCreditCategory name
 }
 
 public sealed record LedgerGstClassificationDto

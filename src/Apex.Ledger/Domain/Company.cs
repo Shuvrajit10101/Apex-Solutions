@@ -38,6 +38,7 @@ public sealed class Company
     private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
     private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
     private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
+    private readonly List<ImsAction> _imsActions = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
@@ -441,6 +442,11 @@ public sealed class Company
     /// until a reconciliation is run (ER-13).</summary>
     public IReadOnlyList<Gstr2bReconResult> Gstr2bReconResults => _gstr2bReconResults;
 
+    /// <summary>Offline IMS decisions (Phase 9 slice 6b; RQ-14): one mutable <see cref="ImsAction"/> per 2B line the user
+    /// acted on. A line with no action is <b>deemed-accepted</b> (derived, not stored) so this is empty until the user
+    /// acts (ER-13). ADVISORY only — the IMS mirror posts nothing (ER-14).</summary>
+    public IReadOnlyList<ImsAction> ImsActions => _imsActions;
+
     /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
     /// unless Payroll is used.</summary>
     public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
@@ -681,6 +687,16 @@ public sealed class Company
     public bool RemoveGstr2bReconResult(Gstr2bReconResult result) => _gstr2bReconResults.Remove(result);
     /// <summary>Finds a persisted reconciliation result by its id, or <c>null</c>.</summary>
     public Gstr2bReconResult? FindGstr2bReconResult(Guid id) => _gstr2bReconResults.FirstOrDefault(r => r.Id == id);
+
+    /// <summary>Adds an offline IMS decision (Phase 9 slice 6b; guards live in <c>ImsService</c>; also used by the
+    /// store/import rehydration).</summary>
+    public void AddImsAction(ImsAction action) => _imsActions.Add(action ?? throw new ArgumentNullException(nameof(action)));
+    /// <summary>Removes an offline IMS decision (a Clear/re-decide, or the transactional import roll-back).</summary>
+    public bool RemoveImsAction(ImsAction action) => _imsActions.Remove(action);
+    /// <summary>Finds an IMS decision by its id, or <c>null</c>.</summary>
+    public ImsAction? FindImsAction(Guid id) => _imsActions.FirstOrDefault(a => a.Id == id);
+    /// <summary>Finds the IMS decision for a given 2B line, or <c>null</c> (⇒ the line is deemed-accepted).</summary>
+    public ImsAction? FindImsActionForLine(Guid lineId) => _imsActions.FirstOrDefault(a => a.LineId == lineId);
 
     // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
 

@@ -120,7 +120,9 @@ public static class CanonicalXml
             // Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (empty when
             // 2B is never imported, ER-13).
             List("gstr2bSnapshots", "gstr2bSnapshot", p.Gstr2bSnapshots, BuildGstr2bSnapshot),
-            List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult));
+            List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult),
+            // Phase 9 slice 6b: offline IMS decisions (empty until the user acts, ER-13).
+            List("imsActions", "imsAction", p.ImsActions, BuildImsAction));
         return root;
     }
 
@@ -151,6 +153,11 @@ public static class CanonicalXml
         OptId("matchedVoucherId", r.MatchedVoucherId), Attr("taxableVariancePaisa", r.TaxableVariancePaisa),
         Attr("taxVariancePaisa", r.TaxVariancePaisa), Attr("matchPinned", r.MatchPinned),
         Opt("reconciledAt", r.ReconciledAt));
+
+    private static XElement BuildImsAction(ImsActionDto a) => new("imsAction",
+        Attr("id", a.Id), Attr("lineId", a.LineId), Attr("status", a.Status), Opt("remarks", a.Remarks),
+        OptLong("declaredReversalPaisa", a.DeclaredReversalPaisa), OptTrue("noReversalDeclared", a.NoReversalDeclared),
+        Opt("actedOn", a.ActedOn));
 
     private static XElement BuildTdsChallan(TdsChallanDto ch) => new("tdsChallan",
         Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
@@ -622,7 +629,10 @@ public static class CanonicalXml
         OptLong("rspPaisa", s.RspPaisa),
         // Phase 9 slice 2: reverse-charge flags (emitted only when set so an off item is byte-identical, ER-13).
         OptTrue("reverseChargeApplicable", s.ReverseChargeApplicable), OptTrue("gtaForwardCharge", s.GtaForwardCharge),
-        OptId("rcmCategoryId", s.RcmCategoryId));
+        OptId("rcmCategoryId", s.RcmCategoryId),
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (required attrs always emitted, mirroring valuationBasis/cessApplicable;
+        // an off item is Eligible/None ⇒ round-trip-stable + byte-identical, ER-13).
+        Attr("itcEligibility", s.ItcEligibility), Attr("blockedCreditCategory", s.BlockedCreditCategory));
 
     private static XElement BuildGstClassification(LedgerGstClassificationDto c) => new("gstClassification",
         Attr("taxHead", c.TaxHead), Attr("direction", c.Direction),
@@ -1050,6 +1060,7 @@ public static class CanonicalXml
                 // element ⇒ empty list, ER-13).
                 Gstr2bSnapshots = ReadList(root, "gstr2bSnapshots", "gstr2bSnapshot", ReadGstr2bSnapshot),
                 Gstr2bReconResults = ReadList(root, "gstr2bReconResults", "gstr2bReconResult", ReadGstr2bReconResult),
+                ImsActions = ReadList(root, "imsActions", "imsAction", ReadImsAction),
             };
         }
         catch (Exception ex)
@@ -1379,6 +1390,13 @@ public static class CanonicalXml
         ReconciledAt = Str(e, "reconciledAt"),
     };
 
+    private static ImsActionDto ReadImsAction(XElement e) => new()
+    {
+        Id = Guid(e, "id"), LineId = Guid(e, "lineId"), Status = Str(e, "status")!, Remarks = Str(e, "remarks"),
+        DeclaredReversalPaisa = OptLong(e, "declaredReversalPaisa"), NoReversalDeclared = Bool(e, "noReversalDeclared"),
+        ActedOn = Str(e, "actedOn"),
+    };
+
     private static GstAdvanceReceiptDto ReadAdvanceReceipt(XElement e) => new()
     {
         Id = Guid(e, "id"), ReceiptVoucherId = Guid(e, "receiptVoucherId"), IsService = Bool(e, "isService"),
@@ -1560,6 +1578,9 @@ public static class CanonicalXml
         // Phase 9 slice 2: reverse-charge flags (absent ⇒ false/null, ER-13).
         ReverseChargeApplicable = Bool(e, "reverseChargeApplicable"), GtaForwardCharge = Bool(e, "gtaForwardCharge"),
         RcmCategoryId = OptGuid(e, "rcmCategoryId"),
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (absent ⇒ Eligible/None default, ER-13).
+        ItcEligibility = Str(e, "itcEligibility") ?? "Eligible",
+        BlockedCreditCategory = Str(e, "blockedCreditCategory") ?? "None",
     };
 
     private static LedgerGstClassificationDto ReadGstClassification(XElement e) => new()

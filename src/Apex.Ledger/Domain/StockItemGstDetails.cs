@@ -78,6 +78,17 @@ public sealed class StockItemGstDetails
     /// qualifiers. Bare id (no FK, mirrors <c>tds_nature_id</c>).</summary>
     public Guid? RcmCategoryId { get; set; }
 
+    // ---- Phase 9 slice 6b: §17(5) ITC-eligibility on the shared item / sales-purchase-ledger GST block (RQ-26/DP-31) —
+    // a per-purchase master flag distinct from the portal 2B "ITC-available" flag, read by the S6b ITC-gate. Default
+    // Eligible/None ⇒ byte-identical to a v42 block (ER-13). ----
+
+    /// <summary>The §17(5) ITC-eligibility of a purchase driven by this item/expense ledger (Eligible default). RQ-26.</summary>
+    public ItcEligibility ItcEligibility { get; set; } = ItcEligibility.Eligible;
+
+    /// <summary>The §17(5) blocked-credit sub-clause (advisory grouping); meaningful only when
+    /// <see cref="ItcEligibility.BlockedSection17_5"/>. Default <see cref="BlockedCreditCategory.None"/>. RQ-26.</summary>
+    public BlockedCreditCategory BlockedCreditCategory { get; set; } = BlockedCreditCategory.None;
+
     /// <summary>True iff this block is taxable (attracts tax when a rate resolves).</summary>
     public bool IsTaxable => Taxability == GstTaxability.Taxable;
 
@@ -128,5 +139,15 @@ public sealed class StockItemGstDetails
         if (ValuationBasis == GstValuationBasis.RetailSalePrice && RetailSalePrice is null)
             throw new ArgumentException(
                 "An item with a Retail-Sale-Price valuation basis requires a declared Retail Sale Price.");
+
+        // Phase 9 slice 6b: §17(5) eligibility ⟺ blocked-credit category must not contradict (both directions, RQ-26).
+        // A named §17(5) sub-clause is meaningful ONLY on a §17(5)-blocked block, and a §17(5)-blocked block MUST name its
+        // sub-clause — the two are a bijection so a stray flag can never mislead the ITC-gate.
+        if (BlockedCreditCategory != BlockedCreditCategory.None && ItcEligibility != ItcEligibility.BlockedSection17_5)
+            throw new ArgumentException(
+                $"A §17(5) blocked-credit category ({BlockedCreditCategory}) requires a BlockedSection17_5 ITC-eligibility.");
+        if (ItcEligibility == ItcEligibility.BlockedSection17_5 && BlockedCreditCategory == BlockedCreditCategory.None)
+            throw new ArgumentException(
+                "A §17(5)-blocked (BlockedSection17_5) item/line requires a named blocked-credit category.");
     }
 }

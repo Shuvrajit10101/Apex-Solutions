@@ -1397,6 +1397,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             company.AddGstr2bSnapshot(snapshot);
         foreach (var result in ReadGstr2bReconResults(companyId))
             company.AddGstr2bReconResult(result);
+        // Offline IMS decisions (Phase 9 slice 6b): load AFTER the snapshots (they key the 2B lines). Empty until the
+        // user acts (a line with no row reads deemed-accepted, ER-13).
+        foreach (var action in ReadImsStatus(companyId))
+            company.AddImsAction(action);
 
         // Payroll masters (Phase 8 slice 1). Order: categories + groups + payroll units first, then attendance
         // types (reference payroll units) and employees (reference groups + categories). Empty when Payroll off.
@@ -1751,7 +1755,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    sp_gst_valuation_basis, sp_cess_applicable, sp_cess_valuation_mode, sp_cess_rate_bp,
                    sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
                    sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
-                   party_is_promoter, party_is_body_corporate, gst_class_reverse_charge
+                   party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
+                   itc_eligibility, blocked_credit_category
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1841,6 +1846,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             ReverseChargeApplicable = r.GetInt64(49) != 0,
             GtaForwardCharge = r.GetInt64(50) != 0,
             RcmCategoryId = r.IsDBNull(51) ? (Guid?)null : Guid.Parse(r.GetString(51)),
+            // v43 (Phase 9 slice 6): §17(5) ITC-eligibility (columns 55–56; default Eligible/None for a plain ledger).
+            ItcEligibility = (ItcEligibility)(int)r.GetInt64(55),
+            BlockedCreditCategory = (BlockedCreditCategory)(int)r.GetInt64(56),
         };
     }
 
@@ -2326,6 +2334,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.GetInt64(5),
                 r.GetInt64(6) != 0,
                 r.IsDBNull(7) ? (DateTimeOffset?)null : ParseDateTimeOffset(r.GetString(7))));
+        return list;
+    }
+
+    /// <summary>v43: reads the offline IMS decisions for a company (Phase 9 slice 6b). ADVISORY only — the mirror stores
+    /// the Accept/Reject/Pending decision + the Oct-2025 CDN reversal declaration; it posts nothing (ER-14). Empty until
+    /// the user acts (a line with no row is deemed-accepted, ER-13).</summary>
+    private IEnumerable<ImsAction> ReadImsStatus(Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, line_id, action, remarks, declared_reversal_paisa, no_reversal_declared, acted_on
+            FROM ims_status WHERE company_id = $cid ORDER BY rowid;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        var list = new List<ImsAction>();
+        while (r.Read())
+            list.Add(ImsAction.Rehydrate(
+                Guid.Parse(r.GetString(0)),
+                Guid.Parse(r.GetString(1)),
+                (ImsStatus)(int)r.GetInt64(2),
+                r.IsDBNull(3) ? null : r.GetString(3),
+                r.IsDBNull(4) ? (long?)null : r.GetInt64(4),
+                r.GetInt64(5) != 0,
+                r.IsDBNull(6) ? (DateOnly?)null : ParseDate(r.GetString(6))));
         return list;
     }
 
@@ -2953,7 +2986,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    tcs_nature_id,
                    gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
                    cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
-                   reverse_charge_applicable, gta_forward_charge, rcm_category_id
+                   reverse_charge_applicable, gta_forward_charge, rcm_category_id,
+                   itc_eligibility, blocked_credit_category
             FROM stock_items WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3195,6 +3229,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             ReverseChargeApplicable = r.GetInt64(28) != 0,
             GtaForwardCharge = r.GetInt64(29) != 0,
             RcmCategoryId = r.IsDBNull(30) ? (Guid?)null : Guid.Parse(r.GetString(30)),
+            // v43 (Phase 9 slice 6): §17(5) ITC-eligibility (columns 31–32; default Eligible/None for a plain item).
+            ItcEligibility = (ItcEligibility)(int)r.GetInt64(31),
+            BlockedCreditCategory = (BlockedCreditCategory)(int)r.GetInt64(32),
         };
     }
 
@@ -4492,13 +4529,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      sp_gst_valuation_basis, sp_cess_applicable, sp_cess_valuation_mode, sp_cess_rate_bp,
                      sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
                      sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
-                     party_is_promoter, party_is_body_corporate, gst_class_reverse_charge)
+                     party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
+                     itc_eligibility, blocked_credit_category)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
                         $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind,
                         $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp,
-                        $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc);
+                        $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc,
+                        $spitcelig, $spblkcat);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4558,6 +4597,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$sprcmcat", (object?)sp?.RcmCategoryId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$ppromo", pg is { IsPromoter: true } ? 1 : 0);
             cmd.Parameters.AddWithValue("$pbodycorp", pg is { IsBodyCorporate: true } ? 1 : 0);
+
+            // v43 §17(5) ITC-eligibility on the sales/purchase-ledger block (default Eligible/None for a plain ledger).
+            cmd.Parameters.AddWithValue("$spitcelig", sp is null ? 0 : (int)sp.ItcEligibility);
+            cmd.Parameters.AddWithValue("$spblkcat", sp is null ? 0 : (int)sp.BlockedCreditCategory);
 
             // v13 tax-ledger classification (NULL for an ordinary ledger); v39 adds the RCM Output discriminator.
             var gc = l.GstClassification;
@@ -4977,6 +5020,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$taxvar", r.TaxVariancePaisa);
             cmd.Parameters.AddWithValue("$pinned", r.MatchPinned ? 1 : 0);
             cmd.Parameters.AddWithValue("$recon", r.ReconciledAt is { } dto ? FormatDateTimeOffset(dto) : (object)DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+
+        // v43 (Phase 9 slice 6b): the offline IMS decisions (all-rows-replace on save; the child-cleanup DELETEs
+        // ims_status first). ADVISORY only — the mirror stores the decision + the Oct-2025 CDN reversal declaration but
+        // posts nothing (ER-14).
+        foreach (var a in c.ImsActions)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO ims_status
+                    (id, company_id, line_id, action, remarks, declared_reversal_paisa, no_reversal_declared, acted_on)
+                VALUES ($id, $cid, $lid, $act, $rem, $rev, $norev, $acted);
+                """;
+            cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
+            cmd.Parameters.AddWithValue("$lid", a.LineId.ToString("D"));
+            cmd.Parameters.AddWithValue("$act", (int)a.Status);
+            cmd.Parameters.AddWithValue("$rem", (object?)a.Remarks ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$rev", a.DeclaredReversalPaisa is { } drp ? drp : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("$norev", a.NoReversalDeclared ? 1 : 0);
+            cmd.Parameters.AddWithValue("$acted", a.ActedOn is { } ao ? FormatDate(ao) : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -5477,11 +5543,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      tcs_nature_id,
                      gst_valuation_basis, cess_applicable, cess_valuation_mode, cess_rate_bp,
                      cess_per_unit_paisa, cess_rsp_factor_millis, rsp_paisa,
-                     reverse_charge_applicable, gta_forward_charge, rcm_category_id)
+                     reverse_charge_applicable, gta_forward_charge, rcm_category_id,
+                     itc_eligibility, blocked_credit_category)
                 VALUES ($id, $cid, $name, $grp, $cat, $unit, $alias, $vm, $hsn, $tax, $rol, $moq, $std,
                         $ghsn, $gtax, $grate, $gsup, $mib, $tmd, $ued, $setc, $tcsnat,
                         $gvb, $cess, $cvm, $crate, $cpu, $crsp, $rsp,
-                        $rca, $gtafc, $rcmcat);
+                        $rca, $gtafc, $rcmcat,
+                        $itcelig, $blkcat);
                 """;
             cmd.Parameters.AddWithValue("$id", item.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -5517,6 +5585,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$rca", g is { ReverseChargeApplicable: true } ? 1 : 0);
             cmd.Parameters.AddWithValue("$gtafc", g is { GtaForwardCharge: true } ? 1 : 0);
             cmd.Parameters.AddWithValue("$rcmcat", (object?)g?.RcmCategoryId?.ToString("D") ?? DBNull.Value);
+
+            // v43 item §17(5) ITC-eligibility (default Eligible/None for a plain item).
+            cmd.Parameters.AddWithValue("$itcelig", g is null ? 0 : (int)g.ItcEligibility);
+            cmd.Parameters.AddWithValue("$blkcat", g is null ? 0 : (int)g.BlockedCreditCategory);
 
             // v16 batch switches (0/1; default off).
             cmd.Parameters.AddWithValue("$mib", item.MaintainInBatches ? 1 : 0);
