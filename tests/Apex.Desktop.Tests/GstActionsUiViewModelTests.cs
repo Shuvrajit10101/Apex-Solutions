@@ -1159,7 +1159,7 @@ public sealed class GstActionsUiViewModelTests : IDisposable
         Assert.Equal(EInvoiceStatus.Pending, record.Status);
         Assert.Null(record.Irn);                               // no IRN until the portal issues one
         var file = Assert.Single(written);
-        Assert.StartsWith(@"C:\out\INV01_", file.Key);
+        Assert.StartsWith(Path.Combine(@"C:\out", "INV01_"), file.Key);
         Assert.NotEmpty(file.Value);
         Assert.Equal(file.Key, page.LastJsonPath);
         Assert.Contains("INV-01 written", page.Message);
@@ -1458,7 +1458,7 @@ public sealed class GstActionsUiViewModelTests : IDisposable
         Assert.Equal(250, record.DistanceKm);
         Assert.Null(record.EwbNumber);               // no number until the portal issues one
         var file = Assert.Single(written);
-        Assert.StartsWith(@"C:\out\EWB01_", file.Key);
+        Assert.StartsWith(Path.Combine(@"C:\out", "EWB01_"), file.Key);
         Assert.NotEmpty(file.Value);
         Assert.Contains("EWB-01 written", page.Message);
     }
