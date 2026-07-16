@@ -155,13 +155,25 @@ public sealed record Gstr9a(
     public Money CompositionTaxPaid => new(TaxPaidCgst.Amount + TaxPaidSgst.Amount);
 
     /// <summary>Builds a light GSTR-9A for a composition company over the FY; a non-composition company yields
-    /// not-applicable.</summary>
+    /// not-applicable. The tax paid is the <b>Σ of the four already-rounded quarterly CMP-08 figures</b> (Table 5) —
+    /// mirroring the <see cref="Gstr4.AnnualCompositionTax"/> Σ-of-quarters template — so <b>9A reconciles to Σ CMP-08 by
+    /// construction</b> (never a whole-FY <c>ComputeForPeriod</c> re-round that could diverge on odd-paisa turnover). The
+    /// turnover figures are additive (no rounding), so they are taken from the whole-FY compute unchanged.</summary>
     public static Gstr9a Build(Company company, DateOnly fyFrom, DateOnly fyTo)
     {
         if (company.Gst?.RegistrationType != GstRegistrationType.Composition)
             return new Gstr9a(fyFrom, fyTo, false, Money.Zero, Money.Zero, Money.Zero, Money.Zero, Money.Zero, Money.Zero);
 
-        var t = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo);
-        return new Gstr9a(fyFrom, fyTo, true, t.TotalTurnover, t.TaxableTurnover, t.Cgst, t.Sgst, t.RcmInwardTax, Money.Zero);
+        var t = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo); // turnover (additive) only
+        decimal cgst = 0m, sgst = 0m, rcm = 0m;
+        for (var i = 0; i < 4; i++)
+        {
+            var q = Cmp08.Build(company, fyFrom.AddMonths(3 * i), fyFrom.AddMonths(3 * (i + 1)).AddDays(-1));
+            cgst += q.OutwardCgst.Amount;
+            sgst += q.OutwardSgst.Amount;
+            rcm += q.InwardRcmTax.Amount;
+        }
+        return new Gstr9a(fyFrom, fyTo, true, t.TotalTurnover, t.TaxableTurnover,
+            new Money(cgst), new Money(sgst), new Money(rcm), Money.Zero);
     }
 }

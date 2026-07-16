@@ -99,6 +99,109 @@ public static class GstReturnJson
         return Serialize(dto);
     }
 
+    /// <summary>Serialises the GSTR-9 annual return for the FY <c>[fyFrom, fyTo]</c> to deterministic offline JSON bytes
+    /// (UTF-8, no BOM). Money is integer paisa (ER-10).</summary>
+    public static byte[] Gstr9(Company company, DateOnly fyFrom, DateOnly fyTo)
+    {
+        var r = Reports.Gstr9.Build(company, fyFrom, fyTo);
+        var dto = new Gstr9Dto
+        {
+            Gstin = company.Gst?.Gstin,
+            Fp = FinancialPeriod(fyTo),
+            RetPeriod = $"{fyFrom:yyyy-MM-dd}/{fyTo:yyyy-MM-dd}",
+            Applicable = r.Applicable,
+            Tbl4Cgst = MoneyCodec.ToPaisa(r.Table4Cgst),
+            Tbl4Sgst = MoneyCodec.ToPaisa(r.Table4Sgst),
+            Tbl4Igst = MoneyCodec.ToPaisa(r.Table4Igst),
+            Tbl4Cess = MoneyCodec.ToPaisa(r.Table4Cess),
+            Tbl4RcmCgst = MoneyCodec.ToPaisa(r.Table4RcmCgst),
+            Tbl4RcmSgst = MoneyCodec.ToPaisa(r.Table4RcmSgst),
+            Tbl4RcmIgst = MoneyCodec.ToPaisa(r.Table4RcmIgst),
+            Tbl4RcmCess = MoneyCodec.ToPaisa(r.Table4RcmCess),
+            Tbl4TaxableValue = MoneyCodec.ToPaisa(r.Table4TaxableValue),
+            Tbl4TotalTax = MoneyCodec.ToPaisa(r.Table4TotalTax),
+            Tbl5Exempt = MoneyCodec.ToPaisa(r.Table5ExemptNilNonGst),
+            Tbl5NTurnover = MoneyCodec.ToPaisa(r.Table5NTurnover),
+            Tbl6Cgst = MoneyCodec.ToPaisa(r.Table6Cgst),
+            Tbl6Sgst = MoneyCodec.ToPaisa(r.Table6Sgst),
+            Tbl6Igst = MoneyCodec.ToPaisa(r.Table6Igst),
+            Tbl6Cess = MoneyCodec.ToPaisa(r.Table6Cess),
+            Tbl6ItcAvailed = MoneyCodec.ToPaisa(r.Table6ItcAvailed),
+            Tbl6HReclaimed = MoneyCodec.ToPaisa(r.Table6HReclaimed),
+            Tbl7Rule37 = MoneyCodec.ToPaisa(r.Table7Rule37),
+            Tbl7Rule42 = MoneyCodec.ToPaisa(r.Table7Rule42),
+            Tbl7Rule43 = MoneyCodec.ToPaisa(r.Table7Rule43),
+            Tbl7Section17_5 = MoneyCodec.ToPaisa(r.Table7Section17_5),
+            Tbl7Other = MoneyCodec.ToPaisa(r.Table7Other),
+            Tbl7Cess = MoneyCodec.ToPaisa(r.Table7Cess),
+            Tbl7ItcReversed = MoneyCodec.ToPaisa(r.Table7ItcReversed),
+            Tbl8A = MoneyCodec.ToPaisa(r.Table8A),
+            Tbl8B = MoneyCodec.ToPaisa(r.Table8B),
+            Tbl8D = MoneyCodec.ToPaisa(r.Table8D),
+            Tbl9PaidThroughItc = MoneyCodec.ToPaisa(r.Table9PaidThroughItc),
+            Tbl9PaidInCash = MoneyCodec.ToPaisa(r.Table9PaidInCash),
+            Tbl17Hsn = r.Table17Hsn.Select(h => new Gstr9HsnDto
+            {
+                HsnSac = h.HsnSac,
+                TaxableValuePaisa = MoneyCodec.ToPaisa(h.TaxableValue),
+                CgstPaisa = MoneyCodec.ToPaisa(h.Cgst),
+                SgstPaisa = MoneyCodec.ToPaisa(h.Sgst),
+                IgstPaisa = MoneyCodec.ToPaisa(h.Igst),
+            }).ToList(),
+            SchemaStatus = SchemaStatusFlag,
+        };
+        return Serialize(dto);
+    }
+
+    /// <summary>Serialises the GSTR-9A composition annual return for the FY <c>[fyFrom, fyTo]</c> to deterministic offline
+    /// JSON bytes (UTF-8, no BOM). Money is integer paisa (ER-10).</summary>
+    public static byte[] Gstr9a(Company company, DateOnly fyFrom, DateOnly fyTo)
+    {
+        var r = Reports.Gstr9a.Build(company, fyFrom, fyTo);
+        var dto = new Gstr9aDto
+        {
+            Gstin = company.Gst?.Gstin,
+            Fp = FinancialPeriod(fyTo),
+            RetPeriod = $"{fyFrom:yyyy-MM-dd}/{fyTo:yyyy-MM-dd}",
+            Applicable = r.Applicable,
+            TotalTurnoverPaisa = MoneyCodec.ToPaisa(r.TotalTurnover),
+            TaxableTurnoverPaisa = MoneyCodec.ToPaisa(r.TaxableTurnover),
+            TaxPaidCgstPaisa = MoneyCodec.ToPaisa(r.TaxPaidCgst),
+            TaxPaidSgstPaisa = MoneyCodec.ToPaisa(r.TaxPaidSgst),
+            CompositionTaxPaidPaisa = MoneyCodec.ToPaisa(r.CompositionTaxPaid),
+            RcmInwardTaxPaisa = MoneyCodec.ToPaisa(r.RcmInwardTax),
+            LateFeePaisa = MoneyCodec.ToPaisa(r.LateFee),
+            SchemaStatus = SchemaStatusFlag,
+        };
+        return Serialize(dto);
+    }
+
+    /// <summary>Serialises the GSTR-9C reconciliation statement for the FY <c>[fyFrom, fyTo]</c> to deterministic offline
+    /// JSON bytes (UTF-8, no BOM). Money is integer paisa (ER-10). The unreconciled-difference lines are emitted verbatim
+    /// (never forced to zero).</summary>
+    public static byte[] Gstr9c(Company company, DateOnly fyFrom, DateOnly fyTo)
+    {
+        var r = Reports.Gstr9c.Build(company, fyFrom, fyTo);
+        var dto = new Gstr9cDto
+        {
+            Gstin = company.Gst?.Gstin,
+            Fp = FinancialPeriod(fyTo),
+            RetPeriod = $"{fyFrom:yyyy-MM-dd}/{fyTo:yyyy-MM-dd}",
+            Applicable = r.Applicable,
+            Tbl5ABooksTurnoverPaisa = MoneyCodec.ToPaisa(r.Table5ABooksTurnover),
+            Tbl5QReturnTurnoverPaisa = MoneyCodec.ToPaisa(r.Table5QReturnTurnover),
+            Tbl5RUnreconciledTurnoverPaisa = MoneyCodec.ToPaisa(r.Table5RUnreconciledTurnover),
+            Tbl9TaxPerReturnPaisa = MoneyCodec.ToPaisa(r.Table9TaxPerReturn),
+            Tbl9TaxPerBooksPaisa = MoneyCodec.ToPaisa(r.Table9TaxPerBooks),
+            Tbl11UnreconciledTaxPaisa = MoneyCodec.ToPaisa(r.Table11UnreconciledTax),
+            Tbl12ABooksItcPaisa = MoneyCodec.ToPaisa(r.Table12ABooksItc),
+            Tbl12EReturnItcPaisa = MoneyCodec.ToPaisa(r.Table12EReturnItc),
+            Tbl12FUnreconciledItcPaisa = MoneyCodec.ToPaisa(r.Table12FUnreconciledItc),
+            SchemaStatus = SchemaStatusFlag,
+        };
+        return Serialize(dto);
+    }
+
     /// <summary>The financial period as the government <c>MMYYYY</c> string (CMP-08 quarter's end month, GSTR-4 FY-end
     /// month), invariant-culture.</summary>
     private static string FinancialPeriod(DateOnly period) =>
@@ -162,6 +265,89 @@ public static class GstReturnJson
         [JsonPropertyName("tbl6_comp_rate_bp")] public int Table6CompositionRateBasisPoints { get; init; }
         [JsonPropertyName("tbl6_annual_comp_tax_paisa")] public long Table6AnnualCompositionTaxPaisa { get; init; }
         [JsonPropertyName("tbl6_annual_rcm_tax_paisa")] public long Table6AnnualRcmTaxPaisa { get; init; }
+        [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
+    }
+
+    private sealed record Gstr9HsnDto
+    {
+        [JsonPropertyName("hsn_sac")] public required string HsnSac { get; init; }
+        [JsonPropertyName("taxable_value_paisa")] public long TaxableValuePaisa { get; init; }
+        [JsonPropertyName("cgst_paisa")] public long CgstPaisa { get; init; }
+        [JsonPropertyName("sgst_paisa")] public long SgstPaisa { get; init; }
+        [JsonPropertyName("igst_paisa")] public long IgstPaisa { get; init; }
+    }
+
+    private sealed record Gstr9Dto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("fp")] public required string Fp { get; init; }
+        [JsonPropertyName("ret_period")] public required string RetPeriod { get; init; }
+        [JsonPropertyName("applicable")] public bool Applicable { get; init; }
+        [JsonPropertyName("tbl4_out_cgst_paisa")] public long Tbl4Cgst { get; init; }
+        [JsonPropertyName("tbl4_out_sgst_paisa")] public long Tbl4Sgst { get; init; }
+        [JsonPropertyName("tbl4_out_igst_paisa")] public long Tbl4Igst { get; init; }
+        [JsonPropertyName("tbl4_out_cess_paisa")] public long Tbl4Cess { get; init; }
+        [JsonPropertyName("tbl4g_rcm_cgst_paisa")] public long Tbl4RcmCgst { get; init; }
+        [JsonPropertyName("tbl4g_rcm_sgst_paisa")] public long Tbl4RcmSgst { get; init; }
+        [JsonPropertyName("tbl4g_rcm_igst_paisa")] public long Tbl4RcmIgst { get; init; }
+        [JsonPropertyName("tbl4g_rcm_cess_paisa")] public long Tbl4RcmCess { get; init; }
+        [JsonPropertyName("tbl4n_taxable_value_paisa")] public long Tbl4TaxableValue { get; init; }
+        [JsonPropertyName("tbl4_total_tax_paisa")] public long Tbl4TotalTax { get; init; }
+        [JsonPropertyName("tbl5_exempt_paisa")] public long Tbl5Exempt { get; init; }
+        [JsonPropertyName("tbl5n_turnover_paisa")] public long Tbl5NTurnover { get; init; }
+        [JsonPropertyName("tbl6_itc_cgst_paisa")] public long Tbl6Cgst { get; init; }
+        [JsonPropertyName("tbl6_itc_sgst_paisa")] public long Tbl6Sgst { get; init; }
+        [JsonPropertyName("tbl6_itc_igst_paisa")] public long Tbl6Igst { get; init; }
+        [JsonPropertyName("tbl6_itc_cess_paisa")] public long Tbl6Cess { get; init; }
+        [JsonPropertyName("tbl6_itc_availed_paisa")] public long Tbl6ItcAvailed { get; init; }
+        [JsonPropertyName("tbl6h_reclaimed_paisa")] public long Tbl6HReclaimed { get; init; }
+        [JsonPropertyName("tbl7a_rule37_paisa")] public long Tbl7Rule37 { get; init; }
+        [JsonPropertyName("tbl7c_rule42_paisa")] public long Tbl7Rule42 { get; init; }
+        [JsonPropertyName("tbl7d_rule43_paisa")] public long Tbl7Rule43 { get; init; }
+        [JsonPropertyName("tbl7e_section17_5_paisa")] public long Tbl7Section17_5 { get; init; }
+        [JsonPropertyName("tbl7h_other_paisa")] public long Tbl7Other { get; init; }
+        [JsonPropertyName("tbl7_cess_paisa")] public long Tbl7Cess { get; init; }
+        [JsonPropertyName("tbl7_itc_reversed_paisa")] public long Tbl7ItcReversed { get; init; }
+        [JsonPropertyName("tbl8a_itc_2b_paisa")] public long Tbl8A { get; init; }
+        [JsonPropertyName("tbl8b_itc_availed_paisa")] public long Tbl8B { get; init; }
+        [JsonPropertyName("tbl8d_difference_paisa")] public long Tbl8D { get; init; }
+        [JsonPropertyName("tbl9_paid_through_itc_paisa")] public long Tbl9PaidThroughItc { get; init; }
+        [JsonPropertyName("tbl9_paid_in_cash_paisa")] public long Tbl9PaidInCash { get; init; }
+        [JsonPropertyName("tbl17_hsn")] public required IReadOnlyList<Gstr9HsnDto> Tbl17Hsn { get; init; }
+        [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
+    }
+
+    private sealed record Gstr9aDto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("fp")] public required string Fp { get; init; }
+        [JsonPropertyName("ret_period")] public required string RetPeriod { get; init; }
+        [JsonPropertyName("applicable")] public bool Applicable { get; init; }
+        [JsonPropertyName("total_turnover_paisa")] public long TotalTurnoverPaisa { get; init; }
+        [JsonPropertyName("taxable_turnover_paisa")] public long TaxableTurnoverPaisa { get; init; }
+        [JsonPropertyName("tax_paid_cgst_paisa")] public long TaxPaidCgstPaisa { get; init; }
+        [JsonPropertyName("tax_paid_sgst_paisa")] public long TaxPaidSgstPaisa { get; init; }
+        [JsonPropertyName("comp_tax_paid_paisa")] public long CompositionTaxPaidPaisa { get; init; }
+        [JsonPropertyName("rcm_inward_tax_paisa")] public long RcmInwardTaxPaisa { get; init; }
+        [JsonPropertyName("late_fee_paisa")] public long LateFeePaisa { get; init; }
+        [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
+    }
+
+    private sealed record Gstr9cDto
+    {
+        [JsonPropertyName("gstin")] public string? Gstin { get; init; }
+        [JsonPropertyName("fp")] public required string Fp { get; init; }
+        [JsonPropertyName("ret_period")] public required string RetPeriod { get; init; }
+        [JsonPropertyName("applicable")] public bool Applicable { get; init; }
+        [JsonPropertyName("tbl5a_books_turnover_paisa")] public long Tbl5ABooksTurnoverPaisa { get; init; }
+        [JsonPropertyName("tbl5q_return_turnover_paisa")] public long Tbl5QReturnTurnoverPaisa { get; init; }
+        [JsonPropertyName("tbl5r_unreconciled_turnover_paisa")] public long Tbl5RUnreconciledTurnoverPaisa { get; init; }
+        [JsonPropertyName("tbl9_tax_per_return_paisa")] public long Tbl9TaxPerReturnPaisa { get; init; }
+        [JsonPropertyName("tbl9_tax_per_books_paisa")] public long Tbl9TaxPerBooksPaisa { get; init; }
+        [JsonPropertyName("tbl11_unreconciled_tax_paisa")] public long Tbl11UnreconciledTaxPaisa { get; init; }
+        [JsonPropertyName("tbl12a_books_itc_paisa")] public long Tbl12ABooksItcPaisa { get; init; }
+        [JsonPropertyName("tbl12e_return_itc_paisa")] public long Tbl12EReturnItcPaisa { get; init; }
+        [JsonPropertyName("tbl12f_unreconciled_itc_paisa")] public long Tbl12FUnreconciledItcPaisa { get; init; }
         [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
     }
 }
