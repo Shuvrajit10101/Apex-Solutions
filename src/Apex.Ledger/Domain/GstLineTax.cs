@@ -21,7 +21,34 @@ public sealed class GstLineTax
     /// <summary>The taxable (assessable) value the tax was computed on (paisa-exact).</summary>
     public Money TaxableValue { get; }
 
-    public GstLineTax(GstTaxHead taxHead, int rateBasisPoints, Money taxableValue)
+    /// <summary>
+    /// True iff this is a <b>reverse-charge</b> tax line (Phase 9 slice 2; RQ-7). The RCM output-liability line and the
+    /// RCM input-ITC line both carry it; a normal forward-charge line leaves it false (default) so a v38 line is
+    /// byte-identical (ER-13). It is the tag the GSTR-3B / GSTR-1 projections read to bucket 3.1(d) / 4A(2) / 4A(3)
+    /// and to <b>exclude</b> RCM lines from the normal outward/ITC buckets — a pure projection, never a recompute (ER-9).
+    /// </summary>
+    public bool IsReverseCharge { get; }
+
+    /// <summary>
+    /// The RCM ITC bucket this line belongs to (Phase 9 slice 2; RQ-7/RQ-11): <c>ImportOfServices</c> → GSTR-3B 4A(2),
+    /// <c>OtherRcm</c> → 4A(3). Set on the RCM <b>input</b> ITC line; <c>null</c> on the RCM <b>output</b> liability line
+    /// (a liability, not ITC) and on every forward-charge line.
+    /// </summary>
+    public RcmItcScheme? RcmScheme { get; }
+
+    /// <summary>
+    /// The GST <b>adjustment</b> discriminant (Phase 9 slice 7; RQ-21/RQ-22/RQ-27), or <c>null</c> for an ordinary
+    /// <b>forward</b> outward/ITC tax line. A non-null value tags a posted Rule-88A set-off, a cash discharge, or an
+    /// ITC reversal / reclaim line — so the Table 6.1 (set-off) and Table 4(B) (reversal) projections classify it
+    /// without recomputing (ER-9) and, critically, <b>without polluting</b> the existing outward/ITC sums (the
+    /// adjustment vouchers are Journal/Payment base ⇒ already excluded from <c>PostedGstVouchers</c>). Default
+    /// <c>null</c> keeps a v43 line byte-identical (ER-13), mirroring how <see cref="RcmScheme"/> was added in S2.
+    /// </summary>
+    public GstAdjustmentKind? Adjustment { get; }
+
+    public GstLineTax(
+        GstTaxHead taxHead, int rateBasisPoints, Money taxableValue,
+        bool isReverseCharge = false, RcmItcScheme? rcmScheme = null, GstAdjustmentKind? adjustment = null)
     {
         if (rateBasisPoints < 0)
             throw new ArgumentException("GST rate basis points must be ≥ 0.", nameof(rateBasisPoints));
@@ -33,5 +60,8 @@ public sealed class GstLineTax
         TaxHead = taxHead;
         RateBasisPoints = rateBasisPoints;
         TaxableValue = taxableValue;
+        IsReverseCharge = isReverseCharge;
+        RcmScheme = rcmScheme;
+        Adjustment = adjustment;
     }
 }

@@ -209,5 +209,8 @@ public sealed class PosSchemaTests
             id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, base_type INTEGER NOT NULL, numbering INTEGER NOT NULL,
             is_active INTEGER NOT NULL, is_predefined INTEGER NOT NULL);
+        -- entry_lines is required because the chain now runs through the v38→v39 RCM migration, whose
+        -- ALTER TABLE entry_lines ADD COLUMN gst_is_reverse_charge/gst_rcm_scheme needs the table to exist.
+        CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, ledger_id TEXT NOT NULL DEFAULT '', amount_paisa INTEGER NOT NULL DEFAULT 0, side INTEGER NOT NULL DEFAULT 0);
         """;
 }

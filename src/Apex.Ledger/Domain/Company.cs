@@ -31,6 +31,18 @@ public sealed class Company
     private readonly List<ReorderDefinition> _reorderDefinitions = new();
     private readonly List<TdsChallan> _tdsChallans = new();
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
+    private readonly List<RcmDocument> _rcmDocuments = new();
+    private readonly List<EInvoiceRecord> _eInvoiceRecords = new();
+    private readonly List<EWayBillRecord> _eWayBillRecords = new();
+    private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
+    private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
+    private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
+    private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
+    private readonly List<ImsAction> _imsActions = new();
+    private readonly List<GstSetoffLine> _gstSetoffLines = new();
+    private readonly List<ItcReversal> _itcReversals = new();
+    private readonly List<GstChallan> _gstChallans = new();
+    private readonly List<GstDrc03> _gstDrc03s = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
@@ -405,6 +417,55 @@ public sealed class Company
     /// (Phase 7 slice 6; the <c>tcs_challan_voucher_links</c> set — a TCS-specific sibling of the TDS one).</summary>
     public IReadOnlyList<ChallanVoucherLink> TcsChallanVoucherLinks => _tcsChallanVoucherLinks;
 
+    /// <summary>RCM generated documents (Phase 9 slice 2; RQ-8): Rule-47A self-invoices + Rule-52 payment vouchers.
+    /// Empty when reverse charge is unused (ER-13).</summary>
+    public IReadOnlyList<RcmDocument> RcmDocuments => _rcmDocuments;
+
+    /// <summary>e-Invoice IRP artefacts (Phase 9 slice 4a; RQ-5): one per covered outward document. Empty when
+    /// e-invoicing is unused (ER-13).</summary>
+    public IReadOnlyList<EInvoiceRecord> EInvoiceRecords => _eInvoiceRecords;
+
+    /// <summary>e-Way Bill artefacts (Phase 9 slice 5; RQ-6): one per covered goods-movement document. Empty when
+    /// e-Way is unused (ER-13).</summary>
+    public IReadOnlyList<EWayBillRecord> EWayBillRecords => _eWayBillRecords;
+
+    /// <summary>§34 credit/debit-note links (Phase 9; RQ-24): the original-invoice link + reason + 9B target. The
+    /// table lands in the S2a schema but stays empty until the S2b CDN engine (ER-13).</summary>
+    public IReadOnlyList<GstCreditDebitNoteLink> CreditDebitNoteLinks => _cdnLinks;
+
+    /// <summary>GST-on-advance receipts (Phase 9; RQ-25): the 11A/11B source records. The table lands in the S2a
+    /// schema but stays empty until the S2b advance engine (ER-13).</summary>
+    public IReadOnlyList<GstAdvanceReceipt> AdvanceReceipts => _advanceReceipts;
+
+    /// <summary>Imported GSTR-2B/2A statements (Phase 9 slice 6; RQ-12): immutable dated snapshots, each owning its
+    /// inward-supply lines. External portal data (NOT the app's own postings). Empty when 2B is never imported (ER-13).</summary>
+    public IReadOnlyList<Gstr2bSnapshot> Gstr2bSnapshots => _gstr2bSnapshots;
+
+    /// <summary>Persisted GSTR-2B reconciliation results (Phase 9 slice 6; RQ-13): one per reconciled 2B line (the three
+    /// portal-side buckets). ADVISORY only — a read-only pointer to the matched purchase, never a posting (ER-14). Empty
+    /// until a reconciliation is run (ER-13).</summary>
+    public IReadOnlyList<Gstr2bReconResult> Gstr2bReconResults => _gstr2bReconResults;
+
+    /// <summary>Offline IMS decisions (Phase 9 slice 6b; RQ-14): one mutable <see cref="ImsAction"/> per 2B line the user
+    /// acted on. A line with no action is <b>deemed-accepted</b> (derived, not stored) so this is empty until the user
+    /// acts (ER-13). ADVISORY only — the IMS mirror posts nothing (ER-14).</summary>
+    public IReadOnlyList<ImsAction> ImsActions => _imsActions;
+
+    /// <summary>Posted Rule-88A set-off allocation rows (Phase 9 slice 7; RQ-21): the Table 6.1 audit behind the
+    /// electronic-credit-ledger utilisation. Empty until a period is set off (ER-13).</summary>
+    public IReadOnlyList<GstSetoffLine> GstSetoffLines => _gstSetoffLines;
+
+    /// <summary>Posted ITC-reversal audit rows (Phase 9 slice 7; RQ-27): Rule 37/37A/42/43/§17(5) reversals + reclaims.
+    /// The reversal engine is S7b, so this stays empty in S7a (ER-13).</summary>
+    public IReadOnlyList<ItcReversal> ItcReversals => _itcReversals;
+
+    /// <summary>PMT-06 GST deposit challans (Phase 9 slice 7; RQ-22): one per deposit into the electronic cash ledger.
+    /// Empty until the company deposits GST (ER-13).</summary>
+    public IReadOnlyList<GstChallan> GstChallans => _gstChallans;
+
+    /// <summary>DRC-03 voluntary / self-ascertained GST payments (Phase 9 slice 7; RQ-22). Empty until one is raised (ER-13).</summary>
+    public IReadOnlyList<GstDrc03> GstDrc03s => _gstDrc03s;
+
     /// <summary>Employee categories (Phase 8 slice 1; RQ-2): the parallel employee classification axis. Empty
     /// unless Payroll is used.</summary>
     public IReadOnlyList<EmployeeCategory> EmployeeCategories => _employeeCategories;
@@ -569,6 +630,123 @@ public sealed class Company
     /// <summary>The TCS challan ids linked to a given voucher (Phase 7 slice 6).</summary>
     public IEnumerable<Guid> TcsChallansLinkedToVoucher(Guid voucherId) =>
         _tcsChallanVoucherLinks.Where(l => l.VoucherId == voucherId).Select(l => l.ChallanId);
+
+    // ---- RCM / §34-CDN / advance records (Phase 9 slice 2; guards live in RcmService / CreditDebitNoteService /
+    //      AdvanceReceiptService). The CDN + advance collections land here but stay empty until S2b. ----
+
+    /// <summary>Adds an RCM generated document (Phase 9 slice 2; also used by the store/import rehydration).</summary>
+    public void AddRcmDocument(RcmDocument document) => _rcmDocuments.Add(document ?? throw new ArgumentNullException(nameof(document)));
+    /// <summary>Removes an RCM generated document (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveRcmDocument(RcmDocument document) => _rcmDocuments.Remove(document);
+    /// <summary>Finds an RCM generated document by its id, or <c>null</c>.</summary>
+    public RcmDocument? FindRcmDocument(Guid id) => _rcmDocuments.FirstOrDefault(d => d.Id == id);
+    /// <summary>The next consecutive per-company RCM self-invoice / payment-voucher series number for a document kind.</summary>
+    public int NextRcmDocumentSeries(RcmDocumentKind kind) =>
+        (_rcmDocuments.Where(d => d.Kind == kind).Select(d => (int?)d.SeriesNumber).Max() ?? 0) + 1;
+
+    /// <summary>Adds an e-invoice IRP artefact (Phase 9 slice 4a; also used by the store/import rehydration).</summary>
+    public void AddEInvoiceRecord(EInvoiceRecord record) => _eInvoiceRecords.Add(record ?? throw new ArgumentNullException(nameof(record)));
+    /// <summary>Removes an e-invoice IRP artefact (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveEInvoiceRecord(EInvoiceRecord record) => _eInvoiceRecords.Remove(record);
+    /// <summary>Finds an e-invoice IRP artefact by its id, or <c>null</c>.</summary>
+    public EInvoiceRecord? FindEInvoiceRecord(Guid id) => _eInvoiceRecords.FirstOrDefault(r => r.Id == id);
+    /// <summary>The e-invoice IRP artefact for a given source voucher (at most one per covered voucher), or <c>null</c>.</summary>
+    public EInvoiceRecord? FindEInvoiceRecordForVoucher(Guid sourceVoucherId) =>
+        _eInvoiceRecords.FirstOrDefault(r => r.SourceVoucherId == sourceVoucherId);
+    /// <summary>True iff any e-invoice record (even Cancelled) already carries the given uppercased document number — a
+    /// cancelled/used doc-no is NEVER reusable (§2.5), so <c>EInvoiceService.PrepareRecord</c> refuses a second record.</summary>
+    public bool HasEInvoiceDocumentNumber(string documentNumberUpper) =>
+        _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumberUpper, StringComparison.Ordinal));
+
+    /// <summary>Adds an e-Way Bill artefact (Phase 9 slice 5; also used by the store/import rehydration).</summary>
+    public void AddEWayBillRecord(EWayBillRecord record) => _eWayBillRecords.Add(record ?? throw new ArgumentNullException(nameof(record)));
+    /// <summary>Removes an e-Way Bill artefact (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveEWayBillRecord(EWayBillRecord record) => _eWayBillRecords.Remove(record);
+    /// <summary>Finds an e-Way Bill artefact by its id, or <c>null</c>.</summary>
+    public EWayBillRecord? FindEWayBillRecord(Guid id) => _eWayBillRecords.FirstOrDefault(r => r.Id == id);
+    /// <summary>The e-Way Bill artefact for a given source voucher (at most one active per movement), or <c>null</c>. Unlike
+    /// e-invoice there is NO doc-no reuse-block — a cancelled EWB frees the movement to be re-billed.</summary>
+    public EWayBillRecord? FindEWayBillRecordForVoucher(Guid sourceVoucherId) =>
+        _eWayBillRecords.FirstOrDefault(r => r.SourceVoucherId == sourceVoucherId && r.Status != EWayStatus.Cancelled);
+
+    /// <summary>Adds a §34 credit/debit-note link (Phase 9; also used by the store/import rehydration).</summary>
+    public void AddCreditDebitNoteLink(GstCreditDebitNoteLink link) => _cdnLinks.Add(link ?? throw new ArgumentNullException(nameof(link)));
+    /// <summary>Removes a §34 credit/debit-note link (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveCreditDebitNoteLink(GstCreditDebitNoteLink link) => _cdnLinks.Remove(link);
+    /// <summary>Finds a §34 credit/debit-note link by its id, or <c>null</c>.</summary>
+    public GstCreditDebitNoteLink? FindCreditDebitNoteLink(Guid id) => _cdnLinks.FirstOrDefault(l => l.Id == id);
+
+    /// <summary>Adds a GST-on-advance receipt record (Phase 9; also used by the store/import rehydration).</summary>
+    public void AddAdvanceReceipt(GstAdvanceReceipt receipt) => _advanceReceipts.Add(receipt ?? throw new ArgumentNullException(nameof(receipt)));
+    /// <summary>Removes a GST-on-advance receipt record (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveAdvanceReceipt(GstAdvanceReceipt receipt) => _advanceReceipts.Remove(receipt);
+    /// <summary>Finds a GST-on-advance receipt record by its id, or <c>null</c>.</summary>
+    public GstAdvanceReceipt? FindAdvanceReceipt(Guid id) => _advanceReceipts.FirstOrDefault(a => a.Id == id);
+
+    // ---- GSTR-2B/2A imported statements + reconciliation results (Phase 9 slice 6; guards live in Gstr2bImportService /
+    //      Gstr2bReconciler). Both are staging collections physically separate from the ledger (ER-14). ----
+
+    /// <summary>Adds an imported GSTR-2B/2A snapshot (Phase 9 slice 6; also used by the store/import rehydration).</summary>
+    public void AddGstr2bSnapshot(Gstr2bSnapshot snapshot) => _gstr2bSnapshots.Add(snapshot ?? throw new ArgumentNullException(nameof(snapshot)));
+    /// <summary>Removes an imported GSTR-2B/2A snapshot (used by an edit / the transactional import roll-back).</summary>
+    public bool RemoveGstr2bSnapshot(Gstr2bSnapshot snapshot) => _gstr2bSnapshots.Remove(snapshot);
+    /// <summary>Finds an imported GSTR-2B/2A snapshot by its id, or <c>null</c>.</summary>
+    public Gstr2bSnapshot? FindGstr2bSnapshot(Guid id) => _gstr2bSnapshots.FirstOrDefault(s => s.Id == id);
+    /// <summary>Finds the imported 2B line with the given id across every snapshot, or <c>null</c>.</summary>
+    public Gstr2bLine? FindGstr2bLine(Guid lineId)
+    {
+        foreach (var s in _gstr2bSnapshots)
+            if (s.FindLine(lineId) is { } line) return line;
+        return null;
+    }
+
+    /// <summary>Adds a persisted reconciliation result (Phase 9 slice 6; also used by the store/import rehydration).</summary>
+    public void AddGstr2bReconResult(Gstr2bReconResult result) => _gstr2bReconResults.Add(result ?? throw new ArgumentNullException(nameof(result)));
+    /// <summary>Removes a persisted reconciliation result (used by a re-run / the transactional import roll-back).</summary>
+    public bool RemoveGstr2bReconResult(Gstr2bReconResult result) => _gstr2bReconResults.Remove(result);
+    /// <summary>Finds a persisted reconciliation result by its id, or <c>null</c>.</summary>
+    public Gstr2bReconResult? FindGstr2bReconResult(Guid id) => _gstr2bReconResults.FirstOrDefault(r => r.Id == id);
+
+    /// <summary>Adds an offline IMS decision (Phase 9 slice 6b; guards live in <c>ImsService</c>; also used by the
+    /// store/import rehydration).</summary>
+    public void AddImsAction(ImsAction action) => _imsActions.Add(action ?? throw new ArgumentNullException(nameof(action)));
+    /// <summary>Removes an offline IMS decision (a Clear/re-decide, or the transactional import roll-back).</summary>
+    public bool RemoveImsAction(ImsAction action) => _imsActions.Remove(action);
+    /// <summary>Finds an IMS decision by its id, or <c>null</c>.</summary>
+    public ImsAction? FindImsAction(Guid id) => _imsActions.FirstOrDefault(a => a.Id == id);
+    /// <summary>Finds the IMS decision for a given 2B line, or <c>null</c> (⇒ the line is deemed-accepted).</summary>
+    public ImsAction? FindImsActionForLine(Guid lineId) => _imsActions.FirstOrDefault(a => a.LineId == lineId);
+
+    // ---- Electronic-ledger set-off / reversal / challan / DRC-03 records (Phase 9 slice 7; guards live in
+    //      GstSetOffService / GstDepositService / ItcReversalService[S7b]; also used by the store/import rehydration). ----
+
+    /// <summary>Adds a posted Rule-88A set-off allocation row (Phase 9 slice 7).</summary>
+    public void AddGstSetoffLine(GstSetoffLine line) => _gstSetoffLines.Add(line ?? throw new ArgumentNullException(nameof(line)));
+    /// <summary>Removes a set-off allocation row (a period re-run replace, or the transactional import roll-back).</summary>
+    public bool RemoveGstSetoffLine(GstSetoffLine line) => _gstSetoffLines.Remove(line);
+    /// <summary>The posted set-off allocation rows for a given set-off voucher (Phase 9 slice 7).</summary>
+    public IEnumerable<GstSetoffLine> SetoffLinesForVoucher(Guid voucherId) => _gstSetoffLines.Where(l => l.VoucherId == voucherId);
+
+    /// <summary>Adds a posted ITC-reversal audit row (Phase 9 slice 7b; also used by the store/import rehydration).</summary>
+    public void AddItcReversal(ItcReversal reversal) => _itcReversals.Add(reversal ?? throw new ArgumentNullException(nameof(reversal)));
+    /// <summary>Removes an ITC-reversal audit row (a re-compute replace, or the transactional import roll-back).</summary>
+    public bool RemoveItcReversal(ItcReversal reversal) => _itcReversals.Remove(reversal);
+    /// <summary>Finds an ITC-reversal audit row by its id, or <c>null</c>.</summary>
+    public ItcReversal? FindItcReversal(Guid id) => _itcReversals.FirstOrDefault(r => r.Id == id);
+
+    /// <summary>Adds a PMT-06 GST deposit challan (Phase 9 slice 7; also used by the store/import rehydration).</summary>
+    public void AddGstChallan(GstChallan challan) => _gstChallans.Add(challan ?? throw new ArgumentNullException(nameof(challan)));
+    /// <summary>Removes a PMT-06 GST deposit challan (an edit, or the transactional import roll-back).</summary>
+    public bool RemoveGstChallan(GstChallan challan) => _gstChallans.Remove(challan);
+    /// <summary>Finds a PMT-06 GST deposit challan by its id, or <c>null</c>.</summary>
+    public GstChallan? FindGstChallan(Guid id) => _gstChallans.FirstOrDefault(c => c.Id == id);
+
+    /// <summary>Adds a DRC-03 voluntary GST payment record (Phase 9 slice 7; also used by the store/import rehydration).</summary>
+    public void AddGstDrc03(GstDrc03 drc03) => _gstDrc03s.Add(drc03 ?? throw new ArgumentNullException(nameof(drc03)));
+    /// <summary>Removes a DRC-03 record (an edit, or the transactional import roll-back).</summary>
+    public bool RemoveGstDrc03(GstDrc03 drc03) => _gstDrc03s.Remove(drc03);
+    /// <summary>Finds a DRC-03 record by its id, or <c>null</c>.</summary>
+    public GstDrc03? FindGstDrc03(Guid id) => _gstDrc03s.FirstOrDefault(d => d.Id == id);
 
     // ---- Payroll masters (Phase 8 slice 1; guards live in PayrollService) ----
 

@@ -113,6 +113,17 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+R opens the GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — the
+        // advertised accelerator for that screen. Scoped to a GST-enabled company so it never fires otherwise.
+        if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.Company is { GstEnabled: true })
+        {
+            vm.ShowGstRateSetup();
+            e.Handled = true;
+            return;
+        }
+
         // Reorder Levels master (RQ-53): Alt+S toggles the reorder level Simple⇄Advanced; Alt+V toggles the
         // minimum-order-qty Simple⇄Advanced. Scoped to that screen so they never collide elsewhere.
         if (vm.CurrentScreen == Screen.ReorderLevelsMaster && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
@@ -737,6 +748,16 @@ public partial class MainWindow : Window
 
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)
         => Vm?.GstConfig?.Apply();
+
+    // GST Rate Setup (Phase 9 slice 1) — seed the GST 2.0 defaults, append a dated rate window, append a cess window.
+    private void OnSeedAdvancedGstClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstRateSetup?.SeedDefaults();
+
+    private void OnAddRateHistoryClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstRateSetup?.AddRateHistory();
+
+    private void OnAddCessRateClick(object? sender, RoutedEventArgs e)
+        => Vm?.GstRateSetup?.AddCess();
 
     // TDS/TCS (Phase 7 slice 1) — F11 Enable TDS / Enable TCS + the two Statutory-master Create actions.
     private void OnApplyTdsClick(object? sender, RoutedEventArgs e)

@@ -108,9 +108,86 @@ public static class CanonicalXml
             List("tdsChallans", "tdsChallan", p.TdsChallans, BuildTdsChallan),
             List("challanVoucherLinks", "challanVoucherLink", p.ChallanVoucherLinks, BuildChallanVoucherLink),
             List("tcsChallans", "tcsChallan", p.TcsChallans, BuildTcsChallan),
-            List("tcsChallanVoucherLinks", "tcsChallanVoucherLink", p.TcsChallanVoucherLinks, BuildChallanVoucherLink));
+            List("tcsChallanVoucherLinks", "tcsChallanVoucherLink", p.TcsChallanVoucherLinks, BuildChallanVoucherLink),
+            // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts (empty until used).
+            List("rcmDocuments", "rcmDocument", p.RcmDocuments, BuildRcmDocument),
+            // Phase 9 slice 4a: e-invoice IRP artefacts (empty when e-invoicing is off, ER-13).
+            List("eInvoiceRecords", "eInvoiceRecord", p.EInvoiceRecords, BuildEInvoiceRecord),
+            // Phase 9 slice 5: e-Way Bill artefacts (empty when e-Way is off, ER-13).
+            List("eWayBillRecords", "eWayBillRecord", p.EWayBillRecords, BuildEWayBillRecord),
+            List("creditDebitNoteLinks", "creditDebitNoteLink", p.CreditDebitNoteLinks, BuildCdnLink),
+            List("advanceReceipts", "advanceReceipt", p.AdvanceReceipts, BuildAdvanceReceipt),
+            // Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (empty when
+            // 2B is never imported, ER-13).
+            List("gstr2bSnapshots", "gstr2bSnapshot", p.Gstr2bSnapshots, BuildGstr2bSnapshot),
+            List("gstr2bReconResults", "gstr2bReconResult", p.Gstr2bReconResults, BuildGstr2bReconResult),
+            // Phase 9 slice 6b: offline IMS decisions (empty until the user acts, ER-13).
+            List("imsActions", "imsAction", p.ImsActions, BuildImsAction),
+            // Phase 9 slice 7: electronic-ledger set-off / reversal / challan / DRC-03 records (empty until the
+            // company sets off / pays / reverses, ER-13).
+            List("gstSetoffLines", "gstSetoffLine", p.GstSetoffLines, BuildGstSetoffLine),
+            List("itcReversals", "itcReversal", p.ItcReversals, BuildItcReversal),
+            List("gstChallans", "gstChallan", p.GstChallans, BuildGstChallan),
+            List("gstDrc03s", "gstDrc03", p.GstDrc03s, BuildGstDrc03));
         return root;
     }
+
+    private static XElement BuildGstSetoffLine(GstSetoffLineDto l) => new("gstSetoffLine",
+        Attr("id", l.Id), Attr("voucherId", l.VoucherId), Attr("period", l.Period),
+        Attr("creditHead", l.CreditHead), Attr("liabilityHead", l.LiabilityHead),
+        OptTrue("isCash", l.IsCash), Attr("amountPaisa", l.AmountPaisa));
+
+    private static XElement BuildItcReversal(ItcReversalDto r) => new("itcReversal",
+        Attr("id", r.Id), Attr("rule", r.Rule), Attr("period", r.Period),
+        Attr("cgstPaisa", r.CgstPaisa), Attr("sgstPaisa", r.SgstPaisa), Attr("igstPaisa", r.IgstPaisa),
+        Attr("cessPaisa", r.CessPaisa), OptLong("d1BasisPaisa", r.D1BasisPaisa), OptLong("d2BasisPaisa", r.D2BasisPaisa),
+        OptId("sourceVoucherId", r.SourceVoucherId), OptId("sourceLineId", r.SourceLineId),
+        Attr("reversalVoucherId", r.ReversalVoucherId), OptId("reclaimOfId", r.ReclaimOfId),
+        OptId("drc03Id", r.Drc03Id), Attr("table4bBucket", r.Table4bBucket), Attr("createdAt", r.CreatedAt));
+
+    private static XElement BuildGstChallan(GstChallanDto ch) => new("gstChallan",
+        Attr("id", ch.Id), Attr("cpin", ch.Cpin), Opt("cin", ch.Cin), Opt("brn", ch.Brn),
+        Attr("depositDate", ch.DepositDate), Attr("majorHead", ch.MajorHead), Attr("minorHead", ch.MinorHead),
+        Attr("amountPaisa", ch.AmountPaisa), Attr("voucherId", ch.VoucherId), OptTrue("interestFlag", ch.InterestFlag));
+
+    private static XElement BuildGstDrc03(GstDrc03Dto d) => new("gstDrc03",
+        Attr("id", d.Id), Opt("drc03Ref", d.Drc03Ref), Attr("cause", d.Cause), Attr("period", d.Period),
+        Attr("cgstPaisa", d.CgstPaisa), Attr("sgstPaisa", d.SgstPaisa), Attr("igstPaisa", d.IgstPaisa),
+        Attr("cessPaisa", d.CessPaisa), Attr("interestPaisa", d.InterestPaisa),
+        Opt("drc03aDemandRef", d.Drc03aDemandRef), OptId("voucherId", d.VoucherId), Attr("createdAt", d.CreatedAt));
+
+    private static XElement BuildGstr2bSnapshot(Gstr2bSnapshotDto s)
+    {
+        var el = new XElement("gstr2bSnapshot",
+            Attr("id", s.Id), Attr("statementType", s.StatementType), Attr("returnPeriod", s.ReturnPeriod),
+            Attr("recipientGstin", s.RecipientGstin), Opt("generatedOn", s.GeneratedOn),
+            Attr("sourceFileHash", s.SourceFileHash), Attr("importedAt", s.ImportedAt),
+            Attr("summaryIgstPaisa", s.SummaryIgstPaisa), Attr("summaryCgstPaisa", s.SummaryCgstPaisa),
+            Attr("summarySgstPaisa", s.SummarySgstPaisa), Attr("summaryCessPaisa", s.SummaryCessPaisa));
+        var lines = new XElement("lines");
+        foreach (var l in s.Lines) lines.Add(BuildGstr2bLine(l));
+        el.Add(lines);
+        return el;
+    }
+
+    private static XElement BuildGstr2bLine(Gstr2bLineDto l) => new("gstr2bLine",
+        Attr("id", l.Id), Attr("supplierGstin", l.SupplierGstin), Opt("supplierTradeName", l.SupplierTradeName),
+        Attr("docType", l.DocType), Attr("docNumber", l.DocNumber), Opt("docNumberNorm", l.DocNumberNorm),
+        Attr("docDate", l.DocDate), Opt("posStateCode", l.PosStateCode),
+        Attr("taxableValuePaisa", l.TaxableValuePaisa), Attr("igstPaisa", l.IgstPaisa), Attr("cgstPaisa", l.CgstPaisa),
+        Attr("sgstPaisa", l.SgstPaisa), Attr("cessPaisa", l.CessPaisa), Attr("itcAvailable", l.ItcAvailable),
+        Opt("itcUnavailableReason", l.ItcUnavailableReason), Attr("reverseCharge", l.ReverseCharge));
+
+    private static XElement BuildGstr2bReconResult(Gstr2bReconResultDto r) => new("gstr2bReconResult",
+        Attr("id", r.Id), Attr("lineId", r.LineId), Attr("bucket", r.Bucket),
+        OptId("matchedVoucherId", r.MatchedVoucherId), Attr("taxableVariancePaisa", r.TaxableVariancePaisa),
+        Attr("taxVariancePaisa", r.TaxVariancePaisa), Attr("matchPinned", r.MatchPinned),
+        Opt("reconciledAt", r.ReconciledAt));
+
+    private static XElement BuildImsAction(ImsActionDto a) => new("imsAction",
+        Attr("id", a.Id), Attr("lineId", a.LineId), Attr("status", a.Status), Opt("remarks", a.Remarks),
+        OptLong("declaredReversalPaisa", a.DeclaredReversalPaisa), OptTrue("noReversalDeclared", a.NoReversalDeclared),
+        Opt("actedOn", a.ActedOn));
 
     private static XElement BuildTdsChallan(TdsChallanDto ch) => new("tdsChallan",
         Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
@@ -119,6 +196,42 @@ public static class CanonicalXml
 
     private static XElement BuildChallanVoucherLink(ChallanVoucherLinkDto l) => new("challanVoucherLink",
         Attr("challanId", l.ChallanId), Attr("voucherId", l.VoucherId));
+
+    private static XElement BuildRcmDocument(RcmDocumentDto d) => new("rcmDocument",
+        Attr("id", d.Id), Attr("kind", d.Kind), Attr("sourceVoucherId", d.SourceVoucherId),
+        Attr("seriesNumber", d.SeriesNumber), Attr("docDate", d.DocDate), OptId("supplierLedgerId", d.SupplierLedgerId));
+
+    private static XElement BuildEInvoiceRecord(EInvoiceRecordDto r) => new("eInvoiceRecord",
+        Attr("id", r.Id), Attr("sourceVoucherId", r.SourceVoucherId), Attr("documentNumberUpper", r.DocumentNumberUpper),
+        Attr("status", r.Status), Opt("irn", r.Irn), Opt("ackNo", r.AckNo), Opt("ackDate", r.AckDate),
+        Opt("signedQr", r.SignedQr), Opt("signedJsonBase64", r.SignedJsonBase64), Opt("cancelledOn", r.CancelledOn),
+        Opt("cancelReasonCode", r.CancelReasonCode), Opt("errorCode", r.ErrorCode), Opt("errorMessage", r.ErrorMessage));
+
+    private static XElement BuildEWayBillRecord(EWayBillRecordDto r) => new("eWayBillRecord",
+        Attr("id", r.Id), Attr("sourceVoucherId", r.SourceVoucherId), Attr("documentNumberUpper", r.DocumentNumberUpper),
+        Attr("status", r.Status), Opt("supplyType", r.SupplyType), Opt("subSupplyType", r.SubSupplyType),
+        Opt("docType", r.DocType), Attr("consignmentValuePaisa", r.ConsignmentValuePaisa),
+        Opt("transporterId", r.TransporterId), Opt("transMode", r.TransMode), Opt("vehicleNumber", r.VehicleNumber),
+        Attr("distanceKm", r.DistanceKm), Opt("transportDocNo", r.TransportDocNo),
+        Opt("shipFromStateCode", r.ShipFromStateCode), Opt("shipToStateCode", r.ShipToStateCode),
+        Attr("isOverDimensionalCargo", r.IsOverDimensionalCargo), Opt("shipToGstin", r.ShipToGstin),
+        Attr("closureRequested", r.ClosureRequested), Opt("closedOn", r.ClosedOn), Opt("ewbNumber", r.EwbNumber),
+        Opt("generatedAt", r.GeneratedAt), Opt("validUpto", r.ValidUpto), Opt("cancelledOn", r.CancelledOn),
+        Opt("cancelReasonCode", r.CancelReasonCode), Opt("errorCode", r.ErrorCode), Opt("errorMessage", r.ErrorMessage));
+
+    private static XElement BuildCdnLink(GstCdnLinkDto l) => new("creditDebitNoteLink",
+        Attr("id", l.Id), Attr("cdnVoucherId", l.CdnVoucherId), Attr("cdnType", l.CdnType),
+        OptId("originalInvoiceVoucherId", l.OriginalInvoiceVoucherId), Opt("originalInvoiceNumber", l.OriginalInvoiceNumber),
+        Opt("originalInvoiceDate", l.OriginalInvoiceDate), Attr("reasonCode", l.ReasonCode),
+        Attr("is9BTarget", l.Is9BTarget));
+
+    private static XElement BuildAdvanceReceipt(GstAdvanceReceiptDto a) => new("advanceReceipt",
+        Attr("id", a.Id), Attr("receiptVoucherId", a.ReceiptVoucherId), Attr("isService", a.IsService),
+        Attr("advanceAmountPaisa", a.AdvanceAmountPaisa), Attr("rateBasisPoints", a.RateBasisPoints),
+        Attr("interState", a.InterState), Opt("placeOfSupplyStateCode", a.PlaceOfSupplyStateCode),
+        Attr("advanceTaxPaisa", a.AdvanceTaxPaisa),
+        OptId("adjustedAgainstInvoiceVoucherId", a.AdjustedAgainstInvoiceVoucherId),
+        OptId("refundVoucherId", a.RefundVoucherId));
 
     private static XElement BuildTcsChallan(TcsChallanDto ch) => new("tcsChallan",
         Attr("id", ch.Id), Attr("challanNo", ch.ChallanNo), Attr("bsrCode", ch.BsrCode),
@@ -335,7 +448,9 @@ public static class CanonicalXml
             Attr("useForPos", t.UseForPos),
             Attr("useForJobWork", t.UseForJobWork),
             Attr("allowConsumption", t.AllowConsumption),
-            Attr("isStatPayment", t.IsStatPayment));
+            Attr("isStatPayment", t.IsStatPayment),
+            Attr("isRcmPaymentVoucher", t.IsRcmPaymentVoucher),
+            Attr("isGstStatAdjustment", t.IsGstStatAdjustment));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
         return el;
     }
@@ -418,12 +533,70 @@ public static class CanonicalXml
         var el = new XElement("gst",
             Attr("enabled", g.Enabled), Opt("gstin", g.Gstin), Opt("homeStateCode", g.HomeStateCode),
             Attr("registrationType", g.RegistrationType), Opt("applicableFrom", g.ApplicableFrom),
-            Attr("periodicity", g.Periodicity));
+            Attr("periodicity", g.Periodicity),
+            // Phase 9 slice 3: composition sub-type + opt-in date (null-omitting ⇒ byte-identical when off, ER-13).
+            Opt("compositionSubType", g.CompositionSubType), Opt("compositionOptInDate", g.CompositionOptInDate),
+            // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config. No NIC credential attr exists here
+            // (ER-16). Booleans/mode/threshold always emitted (defaults ⇒ byte-identical when off, ER-13).
+            Attr("eInvoicingEnabled", g.EInvoicingEnabled), Opt("eInvoiceApplicableFrom", g.EInvoiceApplicableFrom),
+            Attr("eInvoiceAatoThresholdPaisa", g.EInvoiceAatoThresholdPaisa),
+            Attr("eInvoiceApplicabilityOverride", g.EInvoiceApplicabilityOverride),
+            Attr("eInvoiceExemptionClasses", g.EInvoiceExemptionClasses),
+            Attr("eInvoiceReportingAgeApplies", g.EInvoiceReportingAgeApplies),
+            Attr("connectorMode", g.ConnectorMode),
+            Attr("b2cDynamicQrEnabled", g.B2cDynamicQrEnabled),
+            Attr("b2cQrAatoThresholdPaisa", g.B2cQrAatoThresholdPaisa),
+            Opt("b2cQrUpiId", g.B2cQrUpiId), Opt("b2cQrPayeeName", g.B2cQrPayeeName),
+            // Phase 9 slice 5: NON-SECRET e-Way Bill config (defaults ⇒ byte-identical when off, ER-13). No NIC
+            // credential attr exists here (ER-16). Booleans/threshold/basis always emitted.
+            Attr("eWayBillEnabled", g.EWayBillEnabled), Opt("eWayApplicableFrom", g.EWayApplicableFrom),
+            Attr("eWayThresholdPaisa", g.EWayThresholdPaisa), Attr("consignmentBasis", g.ConsignmentBasis),
+            Attr("eWayIntraStateApplicable", g.EWayIntraStateApplicable),
+            // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (always emitted; defaults 0/0 ⇒ byte-stable, finding #5).
+            Attr("reconValueTolerancePaisa", g.ReconValueTolerancePaisa),
+            Attr("reconDateWindowDays", g.ReconDateWindowDays));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
                 Attr("label", s.Label), Attr("isPredefined", s.IsPredefined)));
         el.Add(slabs);
+
+        // Phase 9 slice 1: dated rate-history + Compensation-Cess windows (empty elements when advanced GST is off).
+        var history = new XElement("rateHistory");
+        foreach (var h in g.RateHistory)
+            history.Add(new XElement("entry",
+                Attr("id", h.Id), Opt("hsnSac", h.HsnSac), Attr("rateBasisPoints", h.RateBasisPoints),
+                Attr("rateClass", h.RateClass), Attr("effectiveFrom", h.EffectiveFrom), Opt("effectiveTo", h.EffectiveTo),
+                Attr("valuationBasis", h.ValuationBasis), Attr("label", h.Label), Attr("isPredefined", h.IsPredefined)));
+        el.Add(history);
+
+        var cess = new XElement("cessRates");
+        foreach (var c in g.CessRates)
+            cess.Add(new XElement("cess",
+                Attr("id", c.Id), Opt("hsnSac", c.HsnSac), Attr("valuationMode", c.ValuationMode),
+                Attr("cessRateBasisPoints", c.CessRateBasisPoints), Attr("cessPerUnitPaisa", c.CessPerUnitPaisa),
+                Attr("cessRspFactorMillis", c.CessRspFactorMillis), Attr("effectiveFrom", c.EffectiveFrom),
+                Opt("effectiveTo", c.EffectiveTo), Attr("label", c.Label), Attr("isPredefined", c.IsPredefined)));
+        el.Add(cess);
+
+        // Phase 9 slice 2: dated reverse-charge categories (empty element when RCM is off).
+        var rcm = new XElement("rcmCategories");
+        foreach (var c in g.RcmCategories)
+            rcm.Add(new XElement("rcmCategory",
+                Attr("id", c.Id), Attr("notification", c.Notification), Attr("stream", c.Stream),
+                Attr("supplyNature", c.SupplyNature), Attr("supplyType", c.SupplyType), Opt("hsnSac", c.HsnSac),
+                Attr("rateBasisPoints", c.RateBasisPoints), Attr("supplierQualifier", c.SupplierQualifier),
+                Attr("recipientQualifier", c.RecipientQualifier), Attr("effectiveFrom", c.EffectiveFrom),
+                Opt("effectiveTo", c.EffectiveTo), Attr("label", c.Label), Attr("isPredefined", c.IsPredefined)));
+        el.Add(rcm);
+
+        // Phase 9 slice 5: per-state e-Way threshold overrides (empty element when on the flat ₹50,000 default).
+        var ewayThresholds = new XElement("ewayStateThresholds");
+        foreach (var t in g.EWayStateThresholds)
+            ewayThresholds.Add(new XElement("ewayStateThreshold",
+                Attr("id", t.Id), Attr("stateCode", t.StateCode), Attr("txnType", t.TxnType),
+                Attr("thresholdPaisa", t.ThresholdPaisa)));
+        el.Add(ewayThresholds);
         return el;
     }
 
@@ -472,14 +645,30 @@ public static class CanonicalXml
         Attr("minimumWagePaisa", bo.MinimumWagePaisa), Attr("prorate", bo.Prorate));
 
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
-        Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode));
+        Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode),
+        // Phase 9 slice 2: reverse-charge qualifiers (emitted only when true so an off party is byte-identical, ER-13).
+        OptTrue("isPromoter", p.IsPromoter), OptTrue("isBodyCorporate", p.IsBodyCorporate));
 
     private static XElement BuildStockItemGst(string name, StockItemGstDto s) => new(name,
         Opt("hsnSac", s.HsnSac), Attr("taxability", s.Taxability),
-        OptInt("rateBasisPoints", s.RateBasisPoints), Attr("supplyType", s.SupplyType));
+        OptInt("rateBasisPoints", s.RateBasisPoints), Attr("supplyType", s.SupplyType),
+        // Phase 9 slice 1: RSP valuation + cess (required valuationBasis/cessApplicable always emitted; cess scalars
+        // omitted via Opt* when null → an off item's bytes are identical to a Phase-8 item, ER-13).
+        Attr("valuationBasis", s.ValuationBasis), Attr("cessApplicable", s.CessApplicable),
+        Opt("cessValuationMode", s.CessValuationMode), OptInt("cessRateBasisPoints", s.CessRateBasisPoints),
+        OptLong("cessPerUnitPaisa", s.CessPerUnitPaisa), OptInt("cessRspFactorMillis", s.CessRspFactorMillis),
+        OptLong("rspPaisa", s.RspPaisa),
+        // Phase 9 slice 2: reverse-charge flags (emitted only when set so an off item is byte-identical, ER-13).
+        OptTrue("reverseChargeApplicable", s.ReverseChargeApplicable), OptTrue("gtaForwardCharge", s.GtaForwardCharge),
+        OptId("rcmCategoryId", s.RcmCategoryId),
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (required attrs always emitted, mirroring valuationBasis/cessApplicable;
+        // an off item is Eligible/None ⇒ round-trip-stable + byte-identical, ER-13).
+        Attr("itcEligibility", s.ItcEligibility), Attr("blockedCreditCategory", s.BlockedCreditCategory));
 
     private static XElement BuildGstClassification(LedgerGstClassificationDto c) => new("gstClassification",
-        Attr("taxHead", c.TaxHead), Attr("direction", c.Direction));
+        Attr("taxHead", c.TaxHead), Attr("direction", c.Direction),
+        // Phase 9 slice 2: the RCM Output discriminator (emitted only when true so an ordinary ledger is byte-identical).
+        OptTrue("isReverseCharge", c.IsReverseCharge));
 
     private static XElement BuildTdsConfig(TdsConfigDto t)
     {
@@ -571,7 +760,11 @@ public static class CanonicalXml
                 Attr("forexAmountPaisa", fx.ForexAmountPaisa), Attr("rateMicro", fx.RateMicro)));
         if (l.Gst is { } g)
             el.Add(new XElement("gst", Attr("taxHead", g.TaxHead), Attr("rateBasisPoints", g.RateBasisPoints),
-                Attr("taxableValuePaisa", g.TaxableValuePaisa)));
+                Attr("taxableValuePaisa", g.TaxableValuePaisa),
+                // Phase 9 slice 2: reverse-charge tag (emitted only when set so a forward-charge line is byte-identical).
+                // Phase 9 slice 7: the set-off / reversal adjustment tag (emitted only when set).
+                OptTrue("isReverseCharge", g.IsReverseCharge), Opt("rcmScheme", g.RcmScheme),
+                Opt("adjustment", g.Adjustment)));
         if (l.Tds is { } t)
             el.Add(new XElement("tds", Attr("natureId", t.NatureId), Attr("sectionCode", t.SectionCode),
                 Attr("assessableValuePaisa", t.AssessableValuePaisa), Attr("rateBasisPoints", t.RateBasisPoints),
@@ -888,6 +1081,24 @@ public static class CanonicalXml
                 ChallanVoucherLinks = ReadList(root, "challanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
                 TcsChallans = ReadList(root, "tcsChallans", "tcsChallan", ReadTcsChallan),
                 TcsChallanVoucherLinks = ReadList(root, "tcsChallanVoucherLinks", "challanVoucherLink", ReadChallanVoucherLink),
+                // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts.
+                RcmDocuments = ReadList(root, "rcmDocuments", "rcmDocument", ReadRcmDocument),
+                // Phase 9 slice 4a: e-invoice IRP artefacts (absent element ⇒ empty list, ER-13).
+                EInvoiceRecords = ReadList(root, "eInvoiceRecords", "eInvoiceRecord", ReadEInvoiceRecord),
+                // Phase 9 slice 5: e-Way Bill artefacts (absent element ⇒ empty list, ER-13).
+                EWayBillRecords = ReadList(root, "eWayBillRecords", "eWayBillRecord", ReadEWayBillRecord),
+                CreditDebitNoteLinks = ReadList(root, "creditDebitNoteLinks", "creditDebitNoteLink", ReadCdnLink),
+                AdvanceReceipts = ReadList(root, "advanceReceipts", "advanceReceipt", ReadAdvanceReceipt),
+                // Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results (absent
+                // element ⇒ empty list, ER-13).
+                Gstr2bSnapshots = ReadList(root, "gstr2bSnapshots", "gstr2bSnapshot", ReadGstr2bSnapshot),
+                Gstr2bReconResults = ReadList(root, "gstr2bReconResults", "gstr2bReconResult", ReadGstr2bReconResult),
+                ImsActions = ReadList(root, "imsActions", "imsAction", ReadImsAction),
+                // Phase 9 slice 7: electronic-ledger records (absent element ⇒ empty list, ER-13).
+                GstSetoffLines = ReadList(root, "gstSetoffLines", "gstSetoffLine", ReadGstSetoffLine),
+                ItcReversals = ReadList(root, "itcReversals", "itcReversal", ReadItcReversal),
+                GstChallans = ReadList(root, "gstChallans", "gstChallan", ReadGstChallan),
+                GstDrc03s = ReadList(root, "gstDrc03s", "gstDrc03", ReadGstDrc03),
             };
         }
         catch (Exception ex)
@@ -1133,6 +1344,8 @@ public static class CanonicalXml
         UseForJobWork = Bool(e, "useForJobWork"),
         AllowConsumption = Bool(e, "allowConsumption"),
         IsStatPayment = Bool(e, "isStatPayment"),
+        IsRcmPaymentVoucher = Bool(e, "isRcmPaymentVoucher"),
+        IsGstStatAdjustment = Bool(e, "isGstStatAdjustment"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
     };
 
@@ -1146,6 +1359,123 @@ public static class CanonicalXml
     private static ChallanVoucherLinkDto ReadChallanVoucherLink(XElement e) => new()
     {
         ChallanId = Guid(e, "challanId"), VoucherId = Guid(e, "voucherId"),
+    };
+
+    private static RcmDocumentDto ReadRcmDocument(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Kind = Str(e, "kind")!, SourceVoucherId = Guid(e, "sourceVoucherId"),
+        SeriesNumber = Int(e, "seriesNumber"), DocDate = Str(e, "docDate") ?? string.Empty,
+        SupplierLedgerId = OptGuid(e, "supplierLedgerId"),
+    };
+
+    private static EInvoiceRecordDto ReadEInvoiceRecord(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SourceVoucherId = Guid(e, "sourceVoucherId"),
+        DocumentNumberUpper = Str(e, "documentNumberUpper") ?? string.Empty, Status = Str(e, "status")!,
+        Irn = Str(e, "irn"), AckNo = Str(e, "ackNo"), AckDate = Str(e, "ackDate"), SignedQr = Str(e, "signedQr"),
+        SignedJsonBase64 = Str(e, "signedJsonBase64"), CancelledOn = Str(e, "cancelledOn"),
+        CancelReasonCode = Str(e, "cancelReasonCode"), ErrorCode = Str(e, "errorCode"), ErrorMessage = Str(e, "errorMessage"),
+    };
+
+    private static EWayBillRecordDto ReadEWayBillRecord(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SourceVoucherId = Guid(e, "sourceVoucherId"),
+        DocumentNumberUpper = Str(e, "documentNumberUpper") ?? string.Empty, Status = Str(e, "status")!,
+        SupplyType = Str(e, "supplyType"), SubSupplyType = Str(e, "subSupplyType"), DocType = Str(e, "docType"),
+        ConsignmentValuePaisa = Long(e, "consignmentValuePaisa"), TransporterId = Str(e, "transporterId"),
+        TransMode = Str(e, "transMode"), VehicleNumber = Str(e, "vehicleNumber"), DistanceKm = Int(e, "distanceKm"),
+        TransportDocNo = Str(e, "transportDocNo"), ShipFromStateCode = Str(e, "shipFromStateCode"),
+        ShipToStateCode = Str(e, "shipToStateCode"), IsOverDimensionalCargo = Bool(e, "isOverDimensionalCargo"),
+        ShipToGstin = Str(e, "shipToGstin"), ClosureRequested = Bool(e, "closureRequested"), ClosedOn = Str(e, "closedOn"),
+        EwbNumber = Str(e, "ewbNumber"), GeneratedAt = Str(e, "generatedAt"), ValidUpto = Str(e, "validUpto"),
+        CancelledOn = Str(e, "cancelledOn"), CancelReasonCode = Str(e, "cancelReasonCode"),
+        ErrorCode = Str(e, "errorCode"), ErrorMessage = Str(e, "errorMessage"),
+    };
+
+    private static GstCdnLinkDto ReadCdnLink(XElement e) => new()
+    {
+        Id = Guid(e, "id"), CdnVoucherId = Guid(e, "cdnVoucherId"), CdnType = Str(e, "cdnType")!,
+        OriginalInvoiceVoucherId = OptGuid(e, "originalInvoiceVoucherId"),
+        OriginalInvoiceNumber = Str(e, "originalInvoiceNumber"), OriginalInvoiceDate = Str(e, "originalInvoiceDate"),
+        ReasonCode = Str(e, "reasonCode")!, Is9BTarget = Bool(e, "is9BTarget"),
+    };
+
+    private static Gstr2bSnapshotDto ReadGstr2bSnapshot(XElement e) => new()
+    {
+        Id = Guid(e, "id"), StatementType = Str(e, "statementType")!, ReturnPeriod = Str(e, "returnPeriod") ?? string.Empty,
+        RecipientGstin = Str(e, "recipientGstin") ?? string.Empty, GeneratedOn = Str(e, "generatedOn"),
+        SourceFileHash = Str(e, "sourceFileHash") ?? string.Empty, ImportedAt = Str(e, "importedAt") ?? string.Empty,
+        SummaryIgstPaisa = Long(e, "summaryIgstPaisa"), SummaryCgstPaisa = Long(e, "summaryCgstPaisa"),
+        SummarySgstPaisa = Long(e, "summarySgstPaisa"), SummaryCessPaisa = Long(e, "summaryCessPaisa"),
+        Lines = (e.Element("lines")?.Elements("gstr2bLine") ?? Enumerable.Empty<XElement>()).Select(ReadGstr2bLine).ToList(),
+    };
+
+    private static Gstr2bLineDto ReadGstr2bLine(XElement e) => new()
+    {
+        Id = Guid(e, "id"), SupplierGstin = Str(e, "supplierGstin") ?? string.Empty,
+        SupplierTradeName = Str(e, "supplierTradeName"), DocType = Str(e, "docType")!,
+        DocNumber = Str(e, "docNumber") ?? string.Empty, DocNumberNorm = Str(e, "docNumberNorm"),
+        DocDate = Str(e, "docDate") ?? string.Empty, PosStateCode = Str(e, "posStateCode"),
+        TaxableValuePaisa = Long(e, "taxableValuePaisa"), IgstPaisa = Long(e, "igstPaisa"), CgstPaisa = Long(e, "cgstPaisa"),
+        SgstPaisa = Long(e, "sgstPaisa"), CessPaisa = Long(e, "cessPaisa"), ItcAvailable = Bool(e, "itcAvailable"),
+        ItcUnavailableReason = Str(e, "itcUnavailableReason"), ReverseCharge = Bool(e, "reverseCharge"),
+    };
+
+    private static Gstr2bReconResultDto ReadGstr2bReconResult(XElement e) => new()
+    {
+        Id = Guid(e, "id"), LineId = Guid(e, "lineId"), Bucket = Str(e, "bucket")!,
+        MatchedVoucherId = OptGuid(e, "matchedVoucherId"), TaxableVariancePaisa = Long(e, "taxableVariancePaisa"),
+        TaxVariancePaisa = Long(e, "taxVariancePaisa"), MatchPinned = Bool(e, "matchPinned"),
+        ReconciledAt = Str(e, "reconciledAt"),
+    };
+
+    private static ImsActionDto ReadImsAction(XElement e) => new()
+    {
+        Id = Guid(e, "id"), LineId = Guid(e, "lineId"), Status = Str(e, "status")!, Remarks = Str(e, "remarks"),
+        DeclaredReversalPaisa = OptLong(e, "declaredReversalPaisa"), NoReversalDeclared = Bool(e, "noReversalDeclared"),
+        ActedOn = Str(e, "actedOn"),
+    };
+
+    private static GstSetoffLineDto ReadGstSetoffLine(XElement e) => new()
+    {
+        Id = Guid(e, "id"), VoucherId = Guid(e, "voucherId"), Period = Str(e, "period")!,
+        CreditHead = Str(e, "creditHead")!, LiabilityHead = Str(e, "liabilityHead")!,
+        IsCash = Bool(e, "isCash"), AmountPaisa = Long(e, "amountPaisa"),
+    };
+
+    private static ItcReversalDto ReadItcReversal(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Rule = Str(e, "rule")!, Period = Str(e, "period")!,
+        CgstPaisa = Long(e, "cgstPaisa"), SgstPaisa = Long(e, "sgstPaisa"), IgstPaisa = Long(e, "igstPaisa"),
+        CessPaisa = Long(e, "cessPaisa"), D1BasisPaisa = OptLong(e, "d1BasisPaisa"), D2BasisPaisa = OptLong(e, "d2BasisPaisa"),
+        SourceVoucherId = OptGuid(e, "sourceVoucherId"), SourceLineId = OptGuid(e, "sourceLineId"),
+        ReversalVoucherId = Guid(e, "reversalVoucherId"), ReclaimOfId = OptGuid(e, "reclaimOfId"),
+        Drc03Id = OptGuid(e, "drc03Id"), Table4bBucket = Str(e, "table4bBucket")!, CreatedAt = Str(e, "createdAt")!,
+    };
+
+    private static GstChallanDto ReadGstChallan(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Cpin = Str(e, "cpin")!, Cin = Str(e, "cin"), Brn = Str(e, "brn"),
+        DepositDate = Str(e, "depositDate")!, MajorHead = Str(e, "majorHead")!, MinorHead = Str(e, "minorHead")!,
+        AmountPaisa = Long(e, "amountPaisa"), VoucherId = Guid(e, "voucherId"), InterestFlag = Bool(e, "interestFlag"),
+    };
+
+    private static GstDrc03Dto ReadGstDrc03(XElement e) => new()
+    {
+        Id = Guid(e, "id"), Drc03Ref = Str(e, "drc03Ref"), Cause = Str(e, "cause")!, Period = Str(e, "period")!,
+        CgstPaisa = Long(e, "cgstPaisa"), SgstPaisa = Long(e, "sgstPaisa"), IgstPaisa = Long(e, "igstPaisa"),
+        CessPaisa = Long(e, "cessPaisa"), InterestPaisa = Long(e, "interestPaisa"),
+        Drc03aDemandRef = Str(e, "drc03aDemandRef"), VoucherId = OptGuid(e, "voucherId"), CreatedAt = Str(e, "createdAt")!,
+    };
+
+    private static GstAdvanceReceiptDto ReadAdvanceReceipt(XElement e) => new()
+    {
+        Id = Guid(e, "id"), ReceiptVoucherId = Guid(e, "receiptVoucherId"), IsService = Bool(e, "isService"),
+        AdvanceAmountPaisa = Long(e, "advanceAmountPaisa"), RateBasisPoints = Int(e, "rateBasisPoints"),
+        InterState = Bool(e, "interState"), PlaceOfSupplyStateCode = Str(e, "placeOfSupplyStateCode"),
+        AdvanceTaxPaisa = Long(e, "advanceTaxPaisa"),
+        AdjustedAgainstInvoiceVoucherId = OptGuid(e, "adjustedAgainstInvoiceVoucherId"),
+        RefundVoucherId = OptGuid(e, "refundVoucherId"),
     };
 
     private static TcsChallanDto ReadTcsChallan(XElement e) => new()
@@ -1243,22 +1573,92 @@ public static class CanonicalXml
                 Id = Guid(s, "id"), RateBasisPoints = Int(s, "rateBasisPoints"),
                 Label = Str(s, "label")!, IsPredefined = Bool(s, "isPredefined"),
             }).ToList(),
+        // Phase 9 slice 1: dated rate-history + Compensation-Cess windows (absent elements ⇒ empty lists, ER-13).
+        RateHistory = (e.Element("rateHistory")?.Elements("entry") ?? Enumerable.Empty<XElement>())
+            .Select(h => new GstRateHistoryDto
+            {
+                Id = Guid(h, "id"), HsnSac = Str(h, "hsnSac"), RateBasisPoints = Int(h, "rateBasisPoints"),
+                RateClass = Str(h, "rateClass")!, EffectiveFrom = Str(h, "effectiveFrom")!,
+                EffectiveTo = Str(h, "effectiveTo"), ValuationBasis = Str(h, "valuationBasis")!,
+                Label = Str(h, "label")!, IsPredefined = Bool(h, "isPredefined"),
+            }).ToList(),
+        CessRates = (e.Element("cessRates")?.Elements("cess") ?? Enumerable.Empty<XElement>())
+            .Select(c => new GstCessRateDto
+            {
+                Id = Guid(c, "id"), HsnSac = Str(c, "hsnSac"), ValuationMode = Str(c, "valuationMode")!,
+                CessRateBasisPoints = Int(c, "cessRateBasisPoints"), CessPerUnitPaisa = Long(c, "cessPerUnitPaisa"),
+                CessRspFactorMillis = Int(c, "cessRspFactorMillis"), EffectiveFrom = Str(c, "effectiveFrom")!,
+                EffectiveTo = Str(c, "effectiveTo"), Label = Str(c, "label")!, IsPredefined = Bool(c, "isPredefined"),
+            }).ToList(),
+        // Phase 9 slice 2: dated reverse-charge categories (absent element ⇒ empty list, ER-13).
+        RcmCategories = (e.Element("rcmCategories")?.Elements("rcmCategory") ?? Enumerable.Empty<XElement>())
+            .Select(c => new RcmCategoryDto
+            {
+                Id = Guid(c, "id"), Notification = Str(c, "notification")!, Stream = Str(c, "stream")!,
+                SupplyNature = Str(c, "supplyNature")!, SupplyType = Str(c, "supplyType")!, HsnSac = Str(c, "hsnSac"),
+                RateBasisPoints = Int(c, "rateBasisPoints"), SupplierQualifier = Str(c, "supplierQualifier")!,
+                RecipientQualifier = Str(c, "recipientQualifier")!, EffectiveFrom = Str(c, "effectiveFrom")!,
+                EffectiveTo = Str(c, "effectiveTo"), Label = Str(c, "label")!, IsPredefined = Bool(c, "isPredefined"),
+            }).ToList(),
+        // Phase 9 slice 3: composition sub-type + opt-in date (absent attributes ⇒ null, ER-13).
+        CompositionSubType = Str(e, "compositionSubType"), CompositionOptInDate = Str(e, "compositionOptInDate"),
+        // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config (absent ⇒ off/default, ER-13). No NIC
+        // credential is read here (ER-16).
+        EInvoicingEnabled = Bool(e, "eInvoicingEnabled"), EInvoiceApplicableFrom = Str(e, "eInvoiceApplicableFrom"),
+        EInvoiceAatoThresholdPaisa = OptLong(e, "eInvoiceAatoThresholdPaisa") ?? 5_000_000_000L,
+        EInvoiceApplicabilityOverride = Bool(e, "eInvoiceApplicabilityOverride"),
+        EInvoiceExemptionClasses = Str(e, "eInvoiceExemptionClasses") ?? "None",
+        EInvoiceReportingAgeApplies = Bool(e, "eInvoiceReportingAgeApplies"),
+        ConnectorMode = Str(e, "connectorMode") ?? "OfflineJson",
+        B2cDynamicQrEnabled = Bool(e, "b2cDynamicQrEnabled"),
+        B2cQrAatoThresholdPaisa = OptLong(e, "b2cQrAatoThresholdPaisa") ?? 500_000_000_000L,
+        B2cQrUpiId = Str(e, "b2cQrUpiId"), B2cQrPayeeName = Str(e, "b2cQrPayeeName"),
+        // Phase 9 slice 5: NON-SECRET e-Way Bill config + per-state overrides (absent ⇒ off/default, ER-13). No NIC
+        // credential is read here (ER-16).
+        EWayBillEnabled = Bool(e, "eWayBillEnabled"), EWayApplicableFrom = Str(e, "eWayApplicableFrom"),
+        EWayThresholdPaisa = OptLong(e, "eWayThresholdPaisa") ?? 5_000_000L,
+        ConsignmentBasis = Str(e, "consignmentBasis") ?? "Rule138Default",
+        EWayIntraStateApplicable = e.Attribute("eWayIntraStateApplicable") is null ? true : Bool(e, "eWayIntraStateApplicable"),
+        EWayStateThresholds = (e.Element("ewayStateThresholds")?.Elements("ewayStateThreshold") ?? Enumerable.Empty<XElement>())
+            .Select(t => new EWayStateThresholdDto
+            {
+                Id = Guid(t, "id"), StateCode = Str(t, "stateCode")!, TxnType = Str(t, "txnType")!,
+                ThresholdPaisa = Long(t, "thresholdPaisa"),
+            }).ToList(),
+        // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (absent ⇒ 0/0 exact-match, ER-13; finding #5).
+        ReconValueTolerancePaisa = OptLong(e, "reconValueTolerancePaisa") ?? 0L,
+        ReconDateWindowDays = OptInt(e, "reconDateWindowDays") ?? 0,
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()
     {
         RegistrationType = Str(e, "registrationType")!, Gstin = Str(e, "gstin"), StateCode = Str(e, "stateCode"),
+        // Phase 9 slice 2: reverse-charge qualifiers (absent ⇒ false, ER-13).
+        IsPromoter = Bool(e, "isPromoter"), IsBodyCorporate = Bool(e, "isBodyCorporate"),
     };
 
     private static StockItemGstDto ReadStockItemGst(XElement e) => new()
     {
         HsnSac = Str(e, "hsnSac"), Taxability = Str(e, "taxability")!,
         RateBasisPoints = OptInt(e, "rateBasisPoints"), SupplyType = Str(e, "supplyType")!,
+        // Phase 9 slice 1: RSP valuation + cess (absent valuationBasis ⇒ default TransactionValue, ER-13).
+        ValuationBasis = Str(e, "valuationBasis") ?? "TransactionValue", CessApplicable = Bool(e, "cessApplicable"),
+        CessValuationMode = Str(e, "cessValuationMode"), CessRateBasisPoints = OptInt(e, "cessRateBasisPoints"),
+        CessPerUnitPaisa = OptLong(e, "cessPerUnitPaisa"), CessRspFactorMillis = OptInt(e, "cessRspFactorMillis"),
+        RspPaisa = OptLong(e, "rspPaisa"),
+        // Phase 9 slice 2: reverse-charge flags (absent ⇒ false/null, ER-13).
+        ReverseChargeApplicable = Bool(e, "reverseChargeApplicable"), GtaForwardCharge = Bool(e, "gtaForwardCharge"),
+        RcmCategoryId = OptGuid(e, "rcmCategoryId"),
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (absent ⇒ Eligible/None default, ER-13).
+        ItcEligibility = Str(e, "itcEligibility") ?? "Eligible",
+        BlockedCreditCategory = Str(e, "blockedCreditCategory") ?? "None",
     };
 
     private static LedgerGstClassificationDto ReadGstClassification(XElement e) => new()
     {
         TaxHead = Str(e, "taxHead")!, Direction = Str(e, "direction")!,
+        // Phase 9 slice 2: the RCM Output discriminator (absent ⇒ false, ER-13).
+        IsReverseCharge = Bool(e, "isReverseCharge"),
     };
 
     private static TdsConfigDto ReadTdsConfig(XElement e) => new()
@@ -1350,6 +1750,9 @@ public static class CanonicalXml
         {
             TaxHead = Str(g, "taxHead")!, RateBasisPoints = Int(g, "rateBasisPoints"),
             TaxableValuePaisa = Long(g, "taxableValuePaisa"),
+            // Phase 9 slice 2: reverse-charge tag (absent ⇒ false/null, ER-13). Phase 9 slice 7: adjustment tag.
+            IsReverseCharge = Bool(g, "isReverseCharge"), RcmScheme = Str(g, "rcmScheme"),
+            Adjustment = Str(g, "adjustment"),
         } : null,
         Tds = e.Element("tds") is { } t ? new TdsLineTaxDto
         {

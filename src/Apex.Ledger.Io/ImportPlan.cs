@@ -199,7 +199,9 @@ internal sealed class ImportPlan
                 useForPos: vt.UseForPos,
                 useForJobWork: vt.UseForJobWork,
                 allowConsumption: vt.AllowConsumption,
-                isStatPayment: vt.IsStatPayment);
+                isStatPayment: vt.IsStatPayment,
+                isRcmPaymentVoucher: vt.IsRcmPaymentVoucher,
+                isGstStatAdjustment: vt.IsGstStatAdjustment);
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -573,6 +575,11 @@ internal sealed class ImportPlan
             // A payable-ledger classification only appears on the auto-created TDS/TCS Payable ledgers (reused above);
             // an ordinary imported ledger never carries one, so this stays null here.
             domain.TdsTcsClassification = l.TdsTcsClassification is { } k ? ParseEnum<TdsTcsLedgerKind>(k) : null;
+            // Phase 9: mirror the item-GST guard onto the sales/purchase LEDGER block (the recurring Io-bypass defect
+            // class) — a malformed §17(5)/cess/RSP block (e.g. a BlockedCreditCategory with a non-blocked eligibility)
+            // throws here in pre-flight, so the whole batch rejects all-or-nothing (Applied = false, target untouched)
+            // rather than persisting a block that bypasses the domain's fail-fast bijection guard.
+            domain.SalesPurchaseGst?.EnsureValid();
             t.AddLedger(domain);
             journal.RecordLedger(domain);
             ledgerId[l.Id] = domain.Id;
@@ -682,6 +689,10 @@ internal sealed class ImportPlan
                 i.Alias, ParseEnum<StockValuationMethod>(i.ValuationMethod), i.HsnSacCode, i.IsTaxable,
                 i.ReorderLevel, i.MinimumOrderQuantity, MoneyCodec.FromPaisaNullable(i.StandardCostPaisa));
             domain.Gst = BuildStockItemGst(i.Gst);
+            // Phase 9 slice 1: mirror the item-GST guard into the import (the recurring Io-bypass defect class) — a
+            // malformed cess/RSP block (e.g. RSP-factor mode with no declared RSP) throws here in pre-flight, so the
+            // whole batch rejects all-or-nothing (Applied = false, target untouched) rather than persisting bad data.
+            domain.Gst?.EnsureValid();
             // v16 batch switches (RQ-2) + v18 Set-Components (RQ-10) — plain model flags, carried verbatim. The
             // Set-Components flag is authoritative from the export; a BOM created below keeps it true (idempotent).
             domain.MaintainInBatches = i.MaintainInBatches;
@@ -935,6 +946,197 @@ internal sealed class ImportPlan
             journal.RecordTcsChallanVoucherLink(new ChallanVoucherLink(chId, vId.Value));
         }
 
+        // 14) RCM generated documents + §34-CDN links + GST-on-advance receipts (Phase 9 slice 2). Each is re-minted
+        //     with a fresh Guid; its voucher/ledger references resolve the DTO id to the re-minted target
+        //     (voucher/ledger maps built above), skipping an orphan whose voucher was not imported. Recorded in the
+        //     journal so a rollback prunes them. CDN links + advance receipts stay empty until S2b.
+        Guid? MapVoucher(Guid dtoId) =>
+            voucherId.TryGetValue(dtoId, out var m) ? m : t.FindVoucher(dtoId)?.Id;
+        Guid? MapVoucherOpt(Guid? dtoId) => dtoId is { } id ? MapVoucher(id) : null;
+        Guid? MapLedgerOpt(Guid? dtoId) =>
+            dtoId is { } id ? (ledgerId.TryGetValue(id, out var m) ? m : t.FindLedger(id)?.Id) : null;
+
+        foreach (var d in _model.Payload.RcmDocuments)
+        {
+            if (MapVoucher(d.SourceVoucherId) is not { } src) continue; // orphan — source voucher not imported
+            var doc = new RcmDocument(Guid.NewGuid(), ParseEnum<RcmDocumentKind>(d.Kind), src, d.SeriesNumber,
+                CompanyImportService.ParseDate(d.DocDate), MapLedgerOpt(d.SupplierLedgerId));
+            t.AddRcmDocument(doc);
+            journal.RecordRcmDocument(doc);
+        }
+        // Phase 9 slice 4a: e-invoice IRP artefacts — re-minted with a fresh Guid; the source voucher resolves to the
+        // re-minted target (orphans skipped). EInvoiceRecord.Rehydrate validates the invariant (a Generated record
+        // requires an IRN) in pre-flight, so a malformed record rejects the whole batch (Applied = false; all-or-nothing).
+        foreach (var r in _model.Payload.EInvoiceRecords)
+        {
+            if (MapVoucher(r.SourceVoucherId) is not { } src) continue; // orphan — source voucher not imported
+            var record = EInvoiceRecord.Rehydrate(
+                Guid.NewGuid(), src, r.DocumentNumberUpper, ParseEnum<EInvoiceStatus>(r.Status),
+                r.Irn, r.AckNo, CompanyImportService.ParseDateOpt(r.AckDate), r.SignedQr,
+                r.SignedJsonBase64 is { } b64 ? Convert.FromBase64String(b64) : null,
+                CompanyImportService.ParseDateOpt(r.CancelledOn), r.CancelReasonCode, r.ErrorCode, r.ErrorMessage);
+            t.AddEInvoiceRecord(record);
+            journal.RecordEInvoiceRecord(record);
+        }
+        // Phase 9 slice 5: e-Way Bill artefacts — re-minted with a fresh Guid; the source voucher resolves to the
+        // re-minted target (orphans skipped). EWayBillRecord.Rehydrate validates the invariant (a Generated record
+        // requires an EWB number AND a validity) in pre-flight, so a malformed record rejects the whole batch (Applied =
+        // false; all-or-nothing).
+        foreach (var r in _model.Payload.EWayBillRecords)
+        {
+            if (MapVoucher(r.SourceVoucherId) is not { } src) continue; // orphan — source voucher not imported
+            var record = EWayBillRecord.Rehydrate(
+                Guid.NewGuid(), src, r.DocumentNumberUpper, ParseEnum<EWayStatus>(r.Status),
+                r.SupplyType, r.SubSupplyType, r.DocType, r.ConsignmentValuePaisa,
+                r.TransporterId, r.TransMode is { } tm ? ParseEnum<EWayTransportMode>(tm) : null, r.VehicleNumber,
+                r.DistanceKm, r.TransportDocNo, r.ShipFromStateCode, r.ShipToStateCode, r.IsOverDimensionalCargo,
+                r.ShipToGstin, r.ClosureRequested, CompanyImportService.ParseDateOpt(r.ClosedOn),
+                r.EwbNumber, ParseDateTimeOffsetOpt(r.GeneratedAt), ParseDateTimeOffsetOpt(r.ValidUpto),
+                CompanyImportService.ParseDateOpt(r.CancelledOn), r.CancelReasonCode, r.ErrorCode, r.ErrorMessage);
+            t.AddEWayBillRecord(record);
+            journal.RecordEWayBillRecord(record);
+        }
+        foreach (var l in _model.Payload.CreditDebitNoteLinks)
+        {
+            if (MapVoucher(l.CdnVoucherId) is not { } cdnv) continue; // orphan — CDN voucher not imported
+            var link = new GstCreditDebitNoteLink(Guid.NewGuid(), cdnv, ParseEnum<CdnType>(l.CdnType),
+                MapVoucherOpt(l.OriginalInvoiceVoucherId), l.OriginalInvoiceNumber,
+                CompanyImportService.ParseDateOpt(l.OriginalInvoiceDate), l.ReasonCode, l.Is9BTarget);
+            t.AddCreditDebitNoteLink(link);
+            journal.RecordCreditDebitNoteLink(link);
+        }
+        foreach (var a in _model.Payload.AdvanceReceipts)
+        {
+            if (MapVoucher(a.ReceiptVoucherId) is not { } rv) continue; // orphan — receipt voucher not imported
+            var adv = new GstAdvanceReceipt(Guid.NewGuid(), rv, a.IsService, MoneyCodec.FromPaisa(a.AdvanceAmountPaisa),
+                a.RateBasisPoints, a.InterState, a.PlaceOfSupplyStateCode, MoneyCodec.FromPaisa(a.AdvanceTaxPaisa),
+                MapVoucherOpt(a.AdjustedAgainstInvoiceVoucherId), MapVoucherOpt(a.RefundVoucherId));
+            t.AddAdvanceReceipt(adv);
+            journal.RecordAdvanceReceipt(adv);
+        }
+
+        // 15) Phase 9 slice 6: imported GSTR-2B/2A snapshots (owning their lines) + reconciliation results. CRITICAL
+        //     divergence from S4/S5 (§7): snapshots + lines import UNCONDITIONALLY — they are external portal data, NOT
+        //     orphans of a source voucher (the "in-2B-only" bucket is precisely a line with no booked purchase). Each
+        //     snapshot + line is re-minted with a fresh Guid; a lineId map re-links the recon results. Only the recon
+        //     matched_voucher_id is an OPTIONAL reference (MapVoucherOpt): a Matched/PartialMismatch result whose voucher
+        //     is absent resolves to null → Gstr2bReconResult.Rehydrate fails the bucket invariant → the whole batch is
+        //     rejected (all-or-nothing); an InPortalOnly result carries no voucher and imports cleanly. Recorded in the
+        //     journal so a rollback prunes them.
+        var reconLineId = new Dictionary<Guid, Guid>();
+        foreach (var s in _model.Payload.Gstr2bSnapshots)
+        {
+            var lines = new List<Gstr2bLine>(s.Lines.Count);
+            foreach (var l in s.Lines)
+            {
+                var newLineId = Guid.NewGuid();
+                reconLineId[l.Id] = newLineId;
+                lines.Add(new Gstr2bLine(
+                    newLineId, l.SupplierGstin, l.SupplierTradeName, ParseEnum<Gstr2bDocType>(l.DocType), l.DocNumber,
+                    l.DocNumberNorm, CompanyImportService.ParseDate(l.DocDate), l.PosStateCode, l.TaxableValuePaisa,
+                    l.IgstPaisa, l.CgstPaisa, l.SgstPaisa, l.CessPaisa, l.ItcAvailable, l.ItcUnavailableReason,
+                    l.ReverseCharge));
+            }
+            var snap = Gstr2bSnapshot.Rehydrate(
+                Guid.NewGuid(), ParseEnum<GstStatementType>(s.StatementType), s.ReturnPeriod, s.RecipientGstin,
+                CompanyImportService.ParseDateOpt(s.GeneratedOn), s.SourceFileHash,
+                ParseDateTimeOffsetOpt(s.ImportedAt) ?? default, s.SummaryIgstPaisa, s.SummaryCgstPaisa,
+                s.SummarySgstPaisa, s.SummaryCessPaisa, lines);
+            t.AddGstr2bSnapshot(snap);
+            journal.RecordGstr2bSnapshot(snap);
+        }
+        foreach (var rr in _model.Payload.Gstr2bReconResults)
+        {
+            // A recon result is a child of an imported 2B line — a dangling line ref is a malformed batch (reject).
+            if (!reconLineId.TryGetValue(rr.LineId, out var lineId))
+                throw new InvalidOperationException(
+                    $"GSTR-2B reconciliation result references an unknown imported 2B line {rr.LineId}.");
+            var result = Gstr2bReconResult.Rehydrate(
+                Guid.NewGuid(), lineId, ParseEnum<ReconBucket>(rr.Bucket), MapVoucherOpt(rr.MatchedVoucherId),
+                rr.TaxableVariancePaisa, rr.TaxVariancePaisa, rr.MatchPinned, ParseDateTimeOffsetOpt(rr.ReconciledAt));
+            t.AddGstr2bReconResult(result);
+            journal.RecordGstr2bReconResult(result);
+        }
+        // Phase 9 slice 6b: the offline IMS decisions re-link to the imported 2B lines through the SAME line-id remap.
+        // A dangling line ref is a malformed batch (reject). Rehydrate runs the reversal-declaration invariant fail-fast
+        // in pre-flight, so a malformed IMS action rejects the whole batch (all-or-nothing, RQ-23). Journalled for rollback.
+        foreach (var ia in _model.Payload.ImsActions)
+        {
+            if (!reconLineId.TryGetValue(ia.LineId, out var lineId))
+                throw new InvalidOperationException(
+                    $"IMS action references an unknown imported 2B line {ia.LineId}.");
+            var action = ImsAction.Rehydrate(
+                Guid.NewGuid(), lineId, ParseEnum<ImsStatus>(ia.Status), ia.Remarks, ia.DeclaredReversalPaisa,
+                ia.NoReversalDeclared, CompanyImportService.ParseDateOpt(ia.ActedOn));
+            t.AddImsAction(action);
+            journal.RecordImsAction(action);
+        }
+
+        // 16) Phase 9 slice 7: the electronic-ledger records (set-off lines, PMT-06 challans, DRC-03 payments, and —
+        //     empty in S7a — ITC reversals). Unlike the S6 2B lines (external portal data that import unconditionally),
+        //     each of these is the AUDIT of a posted voucher that is always co-exported — so a dangling voucher FK
+        //     signals a corrupt batch and rejects the WHOLE import (all-or-nothing, RQ-23): RequireVoucher throws when a
+        //     referenced voucher is absent. Each record is re-minted with a fresh Guid; intra-batch cross-refs
+        //     (drc03_id, reclaim_of_id, source_line_id) resolve through the re-mint maps or reject. Journalled for rollback.
+        Guid RequireVoucher(Guid dtoId) => MapVoucher(dtoId)
+            ?? throw new InvalidOperationException(
+                $"An electronic-ledger record references voucher {dtoId}, which is not in the import batch (corrupt batch).");
+
+        foreach (var l in _model.Payload.GstSetoffLines)
+        {
+            var line = new GstSetoffLine(
+                Guid.NewGuid(), RequireVoucher(l.VoucherId), l.Period, ParseEnum<GstTaxHead>(l.CreditHead),
+                ParseEnum<GstTaxHead>(l.LiabilityHead), l.IsCash, l.AmountPaisa);
+            t.AddGstSetoffLine(line);
+            journal.RecordGstSetoffLine(line);
+        }
+        foreach (var ch in _model.Payload.GstChallans)
+        {
+            var challan = new GstChallan(
+                Guid.NewGuid(), ch.Cpin, ch.Cin, ch.Brn, CompanyImportService.ParseDate(ch.DepositDate),
+                ParseEnum<GstTaxHead>(ch.MajorHead), ParseEnum<GstMinorHead>(ch.MinorHead),
+                MoneyCodec.FromPaisa(ch.AmountPaisa), RequireVoucher(ch.VoucherId), ch.InterestFlag);
+            t.AddGstChallan(challan);
+            journal.RecordGstChallan(challan);
+        }
+        var drc03IdMap = new Dictionary<Guid, Guid>();
+        foreach (var d in _model.Payload.GstDrc03s)
+        {
+            var newId = Guid.NewGuid();
+            drc03IdMap[d.Id] = newId;
+            var drc03 = new GstDrc03(
+                newId, d.Drc03Ref, d.Cause, d.Period, d.CgstPaisa, d.SgstPaisa, d.IgstPaisa, d.CessPaisa, d.InterestPaisa,
+                d.Drc03aDemandRef, d.VoucherId is { } vid ? RequireVoucher(vid) : (Guid?)null,
+                ParseDateTimeOffsetOpt(d.CreatedAt) ?? default);
+            t.AddGstDrc03(drc03);
+            journal.RecordGstDrc03(drc03);
+        }
+        var reversalIdMap = new Dictionary<Guid, Guid>();
+        foreach (var r in _model.Payload.ItcReversals)
+        {
+            var newId = Guid.NewGuid();
+            reversalIdMap[r.Id] = newId;
+            Guid? reclaimOf = r.ReclaimOfId is { } rid
+                ? (reversalIdMap.TryGetValue(rid, out var m) ? m
+                    : throw new InvalidOperationException($"ITC reclaim references an unknown reversal {rid} (corrupt batch)."))
+                : null;
+            Guid? drc03 = r.Drc03Id is { } did
+                ? (drc03IdMap.TryGetValue(did, out var dm) ? dm
+                    : throw new InvalidOperationException($"ITC reversal references an unknown DRC-03 {did} (corrupt batch)."))
+                : null;
+            Guid? sourceLine = r.SourceLineId is { } slid
+                ? (reconLineId.TryGetValue(slid, out var lm) ? lm
+                    : throw new InvalidOperationException($"ITC reversal references an unknown 2B line {slid} (corrupt batch)."))
+                : null;
+            var reversal = new ItcReversal(
+                newId, ParseEnum<ItcReversalRule>(r.Rule), r.Period, r.CgstPaisa, r.SgstPaisa, r.IgstPaisa, r.CessPaisa,
+                r.D1BasisPaisa, r.D2BasisPaisa, MapVoucherOpt(r.SourceVoucherId), sourceLine,
+                RequireVoucher(r.ReversalVoucherId), reclaimOf, drc03, ParseEnum<Table4bBucket>(r.Table4bBucket),
+                ParseDateTimeOffsetOpt(r.CreatedAt) ?? default);
+            t.AddItcReversal(reversal);
+            journal.RecordItcReversal(reversal);
+        }
+
         return (created, reused, posted);
     }
 
@@ -1040,10 +1242,65 @@ internal sealed class ImportPlan
             RegistrationType = ParseEnum<GstRegistrationType>(g.RegistrationType),
             ApplicableFrom = CompanyImportService.ParseDateOpt(g.ApplicableFrom),
             Periodicity = ParseEnum<GstReturnPeriodicity>(g.Periodicity),
+            // Phase 9 slice 3: composition sub-type + opt-in date. A malformed sub-type throws in pre-flight (ParseEnum)
+            // ⇒ Applied = false, target untouched (all-or-nothing). GstConfig.EnsureValid then enforces the sub-type +
+            // GSTIN presence for a Composition config.
+            CompositionSubType = g.CompositionSubType is { } st ? ParseEnum<CompositionSubType>(st) : null,
+            CompositionOptInDate = CompanyImportService.ParseDateOpt(g.CompositionOptInDate),
+            // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config. No NIC credential is imported —
+            // it is not in the DTO (ER-16). A malformed enum/date throws in pre-flight ⇒ all-or-nothing (RQ-23).
+            EInvoicingEnabled = g.EInvoicingEnabled,
+            EInvoiceApplicableFrom = CompanyImportService.ParseDateOpt(g.EInvoiceApplicableFrom),
+            EInvoiceAatoThreshold = MoneyCodec.FromPaisa(g.EInvoiceAatoThresholdPaisa),
+            EInvoiceApplicabilityOverride = g.EInvoiceApplicabilityOverride,
+            ExemptionClasses = ParseEnum<EInvoiceExemptionClass>(g.EInvoiceExemptionClasses),
+            ReportingAgeLimitApplies = g.EInvoiceReportingAgeApplies,
+            ConnectorMode = ParseEnum<GstConnectorMode>(g.ConnectorMode),
+            B2cDynamicQrEnabled = g.B2cDynamicQrEnabled,
+            B2cQrAatoThreshold = MoneyCodec.FromPaisa(g.B2cQrAatoThresholdPaisa),
+            B2cQrUpiId = g.B2cQrUpiId,
+            B2cQrPayeeName = g.B2cQrPayeeName,
+            // Phase 9 slice 5: NON-SECRET e-Way Bill config. No NIC credential is imported — it is not in the DTO
+            // (ER-16). A malformed enum/date throws in pre-flight ⇒ all-or-nothing (RQ-23).
+            EWayBillEnabled = g.EWayBillEnabled,
+            EWayApplicableFrom = CompanyImportService.ParseDateOpt(g.EWayApplicableFrom),
+            EWayThreshold = MoneyCodec.FromPaisa(g.EWayThresholdPaisa),
+            ConsignmentBasis = ParseEnum<EWayConsignmentBasis>(g.ConsignmentBasis),
+            EWayIntraStateApplicable = g.EWayIntraStateApplicable,
+            // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
+            ReconValueTolerance = MoneyCodec.FromPaisa(g.ReconValueTolerancePaisa),
+            ReconDateWindowDays = g.ReconDateWindowDays,
         };
+        // Phase 9 slice 5: preserve the exported per-state e-Way threshold overrides (fresh ids). A malformed row throws
+        // here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).
+        foreach (var t in g.EWayStateThresholds)
+            config.AddEWayStateThreshold(new EWayStateThreshold(
+                Guid.NewGuid(), t.StateCode, ParseEnum<EWayTransactionType>(t.TxnType), MoneyCodec.FromPaisa(t.ThresholdPaisa)));
         // Preserve the exported slabs (EnableGst only seeds defaults when none are present).
         foreach (var s in g.RateSlabs)
             config.AddRateSlab(new GstRateSlab(Guid.NewGuid(), s.RateBasisPoints, s.Label, s.IsPredefined));
+        // Phase 9 slice 1: preserve the exported dated rate-history + Compensation-Cess windows (fresh ids). A
+        // malformed row throws here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).
+        foreach (var h in g.RateHistory)
+            config.AddRateHistory(new GstRateHistoryEntry(
+                Guid.NewGuid(), h.HsnSac, h.RateBasisPoints, ParseEnum<GstRateClass>(h.RateClass),
+                CompanyImportService.ParseDate(h.EffectiveFrom), CompanyImportService.ParseDateOpt(h.EffectiveTo),
+                ParseEnum<GstValuationBasis>(h.ValuationBasis), h.Label, h.IsPredefined));
+        foreach (var c in g.CessRates)
+            config.AddCessRate(new GstCessRate(
+                Guid.NewGuid(), c.HsnSac, ParseEnum<CessValuationMode>(c.ValuationMode), c.CessRateBasisPoints,
+                MoneyCodec.FromPaisa(c.CessPerUnitPaisa), c.CessRspFactorMillis,
+                CompanyImportService.ParseDate(c.EffectiveFrom), CompanyImportService.ParseDateOpt(c.EffectiveTo),
+                c.Label, c.IsPredefined));
+        // Phase 9 slice 2: preserve the exported reverse-charge categories. The category id is PRESERVED (not re-minted)
+        // so a stock item / S-P ledger's RcmCategoryId link resolves after import (the config is replaced wholesale by
+        // EnableGst, so there is no collision with an existing company's categories).
+        foreach (var c in g.RcmCategories)
+            config.AddRcmCategory(new RcmCategory(
+                c.Id, c.Notification, ParseEnum<RcmStream>(c.Stream), c.SupplyNature, ParseEnum<GstSupplyType>(c.SupplyType),
+                c.HsnSac, c.RateBasisPoints, ParseEnum<RcmParty>(c.SupplierQualifier), ParseEnum<RcmParty>(c.RecipientQualifier),
+                CompanyImportService.ParseDate(c.EffectiveFrom), CompanyImportService.ParseDateOpt(c.EffectiveTo),
+                c.Label, c.IsPredefined));
         return config;
     }
 
@@ -1185,7 +1442,11 @@ internal sealed class ImportPlan
             MoneyCodec.FromPaisa(f.ForexAmountPaisa), FromMicro(f.RateMicro));
 
     private static GstLineTax? BuildGstLineTax(GstLineTaxDto? g) => g is null ? null : new GstLineTax(
-        ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa));
+        ParseEnum<GstTaxHead>(g.TaxHead), g.RateBasisPoints, MoneyCodec.FromPaisa(g.TaxableValuePaisa),
+        // Phase 9 slice 2: reverse-charge tag. Phase 9 slice 7: the set-off / reversal adjustment tag.
+        isReverseCharge: g.IsReverseCharge,
+        rcmScheme: g.RcmScheme is { } s ? ParseEnum<RcmItcScheme>(s) : null,
+        adjustment: g.Adjustment is { } adj ? ParseEnum<GstAdjustmentKind>(adj) : null);
 
     /// <summary>Rebuilds a line's payroll detail (Phase 8 slice 3), re-mapping the source employee + pay-head ids
     /// into the target company's re-minted ids so the per-employee salary breakdown reconciles across companies
@@ -1315,6 +1576,9 @@ internal sealed class ImportPlan
         RegistrationType = ParseEnum<GstRegistrationType>(p.RegistrationType),
         Gstin = p.Gstin,
         StateCode = p.StateCode,
+        // Phase 9 slice 2: reverse-charge qualifiers.
+        IsPromoter = p.IsPromoter,
+        IsBodyCorporate = p.IsBodyCorporate,
     };
 
     private static StockItemGstDetails? BuildStockItemGst(StockItemGstDto? s) => s is null ? null : new StockItemGstDetails
@@ -1323,10 +1587,27 @@ internal sealed class ImportPlan
         Taxability = ParseEnum<GstTaxability>(s.Taxability),
         RateBasisPoints = s.RateBasisPoints,
         SupplyType = ParseEnum<GstSupplyType>(s.SupplyType),
+        // Phase 9 slice 1: RSP valuation + Compensation-Cess (long? paisa → Money?).
+        ValuationBasis = ParseEnum<GstValuationBasis>(s.ValuationBasis),
+        CessApplicable = s.CessApplicable,
+        CessValuationMode = s.CessValuationMode is { } m ? ParseEnum<CessValuationMode>(m) : null,
+        CessRateBasisPoints = s.CessRateBasisPoints,
+        CessPerUnit = MoneyCodec.FromPaisaNullable(s.CessPerUnitPaisa),
+        CessRspFactorMillis = s.CessRspFactorMillis,
+        RetailSalePrice = MoneyCodec.FromPaisaNullable(s.RspPaisa),
+        // Phase 9 slice 2: reverse-charge flags. RcmCategoryId is passed through (the category id is preserved on import,
+        // see BuildGstConfig) so the item→category link resolves.
+        ReverseChargeApplicable = s.ReverseChargeApplicable,
+        GtaForwardCharge = s.GtaForwardCharge,
+        RcmCategoryId = s.RcmCategoryId,
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (default Eligible/None ⇒ byte-identical, ER-13).
+        ItcEligibility = ParseEnum<ItcEligibility>(s.ItcEligibility),
+        BlockedCreditCategory = ParseEnum<BlockedCreditCategory>(s.BlockedCreditCategory),
     };
 
     private static LedgerGstClassification? BuildGstClassification(LedgerGstClassificationDto? c) => c is null ? null
-        : new LedgerGstClassification(ParseEnum<GstTaxHead>(c.TaxHead), ParseEnum<GstTaxDirection>(c.Direction));
+        : new LedgerGstClassification(
+            ParseEnum<GstTaxHead>(c.TaxHead), ParseEnum<GstTaxDirection>(c.Direction), c.IsReverseCharge);
 
     // ---- duplicate merges ----
 
@@ -1471,4 +1752,12 @@ internal sealed class ImportPlan
     }
 
     private static TEnum ParseEnum<TEnum>(string name) where TEnum : struct, Enum => Enum.Parse<TEnum>(name);
+
+    /// <summary>Parses an optional ISO round-trip (o) <see cref="DateTimeOffset"/> (Phase 9 slice 5 e-Way generation
+    /// timestamp / validity); a malformed value throws in pre-flight ⇒ all-or-nothing (RQ-23).</summary>
+    private static DateTimeOffset? ParseDateTimeOffsetOpt(string? iso) =>
+        string.IsNullOrEmpty(iso)
+            ? null
+            : DateTimeOffset.Parse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind);
 }

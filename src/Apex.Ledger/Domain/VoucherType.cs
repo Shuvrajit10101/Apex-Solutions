@@ -139,6 +139,33 @@ public sealed class VoucherType
     /// <summary>True iff this is a Stat-Payment type — a Payment base type with <see cref="IsStatPayment"/> on.</summary>
     public bool IsStatPaymentType => BaseType == VoucherBaseType.Payment && IsStatPayment;
 
+    /// <summary>
+    /// "<b>Use for RCM Payment Voucher (Rule 52)</b>" (Phase 9 slice 2; catalog §12; RQ-8). A <b>Payment</b> voucher type
+    /// flagged to book a reverse-charge supplier payment (Dr Party / Cr Bank) that also generates the Rule-52 payment
+    /// voucher document. It reuses the Payment <see cref="BaseType"/> unchanged (mirror <see cref="IsStatPayment"/>, no
+    /// new <see cref="VoucherBaseType"/>) — so <c>GstReportSupport.DirectionOf</c> and every exhaustive base-type switch
+    /// are untouched. Defaults to <c>false</c>, so every existing Payment type is byte-identical (ER-13). Only meaningful
+    /// on a Payment base.
+    /// </summary>
+    public bool IsRcmPaymentVoucher { get; set; }
+
+    /// <summary>True iff this is an RCM Payment-Voucher type — a Payment base type with <see cref="IsRcmPaymentVoucher"/> on.</summary>
+    public bool IsRcmPaymentVoucherType => BaseType == VoucherBaseType.Payment && IsRcmPaymentVoucher;
+
+    /// <summary>
+    /// "<b>Use for GST Statutory Adjustment (Alt+J)</b>" (Phase 9 slice 7; catalog §12; RQ-21/RQ-27). A <b>Journal</b>
+    /// voucher type flagged to book a Rule-88A ITC set-off (Dr Output {head} / Cr Input {head}) or an ITC reversal
+    /// (Dr reversal-cost / Cr Input {head}) — the Tally "Alt+J Stat Adjustment" mode. It reuses the Journal
+    /// <see cref="BaseType"/> unchanged (mirror <see cref="IsStatPayment"/>, no new <see cref="VoucherBaseType"/>) — so
+    /// <c>GstReportSupport.DirectionOf</c> (Journal ⇒ null direction) keeps these adjustment vouchers OUT of the Table
+    /// 3.1 / 4(A) sums, which is exactly why an S7 posting cannot corrupt the existing GSTR-3B figures. Defaults to
+    /// <c>false</c>, so every existing Journal type is byte-identical (ER-13). Only meaningful on a Journal base.
+    /// </summary>
+    public bool IsGstStatAdjustment { get; set; }
+
+    /// <summary>True iff this is a GST Stat-Adjustment type — a Journal base type with <see cref="IsGstStatAdjustment"/> on.</summary>
+    public bool IsGstStatAdjustmentType => BaseType == VoucherBaseType.Journal && IsGstStatAdjustment;
+
     public VoucherType(
         Guid id,
         string name,
@@ -157,7 +184,9 @@ public sealed class VoucherType
         PosConfig? posConfig = null,
         bool useForJobWork = false,
         bool allowConsumption = false,
-        bool isStatPayment = false)
+        bool isStatPayment = false,
+        bool isRcmPaymentVoucher = false,
+        bool isGstStatAdjustment = false)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -180,5 +209,7 @@ public sealed class VoucherType
         UseForJobWork = useForJobWork;
         AllowConsumption = allowConsumption;
         IsStatPayment = isStatPayment;
+        IsRcmPaymentVoucher = isRcmPaymentVoucher;
+        IsGstStatAdjustment = isGstStatAdjustment;
     }
 }

@@ -40,6 +40,18 @@ internal sealed class ApplyJournal
     private readonly List<ChallanVoucherLink> _challanVoucherLinks = new();
     private readonly List<TcsChallan> _tcsChallans = new();
     private readonly List<ChallanVoucherLink> _tcsChallanVoucherLinks = new();
+    private readonly List<RcmDocument> _rcmDocuments = new();
+    private readonly List<EInvoiceRecord> _eInvoiceRecords = new();
+    private readonly List<EWayBillRecord> _eWayBillRecords = new();
+    private readonly List<GstCreditDebitNoteLink> _cdnLinks = new();
+    private readonly List<GstAdvanceReceipt> _advanceReceipts = new();
+    private readonly List<Gstr2bSnapshot> _gstr2bSnapshots = new();
+    private readonly List<Gstr2bReconResult> _gstr2bReconResults = new();
+    private readonly List<ImsAction> _imsActions = new();
+    private readonly List<GstSetoffLine> _gstSetoffLines = new();
+    private readonly List<ItcReversal> _itcReversals = new();
+    private readonly List<GstChallan> _gstChallans = new();
+    private readonly List<GstDrc03> _gstDrc03s = new();
     private readonly List<EmployeeCategory> _employeeCategories = new();
     private readonly List<EmployeeGroup> _employeeGroups = new();
     private readonly List<Employee> _employees = new();
@@ -106,6 +118,18 @@ internal sealed class ApplyJournal
     public void RecordChallanVoucherLink(ChallanVoucherLink l) => _challanVoucherLinks.Add(l);
     public void RecordTcsChallan(TcsChallan ch) => _tcsChallans.Add(ch);
     public void RecordTcsChallanVoucherLink(ChallanVoucherLink l) => _tcsChallanVoucherLinks.Add(l);
+    public void RecordRcmDocument(RcmDocument d) => _rcmDocuments.Add(d);
+    public void RecordEInvoiceRecord(EInvoiceRecord r) => _eInvoiceRecords.Add(r);
+    public void RecordEWayBillRecord(EWayBillRecord r) => _eWayBillRecords.Add(r);
+    public void RecordCreditDebitNoteLink(GstCreditDebitNoteLink l) => _cdnLinks.Add(l);
+    public void RecordAdvanceReceipt(GstAdvanceReceipt a) => _advanceReceipts.Add(a);
+    public void RecordGstr2bSnapshot(Gstr2bSnapshot s) => _gstr2bSnapshots.Add(s);
+    public void RecordGstr2bReconResult(Gstr2bReconResult r) => _gstr2bReconResults.Add(r);
+    public void RecordImsAction(ImsAction a) => _imsActions.Add(a);
+    public void RecordGstSetoffLine(GstSetoffLine l) => _gstSetoffLines.Add(l);
+    public void RecordItcReversal(ItcReversal r) => _itcReversals.Add(r);
+    public void RecordGstChallan(GstChallan ch) => _gstChallans.Add(ch);
+    public void RecordGstDrc03(GstDrc03 d) => _gstDrc03s.Add(d);
     public void RecordEmployeeCategory(EmployeeCategory x) => _employeeCategories.Add(x);
     public void RecordEmployeeGroup(EmployeeGroup x) => _employeeGroups.Add(x);
     public void RecordEmployee(Employee x) => _employees.Add(x);
@@ -188,6 +212,24 @@ internal sealed class ApplyJournal
         for (var i = _tdsChallans.Count - 1; i >= 0; i--) _company.RemoveTdsChallan(_tdsChallans[i]);
         for (var i = _tcsChallanVoucherLinks.Count - 1; i >= 0; i--) _company.RemoveTcsChallanVoucherLink(_tcsChallanVoucherLinks[i]);
         for (var i = _tcsChallans.Count - 1; i >= 0; i--) _company.RemoveTcsChallan(_tcsChallans[i]);
+        // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts — remove before the
+        // vouchers they reference are removed below.
+        for (var i = _rcmDocuments.Count - 1; i >= 0; i--) _company.RemoveRcmDocument(_rcmDocuments[i]);
+        for (var i = _eInvoiceRecords.Count - 1; i >= 0; i--) _company.RemoveEInvoiceRecord(_eInvoiceRecords[i]);
+        for (var i = _eWayBillRecords.Count - 1; i >= 0; i--) _company.RemoveEWayBillRecord(_eWayBillRecords[i]);
+        for (var i = _cdnLinks.Count - 1; i >= 0; i--) _company.RemoveCreditDebitNoteLink(_cdnLinks[i]);
+        for (var i = _advanceReceipts.Count - 1; i >= 0; i--) _company.RemoveAdvanceReceipt(_advanceReceipts[i]);
+        // Phase 9 slice 6: GSTR-2B reconciliation results + IMS decisions reference the imported lines → prune before the
+        // snapshots (which own the lines) below.
+        for (var i = _imsActions.Count - 1; i >= 0; i--) _company.RemoveImsAction(_imsActions[i]);
+        for (var i = _gstr2bReconResults.Count - 1; i >= 0; i--) _company.RemoveGstr2bReconResult(_gstr2bReconResults[i]);
+        for (var i = _gstr2bSnapshots.Count - 1; i >= 0; i--) _company.RemoveGstr2bSnapshot(_gstr2bSnapshots[i]);
+        // Phase 9 slice 7: electronic-ledger records reference the imported vouchers (and each other: itc_reversals →
+        // gst_drc03) → prune reversals first, then set-off lines / challans / drc03, all before the vouchers below.
+        for (var i = _itcReversals.Count - 1; i >= 0; i--) _company.RemoveItcReversal(_itcReversals[i]);
+        for (var i = _gstSetoffLines.Count - 1; i >= 0; i--) _company.RemoveGstSetoffLine(_gstSetoffLines[i]);
+        for (var i = _gstChallans.Count - 1; i >= 0; i--) _company.RemoveGstChallan(_gstChallans[i]);
+        for (var i = _gstDrc03s.Count - 1; i >= 0; i--) _company.RemoveGstDrc03(_gstDrc03s[i]);
 
         // 1) Vouchers first (reverse posting order): inventory/order vouchers, then accounting vouchers.
         for (var i = _inventoryVouchers.Count - 1; i >= 0; i--) _company.RemoveInventoryVoucher(_inventoryVouchers[i]);

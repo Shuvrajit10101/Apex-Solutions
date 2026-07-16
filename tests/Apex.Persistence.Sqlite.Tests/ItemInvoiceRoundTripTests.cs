@@ -287,6 +287,58 @@ public sealed class ItemInvoiceRoundTripTests
         // (the companies rebuild below strips the v36 salary_tds_enabled column back to the v12 shape).
         Exec(conn, "DROP INDEX IF EXISTS ix_employee_tax_declarations_company;");
         Exec(conn, "DROP TABLE IF EXISTS employee_tax_declarations;");
+        // v38 GST 2.0 rate-history + Compensation-Cess tables (+ their indexes) — drop so the reopen's v37→v38 CREATE
+        // TABLE does not collide (the stock_items/ledgers rebuild in DowngradeStripV13 strips the v38 columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_rate_history_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_rate_history;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_cess_rates_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_cess_rates;");
+        // v39 RCM category + document + §34-CDN + advance tables (+ their indexes) — drop so the reopen's v38→v39 CREATE
+        // TABLE does not collide (the stock_items/ledgers/entry_lines/voucher_types rebuild below strips the v39 columns).
+        Exec(conn, "DROP INDEX IF EXISTS ix_rcm_categories_company;");
+        Exec(conn, "DROP TABLE IF EXISTS rcm_categories;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_rcm_documents_company;");
+        Exec(conn, "DROP TABLE IF EXISTS rcm_documents;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_cdn_links_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_cdn_links;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_advance_receipts_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_advance_receipts;");
+        // v41 e-invoice IRP-artefact table (+ its index) — drop so the reopen's v40→v41 CREATE TABLE does not collide
+        // (the companies rebuild in DowngradeStripV13 strips the v41 e-invoice/B2C/mode/nic_*_enc columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_einvoice_records_company;");
+        Exec(conn, "DROP TABLE IF EXISTS einvoice_records;");
+        // v42 e-Way Bill tables (+ indexes) — drop so the reopen's v41→v42 CREATE TABLE does not collide (the companies
+        // rebuild strips the v42 eway_* config columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_eway_bills_company;");
+        Exec(conn, "DROP TABLE IF EXISTS eway_bills;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_eway_state_thresholds_company;");
+        Exec(conn, "DROP TABLE IF EXISTS eway_state_thresholds;");
+        // v44 GST set-off / reversal / challan / DRC-03 tables (+ indexes) — drop (child-first: itc_reversals FKs
+        // gst_drc03 + gstr2b_lines) so the reopen's v43→v44 CREATE TABLE does not collide (the entry_lines/voucher_types
+        // rebuilds strip the v44 gst_adjustment_kind / is_gst_stat_adjustment columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_itc_reversals_company;");
+        Exec(conn, "DROP INDEX IF EXISTS ux_itc_reversals_key;");
+        Exec(conn, "DROP TABLE IF EXISTS itc_reversals;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_drc03_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_drc03;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_challans_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_challans;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_setoff_lines_voucher;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gst_setoff_lines_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gst_setoff_lines;");
+        // v43 GSTR-2B inbound tables (+ indexes) — drop (child-first) so the reopen's v42→v43 CREATE TABLE does not
+        // collide (the stock_items/ledgers rebuild in DowngradeStripV13 strips the v43 §17(5) columns too).
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_recon_line;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_recon_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gstr2b_recon;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_ims_status_line;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_ims_status_company;");
+        Exec(conn, "DROP TABLE IF EXISTS ims_status;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_lines_snapshot;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_lines_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gstr2b_lines;");
+        Exec(conn, "DROP INDEX IF EXISTS ix_gstr2b_snapshots_company;");
+        Exec(conn, "DROP TABLE IF EXISTS gstr2b_snapshots;");
         // v31 Pay-head / salary-structure tables — drop (child-first) so the reopen's v30→v31 CREATE TABLE does not collide.
         Exec(conn, "DROP TABLE IF EXISTS payroll_lines;");
         Exec(conn, "DROP TABLE IF EXISTS attendance_entries;");

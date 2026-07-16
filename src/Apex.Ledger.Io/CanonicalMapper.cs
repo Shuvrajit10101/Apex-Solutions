@@ -16,9 +16,9 @@ public static class CanonicalMapper
     /// <summary>The canonical envelope format version — bump on any breaking shape change.</summary>
     public const int FormatVersion = 1;
 
-    /// <summary>The persistence schema version this export targets (SQLite schema v37). Metadata only — the canonical
+    /// <summary>The persistence schema version this export targets (SQLite schema v38). Metadata only — the canonical
     /// round-trip is faithful regardless and this constant is not validated on import.</summary>
-    public const int SchemaVersion = 37;
+    public const int SchemaVersion = 38;
 
     /// <summary>The scale forex amounts and rates are captured at (× 1,000,000 = "micros"), mirroring the SQLite
     /// store, so a non-round rate round-trips exactly with no binary float.</summary>
@@ -26,6 +26,11 @@ public static class CanonicalMapper
 
     private static string Iso(DateOnly d) => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     private static string? Iso(DateOnly? d) => d is { } v ? Iso(v) : null;
+
+    /// <summary>ISO-8601 round-trip (o) for a portal <see cref="DateTimeOffset"/> — preserves the offset so it round-trips
+    /// byte-stably (Phase 9 slice 5 e-Way generation timestamp / validity).</summary>
+    private static string? IsoDateTimeOffset(DateTimeOffset? dto) =>
+        dto is { } v ? v.ToString("o", CultureInfo.InvariantCulture) : null;
 
     /// <summary>Exact rate → integer micros (rate × 1,000,000); throws if the rate carries a sub-micro tail.</summary>
     private static long ToMicro(decimal rate)
@@ -220,6 +225,146 @@ public static class CanonicalMapper
         TcsChallanVoucherLinks = c.TcsChallanVoucherLinks
             .OrderBy(l => l.ChallanId).ThenBy(l => l.VoucherId)
             .Select(l => new ChallanVoucherLinkDto { ChallanId = l.ChallanId, VoucherId = l.VoucherId }).ToList(),
+        // Phase 9 slice 2: RCM generated documents + §34-CDN links + GST-on-advance receipts (ordered by id so stable).
+        RcmDocuments = c.RcmDocuments.OrderBy(d => d.Id).Select(MapRcmDocument).ToList(),
+        // Phase 9 slice 4a: e-invoice IRP artefacts (deterministic order: source voucher, then id).
+        EInvoiceRecords = c.EInvoiceRecords.OrderBy(r => r.SourceVoucherId).ThenBy(r => r.Id).Select(MapEInvoiceRecord).ToList(),
+        // Phase 9 slice 5: e-Way Bill artefacts (deterministic order: source voucher, then id).
+        EWayBillRecords = c.EWayBillRecords.OrderBy(r => r.SourceVoucherId).ThenBy(r => r.Id).Select(MapEWayBillRecord).ToList(),
+        CreditDebitNoteLinks = c.CreditDebitNoteLinks.OrderBy(l => l.Id).Select(MapCdnLink).ToList(),
+        AdvanceReceipts = c.AdvanceReceipts.OrderBy(a => a.Id).Select(MapAdvanceReceipt).ToList(),
+        // Phase 9 slice 6: imported GSTR-2B/2A snapshots (ordered by period, import instant, then id so stable) + the
+        // persisted reconciliation results (ordered by line, then id).
+        Gstr2bSnapshots = c.Gstr2bSnapshots
+            .OrderBy(s => s.ReturnPeriod, StringComparer.Ordinal).ThenBy(s => s.ImportedAt).ThenBy(s => s.Id)
+            .Select(MapGstr2bSnapshot).ToList(),
+        Gstr2bReconResults = c.Gstr2bReconResults
+            .OrderBy(r => r.LineId).ThenBy(r => r.Id).Select(MapGstr2bReconResult).ToList(),
+        // Phase 9 slice 6b: offline IMS decisions (ordered by line, then id so stable).
+        ImsActions = c.ImsActions
+            .OrderBy(a => a.LineId).ThenBy(a => a.Id).Select(MapImsAction).ToList(),
+        // Phase 9 slice 7: electronic-ledger set-off / reversal / challan / DRC-03 records, each deterministically
+        // ordered so serialisation is byte-stable (setoff-lines by period/voucher/heads; reversals by rule/period;
+        // challans by deposit date; DRC-03 by period).
+        GstSetoffLines = c.GstSetoffLines
+            .OrderBy(l => l.Period, StringComparer.Ordinal).ThenBy(l => l.VoucherId)
+            .ThenBy(l => (int)l.CreditHead).ThenBy(l => (int)l.LiabilityHead).ThenBy(l => l.Id)
+            .Select(MapGstSetoffLine).ToList(),
+        ItcReversals = c.ItcReversals
+            .OrderBy(r => (int)r.Rule).ThenBy(r => r.Period, StringComparer.Ordinal).ThenBy(r => r.Id)
+            .Select(MapItcReversal).ToList(),
+        GstChallans = c.GstChallans
+            .OrderBy(ch => ch.DepositDate).ThenBy(ch => ch.Id).Select(MapGstChallan).ToList(),
+        GstDrc03s = c.GstDrc03s
+            .OrderBy(d => d.Period, StringComparer.Ordinal).ThenBy(d => d.Id).Select(MapGstDrc03).ToList(),
+    };
+
+    private static GstSetoffLineDto MapGstSetoffLine(GstSetoffLine l) => new()
+    {
+        Id = l.Id, VoucherId = l.VoucherId, Period = l.Period, CreditHead = l.CreditHead.ToString(),
+        LiabilityHead = l.LiabilityHead.ToString(), IsCash = l.IsCash, AmountPaisa = l.AmountPaisa,
+    };
+
+    private static ItcReversalDto MapItcReversal(ItcReversal r) => new()
+    {
+        Id = r.Id, Rule = r.Rule.ToString(), Period = r.Period, CgstPaisa = r.CgstPaisa, SgstPaisa = r.SgstPaisa,
+        IgstPaisa = r.IgstPaisa, CessPaisa = r.CessPaisa, D1BasisPaisa = r.D1BasisPaisa, D2BasisPaisa = r.D2BasisPaisa,
+        SourceVoucherId = r.SourceVoucherId, SourceLineId = r.SourceLineId, ReversalVoucherId = r.ReversalVoucherId,
+        ReclaimOfId = r.ReclaimOfId, Drc03Id = r.Drc03Id, Table4bBucket = r.Table4bBucket.ToString(),
+        CreatedAt = r.CreatedAt.ToString("o", CultureInfo.InvariantCulture),
+    };
+
+    private static GstChallanDto MapGstChallan(GstChallan ch) => new()
+    {
+        Id = ch.Id, Cpin = ch.Cpin, Cin = ch.Cin, Brn = ch.Brn, DepositDate = Iso(ch.DepositDate),
+        MajorHead = ch.MajorHead.ToString(), MinorHead = ch.MinorHead.ToString(),
+        AmountPaisa = MoneyCodec.ToPaisa(ch.Amount), VoucherId = ch.VoucherId, InterestFlag = ch.InterestFlag,
+    };
+
+    private static GstDrc03Dto MapGstDrc03(GstDrc03 d) => new()
+    {
+        Id = d.Id, Drc03Ref = d.Drc03Ref, Cause = d.Cause, Period = d.Period, CgstPaisa = d.CgstPaisa,
+        SgstPaisa = d.SgstPaisa, IgstPaisa = d.IgstPaisa, CessPaisa = d.CessPaisa, InterestPaisa = d.InterestPaisa,
+        Drc03aDemandRef = d.Drc03aDemandRef, VoucherId = d.VoucherId,
+        CreatedAt = d.CreatedAt.ToString("o", CultureInfo.InvariantCulture),
+    };
+
+    private static Gstr2bSnapshotDto MapGstr2bSnapshot(Gstr2bSnapshot s) => new()
+    {
+        Id = s.Id, StatementType = s.StatementType.ToString(), ReturnPeriod = s.ReturnPeriod,
+        RecipientGstin = s.RecipientGstin, GeneratedOn = Iso(s.GeneratedOn), SourceFileHash = s.SourceFileHash,
+        ImportedAt = s.ImportedAt.ToString("o", CultureInfo.InvariantCulture),
+        SummaryIgstPaisa = s.SummaryIgstPaisa, SummaryCgstPaisa = s.SummaryCgstPaisa,
+        SummarySgstPaisa = s.SummarySgstPaisa, SummaryCessPaisa = s.SummaryCessPaisa,
+        Lines = s.Lines.OrderBy(l => l.Id).Select(MapGstr2bLine).ToList(),
+    };
+
+    private static Gstr2bLineDto MapGstr2bLine(Gstr2bLine l) => new()
+    {
+        Id = l.Id, SupplierGstin = l.SupplierGstin, SupplierTradeName = l.SupplierTradeName,
+        DocType = l.DocType.ToString(), DocNumber = l.DocNumber, DocNumberNorm = l.DocNumberNorm,
+        DocDate = Iso(l.DocDate), PosStateCode = l.PosStateCode, TaxableValuePaisa = l.TaxableValuePaisa,
+        IgstPaisa = l.IgstPaisa, CgstPaisa = l.CgstPaisa, SgstPaisa = l.SgstPaisa, CessPaisa = l.CessPaisa,
+        ItcAvailable = l.ItcAvailable, ItcUnavailableReason = l.ItcUnavailableReason, ReverseCharge = l.ReverseCharge,
+    };
+
+    private static Gstr2bReconResultDto MapGstr2bReconResult(Gstr2bReconResult r) => new()
+    {
+        Id = r.Id, LineId = r.LineId, Bucket = r.Bucket.ToString(), MatchedVoucherId = r.MatchedVoucherId,
+        TaxableVariancePaisa = r.TaxableVariancePaisa, TaxVariancePaisa = r.TaxVariancePaisa,
+        MatchPinned = r.MatchPinned, ReconciledAt = IsoDateTimeOffset(r.ReconciledAt),
+    };
+
+    private static ImsActionDto MapImsAction(ImsAction a) => new()
+    {
+        Id = a.Id, LineId = a.LineId, Status = a.Status.ToString(), Remarks = a.Remarks,
+        DeclaredReversalPaisa = a.DeclaredReversalPaisa, NoReversalDeclared = a.NoReversalDeclared,
+        ActedOn = Iso(a.ActedOn),
+    };
+
+    private static RcmDocumentDto MapRcmDocument(RcmDocument d) => new()
+    {
+        Id = d.Id, Kind = d.Kind.ToString(), SourceVoucherId = d.SourceVoucherId,
+        SeriesNumber = d.SeriesNumber, DocDate = Iso(d.DocDate), SupplierLedgerId = d.SupplierLedgerId,
+    };
+
+    private static EInvoiceRecordDto MapEInvoiceRecord(EInvoiceRecord r) => new()
+    {
+        Id = r.Id, SourceVoucherId = r.SourceVoucherId, DocumentNumberUpper = r.DocumentNumberUpper,
+        Status = r.Status.ToString(), Irn = r.Irn, AckNo = r.AckNo, AckDate = Iso(r.AckDate), SignedQr = r.SignedQr,
+        SignedJsonBase64 = r.SignedJson is { } b ? Convert.ToBase64String(b) : null,
+        CancelledOn = Iso(r.CancelledOn), CancelReasonCode = r.CancelReasonCode,
+        ErrorCode = r.ErrorCode, ErrorMessage = r.ErrorMessage,
+    };
+
+    private static EWayBillRecordDto MapEWayBillRecord(EWayBillRecord r) => new()
+    {
+        Id = r.Id, SourceVoucherId = r.SourceVoucherId, DocumentNumberUpper = r.DocumentNumberUpper,
+        Status = r.Status.ToString(), SupplyType = r.SupplyType, SubSupplyType = r.SubSupplyType, DocType = r.DocType,
+        ConsignmentValuePaisa = r.ConsignmentValuePaisa, TransporterId = r.TransporterId,
+        TransMode = r.Mode?.ToString(), VehicleNumber = r.VehicleNumber, DistanceKm = r.DistanceKm,
+        TransportDocNo = r.TransportDocNo, ShipFromStateCode = r.ShipFromStateCode, ShipToStateCode = r.ShipToStateCode,
+        IsOverDimensionalCargo = r.IsOverDimensionalCargo, ShipToGstin = r.ShipToGstin,
+        ClosureRequested = r.ClosureRequested, ClosedOn = Iso(r.ClosedOn),
+        EwbNumber = r.EwbNumber, GeneratedAt = IsoDateTimeOffset(r.GeneratedAt), ValidUpto = IsoDateTimeOffset(r.ValidUpto),
+        CancelledOn = Iso(r.CancelledOn), CancelReasonCode = r.CancelReasonCode,
+        ErrorCode = r.ErrorCode, ErrorMessage = r.ErrorMessage,
+    };
+
+    private static GstCdnLinkDto MapCdnLink(GstCreditDebitNoteLink l) => new()
+    {
+        Id = l.Id, CdnVoucherId = l.CdnVoucherId, CdnType = l.CdnType.ToString(),
+        OriginalInvoiceVoucherId = l.OriginalInvoiceVoucherId, OriginalInvoiceNumber = l.OriginalInvoiceNumber,
+        OriginalInvoiceDate = Iso(l.OriginalInvoiceDate), ReasonCode = l.ReasonCode, Is9BTarget = l.Is9BTarget,
+    };
+
+    private static GstAdvanceReceiptDto MapAdvanceReceipt(GstAdvanceReceipt a) => new()
+    {
+        Id = a.Id, ReceiptVoucherId = a.ReceiptVoucherId, IsService = a.IsService,
+        AdvanceAmountPaisa = MoneyCodec.ToPaisa(a.AdvanceAmount), RateBasisPoints = a.RateBasisPoints,
+        InterState = a.InterState, PlaceOfSupplyStateCode = a.PlaceOfSupplyStateCode,
+        AdvanceTaxPaisa = MoneyCodec.ToPaisa(a.AdvanceTax),
+        AdjustedAgainstInvoiceVoucherId = a.AdjustedAgainstInvoiceVoucherId, RefundVoucherId = a.RefundVoucherId,
     };
 
     private static TdsChallanDto MapTdsChallan(TdsChallan ch) => new()
@@ -443,6 +588,8 @@ public static class CanonicalMapper
         UseForJobWork = t.UseForJobWork,
         AllowConsumption = t.AllowConsumption,
         IsStatPayment = t.IsStatPayment,
+        IsRcmPaymentVoucher = t.IsRcmPaymentVoucher,
+        IsGstStatAdjustment = t.IsGstStatAdjustment, // Phase 9 slice 7
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
 
@@ -567,22 +714,100 @@ public static class CanonicalMapper
             {
                 Id = s.Id, RateBasisPoints = s.RateBasisPoints, Label = s.Label, IsPredefined = s.IsPredefined,
             }).ToList(),
+        // Phase 9 slice 1: order deterministically so the byte stream is stable regardless of insertion order.
+        RateHistory = g.RateHistory
+            .OrderBy(h => h.EffectiveFrom).ThenBy(h => h.HsnSac ?? "").ThenBy(h => h.RateBasisPoints).ThenBy(h => h.Id)
+            .Select(h => new GstRateHistoryDto
+            {
+                Id = h.Id, HsnSac = h.HsnSac, RateBasisPoints = h.RateBasisPoints, RateClass = h.RateClass.ToString(),
+                EffectiveFrom = Iso(h.EffectiveFrom), EffectiveTo = Iso(h.EffectiveTo),
+                ValuationBasis = h.ValuationBasis.ToString(), Label = h.Label, IsPredefined = h.IsPredefined,
+            }).ToList(),
+        CessRates = g.CessRates
+            .OrderBy(c => c.EffectiveFrom).ThenBy(c => c.HsnSac ?? "").ThenBy(c => (int)c.ValuationMode).ThenBy(c => c.Id)
+            .Select(c => new GstCessRateDto
+            {
+                Id = c.Id, HsnSac = c.HsnSac, ValuationMode = c.ValuationMode.ToString(),
+                CessRateBasisPoints = c.CessRateBasisPoints, CessPerUnitPaisa = MoneyCodec.ToPaisa(c.CessPerUnit),
+                CessRspFactorMillis = c.CessRspFactorMillis, EffectiveFrom = Iso(c.EffectiveFrom),
+                EffectiveTo = Iso(c.EffectiveTo), Label = c.Label, IsPredefined = c.IsPredefined,
+            }).ToList(),
+        // Phase 9 slice 2: reverse-charge categories, ordered deterministically so the byte stream is stable.
+        RcmCategories = g.RcmCategories
+            .OrderBy(c => c.EffectiveFrom).ThenBy(c => c.Notification, StringComparer.Ordinal)
+            .ThenBy(c => c.SupplyNature, StringComparer.Ordinal).ThenBy(c => c.Id)
+            .Select(c => new RcmCategoryDto
+            {
+                Id = c.Id, Notification = c.Notification, Stream = c.Stream.ToString(),
+                SupplyNature = c.SupplyNature, SupplyType = c.SupplyType.ToString(), HsnSac = c.HsnSac,
+                RateBasisPoints = c.RateBasisPoints, SupplierQualifier = c.SupplierQualifier.ToString(),
+                RecipientQualifier = c.RecipientQualifier.ToString(), EffectiveFrom = Iso(c.EffectiveFrom),
+                EffectiveTo = Iso(c.EffectiveTo), Label = c.Label, IsPredefined = c.IsPredefined,
+            }).ToList(),
+        // Phase 9 slice 3: composition sub-type + opt-in date (null for a Regular company ⇒ byte-identical, ER-13).
+        CompositionSubType = g.CompositionSubType?.ToString(),
+        CompositionOptInDate = Iso(g.CompositionOptInDate),
+        // Phase 9 slice 4a: NON-SECRET e-invoice / B2C-QR / connector-mode config (defaults ⇒ byte-identical when off,
+        // ER-13). No NIC credential is mapped — it flows only through INicCredentialStore (ER-16), so this mapper cannot
+        // serialise a secret even by mistake.
+        EInvoicingEnabled = g.EInvoicingEnabled,
+        EInvoiceApplicableFrom = Iso(g.EInvoiceApplicableFrom),
+        EInvoiceAatoThresholdPaisa = MoneyCodec.ToPaisa(g.EInvoiceAatoThreshold),
+        EInvoiceApplicabilityOverride = g.EInvoiceApplicabilityOverride,
+        EInvoiceExemptionClasses = g.ExemptionClasses.ToString(),
+        EInvoiceReportingAgeApplies = g.ReportingAgeLimitApplies,
+        ConnectorMode = g.ConnectorMode.ToString(),
+        B2cDynamicQrEnabled = g.B2cDynamicQrEnabled,
+        B2cQrAatoThresholdPaisa = MoneyCodec.ToPaisa(g.B2cQrAatoThreshold),
+        B2cQrUpiId = g.B2cQrUpiId,
+        B2cQrPayeeName = g.B2cQrPayeeName,
+        // Phase 9 slice 5: NON-SECRET e-Way Bill config + per-state overrides (defaults ⇒ byte-identical when off,
+        // ER-13). No NIC credential is mapped — the live path reuses ConnectorMode + INicCredentialStore (ER-16).
+        EWayBillEnabled = g.EWayBillEnabled,
+        EWayApplicableFrom = Iso(g.EWayApplicableFrom),
+        EWayThresholdPaisa = MoneyCodec.ToPaisa(g.EWayThreshold),
+        ConsignmentBasis = g.ConsignmentBasis.ToString(),
+        EWayIntraStateApplicable = g.EWayIntraStateApplicable,
+        EWayStateThresholds = g.EWayStateThresholds
+            .OrderBy(t => t.StateCode, StringComparer.Ordinal).ThenBy(t => (int)t.TxnType).ThenBy(t => t.Id)
+            .Select(t => new EWayStateThresholdDto
+            {
+                Id = t.Id, StateCode = t.StateCode, TxnType = t.TxnType.ToString(),
+                ThresholdPaisa = MoneyCodec.ToPaisa(t.Threshold),
+            }).ToList(),
+        // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
+        ReconValueTolerancePaisa = MoneyCodec.ToPaisa(g.ReconValueTolerance),
+        ReconDateWindowDays = g.ReconDateWindowDays,
     };
 
     private static PartyGstDto MapPartyGst(PartyGstDetails p) => new()
     {
         RegistrationType = p.RegistrationType.ToString(), Gstin = p.Gstin, StateCode = p.StateCode,
+        // Phase 9 slice 2: reverse-charge qualifiers.
+        IsPromoter = p.IsPromoter, IsBodyCorporate = p.IsBodyCorporate,
     };
 
     private static StockItemGstDto MapStockItemGst(StockItemGstDetails s) => new()
     {
         HsnSac = s.HsnSac, Taxability = s.Taxability.ToString(),
         RateBasisPoints = s.RateBasisPoints, SupplyType = s.SupplyType.ToString(),
+        // Phase 9 slice 1: GST 2.0 RSP valuation + cess (Money? → long? paisa).
+        ValuationBasis = s.ValuationBasis.ToString(), CessApplicable = s.CessApplicable,
+        CessValuationMode = s.CessValuationMode?.ToString(), CessRateBasisPoints = s.CessRateBasisPoints,
+        CessPerUnitPaisa = MoneyCodec.ToPaisa(s.CessPerUnit), CessRspFactorMillis = s.CessRspFactorMillis,
+        RspPaisa = MoneyCodec.ToPaisa(s.RetailSalePrice),
+        // Phase 9 slice 2: reverse-charge flags.
+        ReverseChargeApplicable = s.ReverseChargeApplicable, GtaForwardCharge = s.GtaForwardCharge,
+        RcmCategoryId = s.RcmCategoryId,
+        // Phase 9 slice 6b: §17(5) ITC-eligibility (enum names; default Eligible/None ⇒ byte-identical, ER-13).
+        ItcEligibility = s.ItcEligibility.ToString(), BlockedCreditCategory = s.BlockedCreditCategory.ToString(),
     };
 
     private static LedgerGstClassificationDto MapGstClassification(LedgerGstClassification c) => new()
     {
         TaxHead = c.TaxHead.ToString(), Direction = c.Direction.ToString(),
+        // Phase 9 slice 2: the RCM Output-ledger discriminator.
+        IsReverseCharge = c.IsReverseCharge,
     };
 
     // ------------------------------------------------------------- tds / tcs value objects (Phase 7 slice 1)
@@ -713,6 +938,9 @@ public static class CanonicalMapper
     {
         TaxHead = g.TaxHead.ToString(), RateBasisPoints = g.RateBasisPoints,
         TaxableValuePaisa = MoneyCodec.ToPaisa(g.TaxableValue),
+        // Phase 9 slice 2: reverse-charge tag. Phase 9 slice 7: the set-off / reversal adjustment tag.
+        IsReverseCharge = g.IsReverseCharge, RcmScheme = g.RcmScheme?.ToString(),
+        Adjustment = g.Adjustment?.ToString(),
     };
 
     private static VoucherInventoryLineDto MapVoucherInventoryLine(VoucherInventoryLine l) => new()

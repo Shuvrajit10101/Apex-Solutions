@@ -69,6 +69,14 @@ public sealed class GratuityPopulationOption
     public string Display { get; init; } = string.Empty;
 }
 
+/// <summary>A composition sub-type picker option (Phase 9 slice 3; RQ-4): the §10 / Rule 7 dealer kind that drives the
+/// tax-on-turnover rate + turnover base (Manufacturer / Trader / Restaurant / §10(2A) Service Provider) + its label.</summary>
+public sealed class CompositionSubTypeOption
+{
+    public CompositionSubType Value { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
 /// <summary>
 /// The company-level GST configuration screen ("F11 Features → GST"; Statutory → GST; catalog §12; phase4
 /// slice 4c). Toggles GST on/off for the current company and, when enabling, captures the GSTIN (validated
@@ -359,11 +367,55 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The chosen Home State/UT (supplier place-of-supply); required on Enable.</summary>
     [ObservableProperty] private IndianStateOption? _homeState;
 
-    /// <summary>The chosen registration type (Regular is the working type in Phase 4).</summary>
+    /// <summary>The chosen registration type (Regular is the working type in Phase 4; Composition works from Phase 9).</summary>
     [ObservableProperty] private GstRegistrationTypeOption? _registrationType;
 
     /// <summary>The chosen GSTR-1 (and paired 3B) return periodicity.</summary>
     [ObservableProperty] private GstPeriodicityOption? _periodicity;
+
+    // ---- Composition scheme (Phase 9 slice 3; §10 + Rule 7; RQ-4) --------------------------------------------
+    // Only meaningful (and only shown) while RegistrationType is Composition. The sub-type drives the tax-on-turnover
+    // rate + turnover base; the opt-in date (CMP-02) is advisory. Persisted onto GstConfig by Apply(); a Regular
+    // company leaves both null and is byte-identical (ER-13).
+
+    /// <summary>The composition sub-type (Manufacturer / Trader / Restaurant / §10(2A) Service Provider). Non-null once
+    /// GST is enabled; only written to the config when <see cref="IsComposition"/>.</summary>
+    [ObservableProperty] private CompositionSubTypeOption? _selectedCompositionSubType;
+
+    /// <summary>The date the dealer opted into composition (CMP-02; advisory) — ISO yyyy-MM-dd; blank ⇒ unset.</summary>
+    [ObservableProperty] private string _compositionOptInDateText = string.Empty;
+
+    /// <summary>The composition sub-type options (Manufacturer / Trader / Restaurant / §10(2A) Service Provider).</summary>
+    public ObservableCollection<CompositionSubTypeOption> CompositionSubTypes { get; } = new();
+
+    /// <summary>True iff the chosen registration type is Composition — drives the composition block's visibility.</summary>
+    public bool IsComposition => RegistrationType?.Value == GstRegistrationType.Composition;
+
+    /// <summary>The advisory resolved tax-on-turnover rate + turnover base for the selected sub-type (never a posting
+    /// gate — a composition dealer posts no tax; this is guidance only).</summary>
+    public string CompositionRateText
+    {
+        get
+        {
+            if (SelectedCompositionSubType?.Value is not { } st) return "Select a composition sub-type to see the rate.";
+            var bp = CompositionThreshold.RateBasisPoints(st);
+            var basis = CompositionThreshold.TaxesTotalTurnover(st)
+                ? "total turnover in State/UT (incl. exempt)"
+                : "taxable supplies only";
+            return $"Tax on turnover {bp / 100m:0.##}%  (CGST {bp / 200m:0.##}% + SGST {bp / 200m:0.##}%) on {basis}.";
+        }
+    }
+
+    /// <summary>The advisory preceding-FY aggregate-turnover eligibility threshold for the selected sub-type + home state.</summary>
+    public string CompositionThresholdText
+    {
+        get
+        {
+            if (SelectedCompositionSubType?.Value is not { } st) return string.Empty;
+            var t = CompositionThreshold.Threshold(st, HomeState?.Code);
+            return $"Eligibility ≤ ₹{IndianFormat.RupeesAlways(t.Amount)} aggregate turnover (preceding FY).";
+        }
+    }
 
     [ObservableProperty] private string? _message;
 
@@ -468,6 +520,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         GratuityPopulations.Add(new GratuityPopulationOption { Value = GratuityProvisionPopulation.AllActiveEmployees, Display = "All active employees (accrue pre-vesting)" });
         GratuityPopulations.Add(new GratuityPopulationOption { Value = GratuityProvisionPopulation.VestedOnly, Display = "Vested only (≥ 5 years' service)" });
 
+        // Composition sub-type picker (Phase 9 slice 3; §10 + Rule 7) — the four dealer kinds + their rate/base.
+        CompositionSubTypes.Add(new CompositionSubTypeOption { Value = CompositionSubType.Manufacturer, Display = "Manufacturer — 1% on total turnover" });
+        CompositionSubTypes.Add(new CompositionSubTypeOption { Value = CompositionSubType.Trader, Display = "Trader / other goods — 1% on taxable supplies" });
+        CompositionSubTypes.Add(new CompositionSubTypeOption { Value = CompositionSubType.Restaurant, Display = "Restaurant (non-alcohol) — 5% on total turnover" });
+        CompositionSubTypes.Add(new CompositionSubTypeOption { Value = CompositionSubType.ServiceProvider, Display = "§10(2A) Service Provider — 6% on taxable supplies" });
+
         LoadFromCompany();
     }
 
@@ -495,6 +553,11 @@ public sealed partial class GstConfigViewModel : ViewModelBase
                            ?? RegistrationTypes.First();
         Periodicity = Periodicities.FirstOrDefault(o => o.Value == (cfg?.Periodicity ?? GstReturnPeriodicity.Monthly))
                       ?? Periodicities.First();
+        // Composition (Phase 9 slice 3): seed the sub-type (default Manufacturer for a not-yet-composition company) + the
+        // advisory opt-in date. Both are only written back to the config when RegistrationType is Composition.
+        SelectedCompositionSubType = CompositionSubTypes.FirstOrDefault(o => o.Value == cfg?.CompositionSubType)
+                                     ?? CompositionSubTypes.First();
+        CompositionOptInDateText = cfg?.CompositionOptInDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
         LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
     }
@@ -542,6 +605,26 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     }
 
     private static string Domain_Normalize(string? gstin) => (gstin ?? string.Empty).Trim().ToUpperInvariant();
+
+    /// <summary>The registration type changed — surface/hide the composition block and refresh its advisory text.</summary>
+    partial void OnRegistrationTypeChanged(GstRegistrationTypeOption? value)
+    {
+        OnPropertyChanged(nameof(IsComposition));
+        RefreshCompositionAdvisory();
+    }
+
+    /// <summary>The composition sub-type changed — refresh the advisory rate/threshold display.</summary>
+    partial void OnSelectedCompositionSubTypeChanged(CompositionSubTypeOption? value) => RefreshCompositionAdvisory();
+
+    /// <summary>The home state changed — refresh the advisory threshold (the special-category states carry ₹75 L).</summary>
+    partial void OnHomeStateChanged(IndianStateOption? value) => RefreshCompositionAdvisory();
+
+    /// <summary>Raises change notifications for the advisory composition rate + threshold text.</summary>
+    private void RefreshCompositionAdvisory()
+    {
+        OnPropertyChanged(nameof(CompositionRateText));
+        OnPropertyChanged(nameof(CompositionThresholdText));
+    }
 
     /// <summary>
     /// Applies the "Maintain Batch-wise details" toggle to the live company the moment it changes (RQ-52), so the
@@ -1251,6 +1334,20 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         config.RegistrationType = (RegistrationType ?? RegistrationTypes.First()).Value;
         config.Periodicity = (Periodicity ?? Periodicities.First()).Value;
 
+        // Composition (Phase 9 slice 3; RQ-4): a Composition registration carries the sub-type (drives the tax-on-turnover
+        // rate + base) + an advisory CMP-02 opt-in date. The engine's EnsureValid fails-fast when Composition has no
+        // sub-type — the try/catch below surfaces it gracefully. A non-composition registration clears both (ER-13).
+        if (config.RegistrationType == GstRegistrationType.Composition)
+        {
+            config.CompositionSubType = (SelectedCompositionSubType ?? CompositionSubTypes.First()).Value;
+            config.CompositionOptInDate = TryParseIsoDate(CompositionOptInDateText);
+        }
+        else
+        {
+            config.CompositionSubType = null;
+            config.CompositionOptInDate = null;
+        }
+
         try
         {
             var service = new GstService(_company);
@@ -1265,9 +1362,20 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         RefreshTaxLedgers();
-        Message = $"GST enabled for {_company.Name}. {TaxLedgers.Count} tax ledgers ready; slabs 0/5/18/40 seeded.";
+        Message = IsComposition
+            ? $"GST enabled for {_company.Name} as a Composition dealer ({SelectedCompositionSubType?.Value}). "
+              + "Sales issue a Bill of Supply (no tax collected); file CMP-08 (quarterly) + GSTR-4 (annual)."
+            : $"GST enabled for {_company.Name}. {TaxLedgers.Count} tax ledgers ready; slabs 0/5/18/40 seeded.";
         _onChanged();
         return true;
+    }
+
+    /// <summary>Parses an ISO (yyyy-MM-dd) date; <c>null</c> for a blank or unparseable value (advisory only).</summary>
+    private static DateOnly? TryParseIsoDate(string? text)
+    {
+        var s = (text ?? string.Empty).Trim();
+        if (s.Length == 0) return null;
+        return DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
     }
 
     /// <summary>Reverts the <see cref="GstEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>

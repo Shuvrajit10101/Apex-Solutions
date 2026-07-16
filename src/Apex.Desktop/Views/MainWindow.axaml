@@ -1692,9 +1692,22 @@
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
-                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
-                                       FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,0,10" Spacing="3">
+                              <TextBlock Text="{Binding Subtitle}"
+                                         FontSize="12" Foreground="#555555" HorizontalAlignment="Center"/>
+                              <!-- Document label: "Bill of Supply" for a composition sale, "Tax Invoice" for a
+                                   Regular Sales item-invoice (Phase 9 slice 3; RQ-10). Empty for a plain voucher. -->
+                              <Border IsVisible="{Binding DocumentLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                      Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      CornerRadius="3" Padding="10,2" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding DocumentLabel}" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                              </Border>
+                              <TextBlock Text="{Binding BillOfSupplyDeclaration}"
+                                         IsVisible="{Binding BillOfSupplyDeclaration, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         FontSize="11" FontStyle="Italic" Foreground="#777777"
+                                         HorizontalAlignment="Center" TextWrapping="Wrap" MaxWidth="440"/>
+                            </StackPanel>
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
                               <Grid ColumnDefinitions="*,150,150">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
@@ -2373,10 +2386,18 @@
                                                VerticalAlignment="Center" FontWeight="SemiBold"
                                                Foreground="{StaticResource BrandNavy}"/>
                                   </Grid>
+                                  <!-- Compensation Cess (Phase 9 slice 1) — ring-fenced beside the GST heads; reads
+                                       0.00 for a company that bears no cess (byte-identical when advanced-GST off). -->
+                                  <Grid ColumnDefinitions="*,Auto,24,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Compensation Cess ₹" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding GstCessText}" TextAlignment="Right"
+                                               VerticalAlignment="Center" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                  </Grid>
                                   <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
                                           Padding="0,4,0,0" Margin="0,2,0,0">
                                     <Grid ColumnDefinitions="*,Auto">
-                                      <TextBlock Grid.Column="0" Text="Party Total (Taxable + Tax) ₹"
+                                      <TextBlock Grid.Column="0" Text="Party Total (Taxable + Tax + Cess) ₹"
                                                  FontWeight="Bold" VerticalAlignment="Center"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBlock Grid.Column="1" Text="{Binding PartyTotalText}" TextAlignment="Right"
@@ -4882,6 +4903,55 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
                                       </Grid>
+
+                                      <!-- GST 2.0 valuation basis + Retail Sale Price (Phase 9 slice 1). RSP drives the
+                                           tobacco/pan-masala carve-out valuation + RSP-factor cess. -->
+                                      <Grid ColumnDefinitions="Auto,*,120,140">
+                                        <CheckBox Grid.Column="0" Content="Value on RSP" FontSize="12"
+                                                  IsChecked="{Binding ValuationIsRsp, Mode=TwoWay}"
+                                                  VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="Retail Sale Price ₹" FontSize="12"
+                                                   FontWeight="SemiBold" VerticalAlignment="Center"
+                                                   TextAlignment="Right" Margin="0,0,6,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="3" Text="{Binding RetailSalePriceText, Mode=TwoWay}"
+                                                 TextAlignment="Right" PlaceholderText="per unit"/>
+                                      </Grid>
+
+                                      <!-- Compensation-Cess override (Phase 9 slice 1). Off ⇒ the item inherits the
+                                           dated cess master for its HSN; on ⇒ its own valuation mode + figures. -->
+                                      <CheckBox Content="Declare a Compensation-Cess override on this item" FontSize="12"
+                                                IsChecked="{Binding CessApplicable, Mode=TwoWay}"/>
+                                      <StackPanel Spacing="8" Margin="20,0,0,0"
+                                                  IsVisible="{Binding CessApplicable}">
+                                        <Grid ColumnDefinitions="90,*">
+                                          <TextBlock Grid.Column="0" Text="Cess basis" FontWeight="SemiBold" FontSize="12"
+                                                     VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                    ItemsSource="{Binding CessValuationModes}"
+                                                    SelectedItem="{Binding CessMode, Mode=TwoWay}">
+                                            <ComboBox.ItemTemplate>
+                                              <DataTemplate x:DataType="vm:CessValuationModeOption">
+                                                <TextBlock Text="{Binding Display}"/>
+                                              </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                          </ComboBox>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="90,110,90,110,90,110">
+                                          <TextBlock Grid.Column="0" Text="Rate %" FontSize="12"
+                                                     VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                          <TextBox Grid.Column="1" Text="{Binding CessRatePercentText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="ad-val %"/>
+                                          <TextBlock Grid.Column="2" Text="₹/unit" FontSize="12" Margin="8,0,0,0"
+                                                     VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                          <TextBox Grid.Column="3" Text="{Binding CessPerUnitText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="specific"/>
+                                          <TextBlock Grid.Column="4" Text="RSP ×" FontSize="12" Margin="8,0,0,0"
+                                                     VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                          <TextBox Grid.Column="5" Text="{Binding CessRspFactorText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="factor"/>
+                                        </Grid>
+                                      </StackPanel>
                                     </StackPanel>
                                   </Border>
 
@@ -7897,6 +7967,46 @@
                                       </ComboBox.ItemTemplate>
                                     </ComboBox>
                                   </Grid>
+
+                                  <!-- Composition scheme (Phase 9 slice 3; §10 + Rule 7; RQ-4): the sub-type drives the
+                                       tax-on-turnover rate + turnover base; the opt-in date (CMP-02) is advisory. Shown
+                                       only when Registration = Composition. A composition dealer issues a Bill of Supply
+                                       (no tax collected) and files CMP-08 / GSTR-4. -->
+                                  <StackPanel Spacing="10" IsVisible="{Binding IsComposition}">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0" Margin="0,2,0,0"/>
+                                    <TextBlock Text="COMPOSITION SCHEME (§10)" FontSize="11" FontWeight="Bold"
+                                               Foreground="#9098A8" LetterSpacing="1.5"/>
+                                    <Grid ColumnDefinitions="130,2*,130,*">
+                                      <TextBlock Grid.Column="0" Text="Sub-type" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CompositionSubTypes}"
+                                                SelectedItem="{Binding SelectedCompositionSubType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:CompositionSubTypeOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                      <TextBlock Grid.Column="2" Text="Opt-in date" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="3" Text="{Binding CompositionOptInDateText, Mode=TwoWay}"
+                                               PlaceholderText="yyyy-MM-dd (CMP-02)"/>
+                                    </Grid>
+                                    <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                            BorderThickness="1" Padding="10">
+                                      <StackPanel Spacing="4">
+                                        <TextBlock Text="{Binding CompositionRateText}" FontSize="12.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding CompositionThresholdText}" FontSize="12"
+                                                   Foreground="#555555" TextWrapping="Wrap"
+                                                   IsVisible="{Binding CompositionThresholdText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                        <TextBlock Text="Sales issue a Bill of Supply (no tax collected); file CMP-08 (quarterly) + GSTR-4 (annual)."
+                                                   FontSize="11" Foreground="#777777" TextWrapping="Wrap"/>
+                                      </StackPanel>
+                                    </Border>
+                                  </StackPanel>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
@@ -8430,6 +8540,410 @@
                               </StackPanel>
                             </Border>
                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: GST Rate Setup — dated GST 2.0 rate history + Compensation-Cess (Phase 9 slice 1) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstRateSetup, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstRateSetup}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GstRateSetupViewModel">
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="GST Rate Setup — Dated Rates &amp; Compensation Cess"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <ScrollViewer Grid.Row="1">
+                             <StackPanel Spacing="10">
+
+                              <!-- Seed the GST 2.0 defaults (idempotent) -->
+                              <Border Background="#FBF7EE" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="14,10">
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12"
+                                             Foreground="#5A5A5A"
+                                             Text="Seed the GST 2.0 rate framework (0 / 5 / 18 / 40% + specials + legacy 12/28% inactive-by-date) and the FY2025-26 Compensation-Cess windows. A rate change is a NEW dated window, so historic vouchers always reprint at their original rate."/>
+                                  <Button Grid.Column="1" Content="Seed GST 2.0 defaults" Padding="14,6" Margin="10,0,0,0"
+                                          VerticalAlignment="Center"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          IsEnabled="{Binding CanSeedDefaults}"
+                                          Click="OnSeedAdvancedGstClick"/>
+                                </Grid>
+                              </Border>
+
+                              <!-- ===================== Dated GST rate-history windows ===================== -->
+                              <TextBlock Text="DATED GST RATE WINDOWS" FontSize="11" FontWeight="Bold"
+                                         Foreground="#9098A8" LetterSpacing="1.5"/>
+                              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                <StackPanel MinWidth="620">
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="85,55,90,95,90,80,*">
+                                      <TextBlock Grid.Column="0" Text="HSN/SAC" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="2" Text="Class" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="3" Text="From" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="4" Text="To" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="5" Text="Basis" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="6" Text="Label" Classes="colHdr"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl Background="White" ItemsSource="{Binding RateHistoryRows}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:GstRateHistoryDisplayRow">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="85,55,90,95,90,80,*" Height="24">
+                                            <TextBlock Grid.Column="0" Text="{Binding Hsn}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding RateText}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding ClassText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding FromText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding ToText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding BasisText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="6" Text="{Binding Label}" VerticalAlignment="Center" FontSize="11.5"
+                                                       Foreground="#555555" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+                              </ScrollViewer>
+
+                              <!-- Add a dated rate window -->
+                              <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12,10">
+                                <StackPanel Spacing="8">
+                                  <TextBlock Text="Add a dated rate window (a rate change = a new window)"
+                                             FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                  <Grid ColumnDefinitions="70,120,70,120,90,150">
+                                    <TextBlock Grid.Column="0" Text="HSN/SAC" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewRateHsn, Mode=TwoWay}" PlaceholderText="blank ⇒ generic"/>
+                                    <TextBlock Grid.Column="2" Text="Rate %" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding NewRatePercentText, Mode=TwoWay}" TextAlignment="Right" PlaceholderText="e.g. 18"/>
+                                    <TextBlock Grid.Column="4" Text="Class" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding RateClasses}" SelectedItem="{Binding NewRateClass, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GstRateClassOption"><TextBlock Text="{Binding Display}"/></DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="70,120,70,120,90,150">
+                                    <TextBlock Grid.Column="0" Text="From" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewRateFromText, Mode=TwoWay}" PlaceholderText="22-Sep-2025"/>
+                                    <TextBlock Grid.Column="2" Text="To" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding NewRateToText, Mode=TwoWay}" PlaceholderText="blank ⇒ open"/>
+                                    <TextBlock Grid.Column="4" Text="Basis" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding ValuationBases}" SelectedItem="{Binding NewRateBasis, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:GstValuationBasisOption"><TextBlock Text="{Binding Display}"/></DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="70,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Label" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewRateLabel, Mode=TwoWay}" PlaceholderText="optional (auto-generated if blank)"/>
+                                    <Button Grid.Column="2" Content="Add Rate (Ctrl+A)" Padding="12,6" Margin="10,0,0,0"
+                                            Background="{StaticResource BrandNavy}" Foreground="White" Click="OnAddRateHistoryClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+
+                              <!-- ===================== Dated Compensation-Cess windows ===================== -->
+                              <TextBlock Text="DATED COMPENSATION-CESS WINDOWS" FontSize="11" FontWeight="Bold"
+                                         Foreground="#9098A8" LetterSpacing="1.5" Margin="0,4,0,0"/>
+                              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                <StackPanel MinWidth="590">
+                                  <Border Background="{StaticResource BrandNavy}">
+                                    <Grid ColumnDefinitions="85,95,120,95,90,*">
+                                      <TextBlock Grid.Column="0" Text="HSN/SAC" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="Mode" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="2" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="3" Text="From" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="4" Text="To" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="5" Text="Label" Classes="colHdr"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl Background="White" ItemsSource="{Binding CessRows}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:GstCessDisplayRow">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="85,95,120,95,90,*" Height="24">
+                                            <TextBlock Grid.Column="0" Text="{Binding Hsn}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding ModeText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding ValueText}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding FromText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding ToText}" VerticalAlignment="Center" FontSize="11.5"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding Label}" VerticalAlignment="Center" FontSize="11.5"
+                                                       Foreground="#555555" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                </StackPanel>
+                              </ScrollViewer>
+
+                              <!-- Add a dated cess window -->
+                              <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12,10">
+                                <StackPanel Spacing="8">
+                                  <TextBlock Text="Add a dated Compensation-Cess window"
+                                             FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                  <Grid ColumnDefinitions="70,120,70,190">
+                                    <TextBlock Grid.Column="0" Text="HSN/SAC" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewCessHsn, Mode=TwoWay}" PlaceholderText="blank ⇒ generic"/>
+                                    <TextBlock Grid.Column="2" Text="Mode" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding CessModes}" SelectedItem="{Binding NewCessMode, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:CessModeOption"><TextBlock Text="{Binding Display}"/></DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="90,110,90,110,90,110">
+                                    <TextBlock Grid.Column="0" Text="Rate %" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewCessRatePercentText, Mode=TwoWay}" TextAlignment="Right" PlaceholderText="ad-val %"/>
+                                    <TextBlock Grid.Column="2" Text="₹/unit" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding NewCessPerUnitText, Mode=TwoWay}" TextAlignment="Right" PlaceholderText="specific"/>
+                                    <TextBlock Grid.Column="4" Text="RSP ×" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="5" Text="{Binding NewCessRspFactorText, Mode=TwoWay}" TextAlignment="Right" PlaceholderText="factor"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="70,120,70,120,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="From" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding NewCessFromText, Mode=TwoWay}" PlaceholderText="01-Apr-2025"/>
+                                    <TextBlock Grid.Column="2" Text="To" FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding NewCessToText, Mode=TwoWay}" PlaceholderText="blank ⇒ open"/>
+                                    <TextBox Grid.Column="4" Text="{Binding NewCessLabel, Mode=TwoWay}" Margin="8,0,0,0" PlaceholderText="label (optional)"/>
+                                    <Button Grid.Column="5" Content="Add Cess" Padding="12,6" Margin="10,0,0,0"
+                                            Background="{StaticResource BrandNavy}" Foreground="White" Click="OnAddCessRateClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+
+                              <TextBlock Text="{Binding Message}"
+                                         IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                         Foreground="{StaticResource BrandNavy}" FontSize="12" TextWrapping="Wrap"/>
+                             </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: CMP-08 composition quarterly statement (Phase 9 slice 3; RQ-16) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Cmp08Report, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Cmp08Report}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Cmp08ReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY + quarter selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,Auto,200,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CompositionFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Quarter" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Quarters}"
+                                        SelectedItem="{Binding SelectedQuarter, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CompositionQuarterOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <!-- Sub-type / rate / turnover base -->
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12">
+                                  <Grid ColumnDefinitions="*,*,*">
+                                    <StackPanel Grid.Column="0">
+                                      <TextBlock Text="Composition sub-type" FontSize="10.5" Foreground="#777777"/>
+                                      <TextBlock Text="{Binding SubTypeText}" FontSize="13" FontWeight="Bold"
+                                                 Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1">
+                                      <TextBlock Text="Rate" FontSize="10.5" Foreground="#777777"/>
+                                      <TextBlock Text="{Binding RateText}" FontSize="13" FontWeight="Bold"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                      <TextBlock Text="Turnover base ₹" FontSize="10.5" Foreground="#777777"/>
+                                      <TextBlock Text="{Binding TurnoverBaseText}" FontSize="13" FontWeight="Bold"
+                                                 TextAlignment="Right"/>
+                                    </StackPanel>
+                                  </Grid>
+                                </Border>
+
+                                <!-- Table 3(i) — outward tax on turnover -->
+                                <TextBlock Text="Table 3(i) — Outward supplies (tax on turnover)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding OutwardCgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="SGST"/><TextBlock Grid.Column="1" Text="{Binding OutwardSgstText}" TextAlignment="Right"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Tax on turnover" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding OutwardTurnoverTaxText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Table 3(ii) — inward reverse-charge tax paid in cash -->
+                                <TextBlock Text="Table 3(ii) — Inward supplies attracting reverse charge (paid in cash)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding InwardRcmCgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="SGST"/><TextBlock Grid.Column="1" Text="{Binding InwardRcmSgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding InwardRcmIgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Compensation Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding InwardRcmCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Table 3(iii) — tax payable by head -->
+                                <TextBlock Text="Table 3(iii) — Tax payable"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="CGST payable"/><TextBlock Grid.Column="1" Text="{Binding PayableCgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="SGST payable"/><TextBlock Grid.Column="1" Text="{Binding PayableSgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="IGST payable"/><TextBlock Grid.Column="1" Text="{Binding PayableIgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Compensation Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding PayableCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Interest (§50)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding InterestText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Total tax payable" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalTaxPayableText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: GSTR-4 composition annual return (Phase 9 slice 3; RQ-16) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr4Report, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr4Report}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Gstr4ReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- FY selector + sub-type -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,Auto,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:CompositionFyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Sub-type:" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,6,0" Foreground="{StaticResource BrandNavy}"/>
+                              <TextBlock Grid.Column="3" Text="{Binding SubTypeText}" FontSize="12"
+                                         VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <!-- Table 5 — quarterly roll-up (from CMP-08) -->
+                                <TextBlock Text="Table 5 — Summary of self-assessed liability (quarterly CMP-08)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="130,*,*,*,*">
+                                    <TextBlock Grid.Column="0" Text="Quarter" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Turnover base" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Outward tax" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Inward RCM" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Total payable" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding Quarters}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Gstr4QuarterRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="130,*,*,*,*" Height="26">
+                                          <TextBlock Grid.Column="0" Text="{Binding Quarter}" Margin="8,0"
+                                                     VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding TurnoverBase}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding OutwardTax}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding InwardRcmTax}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding TotalPayable}" TextAlignment="Right"
+                                                     VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Table 4A/4B/4C/4D — inward supplies (value only; no ITC) -->
+                                <TextBlock Text="Table 4 — Inward supplies (value only; a composition dealer claims no ITC)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4A — Registered supplier (no RCM)"/><TextBlock Grid.Column="1" Text="{Binding RegisteredValueText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4B — Reverse-charge supplies (value)"/><TextBlock Grid.Column="1" Text="{Binding ReverseChargeValueText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4B — Reverse-charge tax (cash)" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding ReverseChargeTaxText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4C — Unregistered supplier (no RCM)"/><TextBlock Grid.Column="1" Text="{Binding UnregisteredValueText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4D — Import of services" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding ImportServiceValueText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Table 6 — annual liability -->
+                                <TextBlock Text="Table 6 — Annual tax liability"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Composition tax on turnover"/><TextBlock Grid.Column="1" Text="{Binding AnnualCompositionTaxText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Inward reverse-charge tax (cash)"/><TextBlock Grid.Column="1" Text="{Binding AnnualRcmTaxText}" TextAlignment="Right"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total annual tax" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding AnnualTotalText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
                             </ScrollViewer>
                           </Grid>
                         </DataTemplate>

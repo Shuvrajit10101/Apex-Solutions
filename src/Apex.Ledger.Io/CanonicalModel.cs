@@ -293,6 +293,305 @@ public sealed record PayloadDto
     /// <summary>TCS challan ↔ Stat-Payment-voucher links (Phase 7 slice 6): which deposit voucher each TCS challan
     /// booked. Reuses <see cref="ChallanVoucherLinkDto"/>, in its own list (a TCS-specific link set).</summary>
     public IReadOnlyList<ChallanVoucherLinkDto> TcsChallanVoucherLinks { get; init; } = [];
+
+    /// <summary>RCM generated documents (Phase 9 slice 2; RQ-8): Rule-47A self-invoices + Rule-52 payment vouchers.
+    /// Empty when reverse charge is unused (ER-13).</summary>
+    public IReadOnlyList<RcmDocumentDto> RcmDocuments { get; init; } = [];
+
+    /// <summary>e-Invoice IRP artefacts (Phase 9 slice 4a; RQ-5). Empty when e-invoicing is unused (ER-13). The
+    /// IRP-signed artefacts (IRN/QR/SignedJson) ARE exported — they are portal-issued receipts, NOT secrets. The NIC API
+    /// credentials are the only secret and are deliberately absent from the canonical model (ER-16).</summary>
+    public IReadOnlyList<EInvoiceRecordDto> EInvoiceRecords { get; init; } = [];
+
+    /// <summary>e-Way Bill artefacts (Phase 9 slice 5; RQ-6). Empty when e-Way is unused (ER-13). The portal-issued EWB
+    /// number + validity ARE exported — they are portal receipts, NOT secrets. No NIC credential appears here (ER-16).</summary>
+    public IReadOnlyList<EWayBillRecordDto> EWayBillRecords { get; init; } = [];
+
+    /// <summary>§34 credit/debit-note links (Phase 9; RQ-24). Empty until the S2b CDN engine (ER-13).</summary>
+    public IReadOnlyList<GstCdnLinkDto> CreditDebitNoteLinks { get; init; } = [];
+
+    /// <summary>GST-on-advance receipts (Phase 9; RQ-25). Empty until the S2b advance engine (ER-13).</summary>
+    public IReadOnlyList<GstAdvanceReceiptDto> AdvanceReceipts { get; init; } = [];
+
+    /// <summary>Imported GSTR-2B/2A statements (Phase 9 slice 6; RQ-12). External portal data the taxpayer downloaded —
+    /// worth preserving, so it round-trips. Empty when 2B is never imported (ER-13). No NIC credential appears here — the
+    /// only secret flows through <c>INicCredentialStore</c> alone (ER-16).</summary>
+    public IReadOnlyList<Gstr2bSnapshotDto> Gstr2bSnapshots { get; init; } = [];
+
+    /// <summary>Persisted GSTR-2B reconciliation results (Phase 9 slice 6; RQ-13). Advisory audit rows keyed to the 2B
+    /// lines. Empty until a reconciliation is run (ER-13).</summary>
+    public IReadOnlyList<Gstr2bReconResultDto> Gstr2bReconResults { get; init; } = [];
+
+    /// <summary>Offline IMS decisions (Phase 9 slice 6b; RQ-14). The taxpayer's Accept/Reject/Pending + Oct-2025 CDN
+    /// reversal declaration, keyed to the 2B lines. Empty until the user acts (a line with no action is deemed-accepted,
+    /// ER-13). ADVISORY only — no NIC credential appears here (ER-16).</summary>
+    public IReadOnlyList<ImsActionDto> ImsActions { get; init; } = [];
+
+    /// <summary>Posted Rule-88A set-off Table-6.1 allocation rows (Phase 9 slice 7; RQ-21). The audit of a posted
+    /// set-off Journal, so it is always co-exported with that voucher. Empty until a period is set off (ER-13).</summary>
+    public IReadOnlyList<GstSetoffLineDto> GstSetoffLines { get; init; } = [];
+
+    /// <summary>Posted ITC-reversal audit rows (Phase 9 slice 7; RQ-27). The reversal engine is S7b, so this stays
+    /// empty in S7a (ER-13).</summary>
+    public IReadOnlyList<ItcReversalDto> ItcReversals { get; init; } = [];
+
+    /// <summary>PMT-06 GST deposit challans (Phase 9 slice 7; RQ-22). The record of a posted cash-ledger deposit.
+    /// Empty until the company deposits GST (ER-13).</summary>
+    public IReadOnlyList<GstChallanDto> GstChallans { get; init; } = [];
+
+    /// <summary>DRC-03 voluntary GST payments (Phase 9 slice 7; RQ-22). Empty until one is raised (ER-13).</summary>
+    public IReadOnlyList<GstDrc03Dto> GstDrc03s { get; init; } = [];
+}
+
+/// <summary>An imported GSTR-2B/2A statement (Phase 9 slice 6), mirroring the domain <c>Gstr2bSnapshot</c> + the SQLite
+/// <c>gstr2b_snapshots</c> row, owning its <see cref="Lines"/> (the <c>gstr2b_lines</c> children). Money is integer
+/// paisa; <c>GeneratedOn</c> is ISO or null; <c>ImportedAt</c> is ISO round-trip (o). External portal data (not a
+/// secret) — exported. No NIC credential appears (ER-16).</summary>
+public sealed record Gstr2bSnapshotDto
+{
+    public required Guid Id { get; init; }
+    public required string StatementType { get; init; }          // GstStatementType name
+    public required string ReturnPeriod { get; init; }           // "yyyy-MM"
+    public required string RecipientGstin { get; init; }
+    public string? GeneratedOn { get; init; }                    // ISO yyyy-MM-dd, or null
+    public required string SourceFileHash { get; init; }         // SHA-256 hex
+    public required string ImportedAt { get; init; }             // ISO round-trip (o)
+    public long SummaryIgstPaisa { get; init; }
+    public long SummaryCgstPaisa { get; init; }
+    public long SummarySgstPaisa { get; init; }
+    public long SummaryCessPaisa { get; init; }
+    public IReadOnlyList<Gstr2bLineDto> Lines { get; init; } = [];
+}
+
+/// <summary>One imported inward-supply record (Phase 9 slice 6), mirroring the domain <c>Gstr2bLine</c> + the SQLite
+/// <c>gstr2b_lines</c> row. Money is integer paisa.</summary>
+public sealed record Gstr2bLineDto
+{
+    public required Guid Id { get; init; }
+    public required string SupplierGstin { get; init; }
+    public string? SupplierTradeName { get; init; }
+    public required string DocType { get; init; }                // Gstr2bDocType name
+    public required string DocNumber { get; init; }
+    public string? DocNumberNorm { get; init; }
+    public required string DocDate { get; init; }                // ISO yyyy-MM-dd
+    public string? PosStateCode { get; init; }
+    public long TaxableValuePaisa { get; init; }
+    public long IgstPaisa { get; init; }
+    public long CgstPaisa { get; init; }
+    public long SgstPaisa { get; init; }
+    public long CessPaisa { get; init; }
+    public bool ItcAvailable { get; init; }
+    public string? ItcUnavailableReason { get; init; }
+    public bool ReverseCharge { get; init; }
+}
+
+/// <summary>A persisted GSTR-2B reconciliation result (Phase 9 slice 6), mirroring the domain <c>Gstr2bReconResult</c> +
+/// the SQLite <c>gstr2b_recon</c> row. <c>MatchedVoucherId</c> is an optional read-only pointer to a books voucher
+/// (ER-14); it re-links via the voucher map on import (null ⇒ the pin is dropped, unless the bucket requires it). Money
+/// is integer paisa.</summary>
+public sealed record Gstr2bReconResultDto
+{
+    public required Guid Id { get; init; }
+    public required Guid LineId { get; init; }                   // FK the imported Gstr2bLine DTO id
+    public required string Bucket { get; init; }                 // ReconBucket name (Matched/PartialMismatch/InPortalOnly)
+    public Guid? MatchedVoucherId { get; init; }
+    public long TaxableVariancePaisa { get; init; }
+    public long TaxVariancePaisa { get; init; }
+    public bool MatchPinned { get; init; }
+    public string? ReconciledAt { get; init; }                   // ISO round-trip (o), or null
+}
+
+/// <summary>An offline IMS decision (Phase 9 slice 6b), mirroring the domain <c>ImsAction</c> + the SQLite
+/// <c>ims_status</c> row. Keyed to the imported <c>Gstr2bLine</c> by <c>LineId</c>; re-links through the same line-id
+/// remap the recon results use on import. Money is integer paisa; <c>ActedOn</c> is ISO or null.</summary>
+public sealed record ImsActionDto
+{
+    public required Guid Id { get; init; }
+    public required Guid LineId { get; init; }                   // FK the imported Gstr2bLine DTO id
+    public required string Status { get; init; }                 // ImsStatus name (NoAction/Accepted/Rejected/Pending)
+    public string? Remarks { get; init; }
+    public long? DeclaredReversalPaisa { get; init; }            // Oct-2025 partial CDN reversal, or null
+    public bool NoReversalDeclared { get; init; }
+    public string? ActedOn { get; init; }                        // ISO yyyy-MM-dd, or null
+}
+
+/// <summary>A posted Rule-88A set-off Table-6.1 allocation row (Phase 9 slice 7), mirroring the domain
+/// <c>GstSetoffLine</c> + the SQLite <c>gst_setoff_lines</c> row. <c>VoucherId</c> FKs the posted set-off Journal (it
+/// re-links through the voucher map on import). Money is integer paisa; heads are enum names.</summary>
+public sealed record GstSetoffLineDto
+{
+    public required Guid Id { get; init; }
+    public required Guid VoucherId { get; init; }                // FK the posted set-off Journal
+    public required string Period { get; init; }                 // "yyyy-MM"
+    public required string CreditHead { get; init; }             // GstTaxHead name
+    public required string LiabilityHead { get; init; }          // GstTaxHead name
+    public bool IsCash { get; init; }
+    public long AmountPaisa { get; init; }
+}
+
+/// <summary>A posted ITC-reversal audit row (Phase 9 slice 7), mirroring the domain <c>ItcReversal</c> + the SQLite
+/// <c>itc_reversals</c> row. The reversal engine is S7b, so this stays empty in S7a. Money is integer paisa; the rule +
+/// bucket are enum names. Every voucher FK re-links through the voucher map on import.</summary>
+public sealed record ItcReversalDto
+{
+    public required Guid Id { get; init; }
+    public required string Rule { get; init; }                   // ItcReversalRule name
+    public required string Period { get; init; }
+    public long CgstPaisa { get; init; }
+    public long SgstPaisa { get; init; }
+    public long IgstPaisa { get; init; }
+    public long CessPaisa { get; init; }
+    public long? D1BasisPaisa { get; init; }
+    public long? D2BasisPaisa { get; init; }
+    public Guid? SourceVoucherId { get; init; }
+    public Guid? SourceLineId { get; init; }                     // FK an imported Gstr2bLine DTO id
+    public required Guid ReversalVoucherId { get; init; }        // FK the posted stat-adjustment Journal
+    public Guid? ReclaimOfId { get; init; }                      // FK another ItcReversal DTO id (a reclaim)
+    public Guid? Drc03Id { get; init; }                          // FK a GstDrc03 DTO id
+    public required string Table4bBucket { get; init; }          // Table4bBucket name
+    public required string CreatedAt { get; init; }              // ISO round-trip (o)
+}
+
+/// <summary>A PMT-06 GST deposit challan (Phase 9 slice 7), mirroring the domain <c>GstChallan</c> + the SQLite
+/// <c>gst_challans</c> row. <c>VoucherId</c> FKs the deposit voucher (re-links through the voucher map on import).
+/// Money is integer paisa; the heads are enum names; <c>DepositDate</c> is ISO.</summary>
+public sealed record GstChallanDto
+{
+    public required Guid Id { get; init; }
+    public required string Cpin { get; init; }
+    public string? Cin { get; init; }
+    public string? Brn { get; init; }
+    public required string DepositDate { get; init; }            // ISO yyyy-MM-dd
+    public required string MajorHead { get; init; }              // GstTaxHead name
+    public required string MinorHead { get; init; }              // GstMinorHead name
+    public long AmountPaisa { get; init; }
+    public required Guid VoucherId { get; init; }                // FK the deposit voucher
+    public bool InterestFlag { get; init; }
+}
+
+/// <summary>A DRC-03 voluntary GST payment (Phase 9 slice 7), mirroring the domain <c>GstDrc03</c> + the SQLite
+/// <c>gst_drc03</c> row. <c>VoucherId</c> (if any) FKs the payment voucher (re-links through the voucher map on
+/// import). Money is integer paisa; <c>CreatedAt</c> is ISO round-trip (o).</summary>
+public sealed record GstDrc03Dto
+{
+    public required Guid Id { get; init; }
+    public string? Drc03Ref { get; init; }
+    public required string Cause { get; init; }
+    public required string Period { get; init; }
+    public long CgstPaisa { get; init; }
+    public long SgstPaisa { get; init; }
+    public long IgstPaisa { get; init; }
+    public long CessPaisa { get; init; }
+    public long InterestPaisa { get; init; }
+    public string? Drc03aDemandRef { get; init; }
+    public Guid? VoucherId { get; init; }                        // FK the payment voucher, or null
+    public required string CreatedAt { get; init; }              // ISO round-trip (o)
+}
+
+/// <summary>An RCM generated document (Phase 9 slice 2), mirroring the domain <c>RcmDocument</c> and the SQLite
+/// <c>rcm_documents</c> row.</summary>
+public sealed record RcmDocumentDto
+{
+    public required Guid Id { get; init; }
+    public required string Kind { get; init; }             // RcmDocumentKind name
+    public required Guid SourceVoucherId { get; init; }
+    public int SeriesNumber { get; init; }
+    public required string DocDate { get; init; }          // ISO yyyy-MM-dd
+    public Guid? SupplierLedgerId { get; init; }
+}
+
+/// <summary>An e-invoice IRP artefact (Phase 9 slice 4a), mirroring the domain <c>EInvoiceRecord</c> and the SQLite
+/// <c>einvoice_records</c> row. The IRP-issued IRN/AckNo/AckDate/SignedQr/SignedJson are portal receipts (exported); no
+/// NIC credential appears here — the only secret flows through <c>INicCredentialStore</c> alone (ER-16).</summary>
+public sealed record EInvoiceRecordDto
+{
+    public required Guid Id { get; init; }
+    public required Guid SourceVoucherId { get; init; }
+    public required string DocumentNumberUpper { get; init; }
+    public required string Status { get; init; }              // EInvoiceStatus name
+    public string? Irn { get; init; }
+    public string? AckNo { get; init; }
+    public string? AckDate { get; init; }                     // ISO or null
+    public string? SignedQr { get; init; }
+    public string? SignedJsonBase64 { get; init; }            // signed INV-01 response, base64 (an IRP artefact, NOT a secret)
+    public string? CancelledOn { get; init; }
+    public string? CancelReasonCode { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
+}
+
+/// <summary>An e-Way Bill artefact (Phase 9 slice 5), mirroring the domain <c>EWayBillRecord</c> and the SQLite
+/// <c>eway_bills</c> row. The portal-issued EWB number + validity ARE exported (portal receipts, not secrets); no NIC
+/// credential appears here — the only secret flows through <c>INicCredentialStore</c> alone (ER-16). <c>GeneratedAt</c> /
+/// <c>ValidUpto</c> are ISO round-trip (o) strings.</summary>
+public sealed record EWayBillRecordDto
+{
+    public required Guid Id { get; init; }
+    public required Guid SourceVoucherId { get; init; }
+    public required string DocumentNumberUpper { get; init; }
+    public required string Status { get; init; }              // EWayStatus name
+    public string? SupplyType { get; init; }
+    public string? SubSupplyType { get; init; }
+    public string? DocType { get; init; }
+    public long ConsignmentValuePaisa { get; init; }
+    public string? TransporterId { get; init; }
+    public string? TransMode { get; init; }                   // EWayTransportMode name, or null
+    public string? VehicleNumber { get; init; }
+    public int DistanceKm { get; init; }
+    public string? TransportDocNo { get; init; }
+    public string? ShipFromStateCode { get; init; }
+    public string? ShipToStateCode { get; init; }
+    public bool IsOverDimensionalCargo { get; init; }
+    public string? ShipToGstin { get; init; }
+    public bool ClosureRequested { get; init; }
+    public string? ClosedOn { get; init; }                    // ISO yyyy-MM-dd, or null
+    public string? EwbNumber { get; init; }                   // 12-digit, FROM the portal
+    public string? GeneratedAt { get; init; }                 // ISO round-trip (o), or null
+    public string? ValidUpto { get; init; }                   // ISO round-trip (o), or null
+    public string? CancelledOn { get; init; }                 // ISO yyyy-MM-dd, or null
+    public string? CancelReasonCode { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
+}
+
+/// <summary>A per-state / per-transaction-type e-Way consignment-threshold override (Phase 9 slice 5), mirroring the
+/// domain <c>EWayStateThreshold</c> and the SQLite <c>eway_state_thresholds</c> row. Empty on the flat ₹50,000 default.</summary>
+public sealed record EWayStateThresholdDto
+{
+    public required Guid Id { get; init; }
+    public required string StateCode { get; init; }
+    public required string TxnType { get; init; }             // EWayTransactionType name
+    public long ThresholdPaisa { get; init; }
+}
+
+/// <summary>A §34 credit/debit-note link (Phase 9), mirroring the domain <c>GstCreditDebitNoteLink</c> and the SQLite
+/// <c>gst_cdn_links</c> row. Empty until S2b.</summary>
+public sealed record GstCdnLinkDto
+{
+    public required Guid Id { get; init; }
+    public required Guid CdnVoucherId { get; init; }
+    public required string CdnType { get; init; }          // CdnType name
+    public Guid? OriginalInvoiceVoucherId { get; init; }
+    public string? OriginalInvoiceNumber { get; init; }
+    public string? OriginalInvoiceDate { get; init; }      // ISO or null
+    public required string ReasonCode { get; init; }
+    public bool Is9BTarget { get; init; }
+}
+
+/// <summary>A GST-on-advance receipt record (Phase 9), mirroring the domain <c>GstAdvanceReceipt</c> and the SQLite
+/// <c>gst_advance_receipts</c> row. Money is integer paisa. Empty until S2b.</summary>
+public sealed record GstAdvanceReceiptDto
+{
+    public required Guid Id { get; init; }
+    public required Guid ReceiptVoucherId { get; init; }
+    public bool IsService { get; init; }
+    public long AdvanceAmountPaisa { get; init; }
+    public int RateBasisPoints { get; init; }
+    public bool InterState { get; init; }
+    public string? PlaceOfSupplyStateCode { get; init; }
+    public long AdvanceTaxPaisa { get; init; }
+    public Guid? AdjustedAgainstInvoiceVoucherId { get; init; }
+    public Guid? RefundVoucherId { get; init; }
 }
 
 /// <summary>A TDS deposit challan (Phase 7 slice 3), mirroring the domain <c>TdsChallan</c> and the SQLite
@@ -454,6 +753,12 @@ public sealed record VoucherTypeDto
 
     /// <summary>"Use for Statutory Payment (Stat Payment)" (Phase 7 slice 3) — a Payment voucher-type flag. Default false.</summary>
     public bool IsStatPayment { get; init; }
+
+    /// <summary>"Use for RCM Payment Voucher (Rule 52)" (Phase 9 slice 2) — a Payment voucher-type flag. Default false.</summary>
+    public bool IsRcmPaymentVoucher { get; init; }
+
+    /// <summary>"Use for GST Statutory Adjustment (Alt+J)" (Phase 9 slice 7) — a Journal voucher-type flag. Default false.</summary>
+    public bool IsGstStatAdjustment { get; init; }
 
     /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
     public PosConfigDto? PosConfig { get; init; }
@@ -953,6 +1258,66 @@ public sealed record GstConfigDto
     public string? ApplicableFrom { get; init; }              // ISO or null
     public required string Periodicity { get; init; }        // GstReturnPeriodicity name
     public IReadOnlyList<GstRateSlabDto> RateSlabs { get; init; } = [];
+    // Phase 9 slice 1 (RQ-1/RQ-2): dated rate-history + Compensation-Cess windows. Default empty ⇒ an advanced-GST-off
+    // company serialises identically to a Phase-8 company (ER-13). Appended at the END so existing field order is
+    // unchanged.
+    public IReadOnlyList<GstRateHistoryDto> RateHistory { get; init; } = [];
+    public IReadOnlyList<GstCessRateDto> CessRates { get; init; } = [];
+    // Phase 9 slice 2 (RQ-3/RQ-7): dated reverse-charge categories. Default empty ⇒ an RCM-off company serialises
+    // identically to a v38 company (ER-13). Appended at the END so existing field order is unchanged.
+    public IReadOnlyList<RcmCategoryDto> RcmCategories { get; init; } = [];
+    // Phase 9 slice 3 (RQ-4): composition sub-type + opt-in date. Null when not a composition dealer ⇒ byte-identical
+    // (ER-13). Appended at the END so existing field order is unchanged.
+    public string? CompositionSubType { get; init; }   // CompositionSubType name, or null
+    public string? CompositionOptInDate { get; init; } // ISO yyyy-MM-dd, or null
+    // Phase 9 slice 4a (RQ-5/RQ-28/RQ-30): the NON-SECRET e-invoice / B2C-QR / connector-mode config. Defaulting
+    // off/empty/"OfflineJson"/"None" ⇒ an e-invoicing-off company is byte-identical to a v40 company (ER-13). Appended
+    // at the END so existing field order is unchanged.
+    // DELIBERATE OMISSION (ER-16): there is NO Nic* / credential member here. The NIC API credentials are the ONLY secret
+    // and NEVER appear in the canonical model — they flow only through INicCredentialStore. Do NOT "helpfully" add them.
+    public bool EInvoicingEnabled { get; init; }
+    public string? EInvoiceApplicableFrom { get; init; }      // ISO yyyy-MM-dd, or null
+    public long EInvoiceAatoThresholdPaisa { get; init; } = 50_000_000_00L;   // ₹5 cr
+    public bool EInvoiceApplicabilityOverride { get; init; }
+    public string EInvoiceExemptionClasses { get; init; } = "None";           // EInvoiceExemptionClass [Flags] name
+    public bool EInvoiceReportingAgeApplies { get; init; }
+    public string ConnectorMode { get; init; } = "OfflineJson";               // GstConnectorMode name
+    public bool B2cDynamicQrEnabled { get; init; }
+    public long B2cQrAatoThresholdPaisa { get; init; } = 500_000_000_000L;     // ₹500 cr
+    public string? B2cQrUpiId { get; init; }
+    public string? B2cQrPayeeName { get; init; }
+    // Phase 9 slice 5 (RQ-6): the NON-SECRET e-Way Bill config + per-state overrides. Defaulting off/NULL/₹50,000/
+    // Rule138Default/true ⇒ an e-Way-off company is byte-identical to a v41 company (ER-13). Appended at the END so
+    // existing field order is unchanged. No NIC credential here — the live path reuses ConnectorMode + the store (ER-16).
+    public bool EWayBillEnabled { get; init; }
+    public string? EWayApplicableFrom { get; init; }                          // ISO yyyy-MM-dd, or null
+    public long EWayThresholdPaisa { get; init; } = 5_000_000L;               // ₹50,000
+    public string ConsignmentBasis { get; init; } = "Rule138Default";        // EWayConsignmentBasis name
+    public bool EWayIntraStateApplicable { get; init; } = true;
+    public IReadOnlyList<EWayStateThresholdDto> EWayStateThresholds { get; init; } = [];
+    // Phase 9 slice 6 (RQ-13): the GSTR-2B reconciliation tolerance (paisa slack + ± day window). Default 0/0 (exact) ⇒ a
+    // company that never touches 2B serialises identically to a v42 company (ER-13). A matching parameter only (ER-14).
+    // Appended at the END so existing field order is unchanged (finding #5).
+    public long ReconValueTolerancePaisa { get; init; }
+    public int ReconDateWindowDays { get; init; }
+}
+
+/// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>
+public sealed record RcmCategoryDto
+{
+    public required Guid Id { get; init; }
+    public required string Notification { get; init; }
+    public required string Stream { get; init; }            // RcmStream name
+    public required string SupplyNature { get; init; }
+    public required string SupplyType { get; init; }        // GstSupplyType name
+    public string? HsnSac { get; init; }
+    public int RateBasisPoints { get; init; }
+    public required string SupplierQualifier { get; init; } // RcmParty name
+    public required string RecipientQualifier { get; init; }// RcmParty name
+    public required string EffectiveFrom { get; init; }     // ISO
+    public string? EffectiveTo { get; init; }               // ISO or null
+    public required string Label { get; init; }
+    public bool IsPredefined { get; init; }
 }
 
 public sealed record GstRateSlabDto
@@ -963,11 +1328,43 @@ public sealed record GstRateSlabDto
     public bool IsPredefined { get; init; }
 }
 
+/// <summary>A dated GST rate-history window (Phase 9 slice 1; RQ-1). Dates are ISO yyyy-MM-dd.</summary>
+public sealed record GstRateHistoryDto
+{
+    public required Guid Id { get; init; }
+    public string? HsnSac { get; init; }
+    public int RateBasisPoints { get; init; }
+    public required string RateClass { get; init; }        // GstRateClass name
+    public required string EffectiveFrom { get; init; }     // ISO
+    public string? EffectiveTo { get; init; }               // ISO or null
+    public required string ValuationBasis { get; init; }    // GstValuationBasis name
+    public required string Label { get; init; }
+    public bool IsPredefined { get; init; }
+}
+
+/// <summary>A dated Compensation-Cess window (Phase 9 slice 1; RQ-2/RQ-9). Money is integer paisa.</summary>
+public sealed record GstCessRateDto
+{
+    public required Guid Id { get; init; }
+    public string? HsnSac { get; init; }
+    public required string ValuationMode { get; init; }     // CessValuationMode name
+    public int CessRateBasisPoints { get; init; }
+    public long CessPerUnitPaisa { get; init; }
+    public int CessRspFactorMillis { get; init; }
+    public required string EffectiveFrom { get; init; }     // ISO
+    public string? EffectiveTo { get; init; }               // ISO or null
+    public required string Label { get; init; }
+    public bool IsPredefined { get; init; }
+}
+
 public sealed record PartyGstDto
 {
     public required string RegistrationType { get; init; } // GstRegistrationType name
     public string? Gstin { get; init; }
     public string? StateCode { get; init; }
+    // Phase 9 slice 2 (RQ-3): reverse-charge qualifiers. Default false ⇒ byte-identical to a v38 party (ER-13).
+    public bool IsPromoter { get; init; }
+    public bool IsBodyCorporate { get; init; }
 }
 
 public sealed record StockItemGstDto
@@ -976,12 +1373,32 @@ public sealed record StockItemGstDto
     public required string Taxability { get; init; }  // GstTaxability name
     public int? RateBasisPoints { get; init; }
     public required string SupplyType { get; init; }   // GstSupplyType name
+    // Phase 9 slice 1 (RQ-1/RQ-2): GST 2.0 RSP valuation + Compensation-Cess. Appended at the END so existing field
+    // order is unchanged; defaults keep an off item byte-identical to a Phase-8 item (ER-13). Money is integer paisa.
+    public string ValuationBasis { get; init; } = "TransactionValue"; // GstValuationBasis name
+    public bool CessApplicable { get; init; }
+    public string? CessValuationMode { get; init; }    // CessValuationMode name, or null
+    public int? CessRateBasisPoints { get; init; }
+    public long? CessPerUnitPaisa { get; init; }
+    public int? CessRspFactorMillis { get; init; }
+    public long? RspPaisa { get; init; }
+    // Phase 9 slice 2 (RQ-3): reverse-charge flags on the shared item / S-P-ledger GST block. Default false/null ⇒
+    // byte-identical to a v38 block (ER-13). Appended at the END so existing field order is unchanged.
+    public bool ReverseChargeApplicable { get; init; }
+    public bool GtaForwardCharge { get; init; }
+    public Guid? RcmCategoryId { get; init; }
+    // Phase 9 slice 6b (RQ-26): §17(5) ITC-eligibility on the shared item / S-P-ledger GST block. Default
+    // Eligible/None ⇒ byte-identical to a v42 block (ER-13). Appended at the END so existing field order is unchanged.
+    public string ItcEligibility { get; init; } = "Eligible";              // ItcEligibility name
+    public string BlockedCreditCategory { get; init; } = "None";           // BlockedCreditCategory name
 }
 
 public sealed record LedgerGstClassificationDto
 {
     public required string TaxHead { get; init; }   // GstTaxHead name
     public required string Direction { get; init; } // GstTaxDirection name
+    // Phase 9 slice 2 (RQ-7): the RCM Output-ledger discriminator. Default false ⇒ an ordinary tax ledger (ER-13).
+    public bool IsReverseCharge { get; init; }
 }
 
 // ----------------------------------------------------------------- tds / tcs value objects (Phase 7 slice 1)
@@ -1158,6 +1575,10 @@ public sealed record GstLineTaxDto
     public required string TaxHead { get; init; }      // GstTaxHead name
     public int RateBasisPoints { get; init; }
     public long TaxableValuePaisa { get; init; }
+    // Phase 9 slice 2 (RQ-7): reverse-charge tag. Default false/null ⇒ a forward-charge line is byte-identical (ER-13).
+    public bool IsReverseCharge { get; init; }
+    public string? RcmScheme { get; init; }            // RcmItcScheme name, or null
+    public string? Adjustment { get; init; }           // GstAdjustmentKind name (SetOff/CashPayment/Reversal…/Reclaim), or null
 }
 
 /// <summary>The TDS withholding detail carried on an entry line (Phase 7 slice 2), mirroring the domain

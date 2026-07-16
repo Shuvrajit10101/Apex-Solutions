@@ -15,9 +15,19 @@ public sealed class LedgerGstClassification
     /// <summary>Output (sales liability) or Input (purchase ITC).</summary>
     public GstTaxDirection Direction { get; }
 
-    public LedgerGstClassification(GstTaxHead taxHead, GstTaxDirection direction)
+    /// <summary>
+    /// True iff this is a dedicated <b>RCM output-liability</b> tax ledger (Phase 9 slice 2; RQ-7 — "RCM Output CGST/SGST/
+    /// IGST/Cess"). These carry <c>Direction == Output</c> just like the normal Output ledgers, so this flag disambiguates
+    /// them: the cash-only RCM liability (§49(4)) is <b>excluded</b> from "output tax" and never settled from the credit
+    /// ledger, and <c>GstService.FindTaxLedger</c> filters on <c>IsReverseCharge == false</c> so a normal sale never posts
+    /// here. Default false ⇒ an ordinary tax ledger, byte-identical to a v38 ledger (ER-13).
+    /// </summary>
+    public bool IsReverseCharge { get; }
+
+    public LedgerGstClassification(GstTaxHead taxHead, GstTaxDirection direction, bool isReverseCharge = false)
     {
         TaxHead = taxHead;
         Direction = direction;
+        IsReverseCharge = isReverseCharge;
     }
 }

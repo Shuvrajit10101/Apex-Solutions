@@ -314,5 +314,8 @@ public sealed class SmtpProfileRoundTripTests
             default_shortcut TEXT NULL, numbering INTEGER NOT NULL, abbreviation TEXT NULL,
             is_active INTEGER NOT NULL, is_predefined INTEGER NOT NULL,
             affects_accounts INTEGER NOT NULL DEFAULT 0, affects_stock INTEGER NOT NULL DEFAULT 0);
+        -- entry_lines is required because the chain now runs through the v38→v39 RCM migration, whose
+        -- ALTER TABLE entry_lines ADD COLUMN gst_is_reverse_charge/gst_rcm_scheme needs the table to exist.
+        CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, ledger_id TEXT NOT NULL DEFAULT '', amount_paisa INTEGER NOT NULL DEFAULT 0, side INTEGER NOT NULL DEFAULT 0);
         """;
 }

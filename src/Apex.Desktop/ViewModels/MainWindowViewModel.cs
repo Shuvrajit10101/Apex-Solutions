@@ -59,6 +59,13 @@ public enum Screen
     MaterialMovementEntry,
     PosBilling,
     GstConfig,
+    GstRateSetup,
+
+    // Composition returns (Phase 9 slice 3; RQ-16) — CMP-08 (quarterly) + GSTR-4 (annual), surfaced only for a
+    // Composition dealer under Reports → Statutory Reports → Composition Returns.
+    Cmp08Report,
+    Gstr4Report,
+
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
     TdsStatPayment,
@@ -149,6 +156,10 @@ public enum GatewayMenu
     StatutoryReports,
     TdsReports,
     TcsReports,
+
+    // Reports → Statutory Reports → Composition Returns (Phase 9 slice 3): CMP-08 + GSTR-4, surfaced only for a
+    // Composition dealer.
+    CompositionReturns,
 
     // Reports → Statutory Reports → Payroll (PF) (Phase 8 slice 4): the PF ECR / Challan report, nested under a
     // Payroll sub-group only when Payroll Statutory is enabled.
@@ -290,6 +301,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
+
+    /// <summary>The GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance) view model, non-null only while open.</summary>
+    [ObservableProperty] private GstRateSetupViewModel? _gstRateSetup;
+
+    /// <summary>The CMP-08 composition quarterly-statement report (Phase 9 slice 3), non-null only while that page is open.</summary>
+    [ObservableProperty] private Cmp08ReportViewModel? _cmp08Report;
+
+    /// <summary>The GSTR-4 composition annual-return report (Phase 9 slice 3), non-null only while that page is open.</summary>
+    [ObservableProperty] private Gstr4ReportViewModel? _gstr4Report;
 
     /// <summary>The Nature-of-Payment (TDS section) master (Phase 7 slice 1), non-null only while that page is open.</summary>
     [ObservableProperty] private NatureOfPaymentMasterViewModel? _natureOfPaymentMaster;
@@ -464,7 +484,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && EsiContributionReport is null && ProfessionalTaxRegister is null
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
-        && GstConfig is null && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
+        && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
+        && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
         && Form16A is null && Form27D is null && Form27A is null
@@ -505,6 +526,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPosBillingChanged(PosBillingViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstConfigChanged(GstConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstRateSetupChanged(GstRateSetupViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnCmp08ReportChanged(Cmp08ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -708,6 +732,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // ---- STATUTORY (GST) ----
         col.Add(MenuItemViewModel.Header("Statutory"));
         col.Add(new MenuItemViewModel("GST", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
+        // GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — only once GST is enabled.
+        if (Company is { GstEnabled: true })
+            col.Add(new MenuItemViewModel("GST Rate Setup", () => { }, "Ctrl+R", isSubItem: true, kind: MenuItemKind.Page));
 
         // ---- TRANSACTIONS ----
         col.Add(MenuItemViewModel.Header("Transactions"));
@@ -734,9 +761,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             col.Add(new MenuItemViewModel("Payroll Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports and, from
-        // Phase 8 slice 4, the Payroll (PF) statutory reports. Surfaced only when the F11 feature enables TDS, TCS
-        // or Payroll Statutory (ER-13), so a company using none is byte-identical to the pre-slice Reports menu.
-        if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true })
+        // Phase 8 slice 4, the Payroll (PF) statutory reports; from Phase 9 slice 3 the Composition Returns (CMP-08 /
+        // GSTR-4). Surfaced only when the F11 feature enables TDS, TCS or Payroll Statutory, or the company is a
+        // Composition dealer (ER-13), so a company using none is byte-identical to the pre-slice Reports menu.
+        if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true }
+            || IsCompositionDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
@@ -1415,6 +1444,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // only when the F11 feature "Enable Payroll Statutory" is on (ER-13).
         if (Company is { PayrollStatutoryEnabled: true })
             col.Add(new MenuItemViewModel("Payroll", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // Composition Returns (Phase 9 slice 3; RQ-16) nest under their own sub-group, surfaced only for a Composition
+        // dealer (ER-13). A Regular company never sees CMP-08 / GSTR-4.
+        if (IsCompositionDealer)
+            col.Add(new MenuItemViewModel("Composition Returns", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
         if (Company is { TdsEnabled: true } or { TcsEnabled: true })
@@ -1472,6 +1505,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("TCS Interest u/s 206C(7)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("TCS Nature of Goods Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
+    }
+
+    /// <summary>True iff the open company is a GST Composition dealer (drives the Composition Returns surfacing).</summary>
+    private bool IsCompositionDealer =>
+        Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Composition };
+
+    /// <summary>Builds the "Composition Returns" submenu column (Reports → Statutory Reports → Composition Returns;
+    /// Phase 9 slice 3; RQ-16): the two composition GST returns — <b>CMP-08</b> (quarterly self-assessed statement) and
+    /// <b>GSTR-4</b> (annual return) — each a page item reusing the pure Cmp08 / Gstr4 engine projections.</summary>
+    private GatewayColumn BuildCompositionReturnsColumn()
+    {
+        var col = new GatewayColumn("Composition Returns");
+        col.Add(MenuItemViewModel.Header("Composition Returns"));
+        col.Add(new MenuItemViewModel("CMP-08", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-4", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → Composition Returns" submenu column directly (the public entry
+    /// a hotkey/test uses). A no-op unless the company is a Composition dealer.</summary>
+    public void ShowCompositionReturnsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (!IsCompositionDealer) return;   // group hidden for a Regular company (ER-13)
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("Composition Returns");
+        OpenSubmenuColumn(BuildCompositionReturnsColumn(), GatewayMenu.CompositionReturns,
+            "Gateway of Apex Solutions — Composition Returns");
     }
 
     /// <summary>Opens the "Reports → Statutory Reports" hub submenu column directly (the public entry a hotkey/test
@@ -2812,6 +2873,51 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Opens the <b>GST Rate Setup</b> bulk-maintenance page (Statutory → GST Rate Setup; Phase 9 slice 1;
+    /// plan.md C-6 / DP-24 / RQ-24) as a page column: the dated GST 2.0 rate-history + Compensation-Cess windows,
+    /// a one-click "seed the GST 2.0 defaults" action, and add-a-window forms for mass HSN/rate maintenance. A no-op
+    /// unless GST is enabled (the menu item is itself gated on <see cref="Company.GstEnabled"/>).
+    /// </summary>
+    public void ShowGstRateSetup()
+    {
+        if (Company is not { GstEnabled: true }) return;
+
+        var page = new GstRateSetupViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("GST Rate Setup", page), Screen.GstRateSetup,
+            "GST Rate Setup — Dated Rates & Cess", () => GstRateSetup = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>CMP-08</b> composition quarterly-statement report (Reports → Statutory Reports → Composition
+    /// Returns → CMP-08; Phase 9 slice 3; RQ-16) as a page column: a read-only projection over the pure
+    /// <see cref="Cmp08"/> engine for a chosen FY + quarter. A no-op unless the company is a Composition dealer (the
+    /// menu item + open path are gated on <see cref="IsCompositionDealer"/>), so a Regular company never reaches it
+    /// (ER-13).
+    /// </summary>
+    public void OpenCmp08Report()
+    {
+        if (Company is null || !IsCompositionDealer) return;
+
+        var page = new Cmp08ReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("CMP-08", page), Screen.Cmp08Report,
+            "Form CMP-08 — Composition Quarterly Statement", () => Cmp08Report = page);
+    }
+
+    /// <summary>
+    /// Opens the <b>GSTR-4</b> composition annual-return report (Reports → Statutory Reports → Composition Returns →
+    /// GSTR-4; Phase 9 slice 3; RQ-16) as a page column: a read-only projection over the pure <see cref="Gstr4"/>
+    /// engine for a chosen financial year. A no-op unless the company is a Composition dealer (ER-13).
+    /// </summary>
+    public void OpenGstr4Report()
+    {
+        if (Company is null || !IsCompositionDealer) return;
+
+        var page = new Gstr4ReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("GSTR-4", page), Screen.Gstr4Report,
+            "Form GSTR-4 — Composition Annual Return", () => Gstr4Report = page);
+    }
+
+    /// <summary>
     /// Opens the Nature-of-Payment (TDS section) master (Masters → Create → Statutory Masters → Nature of
     /// Payment; Phase 7 slice 1) as a page column: lists the seeded predefined TDS sections and creates customs.
     /// A no-op unless TDS is enabled (the menu item is itself gated on <see cref="Company.TdsEnabled"/>).
@@ -3648,6 +3754,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         MaterialMovementEntry = null;
         PosBilling = null;
         GstConfig = null;
+        GstRateSetup = null;
+        Cmp08Report = null;
+        Gstr4Report = null;
         NatureOfPaymentMaster = null;
         NatureOfGoodsMaster = null;
         TdsStatPayment = null;
@@ -3736,7 +3845,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
                  or Screen.BatchMaster or Screen.BatchAllocation
                  or Screen.BomMaster or Screen.ReorderLevelsMaster
-                 or Screen.GstConfig
+                 or Screen.GstConfig or Screen.GstRateSetup
                  or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
                  or Screen.TdsStatPayment or Screen.TcsStatPayment
                  or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
@@ -4107,6 +4216,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();
                 return;
+            case Screen.GstRateSetup:
+                GstRateSetup?.AddRateHistory(); // Ctrl+A appends the add-form's dated rate window (primary action)
+                return;
+            case Screen.Cmp08Report:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
+            case Screen.Gstr4Report:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.NatureOfPaymentMaster:
                 NatureOfPaymentMaster?.Create();
                 return;
@@ -4255,6 +4371,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — TCS Reports"),
             "Payroll" => (BuildPayrollStatutoryReportsColumn(), GatewayMenu.PayrollStatutoryReports,
                 "Gateway of Apex Solutions — Payroll"),
+            "Composition Returns" => (BuildCompositionReturnsColumn(), GatewayMenu.CompositionReturns,
+                "Gateway of Apex Solutions — Composition Returns"),
             "Payroll Reports" => (BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
                 "Gateway of Apex Solutions — Payroll Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
@@ -4316,6 +4434,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
             case "GST": ShowGstConfig(); break;
+            case "GST Rate Setup": ShowGstRateSetup(); break;
+            // Composition returns (Phase 9 slice 3) — under Reports → Statutory Reports → Composition Returns.
+            case "CMP-08": OpenCmp08Report(); break;
+            case "GSTR-4": OpenGstr4Report(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
             // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.
