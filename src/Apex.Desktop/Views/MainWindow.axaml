@@ -1823,8 +1823,14 @@
 
                             <TextBlock Grid.Row="2" Text="" />
 
-                            <!-- Particulars grid: Dr/Cr lines -->
+                            <!-- Particulars grid: Dr/Cr lines.
+                                 MinHeight is load-bearing: this ScrollViewer sits in the template's ONLY '*' row while
+                                 the GST panels stack in the trailing Auto row below, so two panels showing at once
+                                 (e.g. TDS + RCM on a Purchase) starved the '*' row to a ~15px sliver and voucher entry
+                                 became unusable. The floor keeps ~3 rows of grid visible no matter how many panels are
+                                 on screen; the panels get their own bounded scroll region instead of taking it. -->
                             <ScrollViewer Grid.Row="3" Background="White" VerticalScrollBarVisibility="Auto"
+                                          MinHeight="140"
                                           IsVisible="{Binding !IsItemInvoice}">
                               <ItemsControl ItemsSource="{Binding Lines}">
                                 <ItemsControl.ItemTemplate>
@@ -2412,6 +2418,14 @@
                             <!-- Narration + accept row + message -->
                             <StackPanel Grid.Row="6" Spacing="6" Margin="0,4,0,0">
 
+                              <!-- The GST/TDS advisory panels live in their own bounded, scrollable region. Several can
+                                   be on screen at once (TDS + RCM on a Purchase; §34 + advance on a note), and stacking
+                                   them straight into this Auto row let them grow without limit and squeeze the lines
+                                   grid in the '*' row above down to nothing. Capped here and scrolled internally, they
+                                   can never crowd out voucher entry — and the narration + Accept row below stay put. -->
+                              <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="260">
+                                <StackPanel Spacing="6">
+
                               <!-- TDS withholding panel (Phase 7 slice 2) — shown only when a deductee party +
                                    expense line are on a TDS-enabled Payment/Journal/Purchase (ShowTdsPanel). The
                                    figures come from the SAME engine the posting uses (ER-4); off ⇒ byte-identical. -->
@@ -2454,6 +2468,250 @@
                                 </Grid>
                               </Border>
 
+                              <!-- RCM inward-supply panel (Phase 9 slice 2; RQ-3/RQ-7/RQ-8/RQ-11) — shown only when a
+                                   reverse-charge-flagged expense leg + a supplier leg are on a GST company's plain-grid
+                                   Purchase/Journal (ShowRcmPanel). Applicability + the rate come from the SAME engine the
+                                   posting uses (ER-4). The RCM liability is CASH-ONLY (§49(4)) — the summary says so.
+                                   Off ⇒ the panel is hidden and the voucher posts byte-identically (ER-13). -->
+                              <Border IsVisible="{Binding ShowRcmPanel}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <!-- Layout note: the voucher pane is ~630px, so every row here must WRAP rather than
+                                     commit to a fixed horizontal run. An Orientation="Horizontal" StackPanel measures its
+                                     children at infinite width, so it silently clips whatever overflows — which is how the
+                                     resolved figures and the Rule-47A toggle first went missing off the right edge. -->
+                                <StackPanel Spacing="6">
+                                  <Grid ColumnDefinitions="Auto,*">
+                                    <TextBlock Grid.Column="0" Text="Reverse charge — supply kind"
+                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding RcmSupplyKinds}"
+                                              SelectedItem="{Binding SelectedRcmSupplyKind, Mode=TwoWay}"
+                                              PlaceholderText="Select the inward-supply kind…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:RcmSupplyKindOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+
+                                  <!-- The recipient qualifiers Resolve needs: §9(4) fires ONLY for a promoter recipient
+                                       (so the blanket §9(4) stays off by default), and body-corporate drives the GTA /
+                                       security / motor-vehicle recipient qualifier — plus the Rule-47A / Rule-52 document
+                                       toggles. A WrapPanel so a narrow pane wraps them instead of clipping them away. -->
+                                  <WrapPanel>
+                                    <CheckBox IsChecked="{Binding RcmRecipientIsPromoter, Mode=TwoWay}"
+                                              Content="We are a promoter (§9(4))" FontSize="12" Margin="0,0,18,4"/>
+                                    <CheckBox IsChecked="{Binding RcmRecipientIsBodyCorporate, Mode=TwoWay}"
+                                              Content="We are a body corporate" FontSize="12" Margin="0,0,18,4"/>
+                                    <CheckBox IsChecked="{Binding GenerateRcmSelfInvoice, Mode=TwoWay}"
+                                              Content="Generate self-invoice (Rule 47A)" FontSize="12" Margin="0,0,18,4"/>
+                                    <CheckBox IsChecked="{Binding GenerateRcmPaymentVoucher, Mode=TwoWay}"
+                                              Content="Generate payment voucher (Rule 52)" FontSize="12" Margin="0,0,18,4"/>
+                                  </WrapPanel>
+
+                                  <WrapPanel>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,2"
+                                               Text="{Binding RcmAppliesText}" FontWeight="SemiBold"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,2"
+                                               Text="{Binding RcmPosText}"/>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,2">
+                                      <Run Text="Rate "/><Run Text="{Binding RcmRateText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,2">
+                                      <Run Text="RCM tax ₹ "/><Run Text="{Binding RcmTaxText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                    <!-- Compensation Cess gets its OWN figure: it is ring-fenced to its own head (ER-2)
+                                         and folded into the RCM-tax headline above, so showing only the headline would
+                                         leave the operator unable to see what the cess contributed. -->
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,2"
+                                               IsVisible="{Binding ShowRcmCess}">
+                                      <Run Text="of which Cess ₹ "/><Run Text="{Binding RcmCessText}" FontWeight="SemiBold"/>
+                                    </TextBlock>
+                                  </WrapPanel>
+
+                                  <TextBlock Text="{Binding RcmCategoryText}" FontSize="11.5" TextWrapping="Wrap"/>
+
+                                  <TextBlock Text="{Binding RcmSummary}"
+                                             FontSize="11.5" Foreground="{StaticResource BrandNavy}"
+                                             TextWrapping="Wrap"/>
+                                </StackPanel>
+                              </Border>
+
+                              <!-- §34 credit/debit-note panel (Phase 9 slice 2b; RQ-24; ER-12) — shown on a Credit/Debit
+                                   Note on a GST company. The §34 details are OPT-IN: off ⇒ no link record is created and
+                                   the note posts exactly as before (ER-13). On ⇒ the original-invoice reference is
+                                   mandatory (a §34 note is never free-floating) and the §34(2) 30-Nov cut-off applies.
+                                   The cut-off itself comes from the engine (ER-4). -->
+                              <Border IsVisible="{Binding CanBeSection34Note}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <StackPanel Spacing="6">
+                                  <CheckBox IsChecked="{Binding IsSection34Note, Mode=TwoWay}"
+                                            Content="This is a §34 GST credit/debit note (link the original invoice)"
+                                            FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                  <StackPanel IsVisible="{Binding ShowSection34Details}" Spacing="6">
+                                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto">
+                                      <TextBlock Grid.Column="0" Text="Original invoice"
+                                                 VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12.5"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CdnOriginalInvoices}"
+                                                SelectedItem="{Binding SelectedCdnOriginalInvoice, Mode=TwoWay}"
+                                                PlaceholderText="Select the original invoice this note adjusts…">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:CdnOriginalInvoiceOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+
+                                    <!-- Consolidated / unregistered reference (ER-12's second limb): no voucher link, so
+                                         the original invoice number + date are typed. The DATE drives the §34(2) FY basis. -->
+                                    <Grid IsVisible="{Binding ShowCdnConsolidatedFields}"
+                                          ColumnDefinitions="Auto,*,Auto,160">
+                                      <TextBlock Grid.Column="0" Text="Original invoice no."
+                                                 VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12.5"/>
+                                      <TextBox Grid.Column="1" Text="{Binding CdnOriginalInvoiceNumber, Mode=TwoWay}"
+                                               PlaceholderText="e.g. INV-1042"/>
+                                      <TextBlock Grid.Column="2" Text="Original date"
+                                                 VerticalAlignment="Center" Margin="12,0,8,0" FontSize="12.5"/>
+                                      <TextBox Grid.Column="3" Text="{Binding CdnOriginalInvoiceDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MMM-yyyy"/>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="Auto,*">
+                                      <TextBlock Grid.Column="0" Text="§34 reason"
+                                                 VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12.5"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CdnReasonCodes}"
+                                                SelectedItem="{Binding SelectedCdnReasonCode, Mode=TwoWay}"
+                                                PlaceholderText="Select the §34 reason…"/>
+                                    </Grid>
+
+                                    <!-- These two get their OWN wrapping row. Sharing a fixed horizontal row with the
+                                         reason picker pushed the Override clean off the right edge — rendered, reachable
+                                         to a binding probe (clipping is not invisibility), and yet invisible to the
+                                         operator the §34(2) refusal tells to tick it. -->
+                                    <WrapPanel>
+                                      <CheckBox FontSize="12" Margin="0,0,18,4"
+                                                IsChecked="{Binding CdnIs9BTarget, Mode=TwoWay}"
+                                                Content="Registered party (GSTR-1 Table 9B)"/>
+                                      <CheckBox FontSize="12" Margin="0,0,18,4"
+                                                IsVisible="{Binding ShowCdnOverride}"
+                                                IsChecked="{Binding CdnOverrideTimeLimit, Mode=TwoWay}"
+                                                Content="Override §34(2) time limit"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="{Binding CdnSummary}" FontSize="11.5"
+                                               Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </StackPanel>
+                              </Border>
+
+                              <!-- GST advance-receipt panel (Phase 9 slice 2b; RQ-25; Rule 50) — shown on a Receipt on a
+                                   GST company. Opt-in: off ⇒ no advance record, no tax pair, no suspense ledger, and an
+                                   ordinary receipt posts exactly as before (ER-13). A SERVICE advance is taxed on receipt
+                                   (§13 → GSTR-1 11A); a GOODS advance is de-taxed (Notn 66/2017). -->
+                              <Border IsVisible="{Binding CanBeAdvanceReceipt}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <StackPanel Spacing="6">
+                                  <CheckBox IsChecked="{Binding IsAdvanceReceipt, Mode=TwoWay}"
+                                            Content="This receipt is an advance against a future supply (GST — Rule 50)"
+                                            FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+
+                                  <StackPanel IsVisible="{Binding ShowAdvanceReceiptDetails}" Spacing="6">
+                                    <Grid ColumnDefinitions="Auto,*,Auto,80,Auto,70">
+                                      <TextBlock Grid.Column="0" Text="Advance (ex-tax) ₹"
+                                                 VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12.5"/>
+                                      <TextBox Grid.Column="1" Text="{Binding AdvanceAmountText, Mode=TwoWay}"
+                                               PlaceholderText="10000.00"/>
+                                      <TextBlock Grid.Column="2" Text="Rate %"
+                                                 VerticalAlignment="Center" Margin="12,0,8,0" FontSize="12.5"/>
+                                      <TextBox Grid.Column="3" Text="{Binding AdvanceRateText, Mode=TwoWay}"
+                                               PlaceholderText="18"/>
+                                      <TextBlock Grid.Column="4" Text="POS state"
+                                                 VerticalAlignment="Center" Margin="12,0,8,0" FontSize="12.5"/>
+                                      <TextBox Grid.Column="5"
+                                               Text="{Binding AdvancePlaceOfSupplyStateCode, Mode=TwoWay}"
+                                               PlaceholderText="27"/>
+                                    </Grid>
+
+                                    <!-- The computed figures get their own wrapping row: sharing the input row clipped
+                                         them off the right edge, hiding the very numbers this panel exists to show. -->
+                                    <WrapPanel>
+                                      <CheckBox IsChecked="{Binding AdvanceIsService, Mode=TwoWay}"
+                                                Content="Service advance (a goods advance is de-taxed)"
+                                                FontSize="12" Margin="0,0,18,4"/>
+                                      <CheckBox IsChecked="{Binding AdvanceInterState, Mode=TwoWay}"
+                                                Content="Inter-State (IGST)" FontSize="12" Margin="0,0,18,4"/>
+                                      <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,4">
+                                        <Run Text="Advance tax ₹ "/><Run Text="{Binding AdvanceTaxText}" FontWeight="SemiBold"/>
+                                      </TextBlock>
+                                      <TextBlock VerticalAlignment="Center" FontSize="12.5" Margin="0,0,18,4">
+                                        <Run Text="Gross ₹ "/><Run Text="{Binding AdvanceGrossText}" FontWeight="SemiBold"/>
+                                      </TextBlock>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="{Binding AdvanceSummary}" FontSize="11.5"
+                                               Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </StackPanel>
+                              </Border>
+
+                              <!-- GST advance adjust/refund panel (Phase 9 slice 2b; RQ-25 → GSTR-1 11B; Rule 51) —
+                                   shown on a Journal (adjust against the tax invoice) or a Payment (refund) when an
+                                   OUTSTANDING advance exists. An already-adjusted/refunded advance is never offered.
+                                   A company that never books an advance never sees this panel (ER-13). -->
+                              <Border IsVisible="{Binding ShowAdvanceActionPanel}"
+                                      Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <StackPanel Spacing="6">
+                                  <Grid ColumnDefinitions="Auto,*">
+                                    <TextBlock Grid.Column="0" Text="GST advance"
+                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
+                                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding OutstandingAdvances}"
+                                              SelectedItem="{Binding SelectedOutstandingAdvance, Mode=TwoWay}"
+                                              PlaceholderText="Select the outstanding advance…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AdvanceReceiptOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+
+                                  <Grid IsVisible="{Binding ShowAdvanceInvoicePicker}" ColumnDefinitions="Auto,*">
+                                    <TextBlock Grid.Column="0" Text="Against invoice"
+                                               VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12.5"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding AdvanceInvoices}"
+                                              SelectedItem="{Binding SelectedAdvanceInvoice, Mode=TwoWay}"
+                                              PlaceholderText="Select the tax invoice the advance is adjusted against…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AdvanceInvoiceOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+
+                                  <TextBlock Text="{Binding AdvanceActionSummary}" FontSize="11.5"
+                                             Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                              </Border>
+
                               <!-- TCS collection band (Phase 7 slice 5) — shown only on a TCS-enabled Sales item
                                    invoice to a collectee party carrying a §206C-applicable stock item / sales ledger
                                    (ShowTcs). TCS is ADDITIVE (collected on top → the party total already includes it);
@@ -2484,6 +2742,9 @@
                                              TextWrapping="Wrap"/>
                                 </Grid>
                               </Border>
+
+                                </StackPanel>
+                              </ScrollViewer>
 
                               <TextBox Text="{Binding Narration, Mode=TwoWay}"
                                        PlaceholderText="Narration…" AcceptsReturn="False"/>

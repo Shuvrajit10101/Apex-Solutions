@@ -216,6 +216,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// </summary>
     private readonly TcsService _tcs;
 
+    /// <summary>
+    /// The <b>reverse-charge (RCM)</b> engine (Phase 9 slice 2) — the SAME service the posting uses (ER-4). The screen
+    /// never re-implements applicability or the maths: it calls <see cref="RcmService.Resolve"/> for the live panel and
+    /// <see cref="RcmService.BuildReverseCharge"/> for the accepted voucher's dual leg.
+    /// </summary>
+    private readonly RcmService _rcm;
+
     /// <summary>Re-entrancy guard for the TDS panel refresh (auto-defaulting the nature selector raises a change
     /// notification that would re-enter <see cref="Recalculate"/>); mirrors <see cref="_refreshingPrices"/>.</summary>
     private bool _updatingTds;
@@ -470,7 +477,24 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         _gst = new GstService(company);
         _tds = new TdsService(company);
         _tcs = new TcsService(company);
+        _rcm = new RcmService(company);
+        _advance = new AdvanceReceiptService(company);
         Ledgers = company.Ledgers;
+
+        // Reverse-charge inward-supply routing (Phase 9 slice 2; RQ-11). Import of goods is deliberately NOT offered —
+        // it is never reverse charge (customs IGST → GSTR-3B 4A(1)). The panel itself only shows when an RCM-flagged
+        // expense leg is on a GST company's plain grid, so these options are inert otherwise (ER-13).
+        //
+        // The "Not Applicable" decline sentinel LEADS the list, exactly as it does in the TDS Nature-of-Payment picker —
+        // but, exactly as there, it is never the DEFAULT (see UpdateRcmPanel): reverse charge is mandatory when a
+        // notified category fires, so it must self-account unless the operator actively says otherwise.
+        RcmSupplyKinds.Add(RcmNotApplicable);
+        RcmSupplyKinds.Add(RcmDomestic);
+        RcmSupplyKinds.Add(new RcmSupplyKindOption
+        {
+            Kind = RcmService.SupplyKind.ImportOfServices,
+            Display = "Import of services (§5(3) — always IGST)",
+        });
 
         // TDS Nature-of-Payment choices (Phase 7 slice 2). Empty when TDS is not enabled, so the withholding
         // panel never shows and a plain voucher is byte-identical (ER-13). When natures exist, the "Not Applicable"
@@ -494,6 +518,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             .ToList();
 
         BuildItemInvoicePickers();
+        BuildSection34Pickers(); // §34 note pickers (a no-op on any non-Credit/Debit-Note type)
+        BuildAdvancePickers();   // outstanding-advance pickers (a no-op unless this type adjusts/refunds one)
         AddAdditionalCostRow(); // one blank trailing row ready to type into
 
         // Default date: last voucher date, else books-begin (never before books, which Post rejects).
@@ -565,6 +591,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         // TDS withholding panel (Phase 7 slice 2): refresh first so it is cleared in item-invoice mode too (the
         // helper self-gates via TdsPossible, which is false when item-invoice is on). Cheap + pure.
         UpdateTdsPanel();
+
+        // RCM panel (Phase 9 slice 2): likewise self-gates via RcmPossible (false in item-invoice mode / GST off), and
+        // is deliberately side-effect-free — see UpdateRcmPanel's note on why it never previews through the builder.
+        UpdateRcmPanel();
+
+        // §34 advisory (Phase 9 slice 2b): the 30-Nov cut-off is a function of the VOUCHER DATE, so it must refresh
+        // whenever the date does — not only when a §34 field is touched. Wired only to its own field handlers, it went
+        // stale on a re-date and kept asserting "within the limit" on a note Accept would refuse. Self-gates on
+        // ShowSection34Details and is pure, so it is a no-op on every other screen (ER-13).
+        UpdateSection34Panel();
 
         // In item-invoice mode the plain Dr/Cr grid is not the Accept gate — the item-invoice indicators are
         // (a change to the always-present blank starter lines must not clobber that gate).
@@ -788,6 +824,895 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         Recalculate();
     }
 
+    // =============================================================== RCM inward supply (catalog §12; Phase 9 slice 2; RQ-3/RQ-7/RQ-8/RQ-11)
+
+    /// <summary>Re-entrancy guard for the RCM panel refresh (auto-defaulting the supply-kind selector raises a change
+    /// notification that would re-enter <see cref="Recalculate"/>); mirrors <see cref="_updatingTds"/>.</summary>
+    private bool _updatingRcm;
+
+    /// <summary>
+    /// The inward-supply routing choices for the RCM panel (RQ-11). <b>Import of goods is deliberately absent</b>: it is
+    /// never a reverse-charge supply (IGST is paid at customs on the Bill of Entry → GSTR-3B 4A(1)) and
+    /// <see cref="RcmService.BuildReverseCharge"/> hard-fails on it — offering it could only ever earn a refusal.
+    /// The list leads with the <see cref="RcmNotApplicable"/> decline sentinel.
+    /// </summary>
+    public ObservableCollection<RcmSupplyKindOption> RcmSupplyKinds { get; } = new();
+
+    /// <summary>The "Not Applicable" decline sentinel — the mirror of the TDS picker's own. Identified by its null
+    /// <see cref="RcmSupplyKindOption.Kind"/>; per-screen (never shared) so one voucher's decline cannot leak into
+    /// another's.</summary>
+    public RcmSupplyKindOption RcmNotApplicable { get; } = new()
+    {
+        Kind = null,
+        Display = "◦ Not Applicable — forward charge / not a supply",
+    };
+
+    /// <summary>The ordinary domestic routing — the DEFAULT selection whenever an RCM shape appears.</summary>
+    private RcmSupplyKindOption RcmDomestic { get; } = new()
+    {
+        Kind = RcmService.SupplyKind.Domestic,
+        Display = "Domestic inward supply (§9(3) / §9(4))",
+    };
+
+    /// <summary>The chosen inward-supply routing — Domestic (RCM by place of supply) or Import of services (always
+    /// IGST, §5(3)). Changing it re-resolves applicability through the engine.</summary>
+    [ObservableProperty] private RcmSupplyKindOption? _selectedRcmSupplyKind;
+
+    /// <summary>
+    /// §9(4) — true iff <b>we</b> (the recipient) are a real-estate <b>promoter</b>, the sole surviving §9(4) trigger
+    /// (Notn 7/2019). Default false, matching the engine default, so the blanket §9(4) stays OFF (RQ-3).
+    /// </summary>
+    [ObservableProperty] private bool _rcmRecipientIsPromoter;
+
+    /// <summary>True iff <b>we</b> (the recipient) are a <b>body corporate</b> — drives the recipient qualifier on the
+    /// GTA / security / renting-of-motor-vehicle categories. Defaults to true, matching the engine default.</summary>
+    [ObservableProperty] private bool _rcmRecipientIsBodyCorporate = true;
+
+    /// <summary>Rule 47A — generate a <b>self-invoice</b> for this inward supply on accept. A <b>registered</b> supplier
+    /// issues its own tax invoice, so the engine declines (and the message says so) rather than raising a bogus one.</summary>
+    [ObservableProperty] private bool _generateRcmSelfInvoice;
+
+    /// <summary>Rule 52 — generate a <b>payment voucher</b> for this reverse-charge supplier payment on accept.</summary>
+    [ObservableProperty] private bool _generateRcmPaymentVoucher;
+
+    /// <summary>
+    /// True when the RCM panel is shown: GST is enabled, this is a plain-grid Purchase/Journal (never an item invoice),
+    /// and the grid holds a complete <i>reverse-charge-applicable</i> expense (Dr) line plus a complete supplier (Cr)
+    /// line. Off ⇒ the panel is hidden and the voucher posts byte-identically (ER-13).
+    /// </summary>
+    [ObservableProperty] private bool _showRcmPanel;
+
+    /// <summary>"Yes — reverse charge applies" / "No — forward charge" for the panel header.</summary>
+    [ObservableProperty] private string _rcmAppliesText = string.Empty;
+
+    /// <summary>The matched notified category (or "Import of services — §5(3)"); empty when RCM does not apply.</summary>
+    [ObservableProperty] private string _rcmCategoryText = string.Empty;
+
+    /// <summary>The resolved integrated RCM rate for the panel (e.g. "18%"); empty when RCM does not apply.</summary>
+    [ObservableProperty] private string _rcmRateText = string.Empty;
+
+    /// <summary>The resolved place-of-supply routing ("Inter-State (IGST)" / "Intra-State (CGST+SGST)").</summary>
+    [ObservableProperty] private string _rcmPosText = string.Empty;
+
+    /// <summary>The self-accounted RCM tax (paisa-exact display) — the amount of BOTH legs of the dual pair. This is the
+    /// <b>total</b> cash liability, Compensation Cess included (<see cref="RcmCessText"/> breaks the cess out).</summary>
+    [ObservableProperty] private string _rcmTaxText = "0.00";
+
+    /// <summary>True when this reverse-charge supply bears Compensation Cess — the cess line shows only then (ER-13).</summary>
+    [ObservableProperty] private bool _showRcmCess;
+
+    /// <summary>The self-accounted RCM Compensation Cess (paisa-exact display); "0.00" when the supply bears none.</summary>
+    [ObservableProperty] private string _rcmCessText = "0.00";
+
+    /// <summary>The one-line human summary of the dual leg shown under the panel figures.</summary>
+    [ObservableProperty] private string _rcmSummary = string.Empty;
+
+    /// <summary>One reverse-charge <b>leg</b>: a distinct <i>ReverseChargeApplicable</i> expense ledger (whose GST block
+    /// drives applicability, the rate and the category) and the assessable value booked to it on this voucher.</summary>
+    private readonly record struct RcmLeg(DomainLedger Expense, Money Taxable);
+
+    /// <summary>The <b>shape</b> of a potential reverse-charge inward supply on the plain grid: <b>every</b> complete
+    /// <i>ReverseChargeApplicable</i> expense/purchase <b>debit</b> leg (the supplier charges no tax, so each Dr expense
+    /// IS its own assessable value), plus the complete <b>supplier</b> credit line they were bought from.
+    /// <para>
+    /// <see cref="Legs"/> is a SET, not a single leg: one supplier invoice routinely carries two notified heads (legal
+    /// @18% + GTA @5%), and each attracts its own dual leg at its own rate. Taking only the first silently
+    /// under-collected the cash-only §49(4) liability on the rest.
+    /// </para></summary>
+    private readonly record struct RcmShape(
+        IReadOnlyList<RcmLeg> Legs, VoucherLineViewModel PartyLine, DomainLedger Party)
+    {
+        /// <summary>The total assessable value across every reverse-charge leg (the panel's headline base).</summary>
+        public Money Taxable => Legs.Aggregate(Money.Zero, (a, l) => a + l.Taxable);
+    }
+
+    /// <summary>True when reverse charge could apply on this screen: GST is enabled and this is a plain-grid
+    /// Purchase/Journal. The concrete applicability (an RCM-flagged expense Dr leg + a supplier Cr leg + a matching
+    /// notified category on the date) is tested by <see cref="DetectRcmShape"/> + the engine's own
+    /// <see cref="RcmService.Resolve"/>; absent either, the voucher posts byte-identically (ER-13).</summary>
+    private bool RcmPossible =>
+        _company.GstEnabled
+        && !IsItemInvoice
+        && _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Journal;
+
+    /// <summary>
+    /// Whether a Cr-side ledger is a genuine <b>supplier</b>: it carries party GST details, or it sits under <b>Sundry
+    /// Creditors</b> (the payables nature — the same test the rest of the app uses to identify a party, mirroring
+    /// <see cref="PosBillingViewModel"/>'s Sundry-Debtors lookup).
+    /// <para>
+    /// This deliberately rejects "any complete credit line". A reverse-charge supply is a supply <i>from a supplier</i>;
+    /// without one there is nothing to self-account against. Accepting any credit leg meant a plain accrual Journal
+    /// (Dr Expense / Cr Outstanding Expenses) — which has no supplier on it at all — silently posted a cash-only §49(4)
+    /// liability against an accrual head. A false posting on an ORDINARY voucher is the worst failure this screen has.
+    /// </para>
+    /// </summary>
+    private bool IsSupplierLedger(DomainLedger l) =>
+        l.PartyGst is not null
+        || ClassificationRules.GroupIsUnder(l.GroupId, "Sundry Creditors", _company);
+
+    /// <summary>True when the operator has <b>declined</b> reverse charge on this voucher via the "Not Applicable"
+    /// sentinel — the mirror of <see cref="IsTdsDeclined"/>. The screen cannot know every reason a notified-looking
+    /// inward supply is really forward charge, so the decline must exist and must post nothing.</summary>
+    private bool IsRcmDeclined => SelectedRcmSupplyKind is { Kind: null };
+
+    /// <summary>
+    /// Detects the reverse-charge <b>shape</b> on the current plain grid (the panel-visibility gate): <b>every</b>
+    /// complete debit leg whose ledger's GST block is flagged
+    /// <see cref="StockItemGstDetails.ReverseChargeApplicable"/> — the master flag, exactly mirroring TDS's
+    /// <c>TdsApplicable</c> gate — plus a complete <b>supplier</b> (Cr) line. A company with no RCM-flagged ledger, or a
+    /// voucher with no supplier on it, never sees the panel (ER-13). Note the flag only makes the panel <i>visible</i>:
+    /// whether RCM actually fires is the engine's call (a matching effective category + qualifiers).
+    /// </summary>
+    private RcmShape? DetectRcmShape()
+    {
+        if (!RcmPossible) return null;
+
+        // The EXPENSE (Dr) legs drive applicability, the rate and the category — their GST block is what Resolve reads.
+        // Grouped by ledger so one head booked across several lines is ONE dual leg on the summed value, while distinct
+        // heads (each with its own notified rate) keep their own.
+        var legs = Lines
+            .Where(l => l.IsComplete && l.Side == DrCr.Debit
+                        && l.SelectedLedger is { SalesPurchaseGst.ReverseChargeApplicable: true })
+            .GroupBy(l => l.SelectedLedger!.Id)
+            .Select(g => new RcmLeg(g.First().SelectedLedger!, new Money(g.Sum(l => l.ParsedAmount))))
+            .Where(leg => leg.Taxable.Amount > 0m)
+            .ToList();
+        if (legs.Count == 0) return null;
+
+        // The SUPPLIER (Cr) leg: prefer one carrying party GST details (its state code drives the intra/inter split);
+        // else any genuine payables-nature party. No supplier ⇒ no shape (see IsSupplierLedger).
+        var partyLine =
+            Lines.FirstOrDefault(l => l.IsComplete && l.Side == DrCr.Credit && l.SelectedLedger is { PartyGst: not null })
+            ?? Lines.FirstOrDefault(l => l.IsComplete && l.Side == DrCr.Credit
+                                         && l.SelectedLedger is { } led && IsSupplierLedger(led));
+        if (partyLine is null) return null;
+
+        return new RcmShape(legs, partyLine, partyLine.SelectedLedger!);
+    }
+
+    /// <summary>Resolves reverse-charge applicability for ONE leg of a shape through the engine (pure; no posting, no
+    /// company mutation) — the SAME <see cref="RcmService.Resolve"/> the dual-leg build calls internally (ER-4). Each
+    /// leg resolves independently against the shape's supplier: its own category, its own rate.</summary>
+    private RcmService.RcmResolution ResolveRcm(RcmShape shape, RcmLeg leg) =>
+        _rcm.Resolve(
+            leg.Expense.SalesPurchaseGst, shape.Party.PartyGst, item: null, leg.Expense, Date,
+            SelectedRcmSupplyKind?.Kind ?? RcmService.SupplyKind.Domestic,
+            RcmRecipientIsPromoter, RcmRecipientIsBodyCorporate);
+
+    /// <summary>
+    /// Refreshes the RCM panel from the engine's own <see cref="RcmService.Resolve"/> + the static
+    /// <see cref="GstService.ComputeLineTax"/>.
+    /// <para>
+    /// <b>Why not preview through <see cref="RcmService.BuildReverseCharge"/>?</b> Because it is <i>not</i> pure: it
+    /// lazily creates the "RCM Output {head}" ledgers (<see cref="GstService.EnsureRcmOutputLedger"/>). Previewing
+    /// through it would mutate the company on every keystroke — conjuring RCM ledgers on a company that may never post
+    /// an RCM voucher (an ER-13 break). Resolve + ComputeLineTax are <b>exactly</b> what BuildReverseCharge computes
+    /// internally, so the previewed figures are the posted figures to the paisa (ER-4) with no side effect.
+    /// </para>
+    /// A no-op (panel hidden, figures cleared) when no RCM shape exists, so a non-RCM voucher is byte-identical (ER-13).
+    /// </summary>
+    private void UpdateRcmPanel()
+    {
+        if (_updatingRcm) return;
+        _updatingRcm = true;
+        try
+        {
+            if (DetectRcmShape() is not { } shape)
+            {
+                ShowRcmPanel = false;
+                RcmAppliesText = string.Empty;
+                RcmCategoryText = string.Empty;
+                RcmRateText = string.Empty;
+                RcmPosText = string.Empty;
+                RcmTaxText = "0.00";
+                ShowRcmCess = false;
+                RcmCessText = "0.00";
+                RcmSummary = string.Empty;
+                return;
+            }
+
+            // The shape holds ⇒ the panel shows (the engine may still resolve "does not apply" — shown as such).
+            // The default is DOMESTIC, never the decline sentinel: reverse charge is mandatory when a notified category
+            // fires, so it must self-account unless the operator actively declines (mirrors the TDS default).
+            ShowRcmPanel = true;
+            SelectedRcmSupplyKind ??= RcmDomestic;
+
+            if (IsRcmDeclined)
+            {
+                // Declined — show a zeroed, byte-identical-posting state while keeping the panel visible so the operator
+                // can re-enable reverse charge (mirrors UpdateTdsPanel's declined branch).
+                RcmAppliesText = "No — declined by the operator";
+                RcmCategoryText = string.Empty;
+                RcmRateText = string.Empty;
+                RcmPosText = string.Empty;
+                RcmTaxText = "0.00";
+                ShowRcmCess = false;
+                RcmCessText = "0.00";
+                RcmSummary =
+                    "Reverse charge declined — no self-accounting pair is posted and the supplier's own tax (if any) "
+                    + "applies in the ordinary way. Pick a supply kind above to re-enable it.";
+                return;
+            }
+
+            // Resolve EVERY leg (each has its own category and rate) and total what would actually post.
+            var firing = shape.Legs
+                .Select(leg => (Leg: leg, Res: ResolveRcm(shape, leg)))
+                .Where(x => x.Res.Applies)
+                .ToList();
+
+            if (firing.Count == 0)
+            {
+                RcmAppliesText = "No — forward charge";
+                RcmCategoryText = string.Empty;
+                RcmRateText = string.Empty;
+                RcmPosText = string.Empty;
+                RcmTaxText = "0.00";
+                ShowRcmCess = false;
+                RcmCessText = "0.00";
+                RcmSummary =
+                    $"No notified reverse-charge category fires for this supply on {DateText} — the supplier charges "
+                    + $"tax in the ordinary way. No self-accounting pair is posted.";
+                return;
+            }
+
+            // The previewed figure must be the POSTED figure to the paisa (ER-4). BuildReverseCharge also resolves and
+            // posts a Compensation-Cess pair, so previewing through ComputeLineTax alone understated the cash liability
+            // — a preview that lies about the posting. The SAME dated resolver the builder uses is called here.
+            // Only the AD-VALOREM mode is previewable: a per-unit (Specific / RSP-factor) cess needs a quantity the
+            // plain grid does not carry, and the builder itself fail-fasts on it rather than posting a silent ₹0.
+            var tax = Money.Zero;
+            var cess = Money.Zero;
+            foreach (var (leg, res) in firing)
+            {
+                tax += GstService.ComputeLineTax(leg.Taxable, res.RateBasisPoints, res.InterState).Total;
+                if (_gst.ResolveCess(item: null, leg.Expense, Date, quantity: 0m) is { Mode: CessValuationMode.AdValorem } c)
+                    cess += c.ComputeCess(leg.Taxable);
+            }
+
+            var total = tax + cess;
+            var interState = firing[0].Res.InterState;
+            var heads = interState ? "IGST" : "CGST+SGST";
+            var scheme = firing[0].Res.Scheme == RcmItcScheme.ImportOfServices ? "GSTR-3B 4A(2)" : "GSTR-3B 4A(3)";
+
+            RcmAppliesText = "Yes — reverse charge applies";
+            // Import of services is reverse charge BY LAW (§5(3)) — the engine matches no category for it, so name the
+            // statutory basis rather than leaving the operator staring at a blank category on a firing RCM. With several
+            // notified heads on one voucher, each is named so the operator can see what was matched.
+            RcmCategoryText = string.Join(" · ", firing
+                .Select(x => x.Res.Category is { } cat
+                    ? $"{cat.Label} ({cat.Notification})"
+                    : SelectedRcmSupplyKind?.Kind == RcmService.SupplyKind.ImportOfServices
+                        ? "Import of services — §5(3) IGST Act"
+                        : string.Empty)
+                .Where(s => s.Length > 0)
+                .Distinct());
+            // One rate is a rate; several heads at several rates is a blend, so name each rather than imply a single one.
+            RcmRateText = string.Join(" / ", firing
+                .Select(x => (x.Res.RateBasisPoints / 100m).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%")
+                .Distinct());
+            RcmPosText = interState ? "Inter-State (IGST)" : "Intra-State (CGST+SGST)";
+            RcmTaxText = IndianFormat.AmountAlways(total.Amount);
+            ShowRcmCess = cess.Amount != 0m;
+            RcmCessText = IndianFormat.AmountAlways(cess.Amount);
+
+            var taxableTotal = firing.Aggregate(Money.Zero, (a, x) => a + x.Leg.Taxable);
+            var legNote = firing.Count > 1 ? $" across {firing.Count} reverse-charge legs" : string.Empty;
+            var cessNote = ShowRcmCess
+                ? $" (including Compensation Cess ₹{RcmCessText}, ring-fenced to its own head)"
+                : string.Empty;
+            RcmSummary =
+                $"Self-accounted on ₹{IndianFormat.AmountAlways(taxableTotal.Amount)} @ {RcmRateText}{legNote}: "
+                + $"Cr RCM Output {heads} ₹{RcmTaxText}{cessNote} — payable in CASH (§49(4) bars any ITC set-off against "
+                + $"the reverse-charge liability) · Dr Input {heads} ₹{RcmTaxText} — the matching credit, claimed "
+                + $"separately ({scheme}). The supplier charges no tax.";
+        }
+        finally
+        {
+            _updatingRcm = false;
+        }
+    }
+
+    /// <summary>The operator changing the supply kind / the §9(4) promoter / body-corporate qualifiers re-resolves the
+    /// applicability (guarded against the auto-default inside <see cref="UpdateRcmPanel"/>).</summary>
+    partial void OnSelectedRcmSupplyKindChanged(RcmSupplyKindOption? value)
+    {
+        if (_updatingRcm) return;
+        Recalculate();
+    }
+
+    partial void OnRcmRecipientIsPromoterChanged(bool value)
+    {
+        if (_updatingRcm) return;
+        Recalculate();
+    }
+
+    partial void OnRcmRecipientIsBodyCorporateChanged(bool value)
+    {
+        if (_updatingRcm) return;
+        Recalculate();
+    }
+
+    // =============================================================== §34 credit / debit note (catalog §12; Phase 9 slice 2b; RQ-24; ER-12; DP-27)
+
+    /// <summary>
+    /// True when this voucher <b>can</b> carry §34 GST details: a Credit-Note / Debit-Note on a GST company. The details
+    /// themselves are opt-in (<see cref="IsSection34Note"/>) — not every note on a GST company is a §34 GST note (an
+    /// inter-branch or exempt-supply adjustment is not), and the engine treats the link as an optional annotation whose
+    /// absence keeps the reports byte-identical (ER-13).
+    /// </summary>
+    public bool CanBeSection34Note =>
+        _company.GstEnabled && _type.BaseType is VoucherBaseType.CreditNote or VoucherBaseType.DebitNote;
+
+    /// <summary>
+    /// Opt-in: this note carries §34 GST details (RQ-24). Off ⇒ no <see cref="GstCreditDebitNoteLink"/> is created and
+    /// the note posts exactly as it does today (ER-13). On ⇒ the original-invoice reference becomes <b>mandatory</b>
+    /// (ER-12: a §34 note is never a free-floating tax delta) and the §34(2) cut-off is enforced.
+    /// </summary>
+    [ObservableProperty] private bool _isSection34Note;
+
+    /// <summary>The §34 note direction, derived from the voucher's own base type — a Credit Note <b>reduces</b> the
+    /// supplier's output tax (capped by the §34(2) 30-Nov cut-off); a Debit Note <b>increases</b> it (uncapped).</summary>
+    public CdnType Section34Type =>
+        _type.BaseType == VoucherBaseType.CreditNote ? CdnType.Credit : CdnType.Debit;
+
+    /// <summary>True when the §34 detail fields (original-invoice picker, reason, 9B target, override) are shown.</summary>
+    public bool ShowSection34Details => CanBeSection34Note && IsSection34Note;
+
+    /// <summary>
+    /// True when the §34(2) <b>Override</b> affordance is shown — on any liability-reducing <b>credit</b> note carrying
+    /// §34 details.
+    /// <para>
+    /// Deliberately <b>not</b> gated on <see cref="CdnPastTimeLimit"/>: §34(2) also refuses a credit note whose original
+    /// supply <i>date is unknown</i> (the cut-off cannot be verified), and in that state "past the limit" is false. Gating
+    /// the override on it would leave the operator refused by a guard whose only stated escape is a control that is not
+    /// on screen — the dead-guard defect UI-2 shipped three times.
+    /// </para>
+    /// </summary>
+    public bool ShowCdnOverride => ShowSection34Details && Section34Type == CdnType.Credit;
+
+    /// <summary>The original-invoice choices: a "(none)" sentinel (so the ER-12 guard can actually fire), a
+    /// consolidated/unregistered reference option, then every posted Sales/Purchase invoice dated on or before this note.</summary>
+    public ObservableCollection<CdnOriginalInvoiceOption> CdnOriginalInvoices { get; } = new();
+
+    /// <summary>The chosen original invoice this note adjusts — the link GSTR-1 Table 9B / 9C reads.</summary>
+    [ObservableProperty] private CdnOriginalInvoiceOption? _selectedCdnOriginalInvoice;
+
+    /// <summary>The original invoice number, typed for a <b>consolidated / unregistered</b> reference (ER-12's second
+    /// limb — used when no voucher link is available).</summary>
+    [ObservableProperty] private string _cdnOriginalInvoiceNumber = string.Empty;
+
+    /// <summary>The original supply date (dd-MMM-yyyy) for a consolidated reference — it drives the §34(2) FY basis.</summary>
+    [ObservableProperty] private string _cdnOriginalInvoiceDateText = string.Empty;
+
+    /// <summary>The standard §34 reason vocabulary the note is issued under (required by the link record).</summary>
+    public ObservableCollection<string> CdnReasonCodes { get; } = new();
+
+    /// <summary>The chosen §34 reason (e.g. "01 Sales return"); required when §34 details are on.</summary>
+    [ObservableProperty] private string? _selectedCdnReasonCode;
+
+    /// <summary>True ⇒ a registered-party note (GSTR-1 Table 9B); false ⇒ an unregistered CDN.</summary>
+    [ObservableProperty] private bool _cdnIs9BTarget = true;
+
+    /// <summary>Explicitly permit a credit note past the §34(2) 30-Nov cut-off (house style: the default blocks).</summary>
+    [ObservableProperty] private bool _cdnOverrideTimeLimit;
+
+    /// <summary>True when the typed consolidated-reference fields are shown (the consolidated option is chosen).</summary>
+    [ObservableProperty] private bool _showCdnConsolidatedFields;
+
+    /// <summary>True when the resolved note is past its §34(2) cut-off — drives the override affordance.</summary>
+    [ObservableProperty] private bool _cdnPastTimeLimit;
+
+    /// <summary>The §34 advisory shown under the picker (the 30-Nov cut-off, or why the note is refused).</summary>
+    [ObservableProperty] private string _cdnSummary = string.Empty;
+
+    /// <summary>
+    /// Populates the §34 pickers. The candidates are the posted <b>Sales/Purchase</b> invoices (either nature can be the
+    /// original supply a note adjusts), most recent first. Called once from the constructor; a no-op on a non-note type.
+    /// </summary>
+    private void BuildSection34Pickers()
+    {
+        if (!CanBeSection34Note) return;
+
+        CdnOriginalInvoices.Clear();
+        CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Display = "◦ (none selected)" });
+        CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption
+        {
+            IsConsolidated = true,
+            Display = "◦ Consolidated / unregistered — enter the reference",
+        });
+        foreach (var v in _company.Vouchers
+                     .Where(v => _company.FindVoucherType(v.TypeId)?.BaseType
+                         is VoucherBaseType.Sales or VoucherBaseType.Purchase)
+                     .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
+            CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
+        SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault();
+
+        // The standard GST §34 reason vocabulary (the link record requires a reason).
+        CdnReasonCodes.Clear();
+        foreach (var r in new[]
+                 {
+                     "01 Sales return",
+                     "02 Post-supply discount",
+                     "03 Deficiency in services",
+                     "04 Correction in invoice",
+                     "05 Change in place of supply",
+                     "06 Finalisation of provisional assessment",
+                     "07 Others",
+                 })
+            CdnReasonCodes.Add(r);
+    }
+
+    /// <summary>A one-line description of a candidate original invoice (type, number, date, party, value).</summary>
+    private string CdnCandidateDisplay(Voucher v)
+    {
+        var typeName = _company.FindVoucherType(v.TypeId)?.Name ?? "Voucher";
+        var party = v.PartyId is { } pid ? _company.FindLedger(pid)?.Name : null;
+        var total = v.Lines.Where(l => l.Side == DrCr.Debit).Aggregate(Money.Zero, (a, l) => a + l.Amount);
+        var partyPart = string.IsNullOrWhiteSpace(party) ? string.Empty : $" · {party}";
+        return $"{typeName} No. {v.Number} · {v.Date:dd-MMM-yyyy}{partyPart} · ₹{IndianFormat.AmountAlways(total.Amount)}";
+    }
+
+    /// <summary>
+    /// The resolved original-invoice reference (ER-12): a picked voucher contributes its id + number + date; the
+    /// consolidated option contributes only what the operator typed. A "(none)" selection resolves to nothing — which is
+    /// exactly what the Accept guard refuses on.
+    /// </summary>
+    private (Guid? VoucherId, string? Number, DateOnly? Date) ResolveCdnOriginal()
+    {
+        if (SelectedCdnOriginalInvoice is not { } opt || opt.IsNone) return (null, null, null);
+
+        if (opt.Invoice is { } invoice)
+            return (invoice.Id, invoice.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), invoice.Date);
+
+        var number = string.IsNullOrWhiteSpace(CdnOriginalInvoiceNumber) ? null : CdnOriginalInvoiceNumber.Trim();
+        DateOnly? date = DateOnly.TryParseExact(
+            (CdnOriginalInvoiceDateText ?? string.Empty).Trim(), "dd-MMM-yyyy",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var parsed)
+            ? parsed
+            : null;
+        return (null, number, date);
+    }
+
+    /// <summary>
+    /// Refreshes the §34 advisory. The <b>30-November cut-off itself comes from the engine</b>
+    /// (<see cref="CreditDebitNoteService.NovemberThirtyFollowing"/>, ER-4) — the screen never re-derives the Indian-FY
+    /// rule. A debit note is uncapped (no issuance cut-off), so it simply says so.
+    /// </summary>
+    private void UpdateSection34Panel()
+    {
+        OnPropertyChanged(nameof(ShowSection34Details));
+        OnPropertyChanged(nameof(ShowCdnOverride));
+        ShowCdnConsolidatedFields = ShowSection34Details && SelectedCdnOriginalInvoice is { IsConsolidated: true };
+
+        if (!ShowSection34Details)
+        {
+            CdnSummary = string.Empty;
+            CdnPastTimeLimit = false;
+            return;
+        }
+
+        var (voucherId, number, date) = ResolveCdnOriginal();
+        if (voucherId is null && string.IsNullOrWhiteSpace(number))
+        {
+            CdnPastTimeLimit = false;
+            CdnSummary = "Select the original invoice this note adjusts (or choose 'Consolidated…' and type the original "
+                         + "invoice number) — a §34 note is never a free-floating tax delta.";
+            return;
+        }
+
+        if (Section34Type == CdnType.Debit)
+        {
+            CdnPastTimeLimit = false;
+            CdnSummary = "§34 debit note — increases the original supply's output tax. No §34(2) issuance cut-off applies "
+                         + "to a debit note.";
+            return;
+        }
+
+        // A liability-reducing credit note is capped by §34(2). Without the original supply date the cut-off cannot be
+        // verified at all — refusing (rather than waving it through) mirrors the engine's own guard.
+        if (date is not { } originalDate)
+        {
+            CdnPastTimeLimit = false;
+            CdnSummary = "A liability-reducing §34 credit note needs the original supply date to verify the 30-November "
+                         + "declaration cut-off — type the original invoice date (dd-MMM-yyyy).";
+            return;
+        }
+
+        var deadline = CreditDebitNoteService.NovemberThirtyFollowing(originalDate);
+        CdnPastTimeLimit = Date > deadline;
+        CdnSummary = CdnPastTimeLimit
+            ? $"§34(2): this credit note (dated {DateText}) is PAST the {deadline:dd-MMM-yyyy} declaration cut-off "
+              + $"(30-November following the original supply's FY) — a liability-reducing credit note declared after the "
+              + $"cut-off is not permitted. Tick Override to force."
+            : $"§34(2): the declaration cut-off for the {originalDate:dd-MMM-yyyy} supply is {deadline:dd-MMM-yyyy} — "
+              + $"this note is within the limit.";
+    }
+
+    partial void OnIsSection34NoteChanged(bool value) => UpdateSection34Panel();
+    partial void OnSelectedCdnOriginalInvoiceChanged(CdnOriginalInvoiceOption? value) => UpdateSection34Panel();
+    partial void OnCdnOriginalInvoiceNumberChanged(string value) => UpdateSection34Panel();
+    partial void OnCdnOriginalInvoiceDateTextChanged(string value) => UpdateSection34Panel();
+
+    /// <summary>
+    /// Pre-validates the §34 details before the engine is touched (friendly refusals): the original-invoice reference
+    /// (ER-12), the reason, and the §34(2) 30-Nov cut-off on a liability-reducing credit note. Returns false ⇒ Accept
+    /// aborts with <see cref="Message"/> set. A no-op when §34 details are off (ER-13).
+    /// </summary>
+    private bool ValidateSection34()
+    {
+        if (!ShowSection34Details) return true;
+
+        var (voucherId, number, date) = ResolveCdnOriginal();
+        if (voucherId is null && string.IsNullOrWhiteSpace(number))
+        {
+            Message = "Select the original invoice this §34 note adjusts — or choose 'Consolidated / unregistered' and "
+                      + "type the original invoice number. A §34 note is never a free-floating tax delta.";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(SelectedCdnReasonCode))
+        {
+            Message = "Select the §34 reason this credit/debit note is issued under.";
+            return false;
+        }
+
+        // §34(2) applies only to a CREDIT note (it reduces the supplier's liability); debit notes are uncapped.
+        if (Section34Type == CdnType.Credit && !CdnOverrideTimeLimit)
+        {
+            if (date is not { } originalDate)
+            {
+                Message = "A liability-reducing §34 credit note requires the original supply date to verify the §34(2) "
+                          + "30-November declaration cut-off — type the original invoice date (dd-MMM-yyyy), or tick "
+                          + "Override to bypass the check.";
+                return false;
+            }
+            var deadline = CreditDebitNoteService.NovemberThirtyFollowing(originalDate);
+            if (Date > deadline)
+            {
+                Message = $"Credit note dated {DateText} is past the §34(2) declaration cut-off of "
+                          + $"{deadline:dd-MMM-yyyy} (30-November following the original supply's FY) — a "
+                          + "liability-reducing credit note declared after the cut-off is not permitted (tick Override to force).";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Registers the <see cref="GstCreditDebitNoteLink"/> for a just-posted §34 note (RQ-24) — the record GSTR-1 Table 9B
+    /// and the amendment tables read.
+    /// <para>
+    /// <b>Why not <see cref="CreditDebitNoteService.BuildCreditDebitNote"/>?</b> Because it also <i>computes and returns
+    /// the Output-tax legs</i> — and on this plain-grid screen the operator has already entered those legs by hand.
+    /// Calling it would post the tax twice. The genuinely missing §34 essential here is the <b>link</b> (ER-12), so the
+    /// link is created directly while the statutory §34(2) rule is still taken from the engine
+    /// (<see cref="CreditDebitNoteService.NovemberThirtyFollowing"/>) rather than re-derived (ER-4).
+    /// </para>
+    /// </summary>
+    private void RegisterSection34Link(Guid cdnVoucherId, Stack<Action> undo)
+    {
+        var (voucherId, number, date) = ResolveCdnOriginal();
+        var link = new GstCreditDebitNoteLink(
+            Guid.NewGuid(), cdnVoucherId, Section34Type, voucherId, number, date,
+            SelectedCdnReasonCode!, CdnIs9BTarget);
+        _company.AddCreditDebitNoteLink(link);
+        // The link references the note voucher; if the save then fails and the voucher is unwound, this must go too.
+        undo.Push(() => _company.RemoveCreditDebitNoteLink(link));
+    }
+
+    // =============================================================== GST on advances (catalog §12; Phase 9 slice 2b; RQ-25; Rule 50/51)
+
+    /// <summary>The action a voucher type offers against an outstanding advance.</summary>
+    public enum AdvanceAction
+    {
+        /// <summary>Neither — this voucher type does nothing to an advance.</summary>
+        None,
+
+        /// <summary>A Journal applies the advance to the tax invoice (→ GSTR-1 11B); the operator books
+        /// <c>Dr Advance from customer / Cr Customer</c> and the suspense-releasing pair is appended.</summary>
+        Adjust,
+
+        /// <summary>A Payment returns the advance (Rule 51); the operator books <c>Dr Advance / Cr Bank</c> and the
+        /// suspense-releasing pair is appended.</summary>
+        Refund,
+    }
+
+    /// <summary>
+    /// The <b>GST-on-advances</b> engine (Phase 9 slice 2b) — the SAME service the posting uses (ER-4). The screen never
+    /// re-implements the maths; the live figures come from the pure <see cref="GstService.ComputeLineTax"/> the engine
+    /// itself calls (see <see cref="UpdateAdvancePanel"/> for why the builder is never used to preview).
+    /// </summary>
+    private readonly AdvanceReceiptService _advance;
+
+    // ---- (a) booking the advance on a Receipt voucher (Rule 50) ----
+
+    /// <summary>True when this voucher <b>can</b> carry a GST advance: a Receipt on a GST company. Opt-in below.</summary>
+    public bool CanBeAdvanceReceipt => _company.GstEnabled && _type.BaseType == VoucherBaseType.Receipt;
+
+    /// <summary>Opt-in: this receipt is an <b>advance</b> against a future supply (RQ-25). Off ⇒ no advance record, no
+    /// tax pair, no suspense ledger — an ordinary receipt posts exactly as before (ER-13).</summary>
+    [ObservableProperty] private bool _isAdvanceReceipt;
+
+    /// <summary>True when the advance-receipt fields are shown.</summary>
+    public bool ShowAdvanceReceiptDetails => CanBeAdvanceReceipt && IsAdvanceReceipt;
+
+    /// <summary>True ⇒ a <b>service</b> advance (GST due on receipt, §13); false ⇒ a <b>goods</b> advance, which is
+    /// de-taxed by Notn 66/2017 — no tax pair and no 11A row.</summary>
+    [ObservableProperty] private bool _advanceIsService = true;
+
+    /// <summary>The <b>net (ex-tax)</b> advance the GST is computed on. Typed explicitly rather than back-derived from
+    /// the receipt's gross: dividing a gross out by (1 + rate) does not generally land on a paisa, and the engine
+    /// (rightly) refuses a non-paisa-exact advance — a silently-rounded base is exactly the kind of wrong number this
+    /// screen must never invent.</summary>
+    [ObservableProperty] private string _advanceAmountText = string.Empty;
+
+    /// <summary>The integrated rate as a percentage (Rule-50 fallback 18% when the rate is not yet known).</summary>
+    [ObservableProperty] private string _advanceRateText = "18";
+
+    /// <summary>True ⇒ IGST; false ⇒ CGST+SGST. Rule 50 falls back to inter-state when the place of supply is unknown.</summary>
+    [ObservableProperty] private bool _advanceInterState;
+
+    /// <summary>The place-of-supply State/UT code recorded on the advance (optional).</summary>
+    [ObservableProperty] private string _advancePlaceOfSupplyStateCode = string.Empty;
+
+    /// <summary>The advance tax due on receipt (paisa-exact display); "0.00" for a de-taxed goods advance.</summary>
+    [ObservableProperty] private string _advanceTaxText = "0.00";
+
+    /// <summary>The gross the party actually remits = net advance + advance tax.</summary>
+    [ObservableProperty] private string _advanceGrossText = "0.00";
+
+    /// <summary>The one-line human summary of the advance shown under the figures.</summary>
+    [ObservableProperty] private string _advanceSummary = string.Empty;
+
+    // ---- (b) adjusting / refunding an outstanding advance (Rule 51; GSTR-1 11B) ----
+
+    /// <summary>The action this voucher type offers against an outstanding advance — a Journal <b>adjusts</b> it against
+    /// the tax invoice, a Payment <b>refunds</b> it. Every other type offers neither.</summary>
+    public AdvanceAction AdvanceActionForType => _type.BaseType switch
+    {
+        VoucherBaseType.Journal => AdvanceAction.Adjust,
+        VoucherBaseType.Payment => AdvanceAction.Refund,
+        _ => AdvanceAction.None,
+    };
+
+    /// <summary>The outstanding (neither adjusted nor refunded) advances, plus a "(none)" sentinel. An already-adjusted
+    /// advance is <b>absent</b> — the picker cannot offer a double adjustment in the first place.</summary>
+    public ObservableCollection<AdvanceReceiptOption> OutstandingAdvances { get; } = new();
+
+    /// <summary>The advance being adjusted / refunded by this voucher.</summary>
+    [ObservableProperty] private AdvanceReceiptOption? _selectedOutstandingAdvance;
+
+    /// <summary>The tax invoice an advance is being adjusted against (Adjust mode only) — the 11B anchor.</summary>
+    public ObservableCollection<AdvanceInvoiceOption> AdvanceInvoices { get; } = new();
+
+    /// <summary>The chosen tax invoice the advance is applied to.</summary>
+    [ObservableProperty] private AdvanceInvoiceOption? _selectedAdvanceInvoice;
+
+    /// <summary>True when the adjust/refund panel is shown: a GST company, a Journal (adjust) or Payment (refund), and
+    /// at least one outstanding advance to act on. A company that never books an advance never sees it (ER-13).</summary>
+    public bool ShowAdvanceActionPanel =>
+        _company.GstEnabled
+        && !IsItemInvoice
+        && AdvanceActionForType != AdvanceAction.None
+        && OutstandingAdvances.Any(o => !o.IsNone);
+
+    /// <summary>True when the invoice picker is shown (adjusting, not refunding).</summary>
+    public bool ShowAdvanceInvoicePicker =>
+        ShowAdvanceActionPanel && AdvanceActionForType == AdvanceAction.Adjust;
+
+    /// <summary>The adjust/refund panel caption + advisory.</summary>
+    [ObservableProperty] private string _advanceActionSummary = string.Empty;
+
+    /// <summary>
+    /// Populates the advance pickers: the outstanding advances (never an adjusted/refunded one) and the candidate tax
+    /// invoices. Called once from the constructor; a no-op on a type that offers no advance action.
+    /// </summary>
+    private void BuildAdvancePickers()
+    {
+        if (!_company.GstEnabled || AdvanceActionForType == AdvanceAction.None) return;
+
+        OutstandingAdvances.Clear();
+        OutstandingAdvances.Add(new AdvanceReceiptOption { Display = "◦ (none selected)" });
+        foreach (var a in _company.AdvanceReceipts
+                     .Where(a => a.AdjustedAgainstInvoiceVoucherId is null && a.RefundVoucherId is null))
+            OutstandingAdvances.Add(new AdvanceReceiptOption { Receipt = a, Display = AdvanceDisplay(a) });
+        SelectedOutstandingAdvance = OutstandingAdvances.FirstOrDefault();
+
+        AdvanceInvoices.Clear();
+        AdvanceInvoices.Add(new AdvanceInvoiceOption { Display = "◦ (none selected)" });
+        foreach (var v in _company.Vouchers
+                     .Where(v => _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
+                     .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
+            AdvanceInvoices.Add(new AdvanceInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
+        SelectedAdvanceInvoice = AdvanceInvoices.FirstOrDefault();
+    }
+
+    /// <summary>A one-line description of an outstanding advance (its receipt voucher, kind, net amount and tax).</summary>
+    private string AdvanceDisplay(GstAdvanceReceipt a)
+    {
+        // Kept compact: this string is shown inside a ComboBox, which ellipsizes — a longer label pushed the tax figure
+        // out of sight. The full consequence is spelled out in AdvanceActionSummary underneath.
+        var receipt = _company.FindVoucher(a.ReceiptVoucherId);
+        var receiptPart = receipt is null ? "Advance" : $"Receipt {receipt.Number} · {receipt.Date:dd-MMM-yy}";
+        var kind = a.IsService ? "service" : "goods";
+        return $"{receiptPart} · {kind} · net ₹{IndianFormat.AmountAlways(a.AdvanceAmount.Amount)} · "
+               + $"tax ₹{IndianFormat.AmountAlways(a.AdvanceTax.Amount)}";
+    }
+
+    /// <summary>The typed net advance, or null when blank/unparseable.</summary>
+    private decimal? ParsedAdvanceAmount =>
+        decimal.TryParse((AdvanceAmountText ?? string.Empty).Trim(),
+            System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v)
+            ? v
+            : null;
+
+    /// <summary>The typed rate as basis points (18 ⇒ 1800), or the Rule-50 fallback when blank/unparseable.</summary>
+    private int ParsedAdvanceRateBasisPoints =>
+        decimal.TryParse((AdvanceRateText ?? string.Empty).Trim(),
+            System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var pct)
+            && pct >= 0m
+            ? (int)Math.Round(pct * 100m, MidpointRounding.AwayFromZero)
+            : AdvanceReceiptService.RuleFiftyFallbackRateBasisPoints;
+
+    /// <summary>
+    /// Refreshes the advance-receipt figures.
+    /// <para>
+    /// As with RCM, the preview goes through the pure static <see cref="GstService.ComputeLineTax"/> and <b>never</b>
+    /// <see cref="AdvanceReceiptService.BuildAdvanceReceipt"/> — the builder lazily creates the "Output Tax on Advances"
+    /// suspense ledger AND registers a <see cref="GstAdvanceReceipt"/> on the company, so previewing through it would
+    /// conjure a suspense ledger and a phantom advance record on every keystroke. ComputeLineTax is exactly what the
+    /// builder computes internally, so what is shown is what posts, to the paisa (ER-4).
+    /// </para>
+    /// </summary>
+    private void UpdateAdvancePanel()
+    {
+        OnPropertyChanged(nameof(ShowAdvanceReceiptDetails));
+
+        if (!ShowAdvanceReceiptDetails)
+        {
+            AdvanceTaxText = "0.00";
+            AdvanceGrossText = "0.00";
+            AdvanceSummary = string.Empty;
+            return;
+        }
+
+        if (ParsedAdvanceAmount is not { } net || net <= 0m)
+        {
+            AdvanceTaxText = "0.00";
+            AdvanceGrossText = "0.00";
+            AdvanceSummary = "Enter the net (ex-tax) advance this receipt covers.";
+            return;
+        }
+
+        // A goods advance is de-taxed (Notn 66/2017) — no tax pair, no 11A row.
+        if (!AdvanceIsService)
+        {
+            AdvanceTaxText = "0.00";
+            AdvanceGrossText = IndianFormat.AmountAlways(net);
+            AdvanceSummary =
+                "Goods advance — de-taxed (Notn 66/2017): no GST is due on receipt and no tax pair is posted. The "
+                + "advance is recorded, but it raises no GSTR-1 11A row.";
+            return;
+        }
+
+        var bp = ParsedAdvanceRateBasisPoints;
+        var tax = GstService.ComputeLineTax(new Money(net), bp, AdvanceInterState);
+        var heads = AdvanceInterState ? "IGST" : "CGST+SGST";
+
+        AdvanceTaxText = IndianFormat.AmountAlways(tax.Total.Amount);
+        AdvanceGrossText = IndianFormat.AmountAlways(net + tax.Total.Amount);
+        AdvanceSummary =
+            $"Service advance (§13 — GST due on receipt): Cr Output {heads} ₹{AdvanceTaxText} · Dr Output Tax on "
+            + $"Advances ₹{AdvanceTaxText} (a self-balancing pair added on top of your receipt legs, so revenue is not "
+            + $"inflated) → GSTR-1 11A. The party remits ₹{AdvanceGrossText} gross; the suspense is released (11B) when "
+            + "the tax invoice adjusts this advance.";
+    }
+
+    /// <summary>Refreshes the adjust/refund advisory.</summary>
+    private void UpdateAdvanceActionPanel()
+    {
+        OnPropertyChanged(nameof(ShowAdvanceActionPanel));
+        OnPropertyChanged(nameof(ShowAdvanceInvoicePicker));
+
+        if (!ShowAdvanceActionPanel || SelectedOutstandingAdvance is not { Receipt: { } adv })
+        {
+            AdvanceActionSummary = string.Empty;
+            return;
+        }
+
+        var tax = IndianFormat.AmountAlways(adv.AdvanceTax.Amount);
+        AdvanceActionSummary = AdvanceActionForType == AdvanceAction.Adjust
+            ? $"Adjusting this advance releases the ₹{tax} suspense (Dr Output tax / Cr Output Tax on Advances) so the "
+              + "invoice's own output tax is not double-counted → GSTR-1 11B. Book the ordinary application legs "
+              + "(Dr Advance from customer / Cr the customer) on the grid; the release pair is appended automatically."
+            : $"Refunding this advance (Rule 51) releases the ₹{tax} suspense and reverses the advance's output "
+              + "recognition. Book the ordinary refund legs (Dr Advance from customer / Cr Bank) on the grid; the "
+              + "release pair is appended automatically.";
+    }
+
+    partial void OnIsAdvanceReceiptChanged(bool value) => UpdateAdvancePanel();
+    partial void OnAdvanceIsServiceChanged(bool value) => UpdateAdvancePanel();
+    partial void OnAdvanceAmountTextChanged(string value) => UpdateAdvancePanel();
+    partial void OnAdvanceRateTextChanged(string value) => UpdateAdvancePanel();
+    partial void OnAdvanceInterStateChanged(bool value) => UpdateAdvancePanel();
+    partial void OnSelectedOutstandingAdvanceChanged(AdvanceReceiptOption? value) => UpdateAdvanceActionPanel();
+
+    /// <summary>
+    /// Restores an advance record the engine mutated, after a rejected post. <see cref="AdvanceReceiptService"/> is
+    /// <b>not</b> pure — <c>BuildAdvanceReceipt</c> registers a record and <c>AdjustAgainstInvoice</c>/<c>Refund</c>
+    /// replace one — so a voucher the engine then refuses would otherwise leave a phantom or wrongly-adjusted advance
+    /// behind on the in-memory company (and the next Accept would register a second one). This is the compensating undo.
+    /// </summary>
+    private void RestoreAdvance(GstAdvanceReceipt original)
+    {
+        if (_company.FindAdvanceReceipt(original.Id) is { } mutated) _company.RemoveAdvanceReceipt(mutated);
+        _company.AddAdvanceReceipt(original);
+    }
+
+    /// <summary>Removes an advance record the engine registered, after a rejected post (the undo for a booked advance).</summary>
+    private void UnregisterAdvance(GstAdvanceReceipt registered)
+    {
+        if (_company.FindAdvanceReceipt(registered.Id) is { } found) _company.RemoveAdvanceReceipt(found);
+    }
+
+    /// <summary>
+    /// Generates the Rule-47A <b>self-invoice</b> and/or the Rule-52 <b>payment voucher</b> for a just-posted RCM
+    /// voucher (RQ-8), returning the note to append to the accept message. Only ever called when reverse charge
+    /// actually applied. A <b>registered</b> supplier issues its own tax invoice, so the engine returns <c>null</c> for
+    /// the self-invoice — surfaced as an explanation rather than a silent no-op.
+    /// <para>
+    /// Both generators ADD a document to the company, so each pushes its compensating undo onto <paramref name="undo"/>:
+    /// these documents link to the posted voucher id, and if the save then fails the voucher is unwound — a surviving
+    /// document would point at a voucher that no longer exists (the same dangling-reference shape as the advance
+    /// phantom this guard was built for).
+    /// </para>
+    /// </summary>
+    private string GenerateRcmDocuments(Guid voucherId, RcmShape shape, Stack<Action> undo)
+    {
+        var notes = new List<string>();
+
+        if (GenerateRcmSelfInvoice)
+        {
+            // Registered ⇔ the party carries GST details that are not B2C (a GSTIN + a Regular/Composition type).
+            var supplierIsRegistered = shape.Party.PartyGst is { IsB2C: false };
+            var doc = _rcm.GenerateSelfInvoice(voucherId, Date, Date, supplierIsRegistered, shape.Party.Id);
+            if (doc is not null) undo.Push(() => _company.RemoveRcmDocument(doc));
+            notes.Add(doc is null
+                ? $"Self-invoice not raised — {shape.Party.Name} is registered and issues its own tax invoice (Rule 47A)."
+                : $"Self-invoice No. {doc.SeriesNumber} generated (Rule 47A).");
+        }
+
+        if (GenerateRcmPaymentVoucher)
+        {
+            var doc = _rcm.GeneratePaymentVoucher(voucherId, Date, shape.Party.Id);
+            undo.Push(() => _company.RemoveRcmDocument(doc));
+            notes.Add($"Payment voucher No. {doc.SeriesNumber} generated (Rule 52).");
+        }
+
+        return notes.Count == 0 ? string.Empty : " " + string.Join(" ", notes);
+    }
+
     /// <summary>
     /// Ctrl+A accept: builds the voucher from the non-blank lines, posts it (engine rejects an
     /// unbalanced/invalid voucher — nothing persists on failure), then saves the company to its
@@ -834,6 +1759,68 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // §34 note essentials (RQ-24; ER-12): the original-invoice reference, the reason, and the §34(2) 30-Nov cut-off
+        // on a liability-reducing credit note. A no-op unless the operator opted into §34 details (ER-13).
+        if (!ValidateSection34()) return false;
+
+        // The voucher id is minted up front: the GST-advance engine links its records to THIS voucher (a Rule-50 advance
+        // record, or a Rule-51 refund), so the id must exist before the lines are built.
+        var voucherId = Guid.NewGuid();
+
+        // ---------------------------------------------------------------- the guarded mutation window
+        // Everything PostAndSave does mutates the in-memory company through engines that are NOT pure: the advance engine
+        // registers/replaces a GstAdvanceReceipt, Post appends the voucher, the RCM builder raises the Rule-47A/52
+        // documents, the §34 link is registered. Each mutation pushes its compensating undo onto `undo`, and anything
+        // short of an outright success unwinds the lot here — newest first.
+        //
+        // This is deliberately a WHOLE-WINDOW guard rather than a per-exit patch. The rollback used to run only from the
+        // two engine-refusal catches, so the other five refusal exits leaked whatever the advance engine had already
+        // registered. The narrowest of them was the deadliest: a GOODS advance is de-taxed (Notn 66/2017), so the engine
+        // registers the record and hands back NO tax lines — the "needs at least two lines" gate then refused with the
+        // record already on the company. That phantom pointed at a voucher id that was never posted, and
+        // gst_advance_receipts.receipt_voucher_id is NOT NULL REFERENCES vouchers(id), so the operator doing exactly what
+        // the refusal message asked (add the missing leg, Accept again) hit a FOREIGN KEY violation that escaped Accept
+        // uncaught, lost the legitimate voucher, and bricked every save for the rest of the session.
+        //
+        // A no-op on the ordinary voucher: nothing is pushed, so a plain post is byte-identical (ER-13).
+        var undo = new Stack<Action>();
+        var committed = false;
+        try
+        {
+            committed = PostAndSave(voucherId, undo);
+            return committed;
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = $"Voucher is out of balance (Dr {TotalDebitText} ≠ Cr {TotalCreditText}). Not saved.";
+            return false;
+        }
+        catch (InvalidVoucherException ex)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            if (!committed)
+                while (undo.Count > 0) undo.Pop().Invoke();
+        }
+    }
+
+    /// <summary>
+    /// The mutating half of <see cref="Accept"/>, run inside that method's rollback guard: derives the withholding /
+    /// reverse-charge / advance legs, posts the voucher, raises its RCM documents + §34 link, and saves the aggregate.
+    /// Every company mutation pushes a compensating undo onto <paramref name="undo"/>, so the caller can unwind the
+    /// whole window on ANY non-success exit. Returns false ⇒ refused with <see cref="Message"/> set; may throw
+    /// <see cref="UnbalancedVoucherException"/> / <see cref="InvalidVoucherException"/> (the caller relays both).
+    /// </summary>
+    private bool PostAndSave(Guid voucherId, Stack<Action> undo)
+    {
+        // GST on advances (RQ-25). All three actions come from the SAME engine the panel previewed (ER-4), and all three
+        // MUTATE the company (registering / replacing a GstAdvanceReceipt), so each pushes a compensating undo.
+        var advanceLines = new List<EntryLine>();
+        if (!BuildAdvanceLines(voucherId, advanceLines, undo)) return false;
+
         // TDS withholding carve-out (Phase 7 slice 2): when a deductee party + expense line are on the grid, the
         // party's Cr leg is replaced with the DERIVED net (gross − TDS) and a TDS-Payable Cr leg is appended — via
         // the SAME TdsService.BuildCarveOut the panel showed (ER-4), so gross Dr == net Cr + TDS Cr by construction
@@ -853,6 +1840,39 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 return false;
             }
         }
+
+        // Reverse-charge dual legs (Phase 9 slice 2): for EVERY RCM-flagged expense leg on the grid (paired with the
+        // resolved supplier leg) that the engine resolves as firing, the self-accounting pair — Cr "RCM Output {head}"
+        // (the cash-only §49(4) liability) + Dr "Input {head}" (the matching credit) — is appended on top of the
+        // ordinary purchase legs. Each pair is the SAME amount on both sides, so it is self-balancing and the grid's own
+        // balance is untouched. Resolution is checked FIRST (pure) so the builder — which lazily creates the RCM ledgers
+        // — is never touched on a supply that does not attract reverse charge (ER-13).
+        //
+        // One pair PER LEG, never just the first: a single supplier invoice routinely carries two notified heads (legal
+        // @18% + GTA @5%), and taking Lines.FirstOrDefault silently under-collected the §49(4) liability on the rest —
+        // no warning, no refusal, Accept reporting success.
+        var rcmPostings = new List<RcmService.RcmPosting>();
+        var rcmShape = DetectRcmShape();
+        if (rcmShape is { } rs && !IsRcmDeclined)
+        {
+            foreach (var leg in rs.Legs)
+            {
+                if (!ResolveRcm(rs, leg).Applies) continue;
+                try
+                {
+                    rcmPostings.Add(_rcm.BuildReverseCharge(
+                        leg.Taxable, item: null, leg.Expense, rs.Party.PartyGst, Date,
+                        SelectedRcmSupplyKind?.Kind ?? RcmService.SupplyKind.Domestic,
+                        RcmRecipientIsPromoter, RcmRecipientIsBodyCorporate));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+                {
+                    Message = $"Cannot compute reverse charge on '{leg.Expense.Name}': {ex.Message}";
+                    return false;
+                }
+            }
+        }
+        var rcmApplies = rcmPostings.Any(p => p.Applies);
 
         var entryLines = Lines
             .Where(l => l.IsComplete)
@@ -878,6 +1898,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         // Append the TDS-Payable credit leg (only when the threshold was crossed).
         if (carve is { TdsPayableLine: { } payableLine })
             entryLines.Add(payableLine);
+
+        // Append every reverse-charge self-accounting pair (each self-balancing, so the voucher stays balanced).
+        foreach (var rcmPosting in rcmPostings)
+            entryLines.AddRange(rcmPosting.Lines);
+
+        // Append the GST-advance pair — the tax-on-advance pair (Rule 50) or the suspense-releasing reversal
+        // (adjustment / Rule-51 refund). Self-balancing, so the grid's own balance is untouched.
+        entryLines.AddRange(advanceLines);
 
         if (entryLines.Count < 2)
         {
@@ -905,7 +1933,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         }
 
         var voucher = new Voucher(
-            Guid.NewGuid(),
+            voucherId,
             _type.Id,
             Date,
             entryLines,
@@ -917,25 +1945,136 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             postDated: IsPostDated,
             applicableUpto: applicableUpto);
 
+        var posted = _service.Post(voucher); // throws on unbalanced/invalid — never persisted
+        undo.Push(() => _company.RemoveVoucher(posted));
+
+        // Rule-47A self-invoice / Rule-52 payment voucher (RQ-8) — only for a voucher that actually carries a
+        // reverse-charge pair, and only once the post has succeeded (the documents link to the posted voucher id).
+        // Generated BEFORE the save so they persist with the voucher in one aggregate write.
+        var rcmDocNote = rcmApplies && rcmShape is { } shapeForDocs
+            ? GenerateRcmDocuments(posted.Id, shapeForDocs, undo)
+            : string.Empty;
+
+        // The §34 link (already pre-validated by ValidateSection34) — registered against the posted note id, and
+        // persisted with it in the same aggregate write below.
+        if (ShowSection34Details) RegisterSection34Link(posted.Id, undo);
+
+        // The save is INSIDE the guarded window on purpose. A store refusal (a constraint violation, a locked/missing
+        // file, a full disk) must never escape Accept as a raw exception: the finally unwinds every mutation above —
+        // voucher, documents, §34 link, advance record — so the in-memory company matches the .db that was never
+        // written, and the operator gets a message instead of a crash with a company that can no longer be saved.
         try
         {
-            var posted = _service.Post(voucher); // throws on unbalanced/invalid — never persisted
-            _storage.Save(_company);             // persist the whole aggregate to the .db
-            SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted.";
-            _onSaved();
+            _storage.Save(_company);         // persist the whole aggregate to the .db
+        }
+        catch (Exception ex)
+        {
+            Message = $"Could not save the company: {ex.Message} The voucher was not kept — nothing was changed.";
+            return false;
+        }
+
+        SavedNumber = posted.Number;
+        Message = $"{_type.Name} No. {posted.Number} accepted.{rcmDocNote}";
+        _onSaved();
+        return true;
+    }
+
+    /// <summary>
+    /// Builds the GST-advance entry lines for this voucher (RQ-25) and hands back the compensating undo for the
+    /// company mutation the engine performs. Three mutually-exclusive shapes:
+    /// <list type="bullet">
+    ///   <item><b>Receipt + advance opt-in</b> → <see cref="AdvanceReceiptService.BuildAdvanceReceipt"/>: the Rule-50
+    ///     tax-on-advance pair (empty for a de-taxed goods advance) + a registered record.</item>
+    ///   <item><b>Journal + an outstanding advance</b> → <see cref="AdvanceReceiptService.AdjustAgainstInvoice"/>: the
+    ///     suspense-releasing reversal → GSTR-1 11B.</item>
+    ///   <item><b>Payment + an outstanding advance</b> → <see cref="AdvanceReceiptService.Refund"/> (Rule 51).</item>
+    /// </list>
+    /// Returns false ⇒ Accept aborts with <see cref="Message"/> set. A no-op (no lines, no undo) when no advance is in
+    /// play, so an ordinary receipt/journal/payment posts byte-identically (ER-13).
+    /// <para>
+    /// Each engine call that mutates the company pushes its compensating undo onto <paramref name="undo"/> IMMEDIATELY,
+    /// before this method can take any further refusal exit — the mutation and its undo are never separated.
+    /// </para>
+    /// </summary>
+    private bool BuildAdvanceLines(Guid voucherId, List<EntryLine> lines, Stack<Action> undo)
+    {
+        // ---- (a) booking a Rule-50 advance on this Receipt ----
+        if (ShowAdvanceReceiptDetails)
+        {
+            if (ParsedAdvanceAmount is not { } net || net <= 0m)
+            {
+                Message = "Enter the net (ex-tax) advance amount this receipt covers.";
+                return false;
+            }
+
+            AdvanceReceiptService.AdvanceReceiptPosting posting;
+            try
+            {
+                posting = _advance.BuildAdvanceReceipt(
+                    voucherId, AdvanceIsService, new Money(net), ParsedAdvanceRateBasisPoints, AdvanceInterState,
+                    string.IsNullOrWhiteSpace(AdvancePlaceOfSupplyStateCode)
+                        ? null
+                        : AdvancePlaceOfSupplyStateCode.Trim());
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot book the advance: {ex.Message}";
+                return false;
+            }
+
+            lines.AddRange(posting.TaxLines);
+            var registered = posting.Receipt;
+            undo.Push(() => UnregisterAdvance(registered));
             return true;
         }
-        catch (UnbalancedVoucherException)
+
+        // ---- (b) adjusting / refunding an outstanding advance ----
+        if (!ShowAdvanceActionPanel || SelectedOutstandingAdvance is not { Receipt: { } picked }) return true;
+
+        // The picker holds the advance record as it was when THIS screen opened. That snapshot must never be handed to
+        // the engine: an adjustment/refund replaces the record with a NEW object (same identity), leaving the snapshot
+        // frozen in its original, still-outstanding-looking state. So if another screen adjusted the advance meanwhile,
+        // the engine's own guards — which read the object passed in — would see "not yet adjusted" and wave the second
+        // adjustment straight through; worse, the record it then tries to replace is no longer in the collection, so the
+        // remove no-ops and the add leaves TWO records sharing one id (which the store rejects outright on save).
+        // Re-resolving by id against the live company makes the guards read CURRENT state and fire correctly.
+        var advance = _company.FindAdvanceReceipt(picked.Id);
+        if (advance is null)
         {
-            Message = $"Voucher is out of balance (Dr {TotalDebitText} ≠ Cr {TotalCreditText}). Not saved.";
+            Message = "That advance receipt no longer exists — reopen this voucher to refresh the list.";
             return false;
         }
-        catch (InvalidVoucherException ex)
+
+        // The undo is armed BEFORE the engine is asked to adjust/refund, so the mutation can never outlive a later
+        // refusal. Restoring an unmutated record is a harmless same-object swap, so arming early costs nothing.
+        undo.Push(() => RestoreAdvance(advance));
+
+        try
         {
-            Message = $"Cannot accept: {ex.Message}";
+            if (AdvanceActionForType == AdvanceAction.Adjust)
+            {
+                if (SelectedAdvanceInvoice is not { Invoice: { } invoice })
+                {
+                    Message = "Select the tax invoice this advance is being adjusted against.";
+                    return false;
+                }
+                lines.AddRange(_advance.AdjustAgainstInvoice(advance, invoice.Id));
+            }
+            else
+            {
+                lines.AddRange(_advance.Refund(advance, voucherId));
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // e.g. an advance already adjusted / already refunded (a stale picker), or a partial adjustment the S2b
+            // engine refuses. Surface the engine's own explanation rather than crashing.
+            var verb = AdvanceActionForType == AdvanceAction.Adjust ? "adjust" : "refund";
+            Message = $"Cannot {verb} the advance: {ex.Message}";
             return false;
         }
+
+        return true;
     }
 
     /// <summary>Ctrl+T — toggles the post-dated flag for this voucher (post-dated cheque handling).</summary>
@@ -1727,4 +2866,58 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
     }
+}
+
+/// <summary>
+/// One option in the RCM <b>supply-kind</b> picker (Phase 9 slice 2; RQ-11) — the inward-supply routing the engine's
+/// <see cref="RcmService.Resolve"/> takes. Only <see cref="RcmService.SupplyKind.Domestic"/> and
+/// <see cref="RcmService.SupplyKind.ImportOfServices"/> are ever offered: import of <i>goods</i> is never reverse charge
+/// (customs IGST on the Bill of Entry → GSTR-3B 4A(1)) and the engine hard-fails on it.
+/// <para>
+/// A <c>null</c> <see cref="Kind"/> is the <b>decline sentinel</b> ("Not Applicable — forward charge / not a supply"),
+/// mirroring the TDS Nature-of-Payment picker's own sentinel: the screen cannot know every reason a notified-looking
+/// inward supply is really forward charge, so the operator must be able to say so and have nothing post.
+/// </para>
+/// </summary>
+public sealed class RcmSupplyKindOption
+{
+    /// <summary>The inward-supply routing, or <c>null</c> for the "Not Applicable" decline sentinel.</summary>
+    public RcmService.SupplyKind? Kind { get; init; }
+    public string Display { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// One option in the §34 note's <b>original-invoice</b> picker (Phase 9 slice 2b; RQ-24; ER-12) — the link GSTR-1
+/// Table 9B / the amendment tables read. Three shapes: the <see cref="IsNone"/> sentinel (nothing chosen — the ER-12
+/// guard fires on it), the <see cref="IsConsolidated"/> option (no voucher link; the operator types the original
+/// invoice number + date), or a real posted <see cref="Voucher"/>.
+/// </summary>
+public sealed class CdnOriginalInvoiceOption
+{
+    public Voucher? Invoice { get; init; }
+    public bool IsConsolidated { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => Invoice is null && !IsConsolidated;
+}
+
+/// <summary>
+/// One option in the <b>outstanding-advance</b> picker (Phase 9 slice 2b; RQ-25) — an advance that has been neither
+/// adjusted against an invoice nor refunded. The <see cref="IsNone"/> sentinel means "no advance action on this voucher".
+/// </summary>
+public sealed class AdvanceReceiptOption
+{
+    public GstAdvanceReceipt? Receipt { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => Receipt is null;
+}
+
+/// <summary>
+/// One option in the <b>tax-invoice</b> picker an advance is adjusted against (Phase 9 slice 2b; RQ-25 → GSTR-1 11B).
+/// The <see cref="IsNone"/> sentinel means nothing chosen — which the Accept guard refuses on.
+/// </summary>
+public sealed class AdvanceInvoiceOption
+{
+    public Voucher? Invoice { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public bool IsNone => Invoice is null;
 }
