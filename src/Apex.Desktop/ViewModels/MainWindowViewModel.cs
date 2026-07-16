@@ -66,6 +66,19 @@ public enum Screen
     Cmp08Report,
     Gstr4Report,
 
+    // Advanced-GST read-only report/return screens (Phase 9 UI-1; RQ-17) — surfaced for a Regular GST company under
+    // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced).
+    Gstr9Report,
+    Gstr9cReport,
+    ElectronicLedgersReport,
+    ItcSetOffReport,
+    ItcReversalReport,
+    Gstr2bReconReport,
+    ItcGateReport,
+    QrmpReport,
+    GstAmendmentsReport,
+    EInvoiceEWayStatusReport,
+
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
     TdsStatPayment,
@@ -160,6 +173,11 @@ public enum GatewayMenu
     // Reports → Statutory Reports → Composition Returns (Phase 9 slice 3): CMP-08 + GSTR-4, surfaced only for a
     // Composition dealer.
     CompositionReturns,
+
+    // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced) (Phase 9 UI-1): the advanced-GST
+    // read-only report screens, surfaced only for a Regular GST company.
+    AnnualReturns,
+    GstAdvancedReturns,
 
     // Reports → Statutory Reports → Payroll (PF) (Phase 8 slice 4): the PF ECR / Challan report, nested under a
     // Payroll sub-group only when Payroll Statutory is enabled.
@@ -310,6 +328,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The GSTR-4 composition annual-return report (Phase 9 slice 3), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr4ReportViewModel? _gstr4Report;
+
+    /// <summary>The GSTR-9 annual-return report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private Gstr9ReportViewModel? _gstr9Report;
+
+    /// <summary>The GSTR-9C reconciliation-statement report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private Gstr9cReportViewModel? _gstr9cReport;
+
+    /// <summary>The GST electronic-ledgers report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private ElectronicLedgersReportViewModel? _electronicLedgersReport;
+
+    /// <summary>The Rule-88A ITC set-off (display-only) report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private ItcSetOffReportViewModel? _itcSetOffReport;
+
+    /// <summary>The ITC-reversal (display-only) report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private ItcReversalReportViewModel? _itcReversalReport;
+
+    /// <summary>The GSTR-2B reconciliation report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private Gstr2bReconReportViewModel? _gstr2bReconReport;
+
+    /// <summary>The ITC-gate (§16(2)(aa) / §17(5)) advisory report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private ItcGateReportViewModel? _itcGateReport;
+
+    /// <summary>The QRMP / IFF cadence report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private QrmpReportViewModel? _qrmpReport;
+
+    /// <summary>The GSTR-1/3B amendments report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private GstAmendmentsReportViewModel? _gstAmendmentsReport;
+
+    /// <summary>The e-Invoice / e-Way status report (Phase 9 UI-1), non-null only while that page is open.</summary>
+    [ObservableProperty] private EInvoiceEWayStatusReportViewModel? _eInvoiceEWayStatusReport;
 
     /// <summary>The Nature-of-Payment (TDS section) master (Phase 7 slice 1), non-null only while that page is open.</summary>
     [ObservableProperty] private NatureOfPaymentMasterViewModel? _natureOfPaymentMaster;
@@ -485,6 +533,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
+        && Gstr9Report is null && Gstr9cReport is null && ElectronicLedgersReport is null
+        && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
+        && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
+        && EInvoiceEWayStatusReport is null
         && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -529,6 +581,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstRateSetupChanged(GstRateSetupViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCmp08ReportChanged(Cmp08ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnItcSetOffReportChanged(ItcSetOffReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnItcReversalReportChanged(ItcReversalReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstr2bReconReportChanged(Gstr2bReconReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnItcGateReportChanged(ItcGateReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnQrmpReportChanged(QrmpReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGstAmendmentsReportChanged(GstAmendmentsReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnEInvoiceEWayStatusReportChanged(EInvoiceEWayStatusReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -762,10 +824,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Statutory Reports (Phase 7 slice 8; catalog §13) — the TDS/TCS exception & outstanding reports and, from
         // Phase 8 slice 4, the Payroll (PF) statutory reports; from Phase 9 slice 3 the Composition Returns (CMP-08 /
-        // GSTR-4). Surfaced only when the F11 feature enables TDS, TCS or Payroll Statutory, or the company is a
-        // Composition dealer (ER-13), so a company using none is byte-identical to the pre-slice Reports menu.
+        // GSTR-4); from Phase 9 UI-1 the Annual Returns / GST Returns (Advanced) groups. Surfaced only when the F11
+        // feature enables TDS, TCS or Payroll Statutory, or the company is a Composition dealer or a Regular GST
+        // dealer (ER-13), so a company using none is byte-identical to the pre-slice Reports menu. This group is the
+        // ONLY door to the advanced-GST screens, so a plain Regular GST company (GST on, no TDS/TCS/Payroll) must see
+        // it — omitting IsRegularGstDealer here made all ten UI-1 screens unreachable through the real cascade.
         if (Company is { TdsEnabled: true } or { TcsEnabled: true } or { PayrollStatutoryEnabled: true }
-            || IsCompositionDealer)
+            || IsCompositionDealer || IsRegularGstDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
         // ---- top-level action: change company ----
@@ -1448,6 +1513,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // dealer (ER-13). A Regular company never sees CMP-08 / GSTR-4.
         if (IsCompositionDealer)
             col.Add(new MenuItemViewModel("Composition Returns", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // Advanced-GST report screens (Phase 9 UI-1; RQ-17) nest under two sub-groups, surfaced only for a Regular GST
+        // company (ER-13). A Composition / GST-off company never sees them.
+        if (IsRegularGstDealer)
+        {
+            col.Add(new MenuItemViewModel("Annual Returns", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+            col.Add(new MenuItemViewModel("GST Returns (Advanced)", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        }
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
         if (Company is { TdsEnabled: true } or { TcsEnabled: true })
@@ -1510,6 +1582,66 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>True iff the open company is a GST Composition dealer (drives the Composition Returns surfacing).</summary>
     private bool IsCompositionDealer =>
         Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Composition };
+
+    /// <summary>True iff the open company is a Regular GST dealer (drives the advanced-GST report surfacing; Phase 9
+    /// UI-1). A Composition / GST-off company never sees the Annual Returns / GST Returns (Advanced) groups (ER-13).</summary>
+    private bool IsRegularGstDealer =>
+        Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Regular };
+
+    /// <summary>Builds the "Annual Returns" submenu column (Reports → Statutory Reports → Annual Returns; Phase 9 UI-1;
+    /// RQ-17): the two annual GST returns — <b>GSTR-9</b> (annual return) and <b>GSTR-9C</b> (reconciliation statement) —
+    /// each a page item projecting the pure Gstr9 / Gstr9c engines.</summary>
+    private GatewayColumn BuildAnnualReturnsColumn()
+    {
+        var col = new GatewayColumn("Annual Returns");
+        col.Add(MenuItemViewModel.Header("Annual Returns"));
+        col.Add(new MenuItemViewModel("GSTR-9", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-9C", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Builds the "GST Returns (Advanced)" submenu column (Reports → Statutory Reports → GST Returns
+    /// (Advanced); Phase 9 UI-1; RQ-17): the advanced-GST read-only report screens — electronic ledgers, ITC set-off,
+    /// ITC reversal, GSTR-2B reconciliation, ITC gate, QRMP / IFF, GSTR-1/3B amendments and e-Invoice / e-Way status —
+    /// each a page item projecting the pure engines.</summary>
+    private GatewayColumn BuildGstAdvancedReturnsColumn()
+    {
+        var col = new GatewayColumn("GST Returns (Advanced)");
+        col.Add(MenuItemViewModel.Header("GST Returns (Advanced)"));
+        col.Add(new MenuItemViewModel("Electronic Ledgers", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ITC Set-Off", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ITC Reversal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GSTR-2B Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("ITC Gate", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("QRMP / IFF", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GST Amendments", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("e-Invoice / e-Way Status", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → Annual Returns" submenu column directly (the public entry a
+    /// hotkey/test uses). A no-op unless the company is a Regular GST dealer.</summary>
+    public void ShowAnnualReturnsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (!IsRegularGstDealer) return;   // group hidden for a Composition / GST-off company (ER-13)
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("Annual Returns");
+        OpenSubmenuColumn(BuildAnnualReturnsColumn(), GatewayMenu.AnnualReturns,
+            "Gateway of Apex Solutions — Annual Returns");
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → GST Returns (Advanced)" submenu column directly (the public
+    /// entry a hotkey/test uses). A no-op unless the company is a Regular GST dealer.</summary>
+    public void ShowGstAdvancedReturnsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (!IsRegularGstDealer) return;   // group hidden for a Composition / GST-off company (ER-13)
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("GST Returns (Advanced)");
+        OpenSubmenuColumn(BuildGstAdvancedReturnsColumn(), GatewayMenu.GstAdvancedReturns,
+            "Gateway of Apex Solutions — GST Returns (Advanced)");
+    }
 
     /// <summary>Builds the "Composition Returns" submenu column (Reports → Statutory Reports → Composition Returns;
     /// Phase 9 slice 3; RQ-16): the two composition GST returns — <b>CMP-08</b> (quarterly self-assessed statement) and
@@ -2917,6 +3049,109 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Form GSTR-4 — Composition Annual Return", () => Gstr4Report = page);
     }
 
+    // ---- Advanced-GST report screens (Phase 9 UI-1; RQ-17). Each opens a read-only page column projecting its pure
+    // engine; all are gated on a Regular GST dealer (a Composition / GST-off company never reaches them, ER-13). ----
+
+    /// <summary>Opens the <b>GSTR-9</b> annual-return report (Reports → Statutory Reports → Annual Returns → GSTR-9;
+    /// Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenGstr9Report()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new Gstr9ReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("GSTR-9", page), Screen.Gstr9Report,
+            "Form GSTR-9 — Annual Return", () => Gstr9Report = page);
+    }
+
+    /// <summary>Opens the <b>GSTR-9C</b> reconciliation-statement report (Reports → Statutory Reports → Annual Returns
+    /// → GSTR-9C; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenGstr9cReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new Gstr9cReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("GSTR-9C", page), Screen.Gstr9cReport,
+            "Form GSTR-9C — Reconciliation Statement", () => Gstr9cReport = page);
+    }
+
+    /// <summary>Opens the <b>Electronic Ledgers</b> report (Reports → Statutory Reports → GST Returns (Advanced) →
+    /// Electronic Ledgers; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenElectronicLedgersReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new ElectronicLedgersReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("Electronic Ledgers", page), Screen.ElectronicLedgersReport,
+            "Electronic Ledgers", () => ElectronicLedgersReport = page);
+    }
+
+    /// <summary>Opens the <b>ITC Set-Off</b> (Rule-88A) display-only projection (Reports → Statutory Reports → GST
+    /// Returns (Advanced) → ITC Set-Off; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenItcSetOffReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new ItcSetOffReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("ITC Set-Off", page), Screen.ItcSetOffReport,
+            "ITC Set-Off (Rule 88A) — projection", () => ItcSetOffReport = page);
+    }
+
+    /// <summary>Opens the <b>ITC Reversal</b> display-only view (Reports → Statutory Reports → GST Returns (Advanced) →
+    /// ITC Reversal; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenItcReversalReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new ItcReversalReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("ITC Reversal", page), Screen.ItcReversalReport,
+            "ITC Reversal — outstanding balance & candidates", () => ItcReversalReport = page);
+    }
+
+    /// <summary>Opens the <b>GSTR-2B Reconciliation</b> report (Reports → Statutory Reports → GST Returns (Advanced) →
+    /// GSTR-2B Reconciliation; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenGstr2bReconReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new Gstr2bReconReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("GSTR-2B Reconciliation", page), Screen.Gstr2bReconReport,
+            "GSTR-2B Reconciliation", () => Gstr2bReconReport = page);
+    }
+
+    /// <summary>Opens the <b>ITC Gate</b> advisory report (Reports → Statutory Reports → GST Returns (Advanced) → ITC
+    /// Gate; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenItcGateReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new ItcGateReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("ITC Gate", page), Screen.ItcGateReport,
+            "ITC Gate — §16(2)(aa) / §17(5)", () => ItcGateReport = page);
+    }
+
+    /// <summary>Opens the <b>QRMP / IFF</b> cadence report (Reports → Statutory Reports → GST Returns (Advanced) →
+    /// QRMP / IFF; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenQrmpReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new QrmpReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("QRMP / IFF", page), Screen.QrmpReport,
+            "QRMP / IFF Cadence", () => QrmpReport = page);
+    }
+
+    /// <summary>Opens the <b>GST Amendments</b> (GSTR-1/3B) report (Reports → Statutory Reports → GST Returns
+    /// (Advanced) → GST Amendments; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenGstAmendmentsReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new GstAmendmentsReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("GST Amendments", page), Screen.GstAmendmentsReport,
+            "GSTR-1 / 3B Amendments", () => GstAmendmentsReport = page);
+    }
+
+    /// <summary>Opens the <b>e-Invoice / e-Way Status</b> listing (Reports → Statutory Reports → GST Returns
+    /// (Advanced) → e-Invoice / e-Way Status; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    public void OpenEInvoiceEWayStatusReport()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new EInvoiceEWayStatusReportViewModel(Company);
+        OpenPageColumn(new GatewayColumn("e-Invoice / e-Way Status", page), Screen.EInvoiceEWayStatusReport,
+            "e-Invoice / e-Way Status", () => EInvoiceEWayStatusReport = page);
+    }
+
     /// <summary>
     /// Opens the Nature-of-Payment (TDS section) master (Masters → Create → Statutory Masters → Nature of
     /// Payment; Phase 7 slice 1) as a page column: lists the seeded predefined TDS sections and creates customs.
@@ -3096,6 +3331,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         OpenPageColumn(new GatewayColumn(page.Title, page), Screen.ChallanReconciliation,
             "Challan Reconciliation", () => ChallanReconciliation = page);
     }
+
+    /// <summary>True while the GSTR-2B Reconciliation report page is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsGstr2bReconScreen =>
+        CurrentScreen == Screen.Gstr2bReconReport && Gstr2bReconReport is not null;
 
     /// <summary>True while the Challan Reconciliation report page is the active screen (drives its arrow-key nav).</summary>
     public bool IsChallanReconciliationScreen =>
@@ -3757,6 +3996,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstRateSetup = null;
         Cmp08Report = null;
         Gstr4Report = null;
+        Gstr9Report = null;
+        Gstr9cReport = null;
+        ElectronicLedgersReport = null;
+        ItcSetOffReport = null;
+        ItcReversalReport = null;
+        Gstr2bReconReport = null;
+        ItcGateReport = null;
+        QrmpReport = null;
+        GstAmendmentsReport = null;
+        EInvoiceEWayStatusReport = null;
         NatureOfPaymentMaster = null;
         NatureOfGoodsMaster = null;
         TdsStatPayment = null;
@@ -4028,6 +4277,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the GSTR-2B Reconciliation report the arrows move the bucket-row highlight (keeps a live selection).
+        if (IsGstr2bReconScreen)
+        {
+            Gstr2bReconReport!.MoveHighlight(direction);
+            return;
+        }
+
         // On the Challan Reconciliation report the arrows move the section-row highlight (keeps a live selection).
         if (IsChallanReconciliationScreen)
         {
@@ -4223,6 +4479,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.Gstr4Report:
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
+            // Advanced-GST report screens (Phase 9 UI-1) — all read-only projections; Ctrl+A/Enter is a safe no-op.
+            case Screen.Gstr9Report:
+            case Screen.Gstr9cReport:
+            case Screen.ElectronicLedgersReport:
+            case Screen.ItcSetOffReport:
+            case Screen.ItcReversalReport:
+            case Screen.Gstr2bReconReport:
+            case Screen.ItcGateReport:
+            case Screen.QrmpReport:
+            case Screen.GstAmendmentsReport:
+            case Screen.EInvoiceEWayStatusReport:
+                return; // read-only report — Ctrl+A/Enter is a safe no-op
             case Screen.NatureOfPaymentMaster:
                 NatureOfPaymentMaster?.Create();
                 return;
@@ -4373,6 +4641,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Payroll"),
             "Composition Returns" => (BuildCompositionReturnsColumn(), GatewayMenu.CompositionReturns,
                 "Gateway of Apex Solutions — Composition Returns"),
+            "Annual Returns" => (BuildAnnualReturnsColumn(), GatewayMenu.AnnualReturns,
+                "Gateway of Apex Solutions — Annual Returns"),
+            "GST Returns (Advanced)" => (BuildGstAdvancedReturnsColumn(), GatewayMenu.GstAdvancedReturns,
+                "Gateway of Apex Solutions — GST Returns (Advanced)"),
             "Payroll Reports" => (BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
                 "Gateway of Apex Solutions — Payroll Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
@@ -4438,6 +4710,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Composition returns (Phase 9 slice 3) — under Reports → Statutory Reports → Composition Returns.
             case "CMP-08": OpenCmp08Report(); break;
             case "GSTR-4": OpenGstr4Report(); break;
+            // Advanced-GST report screens (Phase 9 UI-1) — under Reports → Statutory Reports → Annual Returns /
+            // GST Returns (Advanced).
+            case "GSTR-9": OpenGstr9Report(); break;
+            case "GSTR-9C": OpenGstr9cReport(); break;
+            case "Electronic Ledgers": OpenElectronicLedgersReport(); break;
+            case "ITC Set-Off": OpenItcSetOffReport(); break;
+            case "ITC Reversal": OpenItcReversalReport(); break;
+            case "GSTR-2B Reconciliation": OpenGstr2bReconReport(); break;
+            case "ITC Gate": OpenItcGateReport(); break;
+            case "QRMP / IFF": OpenQrmpReport(); break;
+            case "GST Amendments": OpenGstAmendmentsReport(); break;
+            case "e-Invoice / e-Way Status": OpenEInvoiceEWayStatusReport(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
             // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.
@@ -4664,6 +4948,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "TDS Reports" => GatewayMenu.TdsReports,
                     "TCS Reports" => GatewayMenu.TcsReports,
                     "Payroll" => GatewayMenu.PayrollStatutoryReports,
+                    "Composition Returns" => GatewayMenu.CompositionReturns,
+                    "Annual Returns" => GatewayMenu.AnnualReturns,
+                    "GST Returns (Advanced)" => GatewayMenu.GstAdvancedReturns,
                     "Payroll Reports" => GatewayMenu.PayrollReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,

@@ -8950,6 +8950,935 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: GSTR-9 annual return (Phase 9 UI-1; RQ-17) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9Report, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9Report}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Gstr9ReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*,Auto" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="3" Text="{Binding GstinText}" FontSize="12" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <!-- Part II Table 4 — outward + inward-RCM on which tax is payable -->
+                                <TextBlock Text="Part II · Table 4 — Outward + inward-RCM supplies (tax payable)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Taxable value of outward supplies"/><TextBlock Grid.Column="1" Text="{Binding Table4TaxableValueText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward CGST"/><TextBlock Grid.Column="1" Text="{Binding Table4CgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding Table4SgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward IGST"/><TextBlock Grid.Column="1" Text="{Binding Table4IgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table4CessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM CGST"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmCgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmSgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM IGST"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmIgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total tax payable (GST heads)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table4TotalTaxText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <!-- Part II Table 5 — outward on which tax is NOT payable -->
+                                <TextBlock Text="Part II · Table 5 — Outward supplies (no tax) + total turnover"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Exempt / nil-rated / non-GST outward"/><TextBlock Grid.Column="1" Text="{Binding Table5ExemptText}" TextAlignment="Right"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="5N — Total turnover" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table5NTurnoverText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <!-- Part III Table 6 — ITC availed -->
+                                <TextBlock Text="Part III · Table 6 — ITC availed"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — CGST"/><TextBlock Grid.Column="1" Text="{Binding Table6CgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding Table6SgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — IGST"/><TextBlock Grid.Column="1" Text="{Binding Table6IgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table6CessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="6H — ITC reclaimed" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding Table6ReclaimedText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total ITC availed (GST heads)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table6ItcAvailedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <!-- Part III Table 7 — ITC reversed by rule -->
+                                <TextBlock Text="Part III · Table 7 — ITC reversed (by rule)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7A — Rule 37 / 37A"/><TextBlock Grid.Column="1" Text="{Binding Table7Rule37Text}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7C — Rule 42"/><TextBlock Grid.Column="1" Text="{Binding Table7Rule42Text}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7D — Rule 43"/><TextBlock Grid.Column="1" Text="{Binding Table7Rule43Text}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7E — §17(5) blocked"/><TextBlock Grid.Column="1" Text="{Binding Table7Section17_5Text}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7H — Other reversals"/><TextBlock Grid.Column="1" Text="{Binding Table7OtherText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Cess reversed (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table7CessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total ITC reversed (GST heads)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table7ItcReversedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <!-- Part III Table 8 — ITC reconciliation + Part IV Table 9 — tax paid -->
+                                <Grid ColumnDefinitions="*,8,*">
+                                  <StackPanel Grid.Column="0" Spacing="3">
+                                    <TextBlock Text="Part III · Table 8 — ITC reconciliation" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                    <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                      <StackPanel Spacing="3">
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8A — ITC per GSTR-2B"/><TextBlock Grid.Column="1" Text="{Binding Table8AText}" TextAlignment="Right"/></Grid>
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8A — Cess per 2B" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table8ACessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8B — ITC per Table 6"/><TextBlock Grid.Column="1" Text="{Binding Table8BText}" TextAlignment="Right"/></Grid>
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8D — Difference (8A − 8B)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table8DText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Net ITC (6 − 7)" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding NetItcText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                      </StackPanel>
+                                    </Border>
+                                  </StackPanel>
+                                  <StackPanel Grid.Column="2" Spacing="3">
+                                    <TextBlock Text="Part IV · Table 9 — Tax paid" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                    <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                      <StackPanel Spacing="3">
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Payable (Table 9)"/><TextBlock Grid.Column="1" Text="{Binding Table9PayableText}" TextAlignment="Right"/></Grid>
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Paid through ITC"/><TextBlock Grid.Column="1" Text="{Binding Table9PaidThroughItcText}" TextAlignment="Right"/></Grid>
+                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Paid in cash (PMT-06)"/><TextBlock Grid.Column="1" Text="{Binding Table9PaidInCashText}" TextAlignment="Right"/></Grid>
+                                      </StackPanel>
+                                    </Border>
+                                  </StackPanel>
+                                </Grid>
+                                <!-- Part VI Table 17 — outward HSN summary -->
+                                <TextBlock Text="Part VI · Table 17 — HSN summary of outward supplies"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="120,*,70,80,*,*">
+                                    <TextBlock Grid.Column="0" Text="HSN/SAC" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Description" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="UQC" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Total tax" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding HsnRows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Gstr9HsnRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="120,*,70,80,*,*" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding HsnSac}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Description}" Margin="4,0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Uqc}" Margin="4,0" VerticalAlignment="Center" FontSize="12"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Quantity}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding TaxableValue}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding TotalTax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
+                                  <Grid ColumnDefinitions="120,*,70,80,*,*" Height="26">
+                                    <TextBlock Grid.Column="0" Text="Total" Margin="8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Table17TaxableValueText}" TextAlignment="Right" VerticalAlignment="Center" FontWeight="Bold" FontSize="12" Margin="0,0,6,0"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding Table17TotalTaxText}" TextAlignment="Right" VerticalAlignment="Center" FontWeight="Bold" FontSize="12" Margin="0,0,6,0"/>
+                                  </Grid>
+                                </Border>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: GSTR-9C reconciliation statement (Phase 9 UI-1; RQ-17) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9cReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9cReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Gstr9cReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*,Auto" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="3" Text="{Binding GstinText}" FontSize="12" FontWeight="SemiBold"
+                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="Part A · Table 5 — Reconciliation of gross turnover"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="5A — Turnover per audited books"/><TextBlock Grid.Column="1" Text="{Binding BooksTurnoverText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="5Q — Turnover per GSTR-9"/><TextBlock Grid.Column="1" Text="{Binding ReturnTurnoverText}" TextAlignment="Right"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="5R — Unreconciled (books − return)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UnreconciledTurnoverText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <TextBlock Text="Part III · Tables 9–11 — Reconciliation of tax liability"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="Tax per GSTR-9"/><TextBlock Grid.Column="1" Text="{Binding TaxPerReturnText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="Tax per books"/><TextBlock Grid.Column="1" Text="{Binding TaxPerBooksText}" TextAlignment="Right"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="Table 11 — Unreconciled (return − books)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UnreconciledTaxText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <TextBlock Text="Part B · Table 12 — Reconciliation of net ITC"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="12A — ITC per audited books"/><TextBlock Grid.Column="1" Text="{Binding BooksItcText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="12E — Net ITC per GSTR-9"/><TextBlock Grid.Column="1" Text="{Binding ReturnItcText}" TextAlignment="Right"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="12F — Unreconciled (books − return)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UnreconciledItcText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Electronic Ledgers (Phase 9 UI-1; RQ-20) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).ElectronicLedgersReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ElectronicLedgersReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ElectronicLedgersReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="Electronic Credit Ledger — available ITC + window movements"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="130,*,*,*,*">
+                                    <TextBlock Grid.Column="0" Text="Head" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Additions" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="Utilised" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Reversed" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Closing" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding CreditRows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ElectronicCreditRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="130,*,*,*,*" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Head}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Additions}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Utilised}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Reversed}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Closing}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Electronic Liability Ledger — outstanding output + cash-only RCM"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="130,*,*">
+                                    <TextBlock Grid.Column="0" Text="Head" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Output" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="RCM (cash)" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding LiabilityRows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ElectronicLiabilityRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="130,*,*" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Head}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Output}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Rcm}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Electronic Cash Ledger — per (major · minor) head"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="No PMT-06 challan deposited — the cash ledger is empty."
+                                           IsVisible="{Binding !HasCashCells}"
+                                           FontSize="11.5" Foreground="#777777" Margin="4,0,0,0"/>
+                                <ItemsControl Background="White" ItemsSource="{Binding CashRows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ElectronicCashRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="1,0,1,1">
+                                        <Grid ColumnDefinitions="*,150" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Cell}" Margin="8,0" VerticalAlignment="Center" FontSize="12"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Balance}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
+                                  <Grid ColumnDefinitions="*,*,*,*">
+                                    <StackPanel Grid.Column="0"><TextBlock Text="Total credit ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalCreditText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="1"><TextBlock Text="Total liability ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalLiabilityText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="2"><TextBlock Text="RCM cash ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalRcmLiabilityText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="3"><TextBlock Text="Cash balance ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CashBalanceText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
+                                  </Grid>
+                                </Border>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: ITC Set-Off (Rule 88A) projection (Phase 9 UI-1; RQ-21) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcSetOffReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcSetOffReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ItcSetOffReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="Demand (from GSTR-3B) — liability + available credit"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <!-- ColumnSpacing keeps the left block's right-aligned amounts off the right block's
+                                       labels (without it they render flush: "5,58,000.00CGST"). -->
+                                  <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                                    <StackPanel Grid.Column="0" Spacing="3">
+                                      <TextBlock Text="Output liability" FontWeight="SemiBold" Foreground="#555555"/>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding LiabCgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding LiabSgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding LiabIgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="RCM (cash-only)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding LiabRcmCashText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                      <TextBlock Text="Available credit" FontWeight="SemiBold" Foreground="#555555"/>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding CreditCgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding CreditSgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding CreditIgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding CreditCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    </StackPanel>
+                                  </Grid>
+                                </Border>
+                                <TextBlock Text="Table 6.1 — credit utilisation (compliant default)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="*,*,160">
+                                    <TextBlock Grid.Column="0" Text="Credit head" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Discharges liability" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding Lines}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ItcSetOffLineRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,*,160" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding CreditHead}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding LiabilityHead}" Margin="4,0" VerticalAlignment="Center" FontSize="12"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Amount}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Residual cash payable + credit carried forward"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <!-- ColumnSpacing keeps the left block's right-aligned amounts off the right block's
+                                       labels (without it they render flush: "0.00Cess (ring-fenced)"). -->
+                                  <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                                    <StackPanel Grid.Column="0" Spacing="3">
+                                      <TextBlock Text="Residual cash" FontWeight="SemiBold" Foreground="#555555"/>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding CashCgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding CashSgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding CashIgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Cess" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding CashCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="RCM (cash-only)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding CashRcmText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Total cash" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalCashText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="3">
+                                      <TextBlock Text="Credit carried forward" FontWeight="SemiBold" Foreground="#555555"/>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding ClosingCgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding ClosingSgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding ClosingIgstText}" TextAlignment="Right"/></Grid>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Cess" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding ClosingCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                      <!-- Spacer: the left block carries one extra head row (RCM, cash-only), so
+                                           without it "Credit utilised" floats a row above "Total cash". -->
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text=" "/></Grid>
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                      <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Credit utilised" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalCreditUtilisedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                    </StackPanel>
+                                  </Grid>
+                                </Border>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: ITC Reversal (view) (Phase 9 UI-1; RQ-27) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcReversalReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcReversalReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ItcReversalReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
+                              <Grid ColumnDefinitions="*,*,*,*,*">
+                                <StackPanel Grid.Column="0"><TextBlock Text="ECRS CGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceCgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="1"><TextBlock Text="SGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceSgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="2"><TextBlock Text="IGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceIgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="3"><TextBlock Text="Cess ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceCessText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="4"><TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
+                              </Grid>
+                            </Border>
+                            <TextBlock Grid.Row="3" Text="{Binding CandidatesHeader}" FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource BrandNavy}" Margin="0,0,0,4"/>
+                            <Grid Grid.Row="4" RowDefinitions="Auto,*">
+                              <Border Grid.Row="0" Background="{StaticResource BrandNavy}"
+                                      IsVisible="{Binding HasSnapshot}">
+                                <Grid ColumnDefinitions="140,*,90,90,90,90">
+                                  <TextBlock Grid.Column="0" Text="Reason" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="Description" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="2" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="3" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="4" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="5" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
+                                </Grid>
+                              </Border>
+                              <ScrollViewer Grid.Row="1">
+                                <StackPanel>
+                                  <ItemsControl Background="White" ItemsSource="{Binding Candidates}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ItcReversalCandidateRowVm">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                          <Grid ColumnDefinitions="140,*,90,90,90,90" Height="30">
+                                            <TextBlock Grid.Column="0" Text="{Binding Reason}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Description}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Cgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Sgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding Igst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding Cess}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Foreground="#777777" Margin="0,0,6,0"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                  <TextBlock Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="#7A5B00" FontSize="12" TextWrapping="Wrap" Margin="4,10,0,0"/>
+                                  <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="4,8,0,0"/>
+                                </StackPanel>
+                              </ScrollViewer>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: GSTR-2B Reconciliation (Phase 9 UI-1; RQ-13) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr2bReconReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr2bReconReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Gstr2bReconReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,320,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding HasSnapshot}">
+                              <TextBlock Grid.Column="0" Text="GSTR-2B snapshot" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Snapshots}"
+                                        SelectedItem="{Binding SelectedSnapshot, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr2bSnapshotOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+                            <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="#555555" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                            <Border Grid.Row="4" Background="{StaticResource BrandNavy}" IsVisible="{Binding HasSnapshot}">
+                              <Grid ColumnDefinitions="110,140,*,95,85">
+                                <TextBlock Grid.Column="0" Text="Bucket" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Supplier GSTIN" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Doc no" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Tax" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <!-- Each row is TWO lines: the identity/amount columns, then the bucket note wrapped on its
+                                 own full-width line. A single-line grid cannot carry the note — the fixed columns eat the
+                                 page column's width and clip it to nothing (caught in render-verify). -->
+                            <ListBox Grid.Row="5" Background="White" IsVisible="{Binding HasSnapshot}"
+                                     ItemsSource="{Binding Rows}"
+                                     SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:Gstr2bReconRowVm">
+                                  <Grid RowDefinitions="Auto,Auto" Margin="0,1">
+                                    <Grid Grid.Row="0" ColumnDefinitions="110,140,*,95,85" Height="20">
+                                      <TextBlock Grid.Column="0" Text="{Binding Bucket}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"
+                                                 FontWeight="SemiBold" Foreground="{Binding IsClean, Converter={StaticResource BalancedBrush}}"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Supplier}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="2" Text="{Binding DocNo}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding TaxableValue}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                      <TextBlock Grid.Column="4" Text="{Binding Tax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                    </Grid>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="8,0,6,2" Spacing="6">
+                                      <TextBlock Text="{Binding Date}" FontSize="10.5" Foreground="#888888"/>
+                                      <TextBlock Text="{Binding Note}" FontSize="10.5" Foreground="#666666" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                  </Grid>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+                            <Border Grid.Row="6" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                                    Padding="10,6" Margin="0,6,0,0"
+                                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                              <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: ITC Gate (§16(2)(aa) / §17(5)) (Phase 9 UI-1; RQ-15/RQ-26) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcGateReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcGateReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:ItcGateReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,320,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding HasSnapshot}">
+                              <TextBlock Grid.Column="0" Text="GSTR-2B snapshot" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Snapshots}"
+                                        SelectedItem="{Binding SelectedSnapshot, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr2bSnapshotOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding HasSnapshot}">
+                                  <!-- The numeric columns are kept narrow so the "*" label column has room: the row
+                                       labels carry the statutory citation (§16(2)(aa), §17(5), Table 4(D)) that
+                                       identifies the row, and must never ellipsis-truncate. -->
+                                  <Grid ColumnDefinitions="*,95,95,95,105">
+                                    <TextBlock Grid.Column="0" Text="ITC pool" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="2" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Total" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ItcGateTripleRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="*,95,95,95,105" Height="26">
+                                          <TextBlock Grid.Column="0" Text="{Binding Label}" Margin="8,0" VerticalAlignment="Center" FontSize="12"
+                                                     FontWeight="{Binding Emphasise, Converter={StaticResource BoolWeight}}"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Cgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Sgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Igst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Total}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Reversal candidates (for the S7 poster)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"
+                                           IsVisible="{Binding HasSnapshot}"/>
+                                <ItemsControl Background="White" ItemsSource="{Binding Candidates}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ItcReversalCandidateRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="1,0,1,1" Padding="0">
+                                        <Grid ColumnDefinitions="140,*,110" Height="28">
+                                          <TextBlock Grid.Column="0" Text="{Binding Reason}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Description}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Suggested}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="#7A5B00" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: QRMP / IFF cadence (Phase 9 UI-1; RQ-17) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).QrmpReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).QrmpReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:QrmpReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="IFF (Invoice Furnishing Facility) — M1 / M2 B2B windows"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"
+                                           IsVisible="{Binding Applicable}"/>
+                                <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding Applicable}">
+                                  <Grid ColumnDefinitions="150,120,90,*,120">
+                                    <TextBlock Grid.Column="0" Text="Quarter" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Month" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Invoices" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Taxable value" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="₹50 L cap" Classes="colHdr"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding IffRows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:QrmpIffRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="150,120,90,*,120" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Quarter}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Month}" Margin="4,0" VerticalAlignment="Center" FontSize="12"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Invoices}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding TaxableValue}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Cap}" Margin="6,0" VerticalAlignment="Center" FontSize="11.5"
+                                                     Foreground="{Binding WithinCap, Converter={StaticResource BalancedBrush}}"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="PMT-06 — M1 / M2 monthly-tax suggestions"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"
+                                           IsVisible="{Binding Applicable}"/>
+                                <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding Applicable}">
+                                  <Grid ColumnDefinitions="150,120,*,*,*,*">
+                                    <TextBlock Grid.Column="0" Text="Quarter" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Month" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Fixed 35%" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="3" Text="Fixed 100%" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Self-assess" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding Pmt06Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:QrmpPmt06RowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="150,120,*,*,*,*" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Quarter}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Month}" Margin="4,0" VerticalAlignment="Center" FontSize="12"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding FixedSum35}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding FixedSum100}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding SelfAssessment}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding AlreadyDeposited}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="#555555" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: GSTR-1 / 3B Amendments (Phase 9 UI-1; RQ-29) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstAmendmentsReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstAmendmentsReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:GstAmendmentsReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="Table 9A — Amended B2B invoices (advisory: original → revised → differential)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <!-- The identifier columns are held tight (a GSTIN is 15 chars, a doc-no short) so the
+                                       four "*" amount columns are wide enough for both their headers and real
+                                       amendment amounts — at 150/80/110 the headers clipped mid-word ("Orig taxat"). -->
+                                  <Grid ColumnDefinitions="120,60,90,*,*,*,*">
+                                    <TextBlock Grid.Column="0" Text="Party GSTIN" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Doc no" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Orig date" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="Orig taxable" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="Rev taxable" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Diff taxable" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="6" Text="Diff tax" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding Table9A}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Gstr1Amend9ARowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="120,60,90,*,*,*,*" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding Party}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding DocNo}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding OriginalDate}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding OriginalTaxable}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding RevisedTaxable}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding DifferentialTaxable}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="6" Text="{Binding DifferentialTax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Table 9C — Amended credit / debit notes (signed revised tax)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}">
+                                  <Grid ColumnDefinitions="100,140,110,110,*,*">
+                                    <TextBlock Grid.Column="0" Text="Note type" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Orig invoice" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Orig date" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="Note date" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Rev taxable" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="5" Text="Rev tax" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding Table9C}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Gstr1Amend9CRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="100,140,110,110,*,*" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding NoteType}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding OriginalInvoice}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding OriginalDate}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding NoteDate}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding RevisedTaxable}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding RevisedTax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="GSTR-3B correction advisory"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
+                                  <StackPanel Spacing="4">
+                                    <Grid ColumnDefinitions="*,*,*">
+                                      <StackPanel Grid.Column="0"><TextBlock Text="Corrections" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionCountText}" FontSize="13" FontWeight="Bold"/></StackPanel>
+                                      <StackPanel Grid.Column="1"><TextBlock Text="Net tax ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionTaxText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                      <StackPanel Grid.Column="2"><TextBlock Text="Net taxable ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionTaxableText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    </Grid>
+                                    <TextBlock Text="{Binding MechanismText}" FontSize="11" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                  </StackPanel>
+                                </Border>
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: e-Invoice / e-Way status (Phase 9 UI-1; RQ-5/RQ-6) -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).EInvoiceEWayStatusReport, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).EInvoiceEWayStatusReport}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:EInvoiceEWayStatusReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <ScrollViewer Grid.Row="2">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="{Binding EInvoiceStatusText}" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding HasEInvoices}">
+                                  <Grid ColumnDefinitions="140,110,*,70,140,110">
+                                    <TextBlock Grid.Column="0" Text="Document" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Status" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="IRN" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="QR" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Ack no" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="5" Text="Ack date" Classes="colHdr"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding EInvoices}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:EInvoiceStatusRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="140,110,*,70,140,110" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding DocNo}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Status}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Irn}" Margin="4,0" VerticalAlignment="Center" FontSize="11" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Qr}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding AckNo}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding AckDate}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="{Binding EWayStatusText}" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,6,0,0"/>
+                                <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding HasEWayBills}">
+                                  <Grid ColumnDefinitions="140,110,140,170,120,90">
+                                    <TextBlock Grid.Column="0" Text="Document" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Status" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="EWB no" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="3" Text="Valid upto" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Vehicle" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="5" Text="Distance" Classes="colHdr" TextAlignment="Right"/>
+                                  </Grid>
+                                </Border>
+                                <ItemsControl Background="White" ItemsSource="{Binding EWayBills}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:EWayStatusRowVm">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="140,110,140,170,120,90" Height="24">
+                                          <TextBlock Grid.Column="0" Text="{Binding DocNo}" Margin="8,0" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Status}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding EwbNumber}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding ValidUpto}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Vehicle}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding Distance}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Nature of Payment (TDS section) master (Phase 7 slice 1) -->
                     <ContentControl IsVisible="{Binding NatureOfPaymentMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding NatureOfPaymentMaster}">
