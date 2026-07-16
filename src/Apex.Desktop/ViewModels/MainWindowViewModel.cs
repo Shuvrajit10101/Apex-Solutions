@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -78,6 +78,16 @@ public enum Screen
     QrmpReport,
     GstAmendmentsReport,
     EInvoiceEWayStatusReport,
+
+    // Advanced-GST INTERACTIVE action screens (Phase 9 UI-2; RQ-17) — the screens that DRIVE the engine's actions,
+    // surfaced for a Regular GST company under Reports → Statutory Reports → GST Actions. Opening one posts nothing;
+    // only an explicit action mutates.
+    ImsActions,
+    RunSetOff,
+    PostItcReversal,
+    ImportGstr2b,
+    GenerateEInvoice,
+    GenerateEWayBill,
 
     NatureOfPaymentMaster,
     NatureOfGoodsMaster,
@@ -178,6 +188,10 @@ public enum GatewayMenu
     // read-only report screens, surfaced only for a Regular GST company.
     AnnualReturns,
     GstAdvancedReturns,
+
+    // Reports → Statutory Reports → GST Actions (Phase 9 UI-2): the advanced-GST INTERACTIVE screens (IMS, run
+    // set-off, post reversal, import 2B, generate e-invoice / e-Way Bill), surfaced only for a Regular GST company.
+    GstActions,
 
     // Reports → Statutory Reports → Payroll (PF) (Phase 8 slice 4): the PF ECR / Challan report, nested under a
     // Payroll sub-group only when Payroll Statutory is enabled.
@@ -359,6 +373,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The e-Invoice / e-Way status report (Phase 9 UI-1), non-null only while that page is open.</summary>
     [ObservableProperty] private EInvoiceEWayStatusReportViewModel? _eInvoiceEWayStatusReport;
 
+    /// <summary>The IMS (Accept / Reject / Pending) action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
+    [ObservableProperty] private ImsActionsViewModel? _imsActions;
+
+    /// <summary>The Run Set-Off (Rule 88A) &amp; Pay action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
+    [ObservableProperty] private RunSetOffViewModel? _runSetOff;
+
+    /// <summary>The Post-ITC-Reversal action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
+    [ObservableProperty] private PostItcReversalViewModel? _postItcReversal;
+
+    /// <summary>The Import-GSTR-2B action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
+    [ObservableProperty] private ImportGstr2bViewModel? _importGstr2b;
+
+    /// <summary>The Generate-e-Invoice action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
+    [ObservableProperty] private GenerateEInvoiceViewModel? _generateEInvoice;
+
+    /// <summary>The Generate-e-Way-Bill action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
+    [ObservableProperty] private GenerateEWayBillViewModel? _generateEWayBill;
+
     /// <summary>The Nature-of-Payment (TDS section) master (Phase 7 slice 1), non-null only while that page is open.</summary>
     [ObservableProperty] private NatureOfPaymentMasterViewModel? _natureOfPaymentMaster;
 
@@ -537,6 +569,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
         && EInvoiceEWayStatusReport is null
+        && ImsActions is null && RunSetOff is null && PostItcReversal is null && ImportGstr2b is null
+        && GenerateEInvoice is null && GenerateEWayBill is null
         && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
         && TdsStatPayment is null && ChallanReconciliation is null && Form26Q is null
         && TcsStatPayment is null && TcsChallanReconciliation is null && Form27EQ is null
@@ -591,6 +625,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnQrmpReportChanged(QrmpReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstAmendmentsReportChanged(GstAmendmentsReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEInvoiceEWayStatusReportChanged(EInvoiceEWayStatusReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnImsActionsChanged(ImsActionsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnRunSetOffChanged(RunSetOffViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnPostItcReversalChanged(PostItcReversalViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnImportGstr2bChanged(ImportGstr2bViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGenerateEInvoiceChanged(GenerateEInvoiceViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnGenerateEWayBillChanged(GenerateEWayBillViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfPaymentMasterChanged(NatureOfPaymentMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnNatureOfGoodsMasterChanged(NatureOfGoodsMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnTdsStatPaymentChanged(TdsStatPaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1519,6 +1559,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(new MenuItemViewModel("Annual Returns", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
             col.Add(new MenuItemViewModel("GST Returns (Advanced)", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+            // Phase 9 UI-2: the INTERACTIVE advanced-GST screens (the ones that drive the engine's actions) sit in
+            // their own sibling group, so the read-only projections above stay visibly separate from the mutators.
+            col.Add(new MenuItemViewModel("GST Actions", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         }
         // R9 Ledgers/Parties without PAN spans both taxes, so it sits at the Statutory-Reports level — but only
         // when a tax is on (a payroll-only company that never enabled TDS/TCS has no PAN report to show).
@@ -1629,6 +1672,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SelectSubmenuItem("Annual Returns");
         OpenSubmenuColumn(BuildAnnualReturnsColumn(), GatewayMenu.AnnualReturns,
             "Gateway of Apex Solutions — Annual Returns");
+    }
+
+    /// <summary>Builds the "GST Actions" submenu column (Reports → Statutory Reports → GST Actions; Phase 9 UI-2;
+    /// RQ-17): the advanced-GST <b>interactive</b> screens — the ones that DRIVE the engine's actions rather than
+    /// merely project them: the IMS accept/reject/pending dashboard, the Rule-88A set-off + cash discharge, the ITC
+    /// reversal poster, the GSTR-2B import, and the offline e-Invoice / e-Way Bill generators. Opening any of them
+    /// posts nothing — only an explicit action on the page mutates.</summary>
+    private GatewayColumn BuildGstActionsColumn()
+    {
+        var col = new GatewayColumn("GST Actions");
+        col.Add(MenuItemViewModel.Header("GST Actions"));
+        col.Add(new MenuItemViewModel("IMS (Accept / Reject / Pending)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Run Set-Off & Pay", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Post ITC Reversal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Import GSTR-2B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Generate e-Invoice", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Generate e-Way Bill", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens the "Reports → Statutory Reports → GST Actions" submenu column directly (the public entry a
+    /// hotkey/test uses). A no-op unless the company is a Regular GST dealer.</summary>
+    public void ShowGstActionsMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        if (!IsRegularGstDealer) return;   // group hidden for a Composition / GST-off company (ER-13)
+        ShowStatutoryReportsMenu();
+        SelectSubmenuItem("GST Actions");
+        OpenSubmenuColumn(BuildGstActionsColumn(), GatewayMenu.GstActions,
+            "Gateway of Apex Solutions — GST Actions");
     }
 
     /// <summary>Opens the "Reports → Statutory Reports → GST Returns (Advanced)" submenu column directly (the public
@@ -3152,6 +3225,88 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "e-Invoice / e-Way Status", () => EInvoiceEWayStatusReport = page);
     }
 
+    /// <summary>Opens the <b>IMS — Accept / Reject / Pending</b> action screen (Reports → Statutory Reports → GST
+    /// Actions → IMS; Phase 9 UI-2). Opening it posts NOTHING — only an explicit Accept/Reject/Pending/Clear on the
+    /// page records an IMS action. A no-op unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenImsActions()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new ImsActionsViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("IMS", page), Screen.ImsActions,
+            "IMS — Accept / Reject / Pending", () => ImsActions = page);
+    }
+
+    /// <summary>True while the IMS action screen is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsImsActionsScreen =>
+        CurrentScreen == Screen.ImsActions && ImsActions is not null;
+
+    /// <summary>Opens the <b>Run Set-Off (Rule 88A) &amp; Pay</b> action screen (Reports → Statutory Reports → GST
+    /// Actions → Run Set-Off &amp; Pay; Phase 9 UI-2). Opening it only PREVIEWS the allocation — nothing is posted
+    /// until the explicit Run / Deposit / Pay action. A no-op unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenRunSetOff()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new RunSetOffViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Run Set-Off", page), Screen.RunSetOff,
+            "Run Set-Off (Rule 88A) & Pay", () => RunSetOff = page);
+    }
+
+    /// <summary>Opens the <b>Post ITC Reversal</b> action screen (Reports → Statutory Reports → GST Actions → Post ITC
+    /// Reversal; Phase 9 UI-2). Opening it only projects the ECRS balance / candidates / history — nothing is posted
+    /// until the explicit Post / Reclaim action. A no-op unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenPostItcReversal()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new PostItcReversalViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Post ITC Reversal", page), Screen.PostItcReversal,
+            "Post ITC Reversal", () => PostItcReversal = page);
+    }
+
+    /// <summary>True while the Post-ITC-Reversal screen is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsPostItcReversalScreen =>
+        CurrentScreen == Screen.PostItcReversal && PostItcReversal is not null;
+
+    /// <summary>Opens the <b>Import GSTR-2B</b> action screen (Reports → Statutory Reports → GST Actions → Import
+    /// GSTR-2B; Phase 9 UI-2). Opening it imports nothing — only the explicit Import reads + materialises the file.
+    /// A no-op unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenImportGstr2b()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new ImportGstr2bViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Import GSTR-2B", page), Screen.ImportGstr2b,
+            "Import GSTR-2B", () => ImportGstr2b = page);
+    }
+
+    /// <summary>Opens the <b>Generate e-Invoice</b> action screen (Reports → Statutory Reports → GST Actions →
+    /// Generate e-Invoice; Phase 9 UI-2). Opening it prepares nothing — only the explicit Prepare / Record / Cancel
+    /// acts. Offline INV-01 mode: no portal credentials. A no-op unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenGenerateEInvoice()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new GenerateEInvoiceViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Generate e-Invoice", page), Screen.GenerateEInvoice,
+            "Generate e-Invoice", () => GenerateEInvoice = page);
+    }
+
+    /// <summary>True while the Generate-e-Invoice screen is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsGenerateEInvoiceScreen =>
+        CurrentScreen == Screen.GenerateEInvoice && GenerateEInvoice is not null;
+
+    /// <summary>Opens the <b>Generate e-Way Bill</b> action screen (Reports → Statutory Reports → GST Actions →
+    /// Generate e-Way Bill; Phase 9 UI-2). Opening it prepares nothing — only the explicit Prepare / Part-B / Record /
+    /// Cancel / Extend / Close acts. Offline EWB-01 mode. A no-op unless a Regular GST dealer (ER-13).</summary>
+    public void OpenGenerateEWayBill()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new GenerateEWayBillViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Generate e-Way Bill", page), Screen.GenerateEWayBill,
+            "Generate e-Way Bill", () => GenerateEWayBill = page);
+    }
+
+    /// <summary>True while the Generate-e-Way-Bill screen is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsGenerateEWayBillScreen =>
+        CurrentScreen == Screen.GenerateEWayBill && GenerateEWayBill is not null;
+
     /// <summary>
     /// Opens the Nature-of-Payment (TDS section) master (Masters → Create → Statutory Masters → Nature of
     /// Payment; Phase 7 slice 1) as a page column: lists the seeded predefined TDS sections and creates customs.
@@ -4006,6 +4161,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         QrmpReport = null;
         GstAmendmentsReport = null;
         EInvoiceEWayStatusReport = null;
+        ImsActions = null;
+        RunSetOff = null;
+        PostItcReversal = null;
+        ImportGstr2b = null;
+        GenerateEInvoice = null;
+        GenerateEWayBill = null;
         NatureOfPaymentMaster = null;
         NatureOfGoodsMaster = null;
         TdsStatPayment = null;
@@ -4284,6 +4445,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the IMS screen the arrows move the 2B-line highlight (the line the Accept/Reject/Pending acts on).
+        if (IsImsActionsScreen)
+        {
+            ImsActions!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the Post-ITC-Reversal screen the arrows move the posted-reversal highlight (what a Reclaim acts on).
+        if (IsPostItcReversalScreen)
+        {
+            PostItcReversal!.MoveHighlight(direction);
+            return;
+        }
+
+        // On the e-Invoice / e-Way Bill screens the arrows move the voucher highlight (what the actions act on).
+        if (IsGenerateEInvoiceScreen)
+        {
+            GenerateEInvoice!.MoveHighlight(direction);
+            return;
+        }
+
+        if (IsGenerateEWayBillScreen)
+        {
+            GenerateEWayBill!.MoveHighlight(direction);
+            return;
+        }
+
         // On the Challan Reconciliation report the arrows move the section-row highlight (keeps a live selection).
         if (IsChallanReconciliationScreen)
         {
@@ -4491,6 +4679,26 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.GstAmendmentsReport:
             case Screen.EInvoiceEWayStatusReport:
                 return; // read-only report — Ctrl+A/Enter is a safe no-op
+            // Advanced-GST INTERACTIVE action screens (Phase 9 UI-2) — Ctrl+A fires the page's PRIMARY action, which
+            // is always an explicit, user-initiated mutation (opening the page never posts).
+            case Screen.ImsActions:
+                ImsActions?.Accept();   // Ctrl+A = accept the highlighted 2B line
+                return;
+            case Screen.RunSetOff:
+                RunSetOff?.PostSetOff();   // Ctrl+A = run the previewed Rule-88A set-off
+                return;
+            case Screen.PostItcReversal:
+                PostItcReversal?.Post();   // Ctrl+A = post the form's reversal
+                return;
+            case Screen.ImportGstr2b:
+                ImportGstr2b?.Import();    // Ctrl+A = import the chosen portal JSON
+                return;
+            case Screen.GenerateEInvoice:
+                GenerateEInvoice?.PrepareAndWriteJson();   // Ctrl+A = prepare + write the offline INV-01
+                return;
+            case Screen.GenerateEWayBill:
+                GenerateEWayBill?.PrepareAndWriteJson();   // Ctrl+A = prepare + write the offline EWB-01
+                return;
             case Screen.NatureOfPaymentMaster:
                 NatureOfPaymentMaster?.Create();
                 return;
@@ -4645,6 +4853,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Annual Returns"),
             "GST Returns (Advanced)" => (BuildGstAdvancedReturnsColumn(), GatewayMenu.GstAdvancedReturns,
                 "Gateway of Apex Solutions — GST Returns (Advanced)"),
+            "GST Actions" => (BuildGstActionsColumn(), GatewayMenu.GstActions,
+                "Gateway of Apex Solutions — GST Actions"),
             "Payroll Reports" => (BuildPayrollReportsColumn(), GatewayMenu.PayrollReports,
                 "Gateway of Apex Solutions — Payroll Reports"),
             "Outstandings" => (BuildOutstandingsColumn(), GatewayMenu.Outstandings,
@@ -4722,6 +4932,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "QRMP / IFF": OpenQrmpReport(); break;
             case "GST Amendments": OpenGstAmendmentsReport(); break;
             case "e-Invoice / e-Way Status": OpenEInvoiceEWayStatusReport(); break;
+            // Advanced-GST INTERACTIVE action screens (Phase 9 UI-2) — under Reports → Statutory Reports → GST Actions.
+            case "IMS (Accept / Reject / Pending)": OpenImsActions(); break;
+            case "Run Set-Off & Pay": OpenRunSetOff(); break;
+            case "Post ITC Reversal": OpenPostItcReversal(); break;
+            case "Import GSTR-2B": OpenImportGstr2b(); break;
+            case "Generate e-Invoice": OpenGenerateEInvoice(); break;
+            case "Generate e-Way Bill": OpenGenerateEWayBill(); break;
             case "Nature of Payment": ShowNatureOfPaymentMaster(); break;
             case "Nature of Goods": ShowNatureOfGoodsMaster(); break;
             // Payroll masters (Phase 8 slice 1) — under Masters → Create → Payroll Masters, gated by F11 Maintain Payroll.
@@ -4951,6 +5168,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Composition Returns" => GatewayMenu.CompositionReturns,
                     "Annual Returns" => GatewayMenu.AnnualReturns,
                     "GST Returns (Advanced)" => GatewayMenu.GstAdvancedReturns,
+                    "GST Actions" => GatewayMenu.GstActions,
                     "Payroll Reports" => GatewayMenu.PayrollReports,
                     "Account Books" => GatewayMenu.AccountBooks,
                     "Cash Book" => GatewayMenu.CashBook,
