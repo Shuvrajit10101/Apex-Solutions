@@ -111,11 +111,14 @@ public sealed class XamlLayoutInvariantTests
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The width the Miller-column PAGE column gives its content. Read from the PRODUCTION converter
-    /// (<see cref="ColumnWidthConverter"/>, bound as Width on the column Border in MainWindow.axaml)
-    /// rather than hardcoded, so if the shell is re-sized these tests follow it automatically.
-    /// NOTE: the XAML comment at that Border still says "page columns = 560" — it is STALE; the
-    /// converter is the truth (this is exactly why these tests read code, never prose).
+    /// The MINIMUM width the Miller-column PAGE column gives its content. Read from the production floor
+    /// source (<see cref="ColumnWidthConverter"/>) rather than hardcoded. BEFORE C4 the page column was a
+    /// fixed 640px and this was its exact content width; AFTER C4 the page column is viewport-aware
+    /// (<see cref="CascadeColumnWidthConverter"/>) and fills the leftover viewport, but it NEVER shrinks
+    /// below <see cref="CascadeColumnWidthConverter.PageFloor"/> (== 640, deliberately the same number),
+    /// so this is now the page column's *floor* content width — the narrowest it is ever laid out at
+    /// (when the shell floors it at MinWidth). A grid that does not fit this floor does not fit the page
+    /// column at any window size, so the static budget checks correctly measure against it.
     /// </summary>
     private static double PageColumnContentWidth
     {
@@ -142,18 +145,37 @@ public sealed class XamlLayoutInvariantTests
             var raw = Attr(a, "Width");
             if (raw is not null)
             {
-                // The cascade page column: Width="{Binding IsMenu, Converter={StaticResource ColWidth}}".
+                // LEGACY page-column shape: Width="{Binding IsMenu, Converter={StaticResource ColWidth}}".
                 if (raw.Contains("ColWidth", StringComparison.Ordinal)) return PageColumnContentWidth;
                 return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
                     ? v
                     : null; // some other binding -> unknowable statically -> do not judge
             }
+            // C4 page-column shape: Width is now a <Border.Width> MultiBinding using
+            // CascadeColumnWidthConverter (viewport-aware). Statically we cannot know the live width — it
+            // fills the viewport — but we CAN bound it below: the converter never returns less than
+            // PageFloor (640), and the shell floors the page column at MinWidth. So the page column is
+            // AT LEAST PageColumnContentWidth (638) wide, and a grid that does not fit 638 does not fit
+            // the page column at its narrowest either. Judge it against that floor — identical number to
+            // the legacy branch, so every budget/allow-list stays valid.
+            if (IsPageColumnBorder(a)) return PageColumnContentWidth;
             if (IsHorizontalStackPanel(a)) return null;
             if (Is(a, "ScrollViewer")
                 && Attr(a, "HorizontalScrollBarVisibility") is "Auto" or "Visible") return null;
         }
         return null;
     }
+
+    /// <summary>The C4 cascade page/menu column Border: a Border whose <c>Width</c> is set by a
+    /// <c>&lt;Border.Width&gt;</c> MultiBinding using <see cref="CascadeColumnWidthConverter"/>. (Menu
+    /// columns share this Border but never host a *-column report Grid, so returning the page floor for
+    /// both is harmless — menu-row grids carry an Auto column and are filtered out upstream.)</summary>
+    private static bool IsPageColumnBorder(XElement e)
+        => Is(e, "Border")
+           && e.Element(Av + "Border.Width") is { } bw
+           && bw.Descendants().Any(m => Is(m, "MultiBinding")
+                && (Attr(m, "Converter") ?? "").Contains(
+                       nameof(CascadeColumnWidthConverter), StringComparison.Ordinal));
 
     private enum ColKind { Fixed, Star, Auto, Other }
 

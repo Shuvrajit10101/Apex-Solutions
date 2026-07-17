@@ -30,6 +30,16 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _isActive;
 
+    /// <summary>
+    /// True while this column is the RIGHTMOST (terminal) column in the cascade. Drives the C4
+    /// viewport-aware width (<see cref="Apex.Desktop.Converters.CascadeColumnWidthConverter"/>): only the
+    /// terminal page column fills the leftover viewport (killing the dead-cream band); a page column that
+    /// has ANOTHER column to its right (e.g. a report with a ledger-vouchers drill column) keeps a bounded
+    /// width so BOTH fit side-by-side when the viewport allows, with the h-ScrollViewer as the fallback.
+    /// Kept in sync by <see cref="MainWindowViewModel"/>'s column repaint (SyncActiveColumn).
+    /// </summary>
+    [ObservableProperty] private bool _isLast = true;
+
     /// <summary>True for a menu column (a list of rows); false for a page column.</summary>
     public bool IsMenu => Page is null;
 

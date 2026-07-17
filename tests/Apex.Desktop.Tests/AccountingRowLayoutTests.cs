@@ -68,10 +68,26 @@ public sealed class AccountingRowLayoutTests : IDisposable
     private static MainWindow Show(MainWindowViewModel vm)
     {
         // MainWindow.axaml hardcodes Width/Height, so the size must be re-asserted after Show().
+        //
+        // C4 (viewport-aware cascade columns) made the page column FILL the leftover viewport instead of
+        // sitting at a fixed 640px. At 1920 the page column is now ~1734px wide, so Robert's Particulars
+        // content no longer overflows the cell — the Day-Book vacuity guard ("nothing trims, so the date-
+        // survives-trimming assertion is vacuous") would then trip. This test needs the page column at its
+        // FLOOR — the narrowest, worst-case geometry where trimming MUST engage — which is exactly what a
+        // real user hits at the shell's minimum window size. So render at a deliberately narrow window
+        // (MinWidth lowered so it is not clamped up) where the page column floors at its 640px minimum:
+        // geometry then identical to the pre-C4 fixed page column, so this test's calibrated cell metrics
+        // (~298px Particulars text area) hold unchanged and it keeps its bite.
         var win = new MainWindow { DataContext = vm };
-        win.Width = 1920; win.Height = 1080;
+        win.MinWidth = 640; win.MinHeight = 480;
+        win.Width = 1000; win.Height = 1080;
         win.Show();
-        win.Width = 1920; win.Height = 1080;
+        win.MinWidth = 640; win.MinHeight = 480;
+        win.Width = 1000; win.Height = 1080;
+        // TWO RunJobs passes: the C4 page-column Width binds to the cascade viewport Bounds.Width and this
+        // column's own ContentPresenter Bounds.X, which are 0 before the first arrange and settle after it;
+        // the second pass applies the converged width (and flushes the auto-scroll Loaded job).
+        Dispatcher.UIThread.RunJobs();
         Dispatcher.UIThread.RunJobs();
         return win;
     }

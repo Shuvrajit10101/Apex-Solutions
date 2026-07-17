@@ -9,8 +9,8 @@
         x:Class="Apex.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         x:Name="Root"
-        Width="1100" Height="700"
-        MinWidth="820" MinHeight="560"
+        Width="1440" Height="900"
+        MinWidth="1120" MinHeight="560"
         Background="{StaticResource Cream}"
         FontFamily="Consolas, Cascadia Mono, Menlo, monospace"
         Title="Apex Solutions">
@@ -31,7 +31,6 @@
         <conv:UpperConverter x:Key="Upper"/>
         <conv:SubIndentConverter x:Key="SubIndent"/>
         <conv:IndentToThicknessConverter x:Key="Indent"/>
-        <conv:ColumnWidthConverter x:Key="ColWidth"/>
         <conv:ColumnHeaderBrushConverter x:Key="ColHeaderBrush"/>
         <conv:BillRefTypeLabelConverter x:Key="BillRefLabel"/>
         <conv:BudgetTypeLabelConverter x:Key="BudgetTypeLabel"/>
@@ -220,11 +219,26 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:GatewayColumn">
-                            <!-- One column: header band + body. Menu columns = 300 wide; page columns = 560. -->
+                            <!-- One column: header band + body. C4 viewport-aware, position-aware sizing:
+                                 a MENU column content-sizes within [260,380]; the TERMINAL (rightmost) PAGE
+                                 column fills the leftover viewport (viewport − ownX − 6, floored at 640) so
+                                 the h-ScrollViewer scrolls rather than squeezing the report — no dead cream;
+                                 a NON-terminal page column (a report with a drill column to its right) keeps
+                                 the bounded 640 floor so both fit side-by-side. Width is a MultiBinding (NOT
+                                 a fixed attribute) fed IsMenu + viewport + own-X + IsLast. -->
                             <Border Margin="0,0,6,0"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Background="White"
-                                    Width="{Binding IsMenu, Converter={StaticResource ColWidth}}">
+                                    MinWidth="{Binding IsMenu, Converter={x:Static conv:ColumnMinWidthConverter.Instance}}"
+                                    MaxWidth="{Binding IsMenu, Converter={x:Static conv:ColumnMaxWidthConverter.Instance}}">
+                              <Border.Width>
+                                <MultiBinding Converter="{x:Static conv:CascadeColumnWidthConverter.Instance}">
+                                  <Binding Path="IsMenu"/>
+                                  <Binding Path="$parent[ScrollViewer].Bounds.Width"/>
+                                  <Binding Path="$parent[ContentPresenter].Bounds.X"/>
+                                  <Binding Path="IsLast"/>
+                                </MultiBinding>
+                              </Border.Width>
                               <Grid RowDefinitions="Auto,*">
 
                                 <!-- Column header -->
