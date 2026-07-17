@@ -74,6 +74,31 @@
             <Setter Property="HorizontalAlignment" Value="Left"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
         </Style>
+        <!-- Stat-strip cell (label stacked over value) inside a 4-up "*,*,*,*" summary Grid.
+             A vertical StackPanel stretches each TextBlock to the FULL cell width, so a value
+             tagged TextAlignment="Right" drifts to its cell's RIGHT edge while its own label
+             stays at the cell's LEFT edge. The value then sits visually adjacent to the NEXT
+             cell's label and the reader attaches the figure to the WRONG head — a financial
+             misread (on RunSetOff the IGST liability 5,400.00 read as "RCM (cash-only)", which
+             is really 0.00). The gap GROWS as the pane widens, so alignment must be intrinsic.
+             Tagging the cell Classes="statCell" pins BOTH label and value to the same edge, so
+             the pair reads as one unit at any width.
+             NOTE: this is deliberately NOT applied to every strip cell. Only MONEY/amount cells
+             are tagged. Cells holding TEXT (Cmp08 "Trader" / "1% on turnover base") or plain
+             counts stay left/left — they already match, and right-aligning them would be a NEW
+             defect. The rule is that label and value MATCH, not that everything goes right. -->
+        <Style Selector="StackPanel.statCell > TextBlock">
+            <Setter Property="TextAlignment" Value="Right"/>
+            <!-- GUTTER (load-bearing — do not drop). The strips have NO gutter of their own: a
+                 right-aligned cell's text ends EXACTLY on its cell boundary, and the next cell's
+                 left-aligned text starts EXACTLY on that same boundary, so the two COLLIDE with no
+                 separating space. Form 24Q renders "money | count | money": without this inset the
+                 amount 12,45,678.50 butted the neighbouring count 6 and read as "12,45,678.506" —
+                 the count looked like a trailing DIGIT of the figure (a financial misread, the very
+                 class of bug C3 fixed). The inset applies to the label AND the value equally, so
+                 they stay flush with each other and C3 cannot return. Verified by render. -->
+            <Setter Property="Margin" Value="0,0,12,0"/>
+        </Style>
     </Window.Styles>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
@@ -346,15 +371,30 @@
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Background="Transparent">
                                             <Grid ColumnDefinitions="*,150,150" Height="24">
-                                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
-                                                            VerticalAlignment="Center" Margin="8,0">
-                                                    <TextBlock Text="{Binding Particulars}"
-                                                               FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
-                                                               FontSize="12.5"/>
-                                                    <TextBlock Text="{Binding Secondary}"
-                                                               FontSize="10.5" Foreground="#8A8A8A"
-                                                               VerticalAlignment="Center"/>
-                                                </StackPanel>
+                                                <!-- C1 (financial misread): Particulars + the grey Secondary tag used to
+                                                     sit in a horizontal StackPanel, which measures its children at
+                                                     INFINITE width — so TextTrimming could never engage and a long
+                                                     ledger name painted straight over the amount column, e.g.
+                                                     "HDFC Bank Limited - Current A/c ... Bank Accou32,500.00", where the
+                                                     overprinted "n" turns Rs 22,500 into a readable Rs 32,500.
+                                                     Trimming the pair as ONE run of text gives LEFTMOST PRIORITY, which
+                                                     is right for BOTH profiles this shared template serves:
+                                                       - TB / BS / P&L: Particulars = unbounded ledger name, Secondary =
+                                                         short group tag  -> keep the name, drop the tag.
+                                                       - Day Book: Particulars = short "date + voucher no", Secondary =
+                                                         unbounded narration -> keep the identity, drop the narration.
+                                                     Do NOT "simplify" this to an inner Grid "*,Auto": that was tried and
+                                                     rendered — the Auto column takes its FULL desired width and starves
+                                                     the identity column to zero, silently ERASING the Day Book dates. -->
+                                                <TextBlock Grid.Column="0" FontSize="12.5"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           VerticalAlignment="Center" Margin="8,0">
+                                                    <Run Text="{Binding Particulars}"
+                                                         FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                                    <Run Text="  "/>
+                                                    <Run Text="{Binding Secondary}"
+                                                         FontSize="10.5" Foreground="#8A8A8A"/>
+                                                </TextBlock>
                                                 <!-- Two-column (Dr/Cr) mode: Debit + Credit both visible -->
                                                 <TextBlock Grid.Column="1" Text="{Binding Debit}"
                                                            TextAlignment="Right" Margin="0,0,10,0"
@@ -1656,15 +1696,35 @@
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                             Background="Transparent">
-                                      <Grid ColumnDefinitions="*,130,130,140" Height="24">
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
-                                                    VerticalAlignment="Center" Margin="8,0">
-                                          <TextBlock Text="{Binding Particulars}"
+                                      <Grid ColumnDefinitions="*,130,130,140" Height="34">
+                                        <!-- Same ROOT CAUSE as the accounting-grid row template above (a horizontal
+                                             StackPanel measures at INFINITE width, so TextTrimming can never engage and
+                                             the text paints over the amount), but this template needs a DIFFERENT
+                                             remedy, because it serves the mirror-image profile:
+                                               Particulars = "date + voucher type + no."  (the row IDENTITY)
+                                               Secondary   = the COUNTER-LEDGER            (unbounded — and it is real
+                                                             accounting information, the contra account, not a tag).
+                                             BOTH must stay readable, and NEITHER may be spent to save the other:
+                                               - one trimmed run (leftmost priority, as used above) ellipsises the
+                                                 counter-ledger away entirely;
+                                               - an inner "Auto,*" split fails too. MEASURED, not assumed: this cell is
+                                                 only 198px wide (the 130+130+140 amount columns take 400px of the
+                                                 638px pane), while the identity alone needs 186px and even a TYPICAL
+                                                 row needs 165+8+81 = 254px. The Auto side then starves its sibling to
+                                                 4px — the render showed the counter-ledger simply GONE. "Bounded" is
+                                                 relative: 186px is not bounded inside 198px.
+                                             198px cannot hold both side-by-side at any split, so stack them instead:
+                                             each line gets the FULL cell width. The identity fits outright and the
+                                             counter-ledger trims from ~75% of its length — both readable. Row height
+                                             24 -> 34 pays for the second line. -->
+                                        <Grid Grid.Column="0" RowDefinitions="Auto,Auto"
+                                              VerticalAlignment="Center" Margin="8,0">
+                                          <TextBlock Grid.Row="0" Text="{Binding Particulars}" FontSize="12.5"
                                                      FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"
-                                                     FontSize="12.5"/>
-                                          <TextBlock Text="{Binding Secondary}"
-                                                     FontSize="10.5" Foreground="#8A8A8A" VerticalAlignment="Center"/>
-                                        </StackPanel>
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Row="1" Text="{Binding Secondary}" FontSize="10.5"
+                                                     Foreground="#8A8A8A" TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
                                         <TextBlock Grid.Column="1" Text="{Binding Debit}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="2" Text="{Binding Credit}" TextAlignment="Right"
@@ -3580,10 +3640,14 @@
                                   <CheckBox Content="Maintain balances bill-by-bill"
                                             IsChecked="{Binding MaintainBillByBill, Mode=TwoWay}"
                                             FontSize="13"/>
-                                  <Grid ColumnDefinitions="180,120"
+                                  <!-- Auto, not a fixed 180: the label needs 192.4px and was sliced to "…(day" at the
+                                       TextBox border. It is the only label row in this block, so it needs no shared
+                                       size group — there is no sibling row for its input edge to line up with. -->
+                                  <Grid ColumnDefinitions="Auto,120"
                                         IsVisible="{Binding MaintainBillByBill}">
                                     <TextBlock Grid.Column="0" Text="Default credit period (days)"
                                                VerticalAlignment="Center" FontSize="12.5"
+                                               Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <TextBox Grid.Column="1"
                                              Text="{Binding DefaultCreditPeriodText, Mode=TwoWay}"
@@ -6407,10 +6471,20 @@
                             <Border Grid.Row="1" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="14" Margin="0,0,0,8">
-                              <StackPanel Spacing="8">
-                                <Grid ColumnDefinitions="110,*,110,*">
-                                  <TextBlock Grid.Column="0" Text="Price Level" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                              <!-- Auto + SharedSizeGroup: a fixed 110 sliced "Applicable From" to "Applicable Fror"
+                                   at the TextBox border. The shared group keeps this row's input edge aligned with
+                                   the Price Level row above it. -->
+                              <StackPanel Spacing="8" Grid.IsSharedSizeScope="True">
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="PlLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="PlLabelR"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Price Level" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Levels}"
                                             SelectedItem="{Binding SelectedLevel, Mode=TwoWay}">
@@ -6421,7 +6495,8 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                   <TextBlock Grid.Column="2" Text="Item" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             VerticalAlignment="Center" Margin="10,0,10,0"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Items}"
@@ -6433,9 +6508,14 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
-                                <Grid ColumnDefinitions="110,200">
-                                  <TextBlock Grid.Column="0" Text="Applicable From" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="PlLabelL"/>
+                                    <ColumnDefinition Width="200"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Applicable From" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding ApplicableFromText, Mode=TwoWay}"
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
@@ -7351,21 +7431,39 @@
                                 <Border Background="White"
                                         BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                         Padding="16">
-                                  <StackPanel Spacing="10">
-                                    <Grid ColumnDefinitions="130,*,130,*">
-                                      <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- Auto + SharedSizeGroup: the fixed 130 left only 120px after the 10px margin, so
+                                       "Calculation Type" / "Income-Tax Comp." were sliced at the ComboBox border. The
+                                       shared groups hold all six stacked rows' input edges on one vertical line. -->
+                                  <StackPanel Spacing="10" Grid.IsSharedSizeScope="True">
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelL"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelR"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                                PlaceholderText="e.g. Basic Pay / HRA"/>
                                       <TextBlock Grid.Column="2" Text="Display Name" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 VerticalAlignment="Center" Margin="10,0,10,0"
+                                                 TextTrimming="CharacterEllipsis"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding DisplayName, Mode=TwoWay}"
                                                PlaceholderText="on payslip (optional)"/>
                                     </Grid>
-                                    <Grid ColumnDefinitions="130,*,130,*">
-                                      <TextBlock Grid.Column="0" Text="Pay Head Type" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelL"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelR"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Pay Head Type" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding Types}"
                                                 SelectedItem="{Binding SelectedType, Mode=TwoWay}">
@@ -7376,7 +7474,8 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                       <TextBlock Grid.Column="2" Text="Calculation Type" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 VerticalAlignment="Center" Margin="10,0,10,0"
+                                                 TextTrimming="CharacterEllipsis"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding CalcTypes}"
@@ -7388,9 +7487,16 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                     </Grid>
-                                    <Grid ColumnDefinitions="130,*,130,*">
-                                      <TextBlock Grid.Column="0" Text="Under (Group)" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelL"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelR"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Under (Group)" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding GroupOptions}"
                                                 SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
@@ -7402,7 +7508,8 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                       <TextBlock Grid.Column="2" Text="Income-Tax Comp." FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 VerticalAlignment="Center" Margin="10,0,10,0"
+                                                 TextTrimming="CharacterEllipsis"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding IncomeTaxComponents}"
@@ -7414,7 +7521,16 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                     </Grid>
-                                    <Grid ColumnDefinitions="130,*,130,*">
+                                    <!-- The checkboxes span cols 0-1 / 2-3 and carry no label of their own, but they
+                                         keep the SAME shared groups so the "Use for gratuity" box stays on the col-2
+                                         line with the labels above and below it. -->
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelL"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelR"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
                                       <CheckBox Grid.Column="0" Grid.ColumnSpan="2" Content="Affects net salary"
                                                 IsChecked="{Binding AffectsNetSalary, Mode=TwoWay}"
                                                 FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
@@ -7423,9 +7539,16 @@
                                                 IsChecked="{Binding UseForGratuity, Mode=TwoWay}"
                                                 FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                     </Grid>
-                                    <Grid ColumnDefinitions="130,*,130,*">
-                                      <TextBlock Grid.Column="0" Text="Rounding" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelL"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelR"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Rounding" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding RoundingMethods}"
                                                 SelectedItem="{Binding SelectedRoundingMethod, Mode=TwoWay}">
@@ -7436,7 +7559,8 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                       <TextBlock Grid.Column="2" Text="Calc Period" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 VerticalAlignment="Center" Margin="10,0,10,0"
+                                                 TextTrimming="CharacterEllipsis"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding Periods}"
@@ -7448,9 +7572,15 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                     </Grid>
-                                    <Grid ColumnDefinitions="130,120,*">
-                                      <TextBlock Grid.Column="0" Text="Rounding Limit" FontWeight="SemiBold"
-                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PhLabelL"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Rounding Limit" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding RoundingLimitText, Mode=TwoWay}"
                                                TextAlignment="Right" PlaceholderText="1"/>
                                       <TextBlock Grid.Column="2" Text="(the multiple to round to, e.g. 1)"
@@ -8022,22 +8152,22 @@
 
                                   <!-- Summary tiles -->
                                   <Grid ColumnDefinitions="*,*,*,*" >
-                                    <StackPanel Grid.Column="0" Margin="2">
+                                    <StackPanel Grid.Column="0" Margin="2" Classes="statCell">
                                       <TextBlock Text="Gross Earnings" FontSize="11" Foreground="#6A6A6A"/>
                                       <TextBlock Text="{Binding GrossText, StringFormat='₹{0}'}" FontSize="14"
                                                  FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="2">
+                                    <StackPanel Grid.Column="1" Margin="2" Classes="statCell">
                                       <TextBlock Text="Deductions" FontSize="11" Foreground="#6A6A6A"/>
                                       <TextBlock Text="{Binding DeductionsText, StringFormat='₹{0}'}" FontSize="14"
                                                  FontWeight="Bold" Foreground="{StaticResource AlertRed}"/>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="2" Margin="2">
+                                    <StackPanel Grid.Column="2" Margin="2" Classes="statCell">
                                       <TextBlock Text="Net Payable" FontSize="11" Foreground="#6A6A6A"/>
                                       <TextBlock Text="{Binding NetText, StringFormat='₹{0}'}" FontSize="14"
                                                  FontWeight="Bold" Foreground="{StaticResource PositiveGreen}"/>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="3" Margin="2">
+                                    <StackPanel Grid.Column="3" Margin="2" Classes="statCell">
                                       <TextBlock Text="Employer Contribution" FontSize="11" Foreground="#6A6A6A"/>
                                       <TextBlock Text="{Binding EmployerText, StringFormat='₹{0}'}" FontSize="14"
                                                  FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
@@ -9047,7 +9177,10 @@
                                       <TextBlock Text="Rate" FontSize="10.5" Foreground="#777777"/>
                                       <TextBlock Text="{Binding RateText}" FontSize="13" FontWeight="Bold"/>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="2">
+                                    <!-- Money cell: label+value pinned right together. Columns 0/1 above hold TEXT
+                                         ("Trader", "1% on turnover base") and stay left/left — right-aligning them
+                                         would be a new defect. -->
+                                    <StackPanel Grid.Column="2" Classes="statCell">
                                       <TextBlock Text="Turnover base ₹" FontSize="10.5" Foreground="#777777"/>
                                       <TextBlock Text="{Binding TurnoverBaseText}" FontSize="13" FontWeight="Bold"
                                                  TextAlignment="Right"/>
@@ -9528,10 +9661,10 @@
                                 </ItemsControl>
                                 <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
                                   <Grid ColumnDefinitions="*,*,*,*">
-                                    <StackPanel Grid.Column="0"><TextBlock Text="Total credit ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalCreditText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                    <StackPanel Grid.Column="1"><TextBlock Text="Total liability ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalLiabilityText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                    <StackPanel Grid.Column="2"><TextBlock Text="RCM cash ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalRcmLiabilityText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                    <StackPanel Grid.Column="3"><TextBlock Text="Cash balance ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CashBalanceText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="Total credit ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalCreditText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="Total liability ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalLiabilityText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="RCM cash ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding TotalRcmLiabilityText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                    <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="Cash balance ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CashBalanceText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                                   </Grid>
                                 </Border>
                                 <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
@@ -9666,11 +9799,11 @@
                                        HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
                             <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12" Margin="0,0,0,8">
                               <Grid ColumnDefinitions="*,*,*,*,*">
-                                <StackPanel Grid.Column="0"><TextBlock Text="ECRS CGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceCgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="1"><TextBlock Text="SGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceSgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="2"><TextBlock Text="IGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceIgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="3"><TextBlock Text="Cess ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceCessText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="4"><TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="ECRS CGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceCgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="SGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceSgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="IGST ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceIgstText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="Cess ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceCessText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                               </Grid>
                             </Border>
                             <TextBlock Grid.Row="3" Text="{Binding CandidatesHeader}" FontWeight="Bold" FontSize="12"
@@ -9922,16 +10055,16 @@
                             <Border Grid.Row="3" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10" Margin="0,0,0,6">
                               <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,*,*,*">
-                                  <StackPanel Grid.Column="0"><TextBlock Text="Liab CGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabCgstText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                  <StackPanel Grid.Column="1"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabSgstText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                  <StackPanel Grid.Column="2"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabIgstText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                  <StackPanel Grid.Column="3"><TextBlock Text="RCM (cash-only) ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabRcmCashText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="Liab CGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabCgstText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabSgstText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabIgstText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="RCM (cash-only) ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding LiabRcmCashText}" FontSize="12" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
                                 </Grid>
                                 <Grid ColumnDefinitions="*,*,*,*">
-                                  <StackPanel Grid.Column="0"><TextBlock Text="Credit CGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditCgstText}" FontSize="12" TextAlignment="Right"/></StackPanel>
-                                  <StackPanel Grid.Column="1"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditSgstText}" FontSize="12" TextAlignment="Right"/></StackPanel>
-                                  <StackPanel Grid.Column="2"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditIgstText}" FontSize="12" TextAlignment="Right"/></StackPanel>
-                                  <StackPanel Grid.Column="3"><TextBlock Text="Cess ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditCessText}" FontSize="12" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="Credit CGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditCgstText}" FontSize="12" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditSgstText}" FontSize="12" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditIgstText}" FontSize="12" TextAlignment="Right"/></StackPanel>
+                                  <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="Cess ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding CreditCessText}" FontSize="12" TextAlignment="Right"/></StackPanel>
                                 </Grid>
                               </StackPanel>
                             </Border>
@@ -10043,11 +10176,11 @@
                             <!-- The ECRS balance — the cap a reclaim may never exceed. -->
                             <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10" Margin="0,0,0,6">
                               <Grid ColumnDefinitions="*,*,*,*,*">
-                                <StackPanel Grid.Column="0"><TextBlock Text="ECRS CGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceCgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="1"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceSgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="2"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceIgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="3"><TextBlock Text="Cess ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceCessText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                <StackPanel Grid.Column="4"><TextBlock Text="Total ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="12.5" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="0" Classes="statCell"><TextBlock Text="ECRS CGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceCgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="SGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceSgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="IGST ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceIgstText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="3" Classes="statCell"><TextBlock Text="Cess ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceCessText}" FontSize="12.5" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Total ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="12.5" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                               </Grid>
                             </Border>
                             <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
@@ -10699,8 +10832,8 @@
                                   <StackPanel Spacing="4">
                                     <Grid ColumnDefinitions="*,*,*">
                                       <StackPanel Grid.Column="0"><TextBlock Text="Corrections" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionCountText}" FontSize="13" FontWeight="Bold"/></StackPanel>
-                                      <StackPanel Grid.Column="1"><TextBlock Text="Net tax ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionTaxText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
-                                      <StackPanel Grid.Column="2"><TextBlock Text="Net taxable ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionTaxableText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                      <StackPanel Grid.Column="1" Classes="statCell"><TextBlock Text="Net tax ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionTaxText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
+                                      <StackPanel Grid.Column="2" Classes="statCell"><TextBlock Text="Net taxable ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding CorrectionTaxableText}" FontSize="13" FontWeight="Bold" TextAlignment="Right"/></StackPanel>
                                     </Grid>
                                     <TextBlock Text="{Binding MechanismText}" FontSize="11" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                   </StackPanel>
@@ -10801,43 +10934,75 @@
                             <Border Grid.Row="1" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
-                              <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="150,*,150,*">
-                                  <TextBlock Grid.Column="0" Text="Section Code" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                              <!-- Label columns are Auto + SharedSizeGroup: Auto guarantees a label can never clip
+                                   its own text (a fixed 150 sliced "…§206AA)" down to "…§206A" — a real but DIFFERENT
+                                   section), and the shared group keeps every row's input edge on one vertical line. -->
+                              <StackPanel Spacing="10" Grid.IsSharedSizeScope="True">
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelR"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Section Code" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding SectionCode, Mode=TwoWay}"
                                            PlaceholderText="e.g. 194J(b)"/>
                                   <TextBlock Grid.Column="2" Text="Form-26Q / FVU Code" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             VerticalAlignment="Center" Margin="10,0,10,0"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding FvuSectionCode, Mode=TwoWay}"
                                            PlaceholderText="e.g. 94J-B"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="150,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Fees for professional services"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="150,*,150,*">
-                                  <TextBlock Grid.Column="0" Text="Rate % (with PAN)" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelR"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Rate % (with PAN)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding RateWithPanText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="e.g. 10"/>
                                   <TextBlock Grid.Column="2" Text="Rate % (no PAN, §206AA)" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             VerticalAlignment="Center" Margin="10,0,10,0" FontSize="12"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding RateWithoutPanText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="e.g. 20"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="150,*,150,*">
-                                  <TextBlock Grid.Column="0" Text="Single-txn Threshold ₹" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelR"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Single-txn Threshold ₹" FontWeight="SemiBold"
                                              VerticalAlignment="Center" FontSize="12"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding SingleThresholdText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="blank ⇒ none"/>
                                   <TextBlock Grid.Column="2" Text="Cumulative-FY Threshold ₹" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             VerticalAlignment="Center" Margin="10,0,10,0" FontSize="12"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding CumulativeThresholdText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="blank ⇒ none"/>
@@ -10913,31 +11078,55 @@
                             <Border Grid.Row="1" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
-                              <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="150,*,150,*">
-                                  <TextBlock Grid.Column="0" Text="Collection Code" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                              <!-- Same Auto + SharedSizeGroup treatment as the Nature-of-Payment form: a fixed 150
+                                   sliced "…§206CC)" down to "…§206C" — §206C (the TCS charging section) and §206CC
+                                   (the no-PAN higher rate) are DIFFERENT statutes carrying different rates. -->
+                              <StackPanel Spacing="10" Grid.IsSharedSizeScope="True">
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NogLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NogLabelR"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Collection Code" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding CollectionCode, Mode=TwoWay}"
                                            PlaceholderText="e.g. 6CE"/>
                                   <TextBlock Grid.Column="2" Text="Threshold ₹" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             VerticalAlignment="Center" Margin="10,0,10,0"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding ThresholdText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="blank ⇒ full value"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="150,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NogLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Scrap"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="150,*,150,*">
-                                  <TextBlock Grid.Column="0" Text="Rate % (with PAN)" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NogLabelL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NogLabelR"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Rate % (with PAN)" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding RateWithPanText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="e.g. 1"/>
                                   <TextBlock Grid.Column="2" Text="Rate % (no PAN, §206CC)" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
+                                             VerticalAlignment="Center" Margin="10,0,10,0" FontSize="12"
+                                             TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding RateWithoutPanText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="e.g. 5"/>
@@ -11265,15 +11454,15 @@
                                     <TextBlock Text="{Binding ChallanRecordCount}" FontSize="14" FontWeight="Bold"
                                                Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="2">
+                                  <StackPanel Grid.Column="2" Classes="statCell">
                                     <TextBlock Text="Amount paid ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalAmountPaid}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="3">
+                                  <StackPanel Grid.Column="3" Classes="statCell">
                                     <TextBlock Text="TDS deducted ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalTdsDeducted}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="4">
+                                  <StackPanel Grid.Column="4" Classes="statCell">
                                     <TextBlock Text="Deposited ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalDeposited}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
@@ -11432,32 +11621,32 @@
                                     Padding="10" Margin="0,0,0,8">
                               <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,*,*,*,*,*">
-                                  <StackPanel Grid.Column="0">
+                                  <StackPanel Grid.Column="0" Classes="statCell">
                                     <TextBlock Text="A/c 1 — EPF ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding Account1Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="1">
+                                  <StackPanel Grid.Column="1" Classes="statCell">
                                     <TextBlock Text="A/c 2 — Admin ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding Account2Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="2">
+                                  <StackPanel Grid.Column="2" Classes="statCell">
                                     <TextBlock Text="A/c 10 — EPS ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding Account10Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="3">
+                                  <StackPanel Grid.Column="3" Classes="statCell">
                                     <TextBlock Text="A/c 21 — EDLI ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding Account21Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="4">
+                                  <StackPanel Grid.Column="4" Classes="statCell">
                                     <TextBlock Text="A/c 22 — EDLI Adm ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding Account22Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="5">
+                                  <StackPanel Grid.Column="5" Classes="statCell">
                                     <TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding GrandTotalText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
@@ -11591,22 +11780,22 @@
                                     Padding="10" Margin="0,0,0,8">
                               <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,*,*,*">
-                                  <StackPanel Grid.Column="0">
+                                  <StackPanel Grid.Column="0" Classes="statCell">
                                     <TextBlock Text="ESI Wages ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalWagesText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="1">
+                                  <StackPanel Grid.Column="1" Classes="statCell">
                                     <TextBlock Text="Employee 0.75% ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalEmployeeText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="2">
+                                  <StackPanel Grid.Column="2" Classes="statCell">
                                     <TextBlock Text="Employer 3.25% ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalEmployerText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="3">
+                                  <StackPanel Grid.Column="3" Classes="statCell">
                                     <TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding GrandTotalText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
@@ -11725,12 +11914,12 @@
                                     Padding="10" Margin="0,0,0,8">
                               <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,*">
-                                  <StackPanel Grid.Column="0">
+                                  <StackPanel Grid.Column="0" Classes="statCell">
                                     <TextBlock Text="PT Wages ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalWagesText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="1">
+                                  <StackPanel Grid.Column="1" Classes="statCell">
                                     <TextBlock Text="Professional Tax ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalPtText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
@@ -11845,17 +12034,17 @@
                                     Padding="10" Margin="0,0,0,8">
                               <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,*,*">
-                                  <StackPanel Grid.Column="0">
+                                  <StackPanel Grid.Column="0" Classes="statCell">
                                     <TextBlock Text="Total Liability ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalLiabilityText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="1">
+                                  <StackPanel Grid.Column="1" Classes="statCell">
                                     <TextBlock Text="Prior Provision ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding PriorProvisionText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="2">
+                                  <StackPanel Grid.Column="2" Classes="statCell">
                                     <TextBlock Text="Delta to Post ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding DeltaText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
@@ -11967,7 +12156,8 @@
                                     <TextBlock Text="Accounting Year" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding AccountingYearText}" FontSize="12.5" FontWeight="SemiBold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="1">
+                                  <!-- Money cell. Column 0 above holds the accounting-year TEXT and stays left/left. -->
+                                  <StackPanel Grid.Column="1" Classes="statCell">
                                     <TextBlock Text="Total Bonus ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalBonusText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
@@ -12244,7 +12434,7 @@
                                     <TextBlock Text="{Binding DeducteeRecordCount}" FontSize="14" FontWeight="Bold"
                                                Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="1">
+                                  <StackPanel Grid.Column="1" Classes="statCell">
                                     <TextBlock Text="TDS deducted ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalTdsDeducted}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
@@ -12253,7 +12443,7 @@
                                     <TextBlock Text="{Binding AnnexureIiCount}" FontSize="14" FontWeight="Bold"
                                                Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="3">
+                                  <StackPanel Grid.Column="3" Classes="statCell">
                                     <TextBlock Text="Annexure II TDS ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding AnnexureIiTaxDeducted}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
@@ -12826,15 +13016,15 @@
                                     <TextBlock Text="{Binding ChallanRecordCount}" FontSize="14" FontWeight="Bold"
                                                Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="2">
+                                  <StackPanel Grid.Column="2" Classes="statCell">
                                     <TextBlock Text="Amount received ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalAmountReceived}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="3">
+                                  <StackPanel Grid.Column="3" Classes="statCell">
                                     <TextBlock Text="TCS collected ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalTcsCollected}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
-                                  <StackPanel Grid.Column="4">
+                                  <StackPanel Grid.Column="4" Classes="statCell">
                                     <TextBlock Text="Deposited ₹" FontSize="10.5" Foreground="#777777"/>
                                     <TextBlock Text="{Binding TotalDeposited}" FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
@@ -13129,16 +13319,16 @@
                                           BorderThickness="1" Padding="10">
                                     <StackPanel Spacing="4">
                                       <Grid ColumnDefinitions="*,*,*">
-                                        <StackPanel Grid.Column="0">
+                                        <StackPanel Grid.Column="0" Classes="statCell">
                                           <TextBlock Text="Amount paid ₹" FontSize="10.5" Foreground="#777777"/>
                                           <TextBlock Text="{Binding TotalAmountPaid}" FontSize="14" FontWeight="Bold"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1">
+                                        <StackPanel Grid.Column="1" Classes="statCell">
                                           <TextBlock Text="TDS deducted ₹" FontSize="10.5" Foreground="#777777"/>
                                           <TextBlock Text="{Binding TotalTdsDeducted}" FontSize="14" FontWeight="Bold"
                                                      Foreground="{StaticResource BrandNavy}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2">
+                                        <StackPanel Grid.Column="2" Classes="statCell">
                                           <TextBlock Text="TDS deposited ₹" FontSize="10.5" Foreground="#777777"/>
                                           <TextBlock Text="{Binding TotalTdsDeposited}" FontSize="14" FontWeight="Bold"/>
                                         </StackPanel>
@@ -13345,16 +13535,16 @@
                                           BorderThickness="1" Padding="10">
                                     <StackPanel Spacing="4">
                                       <Grid ColumnDefinitions="*,*,*">
-                                        <StackPanel Grid.Column="0">
+                                        <StackPanel Grid.Column="0" Classes="statCell">
                                           <TextBlock Text="Amount received ₹" FontSize="10.5" Foreground="#777777"/>
                                           <TextBlock Text="{Binding TotalAmountReceived}" FontSize="14" FontWeight="Bold"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1">
+                                        <StackPanel Grid.Column="1" Classes="statCell">
                                           <TextBlock Text="TCS collected ₹" FontSize="10.5" Foreground="#777777"/>
                                           <TextBlock Text="{Binding TotalTcsCollected}" FontSize="14" FontWeight="Bold"
                                                      Foreground="{StaticResource BrandNavy}"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2">
+                                        <StackPanel Grid.Column="2" Classes="statCell">
                                           <TextBlock Text="TCS deposited ₹" FontSize="10.5" Foreground="#777777"/>
                                           <TextBlock Text="{Binding TotalTcsDeposited}" FontSize="14" FontWeight="Bold"/>
                                         </StackPanel>
