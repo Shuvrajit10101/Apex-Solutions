@@ -14,6 +14,10 @@ public partial class App : Application
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
+
+        // WI-2: every picker searches by the item's display text, not its type name. Registered here so it
+        // covers every ComboBox the app creates without touching ~380 XAML call sites. See PickerTextSearch.
+        Views.PickerTextSearch.Register();
     }
 
     public override void OnFrameworkInitializationCompleted()

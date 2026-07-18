@@ -703,14 +703,59 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Index of the highlighted item in the centred pre-company menu.</summary>
     private int _menuSelectedIndex;
 
-    /// <summary>Index of the focused (active) column in the cascade.</summary>
-    public int ActiveColumnIndex { get; private set; }
+    private int _activeColumnIndex;
+
+    /// <summary>
+    /// Index of the focused (active) column in the cascade.
+    /// <para>
+    /// WI-2 — this setter is also the single reset point for picker type-ahead. Focus moving to a different
+    /// column is exactly "Esc / a completed selection / entering or leaving a column", so clearing the prefix
+    /// on BOTH the column being left and the one being entered covers every reset the feature needs, with no
+    /// per-call-site resets to forget at the ~125 places a column is pushed. Type-ahead itself never touches
+    /// this index (it only moves the highlight), so a prefix being typed is never cleared underneath it.
+    /// </para>
+    /// </summary>
+    public int ActiveColumnIndex
+    {
+        get => _activeColumnIndex;
+        private set
+        {
+            if (_activeColumnIndex == value) return;
+
+            ColumnAtOrNull(_activeColumnIndex)?.ResetTypeAhead();
+            _activeColumnIndex = value;
+            ColumnAtOrNull(value)?.ResetTypeAhead();
+        }
+    }
+
+    /// <summary>The cascade column at <paramref name="index"/>, or null when out of range.</summary>
+    private GatewayColumn? ColumnAtOrNull(int index) =>
+        index >= 0 && index < Columns.Count ? Columns[index] : null;
 
     public MainWindowViewModel() : this(new CompanyStorage()) { }
 
     public MainWindowViewModel(CompanyStorage storage)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+
+        // WI-9: the SHARED choke point for bare-letter hotkeys. Columns are pushed from ~125 call sites, so
+        // assigning here — as a column enters the cascade — is what makes the accelerators reach EVERY menu
+        // column (root, submenu, picker) instead of only the ones a builder remembered to call. Page columns
+        // hold no rows, so it is a no-op for them.
+        Columns.CollectionChanged += (_, e) =>
+        {
+            // WI-2: a column POPPED off the cascade (Esc / Back / a page replacing it) is left with whatever
+            // type-ahead prefix was mid-flight. It is removed BEFORE ActiveColumnIndex moves, so the focus-change
+            // reset cannot see it — clear it here, where every removal passes.
+            if (e.OldItems is not null)
+                foreach (GatewayColumn column in e.OldItems)
+                    column.ResetTypeAhead();
+
+            if (e.NewItems is null) return;
+            foreach (GatewayColumn column in e.NewItems)
+                column.AssignHotKeys();
+        };
+
         ShowCompanySelect();
     }
 
@@ -1404,7 +1449,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private GatewayColumn BuildLedgerBookPickerColumn(string title, Func<Apex.Ledger.Domain.Ledger, bool> include)
     {
-        var col = new GatewayColumn(title);
+        // WI-2/WI-9 conflict rule: this column's rows are the COMPANY'S ledgers, not authored menu options, so a
+        // bare letter must FILTER it (type-ahead) rather than activate a computed hotkey. Marking the kind is
+        // what routes the keystroke; see GatewayColumnKind.
+        var col = new GatewayColumn(title) { Kind = GatewayColumnKind.DataDriven };
         col.Add(MenuItemViewModel.Header(title));
 
         var ledgers = Company is null
@@ -2749,7 +2797,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // while the report is still bound, before the picker column takes focus.
         var seedDate = ResolveAddVoucherSeedDate();
 
-        var picker = new GatewayColumn("Add Voucher");
+        // WI-2/WI-9 conflict rule: these rows are the COMPANY'S voucher types (Company.VoucherTypes), including
+        // any the user created — not an authored menu. A computed hotkey over user data would paint an arbitrary
+        // mid-word red letter on a name nobody at build time has seen, so a bare letter FILTERS here instead.
+        var picker = new GatewayColumn("Add Voucher") { Kind = GatewayColumnKind.DataDriven };
         picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
         foreach (var type in Company.VoucherTypes.Where(t => t.IsActive))
         {
@@ -4314,6 +4365,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Nulls every page view model (they are mutually exclusive — at most one page column open).</summary>
     private void ClearSubScreens()
     {
+        // WI-11: the open master is going away with its page view model — the Accept confirmation goes with it.
+        ResetMasterAcceptPrompt();
+
         Reports = null;
         VoucherEntry = null;
         InventoryVoucherEntry = null;
@@ -4460,6 +4514,134 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.PayHeadMaster or Screen.SalaryStructureMaster)
             BackFromPage();
     }
+
+    // =============================================================== WI-11: the Accept? (Y/N) confirmation
+
+    /// <summary>
+    /// WI-11 — true while the terminal "Accept? (Y/N)" confirmation is up over a master screen. Every Y/N key
+    /// arm in the window's tunnel handler is SCOPED to this flag, which is what stops the confirmation from
+    /// hijacking Y (Gateway → Export Data) or Alt+N (Auto Columns) anywhere else in the app.
+    /// </summary>
+    [ObservableProperty] private bool _isAcceptPromptOpen;
+
+    /// <summary>The prompt text shown while <see cref="IsAcceptPromptOpen"/> — e.g. "Accept Ledger? (Y/N)".</summary>
+    [ObservableProperty] private string _acceptPromptText = string.Empty;
+
+    /// <summary>True on the master screens that carry an Accept confirmation (the WI-11 scope).</summary>
+    public bool IsMasterAcceptScreen =>
+        CurrentScreen is Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
+            or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
+            or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
+            or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+            or Screen.BatchMaster or Screen.BomMaster or Screen.ReorderLevelsMaster
+            or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
+            or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
+            or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
+            or Screen.PayHeadMaster or Screen.SalaryStructureMaster;
+
+    /// <summary>
+    /// WI-11 — raises the "Accept? (Y/N)" confirmation over the open master screen. This is the route the
+    /// on-screen Accept affordance and the Enter key take.
+    /// <para>
+    /// <b>Ctrl+A does NOT come through here.</b> The accept-as-is shortcut keeps its existing direct path
+    /// (<see cref="ActivateSelected"/>), so it saves without ever raising the prompt — matching the reference
+    /// product, where the operator may answer Yes under Accept OR press Ctrl+A, and keeping the ~40 screens
+    /// already regression-locked on Ctrl+A untouched.
+    /// </para>
+    /// <returns><c>true</c> when the prompt was raised; <c>false</c> off a master screen (a safe no-op).</returns>
+    /// </summary>
+    public bool RequestMasterAccept()
+    {
+        if (!IsMasterAcceptScreen || IsAcceptPromptOpen) return false;
+
+        AcceptPromptText = $"Accept {MasterAcceptNoun()}? (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>WI-11 — "Y": dismiss the prompt and perform the SAME save Ctrl+A performs.</summary>
+    public bool ConfirmMasterAccept()
+    {
+        if (!IsAcceptPromptOpen) return false;
+
+        IsAcceptPromptOpen = false;
+        AcceptPromptText = string.Empty;
+        // Deliberately the identical code path as Ctrl+A, so the confirmation can never drift from the
+        // accept-as-is shortcut into saving something different.
+        ActivateSelected();
+        return true;
+    }
+
+    /// <summary>WI-11 — "N" / Esc: dismiss the prompt and return to editing WITHOUT saving.</summary>
+    public bool DismissMasterAccept()
+    {
+        if (!IsAcceptPromptOpen) return false;
+
+        IsAcceptPromptOpen = false;
+        AcceptPromptText = string.Empty;
+        return true;
+    }
+
+    /// <summary>
+    /// WI-11 — THE TEARDOWN CHOKE POINT for the Accept confirmation. Answering Y/N is only ONE way to leave a
+    /// master screen; Ctrl+A (accept-as-is, which bypasses the prompt by design), Alt+X (cancel), Esc and any
+    /// navigation away all leave it too. Before this existed the flag stayed TRUE after those exits and the
+    /// still-live Y/N arm — which sits EARLIER in the window's first-match-wins chain — then swallowed the next
+    /// bare <c>Y</c> on the Gateway, drilling the highlighted row instead of opening Export Data (and leaving a
+    /// stale confirmation bar until that stray keystroke). That is a shipped accelerator being SHADOWED, the
+    /// exact invariant WI-11 promised not to break.
+    /// <para>
+    /// Rather than scatter a reset down every exit, this is called from the three places a master screen can be
+    /// torn down or superseded: <see cref="OnCurrentScreenChanged"/> (navigating away — Alt+X, Esc, Back, any
+    /// jump), <see cref="ClearSubScreens"/> (the page view models being nulled, the campaign convention for new
+    /// screen state) and the top of <see cref="ActivateSelected"/> (Ctrl+A, which SAVES WITHOUT changing the
+    /// screen and so is invisible to the other two).
+    /// </para>
+    /// </summary>
+    private void ResetMasterAcceptPrompt()
+    {
+        if (!IsAcceptPromptOpen && AcceptPromptText.Length == 0) return;
+
+        IsAcceptPromptOpen = false;
+        AcceptPromptText = string.Empty;
+    }
+
+    /// <summary>
+    /// Any change of screen tears down whatever master was open, so the Accept confirmation can never survive
+    /// into the next screen (see <see cref="ResetMasterAcceptPrompt"/>). Raising the prompt does not change the
+    /// screen, so this never cancels a confirmation the operator is looking at.
+    /// </summary>
+    partial void OnCurrentScreenChanged(Screen value) => ResetMasterAcceptPrompt();
+
+    /// <summary>The human noun for the open master screen, used in the prompt text.</summary>
+    private string MasterAcceptNoun() => CurrentScreen switch
+    {
+        Screen.LedgerMaster => "Ledger",
+        Screen.AccountGroupMaster => "Group",
+        Screen.CostCategoryMaster => "Cost Category",
+        Screen.CostCentreMaster => "Cost Centre",
+        Screen.BudgetMaster => "Budget",
+        Screen.ScenarioMaster => "Scenario",
+        Screen.CurrencyMaster => "Currency",
+        Screen.StockGroupMaster => "Stock Group",
+        Screen.StockCategoryMaster => "Stock Category",
+        Screen.UnitMaster => "Unit",
+        Screen.GodownMaster => "Godown",
+        Screen.StockItemMaster => "Stock Item",
+        Screen.BatchMaster => "Batch",
+        Screen.BomMaster => "Bill of Materials",
+        Screen.ReorderLevelsMaster => "Reorder Level",
+        Screen.NatureOfPaymentMaster => "Nature of Payment",
+        Screen.NatureOfGoodsMaster => "Nature of Goods",
+        Screen.EmployeeCategoryMaster => "Employee Category",
+        Screen.EmployeeGroupMaster => "Employee Group",
+        Screen.EmployeeMaster => "Employee",
+        Screen.PayrollUnitMaster => "Payroll Unit",
+        Screen.AttendanceTypeMaster => "Attendance Type",
+        Screen.PayHeadMaster => "Pay Head",
+        Screen.SalaryStructureMaster => "Salary Structure",
+        _ => "",
+    };
 
     /// <summary>Ctrl+A on the Currency master: create the currency form's entry (its main create action).</summary>
     public bool CreateCurrency() => CurrencyMaster?.CreateCurrency() ?? false;
@@ -4752,6 +4934,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void ActivateSelected()
     {
+        // WI-11: the accept-as-is path. Ctrl+A saves WITHOUT changing the screen, so it is invisible to the
+        // screen-change reset — clear the confirmation here or it leaks and shadows the Gateway's bare Y.
+        ResetMasterAcceptPrompt();
+
         switch (CurrentScreen)
         {
             case Screen.CreateCompany:
@@ -5385,6 +5571,62 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The currently focused column, or null.</summary>
     private GatewayColumn? ActiveColumn =>
         ActiveColumnIndex >= 0 && ActiveColumnIndex < Columns.Count ? Columns[ActiveColumnIndex] : null;
+
+    /// <summary>
+    /// The kind of the focused menu column, or null when the focused column is not a menu (a page column) or
+    /// there is no cascade. Exposed so a test can assert the WI-2/WI-9 routing rule directly.
+    /// </summary>
+    public GatewayColumnKind? ActiveColumnKind =>
+        IsGatewayCascade && ActiveColumn is { IsMenu: true } col ? col.Kind : null;
+
+    /// <summary>The bare-letter hotkey rows of the focused menu column — diagnostics and tests.</summary>
+    public System.Collections.Generic.IReadOnlyList<MenuItemViewModel> ActiveColumnHotKeyItems =>
+        ActiveColumn is { IsMenu: true } col
+            ? col.Items.Where(i => i.HasHotKey).ToList()
+            : System.Array.Empty<MenuItemViewModel>();
+
+    /// <summary>The type-ahead prefix accumulated in the focused data-driven picker column ("" when none).</summary>
+    public string ActiveTypeAheadPrefix => ActiveColumn?.TypeAheadPrefix ?? string.Empty;
+
+    /// <summary>
+    /// WI-2 / WI-9 — THE CONFLICT RESOLUTION, in one place. A bare letter arriving on the Gateway cascade means
+    /// one of two different things, decided by the KIND of the focused column (never case by case):
+    /// <list type="bullet">
+    /// <item><b>Authored</b> menu column (Gateway, Vouchers, Create, …) — the letter ACTIVATES the row that owns
+    /// it as its computed hotkey, exactly as if the operator had arrowed to that row and pressed Enter.</item>
+    /// <item><b>Data-driven</b> picker column (ledgers, parties, stock items) — the letter FILTERS: it extends
+    /// the type-ahead prefix and moves the highlight to the first matching row. Enter then selects it.</item>
+    /// </list>
+    /// <para>
+    /// Returns <c>true</c> only when the letter was actually consumed, so the caller (the window's tunnel
+    /// handler) can fall through to the existing bare-letter accelerators — the report quick-jumps (B/P/T/D)
+    /// and the Gateway-root E/O/Y panels — whenever no row claimed it. That "claimed or fall through" contract
+    /// is what keeps this arm from shadowing the accelerators that already shipped.
+    /// </para>
+    /// </summary>
+    public bool HandleMenuLetter(char letter)
+    {
+        if (!IsGatewayCascade) return false;
+        if (ActiveColumn is not { IsMenu: true } col) return false;
+
+        if (col.Kind == GatewayColumnKind.DataDriven)
+        {
+            if (!col.TypeAhead(letter)) return false;
+            SyncActiveColumn();
+            return true;
+        }
+
+        var target = col.FindByHotKey(letter);
+        if (target is null) return false;
+
+        var index = col.Items.IndexOf(target);
+        if (index < 0) return false;
+
+        col.SetSelected(index);
+        SyncActiveColumn();
+        DrillIn();
+        return true;
+    }
 
     /// <summary>
     /// Repaints the cascade after a focus/selection change: marks the active column active (bright

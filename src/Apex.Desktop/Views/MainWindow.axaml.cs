@@ -156,6 +156,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        // WI-11 — the "Accept? (Y/N)" confirmation. ORDER IS LOAD-BEARING, in both directions:
+        //   • It sits AFTER the Ctrl+A arm above, so the accept-as-is shortcut still reaches its own handler and
+        //     saves WITHOUT the prompt (the ~40 Ctrl+A screens are untouched, and Ctrl+A while the prompt happens
+        //     to be up simply accepts, as the reference product does).
+        //   • It sits BEFORE the bare-Y (Gateway → Export Data) and Alt+N (Auto Columns) arms further down, so
+        //     while the confirmation IS up, Y answers the confirmation rather than opening a backup panel.
+        // The whole arm is SCOPED to vm.IsAcceptPromptOpen, which is false everywhere else — so Y and N keep
+        // their existing meanings across the rest of the app.
+        if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            switch (e.Key)
+            {
+                case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
+                case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
+                case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
+            }
+        }
+
         // Ctrl+R opens the GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — the
         // advertised accelerator for that screen. Scoped to a GST-enabled company so it never fires otherwise.
         if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Control)
@@ -564,6 +582,18 @@ public partial class MainWindow : Window
                 vm.DrillIn();
                 e.Handled = true;
                 break;
+            // WI-11: Enter on a master screen ASKS before saving ("Accept Ledger? (Y/N)") instead of committing
+            // silently. Ctrl+A is unaffected — it has its own arm far above and still saves outright. Guarded on
+            // the prompt not already being up so Enter cannot stack a second confirmation; every other Enter
+            // (cascade navigation, drill-in, non-master pages) falls through to ActivateSelected exactly as before.
+            // The guard is deliberately SIDE-EFFECT-FREE — it only reads state. RequestMasterAccept (which
+            // RAISES the prompt) is called in the body, never in the `when` clause: a pattern-match guard that
+            // mutates would raise a confirmation as a side effect of merely testing this arm, and would silently
+            // change meaning the moment anyone appended another condition after it.
+            case Key.Enter when vm.IsMasterAcceptScreen && !vm.IsAcceptPromptOpen:
+                vm.RequestMasterAccept();
+                e.Handled = true;
+                break;
             case Key.Enter:
                 vm.ActivateSelected();
                 e.Handled = true;
@@ -604,6 +634,37 @@ public partial class MainWindow : Window
             case Key.T when CanQuickJump(vm, e): Fire(vm, "T"); e.Handled = true; break;
             case Key.D when CanQuickJump(vm, e): Fire(vm, "D"); e.Handled = true; break;
         }
+
+        // WI-9 / WI-2 — the bare-letter menu arm, LAST on purpose.
+        //
+        // Placed at the very end of the first-match-wins chain so it cannot shadow a single accelerator that
+        // already shipped: every earlier arm (Ctrl+A, Alt+X, the report Alt+F1/F2/F12, the E/O/Y/M/P panels, the
+        // B/P/T/D quick-jumps, the F-key bar) gets the keystroke first and only an UNCLAIMED letter reaches here.
+        //
+        // What it then does depends on the focused column's KIND, which is how WI-2 and WI-9 stop fighting over
+        // the same keystroke: on an AUTHORED menu column the letter activates the row that owns it as a hotkey
+        // (the letter painted red); on a DATA-DRIVEN picker column it filters the list (type-ahead) instead.
+        // MainWindowViewModel.HandleMenuLetter owns that decision and returns false when nothing claimed the
+        // letter, leaving the event unhandled so behaviour elsewhere is unchanged.
+        if (!e.Handled && !IsTyping(e)
+            && e.KeyModifiers == KeyModifiers.None
+            && TryGetLetter(e.Key, out var letter)
+            && vm.HandleMenuLetter(letter))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Maps a bare A–Z key to its letter; false for anything else (digits, F-keys, navigation).</summary>
+    private static bool TryGetLetter(Key key, out char letter)
+    {
+        if (key >= Key.A && key <= Key.Z)
+        {
+            letter = (char)('A' + (key - Key.A));
+            return true;
+        }
+        letter = '\0';
+        return false;
     }
 
     private static bool IsTyping(KeyEventArgs e) => e.Source is TextBox;

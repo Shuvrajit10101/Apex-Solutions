@@ -303,10 +303,18 @@
                                                    a name still overflows; ToolTip.Tip surfaces the full label — including
                                                    the parenthetical disambiguator (state / GSTIN / branch) — on hover, a
                                                    bonus for mouse users of this keyboard-first list. -->
-                                              <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                              <!-- WI-9: the bare-letter hotkey is painted RED inside the label. The
+                                                   three Runs live in ONE TextBlock on purpose — a horizontal
+                                                   StackPanel would measure at infinite width and kill the
+                                                   TextTrimming above it. When a row has no hotkey the first two
+                                                   Runs are empty and HotKeyAfter carries the whole label, so the
+                                                   row renders exactly as it did before. The letter is a SEPARATE
+                                                   property; Label itself is never marked up (shell code dispatches
+                                                   on Label text and would break silently). -->
+                                              <TextBlock Grid.Column="0"
                                                          FontSize="14" TextTrimming="CharacterEllipsis"
                                                          ToolTip.Tip="{Binding Label}"
-                                                         Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
+                                                         Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"><Run Text="{Binding HotKeyBefore}"/><Run Text="{Binding HotKeyText}" Foreground="#C62828" FontWeight="Bold"/><Run Text="{Binding HotKeyAfter}"/></TextBlock>
                                               <TextBlock Grid.Column="1" Text="{Binding Hint}"
                                                          FontSize="11" Foreground="#6A6A6A"
                                                          VerticalAlignment="Center" Margin="12,0,0,0"/>
@@ -15482,6 +15490,18 @@
                     <Run Text="Current Date: "/><Run Text="{Binding StatusDate}"/>
                 </TextBlock>
             </Grid>
+        </Border>
+
+        <!-- ============ WI-11: the terminal "Accept? (Y/N)" confirmation ============
+             Shares the status-bar row and is declared AFTER it so it paints on top while open. Amber, so it
+             reads as a question awaiting an answer rather than as status. Keyboard-only by design (Y / N / Esc
+             are handled in the window's tunnel handler); Ctrl+A never raises it and still accepts outright. -->
+        <Border Grid.Row="3" Background="#8A5300" Height="26"
+                IsVisible="{Binding IsAcceptPromptOpen}">
+            <TextBlock VerticalAlignment="Center" Margin="12,0" FontSize="11"
+                       Foreground="White" FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis"
+                       Text="{Binding AcceptPromptText}"/>
         </Border>
     </Grid>
 </Window>
