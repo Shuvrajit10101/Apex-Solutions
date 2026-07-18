@@ -3803,6 +3803,94 @@
                                   </Grid>
                                 </StackPanel>
 
+                                <!-- Party Mailing Details (WI-4). Shown for ANY party ledger — deliberately not
+                                     behind an F11 flag, unlike the GST block below. The State/UT field lives in
+                                     the GST block only: there is ONE party State (the place-of-supply driver),
+                                     and showing a second editable State here would let the two contradict and
+                                     silently mis-compute CGST+SGST vs IGST. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowMailingDetails}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Mailing Details (party)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Mailing Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingName, Mode=TwoWay}"
+                                               PlaceholderText="defaults to the ledger name"/>
+                                    </Grid>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Address" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Top" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingAddress, Mode=TwoWay}"
+                                               AcceptsReturn="True" TextWrapping="Wrap"
+                                               MinHeight="58" MaxHeight="96"
+                                               VerticalContentAlignment="Top"
+                                               PlaceholderText="one line per line; each prints on the invoice"/>
+                                    </Grid>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Country" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingCountry, Mode=TwoWay}"
+                                               PlaceholderText="India"/>
+                                    </Grid>
+                                    <!-- State/UT. This is the SAME single field as the GST block's State/UT below:
+                                         both combos bind one view-model property, which writes one stored value
+                                         (PartyGstDetails.StateCode) through Ledger.MailingStateCode. Editing
+                                         either updates both, so a mailing State can never contradict the GST
+                                         place of supply. It is surfaced here as well so a party's State is still
+                                         capturable on a company that has GST switched off. -->
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="State/UT" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding PartyStates}"
+                                                SelectedItem="{Binding MailingState, Mode=TwoWay}"
+                                                PlaceholderText="State/UT…">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:IndianStateOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="PIN Code" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingPincode, Mode=TwoWay}"
+                                               PlaceholderText="6 digits, e.g. 700001"/>
+                                    </Grid>
+                                    <TextBlock Text="State/UT is a single value shared with GST Details — it also sets the place of supply."
+                                               FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Party GST details (shown for a party group while GST is enabled; catalog §12) -->
                                 <Border Background="#FBF7EE"
                                         BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -4130,7 +4218,7 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: Chart of Accounts (read-only group/ledger tree) -->
+                    <!-- PAGE: Chart of Accounts (group/ledger tree; WI-3 arrow highlight + Enter → Alter) -->
                     <ContentControl IsVisible="{Binding Chart, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding Chart}">
                       <ContentControl.ContentTemplate>
@@ -4158,6 +4246,11 @@
                                   <DataTemplate x:DataType="vm:ChartRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,160" Height="24">
+                                        <!-- WI-3 keyboard highlight. Declared FIRST so it paints BEHIND the row's
+                                             text (Grid children stack in declaration order); this keeps the
+                                             highlight converter-free and cannot obscure the account name. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="{Binding Indent, Converter={StaticResource Indent}}"
                                                    VerticalAlignment="Center"
@@ -5424,7 +5517,7 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:StockItemMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Stock Item Creation"
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,8"/>
 
@@ -5732,6 +5825,11 @@
                                   <DataTemplate x:DataType="vm:StockItemListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,150,70,150,120" Height="24">
+                                        <!-- WI-3 keyboard highlight (Up/Down move it, Ctrl+Enter alters that
+                                             item). Declared FIRST so it paints BEHIND the row's text — same
+                                             converter-free pattern as the Chart of Accounts tree above. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>

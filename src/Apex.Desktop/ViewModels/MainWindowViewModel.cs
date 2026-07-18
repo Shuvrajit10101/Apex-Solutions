@@ -2911,8 +2911,64 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== screen: chart of accounts
 
     /// <summary>
-    /// Opens the read-only Chart of Accounts (Masters → Chart of Accounts) as a page column: the group
-    /// hierarchy with sub-groups nested/indented under their primary parent and ledgers under their group.
+    /// Opens the Ledger master in <b>Alter</b> mode over an existing ledger (WI-3) — the same form as Create,
+    /// pre-filled, saving against the ledger's stable Guid so a rename applies retroactively to all history.
+    /// Reached by Enter on a ledger row of the Chart of Accounts. A no-op if the id does not resolve.
+    /// </summary>
+    /// <summary>
+    /// WI-3 — Enter on the Chart of Accounts: opens the highlighted row's master for <b>alteration</b>. A ledger
+    /// row opens Ledger Alteration; a group row opens Group Alteration. A no-op when nothing is highlighted, so
+    /// Enter on an untouched tree does nothing rather than opening an arbitrary account.
+    /// </summary>
+    public void AlterHighlightedChartRow()
+    {
+        if (ChartOfAccounts?.HighlightedRow is not { } row) return;
+
+        if (row.LedgerId is { } ledgerId) ShowLedgerAlter(ledgerId);
+        else if (row.GroupId is { } groupId) ShowAccountGroupAlter(groupId);
+    }
+
+    public void ShowLedgerAlter(Guid ledgerId)
+    {
+        if (Company is null) return;
+
+        // Capture the tree INSTANCE, not the property: OpenPageColumn below runs ClearSubScreens, which nulls
+        // ChartOfAccounts, so a `() => ChartOfAccounts?.Refresh()` closure would silently never fire and the tree
+        // would keep showing the OLD name — which reads as a failed save.
+        var tree = ChartOfAccounts;
+        var master = LedgerMasterViewModel.ForAlter(
+            Company, _storage, ledgerId, onChanged: () => tree?.Refresh());
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Ledger Alteration", master), Screen.LedgerMaster,
+            "Ledger Alteration", () => LedgerMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the accounting-Group master in <b>Alter</b> mode over an existing group (WI-3): rename, re-alias or
+    /// re-parent, with the nature re-derived and cascaded to every descendant. Reached by Enter on a group row of
+    /// the Chart of Accounts. A no-op if the id does not resolve.
+    /// </summary>
+    public void ShowAccountGroupAlter(Guid groupId)
+    {
+        if (Company is null) return;
+
+        var tree = ChartOfAccounts;   // captured for the same reason as ShowLedgerAlter — see the note there.
+        var master = AccountGroupMasterViewModel.ForAlter(
+            Company, _storage, groupId, onChanged: () => tree?.Refresh());
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Group Alteration", master), Screen.AccountGroupMaster,
+            "Group Alteration", () => AccountGroupMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Chart of Accounts (Masters → Chart of Accounts) as a page column: the group hierarchy with
+    /// sub-groups nested/indented under their primary parent and ledgers under their group.
+    /// <para>WI-3: the tree is no longer read-only. Up/Down move a row highlight and Enter drills into the
+    /// highlighted master's <b>Alteration</b> screen — a ledger row opens Ledger Alteration, a group row opens
+    /// Group Alteration. This is the entry point CA audit point 5 asked for ("Editing in Ledger should be allowed
+    /// in the chart of accounts after the creation of Ledger … keyboard logic for the chart of accounts").</para>
     /// </summary>
     public void ShowChartOfAccounts()
     {
@@ -3022,6 +3078,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>Opens the Stock-Item creation master (Masters → Create → Inventory Masters → Stock Item).</summary>
+    /// <summary>
+    /// WI-3 — Ctrl+Enter on the Stock Item master's <b>existing-items</b> list: opens the highlighted item for
+    /// <b>alteration</b>. Returns false (and does nothing) on any other screen, or when no row is highlighted, so
+    /// the key stays free everywhere else.
+    ///
+    /// <para>This is the ENTRY POINT <see cref="StockItemMasterViewModel.ForAlter"/> was missing. The Chart of
+    /// Accounts is an accounts surface — its rows carry a LedgerId or a GroupId and nothing else — so the natural
+    /// home for altering an inventory master is the inventory master's own list of what already exists, which is
+    /// the surface the operator is already looking at after creating an item.</para>
+    /// </summary>
+    public bool AlterHighlightedStockItemRow()
+    {
+        if (!IsStockItemMasterScreen) return false;
+        if (StockItemMaster!.HighlightedRow is not { } row) return false;
+
+        ShowStockItemAlter(row.StockItemId);
+        return true;
+    }
+
+    /// <summary>
+    /// Opens the Stock Item master in <b>Alter</b> mode over an existing item (WI-3): the same form pre-filled,
+    /// saving against the item's stable Guid so a rename follows every historical inventory entry. A no-op if the
+    /// id does not resolve.
+    /// </summary>
+    public void ShowStockItemAlter(Guid itemId)
+    {
+        if (Company is null) return;
+
+        var master = StockItemMasterViewModel.ForAlter(Company, _storage, itemId, onChanged: () => { });
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Stock Item Alteration", master), Screen.StockItemMaster,
+            "Stock Item Alteration", () => StockItemMaster = master);
+    }
+
     public void ShowStockItemMaster()
     {
         if (Company is null) return;
@@ -5231,6 +5322,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>True while an Outstandings (Receivables/Payables) page column is the active screen.</summary>
     public bool IsOutstandingsScreen => CurrentScreen == Screen.Outstandings && Outstandings is not null;
 
+    /// <summary>True while the Chart of Accounts page is the active screen — WI-3 gives it arrow-key highlighting
+    /// and Enter-to-alter.</summary>
+    public bool IsChartOfAccountsScreen =>
+        CurrentScreen == Screen.ChartOfAccounts && ChartOfAccounts is not null;
+
+    /// <summary>True iff the Stock Item master is the live screen — the arrows then move its existing-items
+    /// highlight and Ctrl+Enter opens the highlighted item for alteration (WI-3).</summary>
+    public bool IsStockItemMasterScreen =>
+        CurrentScreen == Screen.StockItemMaster && StockItemMaster is not null;
+
     /// <summary>Spacebar on the Outstandings page: toggle the highlighted bill's multi-select flag.</summary>
     public void ToggleOutstandingSelection()
     {
@@ -5348,6 +5449,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // WI-3: on the Chart of Accounts the arrows move the account-row highlight (the master Enter opens for
+        // alteration). This arm MUST sit before the IsGatewayCascade branch below — the CoA is a page column, so
+        // that branch would otherwise swallow the keystroke and the tree would never respond.
+        if (IsChartOfAccountsScreen)
+        {
+            ChartOfAccounts!.MoveHighlight(direction);
+            return;
+        }
+
+        // WI-3: on the Stock Item master the arrows move the EXISTING-ITEMS highlight (Ctrl+Enter then opens that
+        // item for alteration). Same placement rule as the Chart of Accounts arm above — the master is a page
+        // column, so the IsGatewayCascade branch below would swallow the keystroke and the list would never
+        // respond. Nothing regresses: a page column is not a menu, so that branch already returned without acting.
+        if (IsStockItemMasterScreen)
+        {
+            StockItemMaster!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -5397,11 +5517,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.InventoryVoucherEntry:
                 InventoryVoucherEntry?.Accept();
                 return;
+            // WI-3: the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was opened for.
+            // Branching on IsAltering (not on a separate screen id) is what lets the alteration form be literally
+            // the creation form pre-filled, exactly as Tally does it.
+            case Screen.ChartOfAccounts:
+                AlterHighlightedChartRow();
+                return;
             case Screen.LedgerMaster:
-                LedgerMaster?.Create();
+                if (LedgerMaster is { IsAltering: true }) LedgerMaster.Alter();
+                else LedgerMaster?.Create();
                 return;
             case Screen.AccountGroupMaster:
-                AccountGroupMaster?.Create();
+                if (AccountGroupMaster is { IsAltering: true }) AccountGroupMaster.Alter();
+                else AccountGroupMaster?.Create();
                 return;
             case Screen.CostCategoryMaster:
                 CostCategoryMaster?.Create();
@@ -5421,8 +5549,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.GodownMaster:
                 GodownMaster?.Create();
                 return;
+            // WI-3: the SAME screen serves Create and Alter here too, so Ctrl+A runs whichever verb it was opened
+            // for. Without this branch a Stock Item Alteration screen's Ctrl+A ran Create() — which then failed
+            // on the duplicate name, leaving the operator's edits unsaved with a confusing "already exists".
             case Screen.StockItemMaster:
-                StockItemMaster?.Create();
+                if (StockItemMaster is { IsAltering: true }) StockItemMaster.Alter();
+                else StockItemMaster?.Create();
                 return;
             case Screen.BatchMaster:
                 BatchMaster?.Create();

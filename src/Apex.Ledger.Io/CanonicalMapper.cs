@@ -426,6 +426,15 @@ public static class CanonicalMapper
         TcsNatureOfGoodsId = l.TcsNatureOfGoodsId,
         CollecteeType = l.CollecteeType is { } ct ? ct.ToString() : null,
         TdsTcsClassification = l.TdsTcsClassification is { } k ? k.ToString() : null,
+        // WI-4 (v45): the party Mailing Details block. Null (and therefore absent from the document entirely) for
+        // every ledger that never captured one, so an unaffected company exports byte-identically (ER-13).
+        Mailing = l.Mailing is { } ml ? MapPartyMailing(ml) : null,
+    };
+
+    private static PartyMailingDto MapPartyMailing(PartyMailingDetails m) => new()
+    {
+        MailingName = m.MailingName, Address = m.Address, Country = m.Country, Pincode = m.Pincode,
+        // No State: the party State is PartyGst.StateCode (the place-of-supply driver), mapped by MapPartyGst.
     };
 
     private static InterestParametersDto MapInterest(InterestParameters i) => new()

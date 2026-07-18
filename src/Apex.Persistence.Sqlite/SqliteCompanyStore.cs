@@ -1074,6 +1074,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 44;
         }
 
+        // v44 → v45: add the WI-4 party Mailing Details columns on ledgers (mailing_name / mailing_address /
+        // mailing_country / mailing_pincode), then bump the marker. Purely additive nullable TEXT — existing v44
+        // rows survive untouched and read NULL, so a company whose parties carry no mailing details is
+        // byte-identical to a v44 company (ER-13). No mailing_state column: the party's State stays the single
+        // party_gst_state value that drives GST place of supply (see Schema.MigrateV44ToV45).
+        if (version == 44)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV44ToV45;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 45);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 45;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1794,7 +1819,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
                    sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
                    party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
-                   itc_eligibility, blocked_credit_category
+                   itc_eligibility, blocked_credit_category,
+                   mailing_name, mailing_address, mailing_country, mailing_pincode
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1836,9 +1862,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 TcsNatureOfGoodsId = r.IsDBNull(39) ? (Guid?)null : Guid.Parse(r.GetString(39)),
                 CollecteeType = r.IsDBNull(40) ? (CollecteeType?)null : (CollecteeType)(int)r.GetInt64(40),
                 TdsTcsClassification = r.IsDBNull(41) ? (TdsTcsLedgerKind?)null : (TdsTcsLedgerKind)(int)r.GetInt64(41),
+                // v45 (WI-4): the party Mailing Details block (columns 57–60); NULL on every pre-v45 ledger.
+                Mailing = ReadPartyMailing(r),
             });
         }
         return list;
+    }
+
+    /// <summary>Reads the v45 party Mailing Details block (columns 57–60), or <c>null</c> when every one of them is
+    /// NULL — so a ledger that never captured mailing details materialises exactly as it did before v45 (ER-13).
+    /// The party's State is NOT read here: it is <c>party_gst_state</c>, surfaced via
+    /// <c>Ledger.MailingStateCode</c>, so there is only one stored State and it cannot diverge.</summary>
+    private static PartyMailingDetails? ReadPartyMailing(SqliteDataReader r)
+    {
+        if (r.IsDBNull(57) && r.IsDBNull(58) && r.IsDBNull(59) && r.IsDBNull(60)) return null;
+        return new PartyMailingDetails
+        {
+            MailingName = r.IsDBNull(57) ? null : r.GetString(57),
+            Address = r.IsDBNull(58) ? null : r.GetString(58),
+            Country = r.IsDBNull(59) ? null : r.GetString(59),
+            Pincode = r.IsDBNull(60) ? null : r.GetString(60),
+        };
     }
 
     /// <summary>Reads the party GST block (columns 22–24 + v39 RCM qualifiers 52–53), or <c>null</c> when the ledger has
@@ -4688,14 +4732,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
                      sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
                      party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
-                     itc_eligibility, blocked_credit_category)
+                     itc_eligibility, blocked_credit_category,
+                     mailing_name, mailing_address, mailing_country, mailing_pincode)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
                         $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind,
                         $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp,
                         $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc,
-                        $spitcelig, $spblkcat);
+                        $spitcelig, $spblkcat,
+                        $mailname, $mailaddr, $mailcountry, $mailpin);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4782,6 +4828,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tcsnat", (object?)l.TcsNatureOfGoodsId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$coltype", l.CollecteeType is { } ct ? (int)ct : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$classkind", l.TdsTcsClassification is { } k ? (int)k : (object)DBNull.Value);
+
+            // v45 (WI-4): the party Mailing Details block. All NULL when the ledger has none, so a ledger that never
+            // captured mailing details writes exactly the bytes it wrote at v44 (ER-13). The State is NOT written
+            // here — it is party_gst_state above, the single stored State that drives GST place of supply.
+            var ml = l.Mailing;
+            cmd.Parameters.AddWithValue("$mailname", (object?)ml?.MailingName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mailaddr", (object?)ml?.Address ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mailcountry", (object?)ml?.Country ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mailpin", (object?)ml?.Pincode ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

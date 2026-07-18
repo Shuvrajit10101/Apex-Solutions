@@ -26,15 +26,33 @@ public enum ChartNodeKind
 /// an indent <see cref="Depth"/> (0 = primary head), and an optional right-aligned detail
 /// (nature for groups, opening balance for ledgers). Purely display data — no engine types leak.
 /// </summary>
-public sealed class ChartRow
+public sealed partial class ChartRow : ObservableObject
 {
     public string Name { get; init; } = string.Empty;
     public ChartNodeKind Kind { get; init; }
     public int Depth { get; init; }
     public string Detail { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The <b>stable identity</b> of the master this row represents — the ledger's Guid on a ledger row, the
+    /// group's Guid on a group row (WI-3). Before this the tree was ID-less, so a row could not be resolved back to
+    /// the master it displayed and Enter had nothing to open. Additive: the export projector and its tests read
+    /// only Name/Kind/Depth/Detail and are unaffected.
+    /// </summary>
+    public Guid? LedgerId { get; init; }
+
+    /// <summary>The group's stable id on a group row; <c>null</c> on a ledger row. See <see cref="LedgerId"/>.</summary>
+    public Guid? GroupId { get; init; }
+
+    /// <summary>True while this row carries the keyboard highlight (arrow keys move it, Enter opens it for Alter).</summary>
+    [ObservableProperty] private bool _isHighlighted;
+
     public bool IsGroup => Kind != ChartNodeKind.Ledger;
     public bool IsPrimary => Kind == ChartNodeKind.Primary;
+
+    /// <summary>True iff Enter on this row can open a master for alteration — every row does, since a ledger row
+    /// carries a <see cref="LedgerId"/> and a group row a <see cref="GroupId"/>.</summary>
+    public bool IsAlterable => LedgerId is not null || GroupId is not null;
 
     /// <summary>Left indent in device pixels — 18 px per level, deepened for ledgers.</summary>
     public double Indent => Depth * 18.0;
@@ -92,6 +110,65 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
         Build();
     }
 
+    // --------------------------------------------------------------- keyboard selection + drill (WI-3)
+
+    /// <summary>The index of the highlighted row, or -1 when nothing is highlighted.</summary>
+    [ObservableProperty] private int _highlightedIndex = -1;
+
+    /// <summary>The highlighted row, or <c>null</c>. Enter on it opens that master for alteration.</summary>
+    public ChartRow? HighlightedRow =>
+        HighlightedIndex >= 0 && HighlightedIndex < Rows.Count ? Rows[HighlightedIndex] : null;
+
+    partial void OnHighlightedIndexChanged(int value)
+    {
+        for (var i = 0; i < Rows.Count; i++)
+            Rows[i].IsHighlighted = i == value;
+        OnPropertyChanged(nameof(HighlightedRow));
+    }
+
+    /// <summary>
+    /// Moves the highlight by <paramref name="direction"/>, wrapping. Every row is a drillable master (group or
+    /// ledger), so nothing is skipped — the CA asked to reach ledgers <i>and</i> groups from here (point 10:
+    /// "alterations in all items, ledgers, and groups").
+    /// </summary>
+    public void MoveHighlight(int direction)
+    {
+        if (Rows.Count == 0) { HighlightedIndex = -1; return; }
+        var i = HighlightedIndex < 0 ? (direction > 0 ? -1 : 0) : HighlightedIndex;
+        HighlightedIndex = (i + direction + Rows.Count) % Rows.Count;
+    }
+
+    /// <summary>
+    /// Rebuilds the tree from the (possibly altered) company, <b>preserving the highlight on the same master</b>
+    /// by id rather than by position — a rename re-sorts the tree, so an index-based restore would silently land
+    /// the highlight on a different account. Called after an alteration saves, so the user sees the new name
+    /// immediately instead of a stale snapshot that looks like the save failed.
+    /// </summary>
+    public void Refresh()
+    {
+        var keepLedger = HighlightedRow?.LedgerId;
+        var keepGroup = HighlightedRow?.GroupId;
+
+        Build();
+
+        var index = -1;
+        if (keepLedger is { } lid)
+            index = IndexOfRow(r => r.LedgerId == lid);
+        else if (keepGroup is { } gid)
+            index = IndexOfRow(r => r.GroupId == gid);
+
+        HighlightedIndex = index >= 0 ? index : (Rows.Count > 0 ? 0 : -1);
+        // Build() replaced every row object, so re-stamp the highlight flag onto the new instances.
+        OnHighlightedIndexChanged(HighlightedIndex);
+    }
+
+    private int IndexOfRow(Func<ChartRow, bool> match)
+    {
+        for (var i = 0; i < Rows.Count; i++)
+            if (match(Rows[i])) return i;
+        return -1;
+    }
+
     private void Build()
     {
         Rows.Clear();
@@ -131,6 +208,7 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
             Kind = depth == 0 ? ChartNodeKind.Primary : ChartNodeKind.SubGroup,
             Depth = depth,
             Detail = group.Nature.ToString(),
+            GroupId = group.Id,   // WI-3: Enter on this row opens the Group master for alteration.
         });
 
         // Ledgers sit directly under their group, one level deeper than the group.
@@ -142,6 +220,7 @@ public sealed partial class ChartOfAccountsViewModel : ViewModelBase, IMasterLis
                     Kind = ChartNodeKind.Ledger,
                     Depth = depth + 1,
                     Detail = OpeningText(l),
+                    LedgerId = l.Id,   // WI-3: Enter on this row opens the Ledger master for alteration.
                 });
 
         // Recurse into sub-groups (nested/indented under this parent).

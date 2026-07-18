@@ -207,14 +207,40 @@ public static class VoucherPrintProjector
         StateText = StateText(company.Gst?.HomeStateCode),
     };
 
+    /// <summary>
+    /// The printed invoice's recipient block. The name is the party's <b>Mailing Name</b> when one was captured
+    /// (Tally's "Mailing Name (auto, editable)" convention), else the ledger's own Name; the address lines come
+    /// from the WI-4 Mailing Details block through the same <see cref="SplitAddress"/> the seller uses.
+    /// <para>Before v45 this hardcoded <c>Array.Empty&lt;string&gt;()</c> with a comment explaining that a party
+    /// ledger had no address field — so every invoice this app printed carried a blank recipient address. The
+    /// field now exists, and <c>InvoicePdf</c> already renders whatever lines it is given.</para>
+    /// </summary>
     private static InvoicePartyBlock BuyerBlock(Company company, Apex.Ledger.Domain.Ledger? party) => new()
     {
-        Name = ReportPrintProjector.Ascii(party?.Name ?? string.Empty),
-        // A party ledger has no address field in the current model; the State + GSTIN identify the recipient.
-        AddressLines = Array.Empty<string>(),
+        Name = ReportPrintProjector.Ascii(
+            string.IsNullOrWhiteSpace(party?.Mailing?.MailingName)
+                ? party?.Name ?? string.Empty
+                : party!.Mailing!.MailingName!),
+        AddressLines = SplitAddress(BuyerAddressText(party)),
         Gstin = ReportPrintProjector.Ascii(party?.PartyGst?.Gstin ?? string.Empty),
         StateText = StateText(party?.PartyGst?.StateCode),
     };
+
+    /// <summary>
+    /// The buyer's printable address text: the Mailing Details address, with the PIN code appended as its own
+    /// final line when one was captured (the CA's "along with PIN code" — a recipient block without it is not a
+    /// complete postal address). Blank when the party has no mailing block, which reproduces the pre-v45 output.
+    /// </summary>
+    private static string? BuyerAddressText(Apex.Ledger.Domain.Ledger? party)
+    {
+        var mailing = party?.Mailing;
+        if (mailing is null) return null;
+
+        var lines = new List<string>(mailing.AddressLines);
+        if (!string.IsNullOrWhiteSpace(mailing.Country)) lines.Add(mailing.Country.Trim());
+        if (!string.IsNullOrWhiteSpace(mailing.Pincode)) lines.Add("PIN: " + mailing.Pincode.Trim());
+        return lines.Count == 0 ? null : string.Join("\n", lines);
+    }
 
     /// <summary>Place of supply = the buyer's State (drives intra/inter); falls back to the company home State
     /// for a B2C recipient with no recorded State (DP-8).</summary>

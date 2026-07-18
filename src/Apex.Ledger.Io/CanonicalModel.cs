@@ -703,6 +703,20 @@ public sealed record LedgerDto
 
     /// <summary>The auto-created payable-ledger tag (TdsTcsLedgerKind name: "Tds"/"Tcs"); <c>null</c> ⇒ ordinary ledger.</summary>
     public string? TdsTcsClassification { get; init; }
+
+    /// <summary>
+    /// The party Mailing Details block (WI-4; schema v45); <c>null</c> ⇒ no mailing details captured, which is the
+    /// default for every pre-v45 ledger.
+    /// <para><b>Appended at the END so existing field order is unchanged, and marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> so a ledger without mailing
+    /// details emits NO key at all.</b> The canonical JSON options set <c>DefaultIgnoreCondition = Never</c>, so
+    /// without this attribute every ledger in every existing export would gain a <c>"mailing": null</c> line and the
+    /// bytes would change for companies that never use the feature — breaking ER-13. XML gets the same treatment for
+    /// free (<c>CanonicalXml.BuildLedger</c> only adds the child element when the block is non-null).</para>
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PartyMailingDto? Mailing { get; init; }
 }
 
 /// <summary>The optional interest-calculation block on a ledger (catalog §7). <c>null</c> ⇒ no interest.</summary>
@@ -1355,6 +1369,20 @@ public sealed record GstCessRateDto
     public string? EffectiveTo { get; init; }               // ISO or null
     public required string Label { get; init; }
     public bool IsPredefined { get; init; }
+}
+
+/// <summary>
+/// The party Mailing Details block on a ledger (WI-4; schema v45): Mailing Name, Address, Country, PIN code.
+/// <para><b>No State field, deliberately.</b> The party's State/UT is <see cref="PartyGstDto.StateCode"/> — the
+/// GST place-of-supply driver. Duplicating it here would let an exported document carry two contradicting States
+/// and silently mis-compute tax on import, so the mailing State is read and written through that one value.</para>
+/// </summary>
+public sealed record PartyMailingDto
+{
+    public string? MailingName { get; init; }
+    public string? Address { get; init; }
+    public string? Country { get; init; }
+    public string? Pincode { get; init; }
 }
 
 public sealed record PartyGstDto

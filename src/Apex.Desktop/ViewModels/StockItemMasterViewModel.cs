@@ -12,13 +12,24 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A stock-item row for the existing-items list on the master screen.</summary>
-public sealed class StockItemListRow
+public sealed partial class StockItemListRow : ObservableObject
 {
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Unit { get; init; } = string.Empty;
     public string Valuation { get; init; } = string.Empty;
     public string OpeningValue { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The <b>stable identity</b> of the stock item this row displays (WI-3). Before this the list was ID-less —
+    /// exactly the gap that left <see cref="StockItemMasterViewModel.ForAlter"/> with zero production callers:
+    /// the user could SEE every item but no row could be resolved back to the master it displayed, so there was
+    /// nothing for a drill key to open. This is what makes Stock Item alteration REACHABLE.
+    /// </summary>
+    public Guid StockItemId { get; init; }
+
+    /// <summary>True while this row carries the keyboard highlight (Up/Down move it, Ctrl+Enter alters it).</summary>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -235,6 +246,81 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
 
     [ObservableProperty] private string? _message;
 
+    // --------------------------------------------------------------- alteration state (WI-3)
+
+    /// <summary>The id of the stock item being ALTERED, or <see cref="Guid.Empty"/> in Create mode. The stable
+    /// identity the alteration saves against, so a rename propagates to all inventory history automatically.</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <summary>True iff this screen is altering an existing stock item rather than creating one.</summary>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Stock Item Alteration" : "Stock Item Creation";
+
+    /// <summary>Opens this master in <b>Alter</b> mode over an existing stock item (WI-3) — the same form,
+    /// pre-filled. Returns <c>null</c> if the id does not resolve.</summary>
+    public static StockItemMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid itemId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindStockItem(itemId) is not { } item) return null;
+
+        var vm = new StockItemMasterViewModel(company, storage, onChanged);
+        vm._editingId = itemId;
+        vm.LoadFrom(item);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
+    /// <summary>
+    /// Loads an existing stock item's values into the form (the read direction of the alteration round-trip).
+    /// Mirrors what <see cref="SaveMaster"/> writes; opening-stock fields are left blank because opening stock is
+    /// create-only and is not re-applied by an alter.
+    /// </summary>
+    public void LoadFrom(StockItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        Name = item.Name;
+        Alias = item.Alias ?? string.Empty;
+        SelectedGroup = Groups.FirstOrDefault(g => g.Id == item.StockGroupId) ?? SelectedGroup;
+        SelectedUnit = Units.FirstOrDefault(u => u.Id == item.BaseUnitId) ?? SelectedUnit;
+        SelectedCategory = CategoryOptions.FirstOrDefault(c => c.Category?.Id == item.CategoryId) ?? SelectedCategory;
+        SelectedValuation = ValuationMethods.FirstOrDefault(v => v.Method == item.ValuationMethod) ?? SelectedValuation;
+        HsnSacCode = item.HsnSacCode ?? string.Empty;
+        IsTaxable = item.IsTaxable;
+        ReorderLevelText = item.ReorderLevel?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
+        MinimumOrderQtyText = item.MinimumOrderQuantity?.ToString("0.######", CultureInfo.InvariantCulture) ?? string.Empty;
+
+        var gst = item.Gst;
+        if (gst is not null)
+        {
+            Taxability = Taxabilities.FirstOrDefault(t => t.Value == gst.Taxability) ?? Taxabilities.First();
+            GstRate = GstRates.FirstOrDefault(r => r.RateBasisPoints == gst.RateBasisPoints) ?? GstRates.First();
+            ValuationIsRsp = gst.ValuationBasis == GstValuationBasis.RetailSalePrice;
+            RetailSalePriceText = gst.RetailSalePrice is { } rsp
+                ? rsp.Amount.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+            CessApplicable = gst.CessApplicable;
+            CessMode = CessValuationModes.FirstOrDefault(m => m.Mode == gst.CessValuationMode)
+                ?? CessValuationModes.First();
+            CessRatePercentText = gst.CessRateBasisPoints is { } cbp
+                ? (cbp / 100m).ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+            CessPerUnitText = gst.CessPerUnit is { } cpu
+                ? cpu.Amount.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
+            CessRspFactorText = gst.CessRspFactorMillis is { } crf
+                ? (crf / 1000m).ToString("0.###", CultureInfo.InvariantCulture) : string.Empty;
+        }
+
+        MaintainInBatches = item.MaintainInBatches;
+        TrackManufacturingDate = item.TrackManufacturingDate;
+        UseExpiryDates = item.UseExpiryDates;
+        SetComponents = item.SetComponents;
+        SelectedTcsNature = TcsNatureChoices.FirstOrDefault(c => c.NatureId == item.TcsNatureOfGoodsId)
+            ?? SelectedTcsNature;
+    }
+
     public StockItemMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -284,7 +370,22 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// persists. If an opening quantity is entered, adds the opening allocation too. Any domain error is
     /// surfaced to <see cref="Message"/> without crashing the UI.
     /// </summary>
-    public bool Create()
+    public bool Create() => SaveMaster(altering: false);
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b> (WI-3): re-validates the form and writes every field back onto the stock item this
+    /// screen was opened over, resolved by its stable Guid — so a <b>rename applies retroactively</b> to every
+    /// historical inventory voucher, which references the item by id.
+    ///
+    /// <para>Runs the SAME validation and field-mapping path as <see cref="Create"/> (<see cref="SaveMaster"/>),
+    /// so the two directions cannot drift apart and no field can be silently dropped by an alteration. Two things
+    /// are deliberately excluded: the <b>opening balance</b> (an alter must not re-add opening stock — that would
+    /// double it on every accept) and the <b>base unit</b> once the item exists, since changing the unit would
+    /// silently reinterpret every recorded quantity.</para>
+    /// </summary>
+    public bool Alter() => SaveMaster(altering: true);
+
+    private bool SaveMaster(bool altering)
     {
         Message = null;
         var name = (Name ?? string.Empty).Trim();
@@ -292,6 +393,18 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         if (string.IsNullOrWhiteSpace(name))
         {
             Message = "A stock item name is required.";
+            return false;
+        }
+        // WI-3: name uniqueness EXCLUDING the item being altered. On Create (_editingId == Guid.Empty) this is the
+        // plain uniqueness check the engine also enforces; on Alter it is what stops an item colliding with itself
+        // when the operator changes an unrelated field and accepts without renaming.
+        try
+        {
+            name = MasterAlterationRules.EnsureNameAvailable(_company, name, _editingId, MasterKind.StockItem);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = ex.Message;
             return false;
         }
         if (SelectedGroup is null)
@@ -464,8 +577,35 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         try
         {
             var service = new InventoryService(_company);
-            item = service.CreateStockItem(name, SelectedGroup.Id, SelectedUnit.Id, categoryId, alias,
-                valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty);
+            if (altering)
+            {
+                if (_company.FindStockItem(_editingId) is not { } existing)
+                {
+                    Message = "The stock item being altered no longer exists.";
+                    return false;
+                }
+                item = existing;
+                // The same field set CreateStockItem would have stamped, written onto the existing item — so the
+                // create and alter paths cannot diverge. BaseUnitId is NOT re-assigned: changing an existing item's
+                // base unit would silently reinterpret every quantity already recorded against it.
+                item.Name = name;
+                item.StockGroupId = SelectedGroup.Id;
+                item.CategoryId = categoryId;
+                item.Alias = alias;
+                item.ValuationMethod = valuation;
+                item.HsnSacCode = hsn;
+                item.IsTaxable = isTaxableFlag;
+                item.ReorderLevel = reorderLevel;
+                item.MinimumOrderQuantity = minimumOrderQty;
+                // The form owns the GST block outright, so an alter that switches GST off clears it.
+                item.Gst = null;
+            }
+            else
+            {
+                item = service.CreateStockItem(name, SelectedGroup.Id, SelectedUnit.Id, categoryId, alias,
+                    valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty);
+            }
+
             if (gstBlock is not null)
             {
                 gstBlock.EnsureValid();  // backstop; already pre-validated above
@@ -492,7 +632,9 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             if (TcsEnabled)
                 item.TcsNatureOfGoodsId = SelectedTcsNature?.NatureId;
 
-            if (wantsOpening && openingQty > 0m)
+            // Opening stock is a CREATE-only side effect. Re-running it on every alter would add a fresh opening
+            // allocation each time the operator accepted, silently multiplying the item's opening quantity.
+            if (!altering && wantsOpening && openingQty > 0m)
             {
                 var batch = string.IsNullOrWhiteSpace(OpeningBatchLabel) ? null : OpeningBatchLabel.Trim();
                 service.AddOpeningBalance(item.Id, OpeningGodown!.Id, openingQty, openingRate, batch);
@@ -508,6 +650,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
 
         RefreshPickers();
         RefreshList();
+
+        if (altering)
+        {
+            Message = $"Stock item '{name}' altered — under {SelectedGroup.Name}.";
+            _onChanged();
+            return true;
+        }
+
         var openingNote = wantsOpening && openingQty > 0m
             ? $" with opening {openingQty:0.######} {SelectedUnit.Symbol}"
             : string.Empty;
@@ -638,6 +788,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
 
     private void RefreshList()
     {
+        // Keep the highlight on the SAME ITEM across a rebuild (a save re-renders the list): re-finding it by id
+        // rather than by index means an alter that renames or re-groups an item does not silently move the
+        // highlight onto a neighbouring master that the next Ctrl+Enter would then open.
+        var previouslyHighlighted = HighlightedRow?.StockItemId;
+
         Existing.Clear();
         var service = new InventoryService(_company);
         foreach (var item in _company.StockItems)
@@ -647,6 +802,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             var opening = service.OpeningValueOf(item.Id);
             Existing.Add(new StockItemListRow
             {
+                StockItemId = item.Id,
                 Name = item.Name,
                 Under = group,
                 Unit = unit,
@@ -656,6 +812,41 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                     : "₹" + opening.Amount.ToString("#,##0.00", CultureInfo.InvariantCulture),
             });
         }
+
+        var restored = previouslyHighlighted is { } id
+            ? Existing.ToList().FindIndex(r => r.StockItemId == id)
+            : -1;
+        SetHighlight(restored);
+    }
+
+    // --------------------------------------------------------------- keyboard selection + drill to Alter (WI-3)
+
+    /// <summary>The index of the highlighted existing-item row, or -1 when nothing is highlighted.</summary>
+    [ObservableProperty] private int _highlightedIndex = -1;
+
+    /// <summary>The highlighted existing-item row, or <c>null</c>. Ctrl+Enter on it opens Stock Item Alteration.</summary>
+    public StockItemListRow? HighlightedRow =>
+        HighlightedIndex >= 0 && HighlightedIndex < Existing.Count ? Existing[HighlightedIndex] : null;
+
+    /// <summary>
+    /// Moves the existing-items highlight by <paramref name="direction"/> (Up/Down), wrapping. The FIRST press on
+    /// an untouched screen lands on row 0 rather than jumping to the end, so Down reads as "enter the list".
+    /// A no-op when no items exist, so the arrows stay harmless on a company with no inventory.
+    /// </summary>
+    public void MoveHighlight(int direction)
+    {
+        if (Existing.Count == 0) { SetHighlight(-1); return; }
+        if (HighlightedIndex < 0) { SetHighlight(direction >= 0 ? 0 : Existing.Count - 1); return; }
+
+        var next = (HighlightedIndex + direction + Existing.Count) % Existing.Count;
+        SetHighlight(next);
+    }
+
+    private void SetHighlight(int index)
+    {
+        for (var i = 0; i < Existing.Count; i++) Existing[i].IsHighlighted = i == index;
+        HighlightedIndex = index >= 0 && index < Existing.Count ? index : -1;
+        OnPropertyChanged(nameof(HighlightedRow));
     }
 
     private static string ValuationLabel(StockValuationMethod method) => method switch

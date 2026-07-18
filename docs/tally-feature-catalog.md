@@ -121,8 +121,37 @@ balanced entries, opening balances Dr/Cr). All reports are projections over this
   Maintain balances **bill-by-bill** + Default Credit Period + "check credit days"; **Interest
   Calculation** parameters; **Bank details** (A/c holder, A/c no., IFSC, SWIFT, cheque printing);
   **GST/TDS/TCS** statutory sub-screens; Currency/Country (foreign parties); "Cost centres applicable?".
+- **Mailing Details (party ledgers)** — a ledger whose group resolves *through the full ancestry* to
+  **Sundry Debtors** or **Sundry Creditors** carries a **Mailing Details** block: **Mailing Name**
+  (defaults from Name, editable), **Address** (multi-line), **State/UT**, and **PIN code**. Not
+  feature-gated (unlike the GST block). Consumed by tax-invoice printing (the recipient block) and by the
+  e-invoice `BuyerDtls` / e-Way distance validation.
+  <br>*Sources:* `703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf:754` — "create a ledger of NARESH TRADERS
+  **under Sundry Debtors with Mailing Details & Tax Information**"; `696054070-TALLY-PRIME-STUDY-GUIDE.pdf:3926`
+  (a Sundry **Creditor**) and `:4142`/`:4137` (a Sundry **Debtor**) — "**Enter Mailing Details** and PAN No.";
+  `:6151` — "Provide other details like **Address, State, Pincode** etc., as required".
+  <br>⚠ **One State only.** The party's State/UT is *the same field* as the GST place-of-supply State — it is
+  stored once. Do **not** add a second, independently-editable mailing State: the two could contradict and
+  silently produce the wrong tax head (CGST+SGST vs IGST). See `PartyMailingDetails` / `Ledger.MailingStateCode`.
+  <br>`⚠verify` **Mailing Name** and **Country** on a *ledger* are inferred by symmetry from the Company block
+  (§2) — the corpus names the block and enumerates Address/State/Pincode, but never renders a fully-labelled
+  party-ledger screenshot. *Multi-address* (F11 "Enable multiple Address", one party ↔ several branch
+  addresses) is a separate, deferred feature — see verification-report §PHASE-2.
+  <br>*Why this bullet exists:* it was **missing** until Phase 10.5, while §2 listed the same fields for the
+  Company. A practising CA's audit flagged that a party ledger could not record an address or PIN at all, and
+  the omission here is why: an implementer following the catalogue faithfully would have rebuilt the gap.
 - **Creation modes:** single (`Create → Ledger`), **multi** (`Chart of Accounts → Ledgers → Alt+H
   Multi-Master → Multi Create/Alter`), **inline during voucher** (`Alt+C`).
+- **Alteration (the *Alter* verb, §1 "two universal action verbs"):** an existing master reopens in **the
+  same form, pre-filled**, and accepts with `Ctrl+A` against its **stable identity** — so a **rename applies
+  retroactively**: every historical voucher and report follows it, because they reference the master by id,
+  never by name. Entry point in this build: **Chart of Accounts → arrow to a row → Enter** (a ledger row opens
+  Ledger Alteration, a group row opens Group Alteration).
+  <br>**Alter guards:** name uniqueness excludes the master being altered (otherwise accepting an unrelated
+  edit fails against itself); predefined masters (Cash, Profit & Loss A/c, the 28 groups) cannot be renamed or
+  re-parented; ledgers the engine resolves by *hardcoded name* (Round Off, the GST/TDS/payroll control
+  ledgers) cannot be renamed, because those lookups fail **silently**; a group cannot be re-parented inside its
+  own sub-tree, and a successful re-parent **re-derives the nature and cascades it to every descendant**.
 - **Delete guards:** cannot delete a ledger/group with transactions, sub-groups, or contained ledgers;
   cannot alter closing balance of Stock-in-Hand ledgers.
 - **Clone-note:** seed every new company with the 28 groups (with nature + parent) and the 2 ledgers.

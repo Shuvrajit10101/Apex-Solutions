@@ -101,6 +101,17 @@ public partial class MainWindow : Window
         var vm = Vm;
         if (vm is null) return;
 
+        // WI-3: Ctrl+Enter on a master LIST row opens that master for ALTERATION. This must sit ahead of every
+        // other Enter arm below — the plain-Enter drill immediately after ignores modifiers, and the
+        // IsMasterAcceptScreen arm in the switch would otherwise raise "Accept Stock Item? (Y/N)" instead. The VM
+        // returns false on any screen without a highlighted alterable row, so Ctrl+Enter is untouched elsewhere.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedStockItemRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
         // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
         // it. This tunnel handler is on the Window, so it fires ahead of the report ListBox's own bubble

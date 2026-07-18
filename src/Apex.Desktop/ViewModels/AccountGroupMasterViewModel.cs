@@ -57,6 +57,86 @@ public sealed partial class AccountGroupMasterViewModel : ViewModelBase, IMaster
     [ObservableProperty] private Group? _selectedParent;
     [ObservableProperty] private string? _message;
 
+    // --------------------------------------------------------------- alteration state (WI-3)
+
+    /// <summary>The id of the group being ALTERED, or <see cref="Guid.Empty"/> in Create mode. The alteration saves
+    /// against this stable Guid, so a rename mutates the group in place and every child group, ledger and report
+    /// that resolves it by id follows the rename retroactively.</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <summary>True iff this screen is altering an existing group rather than creating one.</summary>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing group (WI-3) — the same form, pre-filled.
+    /// Returns <c>null</c> if the id does not resolve.
+    /// </summary>
+    public static AccountGroupMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid groupId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindGroup(groupId) is not { } group) return null;
+
+        var vm = new AccountGroupMasterViewModel(company, storage, onChanged);
+        vm._editingId = groupId;
+        vm.LoadFrom(group);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        return vm;
+    }
+
+    /// <summary>Loads an existing group's values into the form. A group has exactly three editable fields (Name,
+    /// Alias, Under), so the read and write directions are trivially symmetric — the nature is always derived.</summary>
+    public void LoadFrom(Group group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        Name = group.Name;
+        Alias = group.Alias ?? string.Empty;
+        // A group may not be its own parent; the picker still lists every group, and the engine's cycle guard
+        // rejects a descendant, so the message is precise rather than the option being silently missing.
+        SelectedParent = ParentOptions.FirstOrDefault(o => o.Id == group.ParentId) ?? SelectedParent;
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b> (WI-3): renames / re-aliases / re-parents the group this screen was opened over, via
+    /// <see cref="GroupService.AlterGroup"/> — which enforces except-self name uniqueness, blocks altering a
+    /// predefined group, rejects a cyclic parent, and <b>re-derives the nature and cascades it to every
+    /// descendant</b> so a moved sub-tree cannot keep its old ancestry's Balance-Sheet side.
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing group.";
+            return false;
+        }
+        if (SelectedParent is null)
+        {
+            Message = "Pick an Under (parent) group — the nature is derived from it.";
+            return false;
+        }
+
+        var alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
+        try
+        {
+            var service = new GroupService(_company);
+            var altered = service.AlterGroup(_editingId, Name, SelectedParent.Id, alias);
+            _storage.Save(_company);
+            Message = $"Group '{altered.Name}' altered — under {SelectedParent.Name} ({altered.Nature}).";
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshParentOptions();
+        RefreshList();
+        OnPropertyChanged(nameof(DerivedNature));
+        _onChanged();
+        return true;
+    }
+
     public AccountGroupMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));

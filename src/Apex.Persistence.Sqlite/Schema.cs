@@ -82,12 +82,19 @@ namespace Apex.Persistence.Sqlite;
 /// <c>gstr2b_lines</c>, <c>ims_status</c>, <c>gstr2b_recon</c>) + their indexes, two §17(5) ITC-eligibility columns each
 /// on <c>stock_items</c> and <c>ledgers</c>, and the two GSTR-2B reconciliation-tolerance columns on companies
 /// (<c>recon_value_tolerance_paisa</c> + <c>recon_date_window_days</c>, both DEFAULT 0 = exact-match).
-/// <b><see cref="CurrentVersion"/> = 44</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v45</b> adds the Phase-10.5 WI-4 party <b>Mailing Details</b> block: four nullable TEXT columns on
+/// <c>ledgers</c> (<c>mailing_name</c>, <c>mailing_address</c>, <c>mailing_country</c>, <c>mailing_pincode</c>).
+/// There is deliberately <b>no</b> <c>mailing_state</c> column — the party's State/UT is already
+/// <c>party_gst_state</c>, which drives GST place of supply, and a second stored State could contradict it and
+/// silently mis-compute tax; the mailing screen's State field reads/writes that one column via
+/// <c>Ledger.MailingStateCode</c>.
+/// <b><see cref="CurrentVersion"/> = 45</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v44</b> is the latest bump (Phase 9
+    /// <summary>The current schema version this adapter reads and writes. <b>v45</b> is the latest bump (Phase 10.5
+    /// slice 7 — WI-4 party Mailing Details: four nullable TEXT columns on <c>ledgers</c>). v44 was the Phase 9
     /// slice 7a — Rule-88A set-off + electronic ledgers + PMT-06/DRC-03: the <c>gst_setoff_lines</c> +
     /// <c>itc_reversals</c> + <c>gst_challans</c> + <c>gst_drc03</c> tables + their indexes, and the adjustment
     /// columns on <c>entry_lines</c>/<c>voucher_types</c>; v43 = Phase 9 slice 6 GSTR-2A/2B inbound core with the
@@ -96,7 +103,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 44;
+    public const int CurrentVersion = 45;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -749,7 +756,17 @@ public static class Schema
             -- v43 (Phase 9 slice 6): §17(5) ITC-eligibility on the sales/purchase-ledger GST block. DEFAULT 0/0
             -- (Eligible/None) ⇒ byte-identical to a v42 ledger (ER-13). Used by the S6b ITC-gate; the columns land now.
             itc_eligibility              INTEGER NOT NULL DEFAULT 0,  -- ItcEligibility ordinal (Eligible=0)
-            blocked_credit_category      INTEGER NOT NULL DEFAULT 0   -- BlockedCreditCategory ordinal (None=0)
+            blocked_credit_category      INTEGER NOT NULL DEFAULT 0,  -- BlockedCreditCategory ordinal (None=0)
+            -- v45 (Phase 10.5 slice 7; WI-4): the party Mailing Details block on a Sundry Debtor/Creditor ledger.
+            -- All nullable TEXT with no default ⇒ an existing ledger is byte-identical to a v44 ledger (ER-13).
+            -- NOTE: there is deliberately NO mailing_state column. The party's State/UT is party_gst_state above,
+            -- which drives GST place of supply (CGST+SGST vs IGST); a second stored State could contradict it and
+            -- silently produce the wrong tax head, so the mailing screen's State field reads/writes that one
+            -- column through Ledger.MailingStateCode. Do not add mailing_state.
+            mailing_name                 TEXT        NULL,            -- "Mailing Name" (blank ⇒ print the ledger Name)
+            mailing_address              TEXT        NULL,            -- free text, newline-separated lines
+            mailing_country              TEXT        NULL,
+            mailing_pincode              TEXT        NULL             -- 6-digit Indian PIN, or NULL
         );
 
         CREATE TABLE currencies (
@@ -3453,4 +3470,32 @@ public static class Schema
         ALTER TABLE entry_lines   ADD COLUMN gst_adjustment_kind    INTEGER     NULL;
         ALTER TABLE voucher_types ADD COLUMN is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0;
         """;
+
+    /// <summary>
+    /// v44 → v45 (Phase 10.5 slice 7; WI-4 party <b>Mailing Details</b>): additive — four nullable TEXT columns on
+    /// <c>ledgers</c> (<c>mailing_name</c>, <c>mailing_address</c>, <c>mailing_country</c>, <c>mailing_pincode</c>),
+    /// run inside a transaction that bumps <c>schema_version</c> to 45. <b>No row rewrites, no data backfill</b>:
+    /// every existing v44 ledger keeps its rows untouched and the new columns read NULL, so a company whose parties
+    /// carry no mailing details persists and serialises byte-identically to a v44 company (ER-13).
+    ///
+    /// <para><b>There is deliberately no <c>mailing_state</c> column.</b> A party's State/UT already exists exactly
+    /// once, as <c>party_gst_state</c>, and it is the GST place-of-supply driver (CGST+SGST vs IGST). A second,
+    /// independently-stored mailing State could contradict it and silently produce the wrong tax head, so the
+    /// mailing screen's State field reads and writes that same column via <c>Ledger.MailingStateCode</c>. Adding a
+    /// <c>mailing_state</c> column here would reintroduce exactly the divergence this design removes.</para>
+    ///
+    /// <para>Each added column is byte-identical to its counterpart in <see cref="CreateV1"/> — the
+    /// migration-equivalence test enforces that. A fresh DB is stamped straight to v45 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV44ToV45 = """
+        ALTER TABLE ledgers ADD COLUMN mailing_name    TEXT NULL;
+        ALTER TABLE ledgers ADD COLUMN mailing_address TEXT NULL;
+        ALTER TABLE ledgers ADD COLUMN mailing_country TEXT NULL;
+        ALTER TABLE ledgers ADD COLUMN mailing_pincode TEXT NULL;
+        """;
+
+    /// <summary>The four <c>ledgers</c> columns v45 adds — the exact set <see cref="MigrateV44ToV45"/> creates and
+    /// <see cref="DowngradeV45ToV44"/> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V45MailingColumns =
+        new[] { "mailing_name", "mailing_address", "mailing_country", "mailing_pincode" };
 }

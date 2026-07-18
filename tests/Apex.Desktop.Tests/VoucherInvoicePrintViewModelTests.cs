@@ -191,6 +191,61 @@ public sealed class VoucherInvoicePrintViewModelTests : IDisposable
         Assert.Contains("Apex Solutions", text);      // de-branded metadata / footer
     }
 
+    // ================================================================ WI-4: the buyer address actually prints
+
+    [Fact]
+    public void The_party_mailing_address_and_PIN_print_in_the_invoice_recipient_block()
+    {
+        // Before WI-4 this was hardcoded: VoucherPrintProjector emitted `AddressLines = Array.Empty<string>()`
+        // with a comment saying a party ledger had no address field — so EVERY invoice this app printed carried a
+        // blank recipient address. That is the regression this test exists to prevent recurring.
+        var k = NewGstKit("Print Buyer Address Co");
+        var party = k.Vm.Company!.FindLedger(k.LocalCustomerId)!;
+        party.Mailing = new PartyMailingDetails
+        {
+            MailingName = "Naresh Traders Private Limited",
+            Address = "12 Park Street\nBallygunge",
+            Country = "India",
+            Pincode = "700019",
+        };
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(
+            k.Vm.Company!,
+            PostSaleInvoice(k, k.LocalCustomerId, e => FillItemLine(e, k.WidgetId, k.MainGodownId, 1m, "100.00")));
+
+        // The projected DTO carries each address line, the country, and the PIN as its own final line.
+        Assert.Equal("Naresh Traders Private Limited", invoice.Buyer.Name);
+        Assert.Equal(
+            new[] { "12 Park Street", "Ballygunge", "India", "PIN: 700019" },
+            invoice.Buyer.AddressLines);
+
+        // …and they reach the rendered PDF, which is what the CA actually looks at.
+        var preview = PrintDrilledVoucher(k.Vm, k.Vm.Company!.Vouchers.Last().Id);
+        var text = AsLatin1(preview.PdfBytes);
+        Assert.Contains("Naresh Traders Private Limited", text);
+        Assert.Contains("12 Park Street", text);
+        Assert.Contains("Ballygunge", text);
+        Assert.Contains("700019", text);
+        Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_party_with_no_mailing_block_still_prints_exactly_as_before()
+    {
+        // ER-13 at the print boundary: an unaffected company's invoice is unchanged — a blank recipient address
+        // and the ledger's own name.
+        var k = NewGstKit("Print No Address Co");
+        var party = k.Vm.Company!.FindLedger(k.LocalCustomerId)!;
+        Assert.Null(party.Mailing);
+
+        var invoice = VoucherPrintProjector.ProjectInvoice(
+            k.Vm.Company!,
+            PostSaleInvoice(k, k.LocalCustomerId, e => FillItemLine(e, k.WidgetId, k.MainGodownId, 1m, "100.00")));
+
+        Assert.Equal(party.Name, invoice.Buyer.Name);
+        Assert.Empty(invoice.Buyer.AddressLines);
+    }
+
     // ================================================================ RQ-11: inter-state IGST + place of supply
 
     [Fact]

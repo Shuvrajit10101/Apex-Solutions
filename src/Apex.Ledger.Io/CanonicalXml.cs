@@ -275,6 +275,9 @@ public static class CanonicalXml
             Opt("collecteeType", l.CollecteeType),
             Opt("tdsTcsClassification", l.TdsTcsClassification));
         if (l.Interest is { } i) el.Add(BuildInterest(i));
+        // WI-4 (v45): the party Mailing Details block — emitted ONLY when present, so a ledger without one produces
+        // bytes identical to a v44 export (ER-13).
+        if (l.Mailing is { } ml) el.Add(BuildPartyMailing(ml));
         if (l.PartyGst is { } p) el.Add(BuildPartyGst(p));
         if (l.SalesPurchaseGst is { } s) el.Add(BuildStockItemGst("salesPurchaseGst", s));
         if (l.GstClassification is { } gc) el.Add(BuildGstClassification(gc));
@@ -643,6 +646,14 @@ public static class CanonicalXml
     private static XElement BuildBonusConfig(BonusConfigDto bo) => new("bonus",
         Attr("rateBasisPoints", bo.RateBasisPoints), Attr("calculationCeilingPaisa", bo.CalculationCeilingPaisa),
         Attr("minimumWagePaisa", bo.MinimumWagePaisa), Attr("prorate", bo.Prorate));
+
+    /// <summary>The v45 party Mailing Details element. Every attribute is optional (<c>Opt</c> omits a null), and
+    /// the element itself is only added when the block exists — so nothing is emitted for a ledger without mailing
+    /// details. No <c>state</c> attribute: the party State rides on <c>partyGst/@stateCode</c>, the single stored
+    /// State that drives GST place of supply.</summary>
+    private static XElement BuildPartyMailing(PartyMailingDto m) => new("mailing",
+        Opt("mailingName", m.MailingName), Opt("address", m.Address),
+        Opt("country", m.Country), Opt("pincode", m.Pincode));
 
     private static XElement BuildPartyGst(PartyGstDto p) => new("partyGst",
         Attr("registrationType", p.RegistrationType), Opt("gstin", p.Gstin), Opt("stateCode", p.StateCode),
@@ -1147,6 +1158,14 @@ public static class CanonicalXml
         TcsNatureOfGoodsId = OptGuid(e, "tcsNatureOfGoodsId"),
         CollecteeType = Str(e, "collecteeType"),
         TdsTcsClassification = Str(e, "tdsTcsClassification"),
+        // WI-4 (v45): the party Mailing Details block (absent ⇒ null, ER-13).
+        Mailing = e.Element("mailing") is { } ml ? ReadPartyMailing(ml) : null,
+    };
+
+    private static PartyMailingDto ReadPartyMailing(XElement e) => new()
+    {
+        MailingName = Str(e, "mailingName"), Address = Str(e, "address"),
+        Country = Str(e, "country"), Pincode = Str(e, "pincode"),
     };
 
     private static PriceLevelDto ReadPriceLevel(XElement e) => new()

@@ -72,6 +72,48 @@ public sealed class GroupService
     }
 
     /// <summary>
+    /// <b>Alters</b> an existing group in place (WI-3; Tally's Alter verb) — resolved by its stable
+    /// <paramref name="groupId"/>, so a rename mutates the same node and every voucher, report and child group
+    /// that references it follows automatically (they reference the Guid, never the name).
+    ///
+    /// <para>Guards, all delegated to <see cref="MasterAlterationRules"/> so the create path, the import path and
+    /// every master screen share one implementation: the name is required and unique <b>excluding this group
+    /// itself</b> (head-including, so it cannot collide with the reserved P&amp;L head); a predefined group may be
+    /// neither renamed nor moved; a new parent must exist and must not sit inside this group's own sub-tree
+    /// (cycle). After a successful re-parent the nature is <b>re-derived and cascaded to every descendant</b> —
+    /// without that a moved sub-tree keeps its old ancestry's nature and silently lands on the wrong side of the
+    /// Balance Sheet.</para>
+    ///
+    /// <para>Throws <see cref="InvalidOperationException"/> on any violation, having mutated nothing.</para>
+    /// </summary>
+    public Group AlterGroup(Guid groupId, string name, Guid? parentId, string? alias = null)
+    {
+        var group = _company.FindGroup(groupId)
+            ?? throw new InvalidOperationException($"Group {groupId} not found.");
+
+        // Validate EVERYTHING before mutating anything, so a rejected alteration leaves the company untouched.
+        var trimmed = MasterAlterationRules.EnsureNameAvailable(_company, name, groupId, MasterKind.Group);
+        MasterAlterationRules.EnsureGroupAlterAllowed(group, trimmed, parentId);
+
+        if (parentId is not { } pid)
+            throw new InvalidOperationException(
+                "A parent group (Under) is required — a group's nature is derived from its parent.");
+
+        MasterAlterationRules.EnsureGroupReparentValid(_company, groupId, pid);
+
+        group.Name = trimmed;
+        group.ParentId = pid;
+        group.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+
+        // Re-derive this group's nature from its (possibly new) parent and cascade to every descendant.
+        MasterAlterationRules.RecomputeNatureFor(_company, groupId);
+
+        // The shared invariant must hold afterwards — the same guard the canonical import runs.
+        ValidateNatureAgainstParent(group.Nature, group.ParentId, _company);
+        return group;
+    }
+
+    /// <summary>
     /// The nature a child group inherits: the nature of its parent's <b>primary ancestor</b>. Walks the parent's
     /// <c>ParentId</c> chain (with the classification rules' cycle guard). This is the value the create screen shows
     /// read-only and stores on the new group.

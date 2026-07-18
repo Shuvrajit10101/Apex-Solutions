@@ -30,8 +30,11 @@ public sealed class GstSetOffSchemaTests
         try
         {
             using (new SqliteCompanyStore(dbPath)) { }
-            Assert.Equal(44, Schema.CurrentVersion);
-            Assert.Equal(44L, ReadSchemaVersion(dbPath));
+            // A fresh DB stamps straight to the current version; slice 7a's artefacts must be in that shape. (The
+            // constant has since moved past 44 — v45 added the WI-4 party mailing columns — so this pins the
+            // slice-7a CONTENT, and the stamped version against the constant, not the literal 44.)
+            Assert.True(Schema.CurrentVersion >= 44);
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             foreach (var t in new[] { "gst_setoff_lines", "itc_reversals", "gst_challans", "gst_drc03" })
                 Assert.True(TableExists(dbPath, t), $"missing table {t}");
             Assert.Contains("gst_adjustment_kind", ColumnNames(dbPath, "entry_lines"));
@@ -58,9 +61,9 @@ public sealed class GstSetOffSchemaTests
             }
             Assert.Equal(43L, ReadSchemaVersion(dbPath));
 
-            using (new SqliteCompanyStore(dbPath)) { }   // v43 → v44
+            using (new SqliteCompanyStore(dbPath)) { }   // v43 → v44 → … → CurrentVersion
 
-            Assert.Equal(44L, ReadSchemaVersion(dbPath));
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             foreach (var t in new[] { "gst_setoff_lines", "itc_reversals", "gst_challans", "gst_drc03" })
             {
                 Assert.True(TableExists(dbPath, t));
@@ -266,12 +269,16 @@ public sealed class GstSetOffSchemaTests
 
     /// <summary>A minimal v43 DDL: the v43→v44 migration ALTERs <c>entry_lines</c> + <c>voucher_types</c> and CREATEs the
     /// four new tables (their FKs are forward references, satisfied lazily), so these five stubs suffice.</summary>
+    /// <summary>A deliberately minimal stand-in for a v43 database: just enough tables for the migrations from v43
+    /// onward to have something to ALTER. <c>ledgers</c> is present because the v44→v45 (WI-4 party Mailing Details)
+    /// migration adds columns to it — every real v43 database has one.</summary>
     private const string MinimalV43Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
         CREATE TABLE companies (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT);
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         """;
 
     private static long ReadSchemaVersion(string dbPath) => ReadScalar(dbPath, "SELECT version FROM schema_version LIMIT 1;");

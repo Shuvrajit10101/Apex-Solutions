@@ -584,6 +584,9 @@ internal sealed class ImportPlan
             // A payable-ledger classification only appears on the auto-created TDS/TCS Payable ledgers (reused above);
             // an ordinary imported ledger never carries one, so this stays null here.
             domain.TdsTcsClassification = l.TdsTcsClassification is { } k ? ParseEnum<TdsTcsLedgerKind>(k) : null;
+            // WI-4 (v45): the party Mailing Details block. Null for every ledger that carried none, so a pre-v45
+            // document imports byte-for-byte to the ledger it always did (ER-13).
+            domain.Mailing = BuildPartyMailing(l.Mailing);
             // Phase 9: mirror the item-GST guard onto the sales/purchase LEDGER block (the recurring Io-bypass defect
             // class) — a malformed §17(5)/cess/RSP block (e.g. a BlockedCreditCategory with a non-blocked eligibility)
             // throws here in pre-flight, so the whole batch rejects all-or-nothing (Applied = false, target untouched)
@@ -1578,6 +1581,22 @@ internal sealed class ImportPlan
                     ?? throw new InvalidOperationException($"Job Work order references unknown Bill of Materials {b}."))
                 : null,
             durationOfProcess: j.DurationOfProcess, natureOfProcessing: j.NatureOfProcessing);
+    }
+
+    /// <summary>Materialises the v45 party Mailing Details block; <c>null</c> stays <c>null</c>, so a document
+    /// exported before v45 (or from a company with no party addresses) imports to exactly the same ledger it did
+    /// before. Carries no State — the party State arrives on the partyGst block, the single place-of-supply
+    /// driver — and is validated fail-fast so a malformed PIN rejects the batch instead of persisting.</summary>
+    private static PartyMailingDetails? BuildPartyMailing(PartyMailingDto? m)
+    {
+        if (m is null) return null;
+        var block = new PartyMailingDetails
+        {
+            MailingName = m.MailingName, Address = m.Address, Country = m.Country, Pincode = m.Pincode,
+        };
+        block.Normalize();
+        block.EnsureValid();
+        return block.IsEmpty ? null : block;
     }
 
     private static PartyGstDetails? BuildPartyGst(PartyGstDto? p) => p is null ? null : new PartyGstDetails
