@@ -226,6 +226,12 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted O / Alt+O "Import" panel (non-null only for that RQ-20..24 column).</summary>
     public ImportDataViewModel? ImportDataPanel => Page as ImportDataViewModel;
 
+    /// <summary>The hosted M / Ctrl+M "E-Mail" compose panel (non-null only for that RQ-25/26 column).</summary>
+    public EmailComposeViewModel? EmailCompose => Page as EmailComposeViewModel;
+
+    /// <summary>The hosted "SMTP Settings" capture panel (non-null only for that RQ-27 column).</summary>
+    public SmtpSettingsViewModel? SmtpSettings => Page as SmtpSettingsViewModel;
+
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;
 

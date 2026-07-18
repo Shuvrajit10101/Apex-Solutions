@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:Apex.Desktop.ViewModels"
         xmlns:conv="using:Apex.Desktop.Converters"
+        xmlns:views="using:Apex.Desktop.Views"
         xmlns:ledger="using:Apex.Ledger.Domain"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -37,6 +38,7 @@
         <conv:BankTxTypeLabelConverter x:Key="BankTxTypeLabel"/>
         <conv:ExpiryRowToBrushConverter x:Key="ExpiryRowBrush"/>
         <conv:ExpiryWarningToBrushConverter x:Key="ExpiryWarningBrush"/>
+        <conv:CollectionEmptyConverter x:Key="CollectionEmpty"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -666,10 +668,15 @@
                             </ScrollViewer>
                           </Grid>
 
-                          <!-- == Order Register: Date | Voucher | Party | Item | Godown | Ordered | Pending | Rate == -->
-                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsOrderRegister}">
+                          <!-- == Order Register: Date | Voucher | Party | Item | Godown | Ordered | Pending | Rate ==
+                               Wide grid pinned to a MinWidth so the two "*" (Party / Item) columns never starve to
+                               zero in a narrow pane (C6); it fills the pane when wider and horizontally scrolls when
+                               narrower, so the Grand-Total / empty-state text is never laid out into zero px. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsOrderRegister}">
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="980">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="100,150,*,*,120,100,100,110">
+                              <Grid ColumnDefinitions="100,150,*,*,120,100,100,110" MinWidth="980">
                                 <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Voucher" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Party" Classes="colHdr"/>
@@ -685,7 +692,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="100,150,*,*,120,100,100,110" Height="24">
+                                      <Grid ColumnDefinitions="100,150,*,*,120,100,100,110" MinWidth="980" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
@@ -715,11 +722,18 @@
                               </ItemsControl>
                             </ScrollViewer>
                           </Grid>
+                          </ScrollViewer>
 
-                          <!-- == Allocation registers (Receipt Note / Delivery Note / Rejection): Date | No. | Party | Item | Godown | Qty | Rate | Value | Batch == -->
-                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsAllocationRegister}">
+                          <!-- == Allocation registers (Receipt Note / Delivery Note / Rejection / Material In/Out):
+                               Date | No. | Party | Item | Godown | Qty | Rate | Value | Batch ==
+                               MinWidth-pinned so the single "*" (Item) column keeps >=150px in a narrow pane (C6):
+                               the Grand-Total label parked in that column, and the empty-state, are never rendered
+                               into zero px. Fills the pane when wide; horizontally scrolls when narrow. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsAllocationRegister}">
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="900">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="95,60,150,*,120,90,100,120">
+                              <Grid ColumnDefinitions="95,60,150,*,120,90,100,120" MinWidth="900">
                                 <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="No." Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="Party" Classes="colHdr"/>
@@ -735,7 +749,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="95,60,150,*,120,90,100,120" Height="24">
+                                      <Grid ColumnDefinitions="95,60,150,*,120,90,100,120" MinWidth="900" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
@@ -766,12 +780,17 @@
                               </ItemsControl>
                             </ScrollViewer>
                           </Grid>
+                          </ScrollViewer>
 
                           <!-- == Job Work Order Book (Phase 6 slice 8; RQ-51): order header rows + tracked component rows.
-                               Date | Order No. | Party | Item | Track | Ordered | Fulfilled | Pending == -->
-                          <Grid RowDefinitions="Auto,*" IsVisible="{Binding IsJobWorkOrderBook}">
+                               Date | Order No. | Party | Item | Track | Ordered | Fulfilled | Pending ==
+                               MinWidth-pinned so the "*" (Item) column keeps >=150px in a narrow pane (C6): the order
+                               header line + empty-state parked in that column are never rendered into zero px. -->
+                          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                        IsVisible="{Binding IsJobWorkOrderBook}">
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="920">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="95,120,150,*,110,95,95,95">
+                              <Grid ColumnDefinitions="95,120,150,*,110,95,95,95" MinWidth="920">
                                 <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Order No." Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Party" Classes="colHdr"/>
@@ -787,7 +806,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="95,120,150,*,110,95,95,95" Height="24">
+                                      <Grid ColumnDefinitions="95,120,150,*,110,95,95,95" MinWidth="920" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
@@ -818,6 +837,7 @@
                               </ItemsControl>
                             </ScrollViewer>
                           </Grid>
+                          </ScrollViewer>
 
                           <!-- == Batch-wise (Phase 6 Cluster 1; RQ-8): Item | Batch | Mfg | Expiry | Godown | Inward | Outward | Closing | Value ==
                                Wide grid; horizontal scroll so no column clips. Header + rows share the SAME
@@ -1675,6 +1695,14 @@
                           <TextBlock Text="{Binding Subtitle}" IsVisible="{Binding IsPayslipEmpty}"
                                      Margin="14" FontSize="12.5" Foreground="#777777" TextWrapping="Wrap"/>
                         </Grid>
+
+                        <!-- The ONE reusable empty-state (UI-defect C7): overlays the whole report body and shows
+                             when the report projected no rows. Declared last so it paints over the (empty) grid +
+                             its column-header band, spanning ALL columns instead of being routed into one starved
+                             cell — the mistake the register reports used to make. -->
+                        <views:EmptyState Grid.Row="3" Grid.RowSpan="2"
+                                          IsVisible="{Binding IsEmpty}"
+                                          Message="{Binding EmptyMessage}"/>
 
                         </Grid>
                         </DataTemplate>
@@ -4610,6 +4638,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No scenarios created yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -6562,6 +6593,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No price levels created yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -6857,6 +6891,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No reorder levels defined yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -14170,6 +14207,147 @@
                                     </DataTemplate>
                                   </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: M / Ctrl+M "E-Mail" compose panel (RQ-25/26 — offline .eml / mailto hand-off) -->
+                    <ContentControl IsVisible="{Binding EmailCompose, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding EmailCompose}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:EmailComposeViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <!-- Offline-only notice (RQ-26) -->
+                                <TextBlock Text="{Binding Notice}" FontSize="11" Foreground="#8A8A8A"
+                                           TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="70,*">
+                                  <TextBlock Grid.Column="0" Text="To" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding To, Mode=TwoWay}"
+                                           PlaceholderText="recipient@example.com (comma/semicolon separated)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="70,*">
+                                  <TextBlock Grid.Column="0" Text="Cc" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Cc, Mode=TwoWay}"
+                                           PlaceholderText="(optional)"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="70,*">
+                                  <TextBlock Grid.Column="0" Text="Subject" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Subject, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="70,*">
+                                  <TextBlock Grid.Column="0" Text="Body" FontWeight="SemiBold"
+                                             VerticalAlignment="Top" Margin="0,6,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Body, Mode=TwoWay}"
+                                           AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90"/>
+                                </Grid>
+
+                                <!-- Attachment (the exported PDF that travels with the .eml) -->
+                                <Grid ColumnDefinitions="70,*" IsVisible="{Binding HasAttachment}">
+                                  <TextBlock Grid.Column="0" Text="Attach" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBlock Grid.Column="1" Text="{Binding AttachmentName}"
+                                             VerticalAlignment="Center" FontSize="12"
+                                             FontFamily="Consolas,Menlo,monospace" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Save .eml (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnSaveEmailClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: "SMTP Settings" capture panel (RQ-27 — capture-only outgoing-mail profile, no password) -->
+                    <ContentControl IsVisible="{Binding SmtpSettings, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding SmtpSettings}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:SmtpSettingsViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding CompanyName}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="340">
+
+                                <!-- Capture-only / no-password notice (RQ-26/27, R13) -->
+                                <TextBlock Text="{Binding Notice}" FontSize="11" Foreground="#8A8A8A"
+                                           TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="110,*">
+                                  <TextBlock Grid.Column="0" Text="Host" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Host, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="smtp.example.com"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="110,*">
+                                  <TextBlock Grid.Column="0" Text="Port" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Port, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="587"/>
+                                </Grid>
+                                <CheckBox Content="Use TLS/SSL" IsChecked="{Binding UseTls, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="110,*">
+                                  <TextBlock Grid.Column="0" Text="From address" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding FromAddress, Mode=TwoWay}"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="accounts@example.com"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="110,*">
+                                  <TextBlock Grid.Column="0" Text="From name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding FromName, Mode=TwoWay}"
+                                           PlaceholderText="(optional display name)"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Save (Ctrl+A)" Padding="14,6"
+                                          IsEnabled="{Binding CanSave}"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnSaveSmtpClick"/>
+                                </Grid>
                               </StackPanel>
                             </Border>
                           </Grid>

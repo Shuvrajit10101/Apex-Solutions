@@ -1,0 +1,21 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Apex.Desktop.Views.EmptyState"
+             x:Name="Root"
+             x:CompileBindings="False">
+  <!--
+    The ONE reusable empty-state (UI-defect C7). Rendered INSIDE a report/master body and spanning the
+    WHOLE body (never routed into a single starved grid column, which was exactly the C6 defect). Shown
+    when the backing row collection is empty. The Message is a bindable property so every screen states its
+    own "nothing here yet" line while sharing one look.
+  -->
+  <Border Background="White" Padding="24">
+    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+      <TextBlock Text="&#8212;"
+                 HorizontalAlignment="Center" FontSize="26" Foreground="#C9C4B8"/>
+      <TextBlock Text="{Binding Message, ElementName=Root}"
+                 HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                 MaxWidth="420" FontSize="13.5" Foreground="#777777"/>
+    </StackPanel>
+  </Border>
+</UserControl>

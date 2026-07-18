@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
@@ -471,6 +472,29 @@ public sealed class BalancedToBrushConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? Ink : AlertRed;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// True when the bound value is an empty (or null) collection — drives the reusable empty-state's visibility on
+/// master screens that show an "existing items" list (UI-defect C7). Bind the list collection directly; the
+/// converter reports emptiness without the view-model needing its own IsEmpty flag.
+/// </summary>
+public sealed class CollectionEmptyConverter : IValueConverter
+{
+    public static readonly CollectionEmptyConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value switch
+        {
+            null => true,
+            int n => n == 0,                                // bound to a live .Count (reactive on add/remove)
+            ICollection c => c.Count == 0,
+            IEnumerable e => !e.GetEnumerator().MoveNext(),
+            _ => false,
+        };
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

@@ -359,18 +359,14 @@ public sealed class XamlLayoutInvariantTests
     /// </summary>
     private static readonly HashSet<string> OverflowingGridAllowList = new(StringComparer.Ordinal)
     {
-        // Job Work In / Out Order Book — header + row twins. 760px of fixed in 638px: the "Item" (*)
-        // column is gone and Fulfilled/Pending are clipped. REMOVED BY: the job-work report cluster.
-        "95,120,150,*,110,95,95,95",
-        // Job Work Order/Stock voucher grids. 735px of fixed in 638px.
-        // REMOVED BY: the job-work report cluster.
-        "95,60,150,*,120,90,100,120",
         // e-Invoice / e-Way status + amendment tables (6 sites). 670px of fixed in 638px.
         // REMOVED BY: the GST e-invoice/e-way + amendments screen cluster.
         "140,*,140,140,140,110",
-        // Job Work stock/consumption statement. 680px of fixed in 638px, and TWO * columns at zero.
-        // REMOVED BY: the job-work report cluster.
-        "100,150,*,*,120,100,100,110",
+        // NOTE (UI-defect D4 / C6): the three inventory-register grids that used to overflow this pane —
+        // Order Register "100,150,*,*,120,100,100,110", the allocation/material registers
+        // "95,60,150,*,120,90,100,120", and the Job Work Order Books "95,120,150,*,110,95,95,95" — were
+        // fixed by wrapping each in a horizontal ScrollViewer and pinning a MinWidth so the "*" columns keep
+        // >=150px and the grid scrolls instead of starving. Their allow-list entries were therefore deleted.
     };
 
     [Fact]
@@ -939,5 +935,118 @@ public sealed class XamlLayoutInvariantTests
             + string.Join("\n", notFluid.Select(g =>
                 $"  MainWindow.axaml({Line(g)}): MinWidth=\"{Attr(g, "MinWidth")}\" "
                 + $"Width=\"{Attr(g, "Width") ?? "(none)"}\"")));
+    }
+
+    // =============================================================================================
+    // INVARIANT 8 — the D4 C6/C7 contract: the reusable empty-state spans the WHOLE body, and the
+    //               un-starved inventory-register grids keep their MinWidth pin.
+    // =============================================================================================
+    //
+    // WHAT C6/C7 WAS. ~19 report screens improvised an "empty" message by writing it into ONE grid
+    // column (Col4). In four over-committed inventory registers that column is the "*" (Item) column,
+    // clamped to ZERO width when the fixed columns already fill the pane — so the message (and the
+    // Grand-Total) were laid out and painted into zero px: invisible. THE FIX was two parts: (C7) a
+    // single reusable <EmptyState> control dropped into the body and spanning the WHOLE body (never
+    // routed into one column), shown when the row collection is empty; and (C6) wrapping the three
+    // register grids in an h-scrolling ScrollViewer and pinning a MinWidth so the "*" columns keep
+    // width instead of starving.
+    //
+    // WHY THIS TEST EXISTS. Nothing else locks either half. Invariant 2 measures fixed-column fit, but
+    // once the register grids moved inside an h-scrolling ScrollViewer FiniteBudget() is infinite and
+    // MeasurableGrids() skips them — so a revert that keeps the ScrollViewer but DROPS the MinWidth
+    // (letting the "*" columns collapse again) would go completely unseen. And the empty-state is a
+    // brand-new component with no coverage at all: deleting the report-body overlay, or routing a new
+    // one back into a single column, would silently reopen C6/C7. Two headless-safe static clauses.
+
+    private static bool IsEmptyState(XElement e) => e.Name.LocalName == "EmptyState";
+
+    /// <summary>The number of columns a Grid declares (attribute form "a,b,*"), or 1 when it declares
+    /// none (a single implicit column that spans the whole width — the safe, full-body shape).</summary>
+    private static int GridColumnCount(XElement grid)
+        => Attr(grid, "ColumnDefinitions") is { } spec ? ParseColumns(spec).Count : 1;
+
+    /// <summary>The three inventory-register column specs the C6 fix un-starved (Order Register's two-"*"
+    /// grid, the allocation/material registers, and the Job Work Order Books). Header + row twins share
+    /// each spec, so every match must carry the MinWidth pin.</summary>
+    private static readonly string[] C6RegisterSpecs =
+    {
+        "100,150,*,*,120,100,100,110",
+        "95,60,150,*,120,90,100,120",
+        "95,120,150,*,110,95,95,95",
+    };
+
+    [Fact]
+    public void Reusable_empty_state_spans_the_body_and_C6_registers_stay_minwidth_pinned()
+    {
+        // ---- (A) the reusable empty-state is PRESENT (C7). ----
+        var emptyStates = Elements().Where(IsEmptyState).ToList();
+
+        // NON-VACUITY + PRESENCE: 4 exist today — the shared report body (bound to IsEmpty) plus the
+        // Scenario / Price-Level / Reorder-Level master overlays (bound via the CollectionEmpty converter).
+        // Deleting the report-body overlay, or the whole component, drops below this floor.
+        Assert.True(emptyStates.Count >= 4,
+            $"Only {emptyStates.Count} <EmptyState> element(s) found (expected >= 4). The reusable empty-state "
+            + "(UI-defect C7) has been removed or the element renamed — report/master screens with no data "
+            + "would then show a blank body again. Restore the <views:EmptyState> overlays.");
+
+        // The shared report body's overlay is the centrepiece: it must stay bound to the IsEmpty gate, or a
+        // populated report would be covered / an empty one left blank.
+        var reportBodyOverlay = emptyStates.Count(e => (Attr(e, "IsVisible") ?? "").Contains("IsEmpty", StringComparison.Ordinal));
+        Assert.True(reportBodyOverlay >= 1,
+            "No <EmptyState> is bound to IsVisible=\"{Binding IsEmpty}\" — the shared report-body empty-state "
+            + "(the C6/C7 fix's centrepiece) is gone. Without it the register reports render a blank body with no "
+            + "\"no entries\" message when a period has no data.");
+
+        // ---- (B) the empty-state spans the WHOLE body — never routed into ONE column (the C6 mistake). ----
+        var singleColumnRouted = emptyStates
+            .Where(e =>
+            {
+                if (e.Parent is not { } parent || !Is(parent, "Grid")) return false; // not in a Grid → not this defect
+                var cols = GridColumnCount(parent);
+                if (cols <= 1) return false;                                          // single-column parent → full width
+                var col = int.TryParse(Attr(e, "Grid.Column") ?? "0", out var c) ? c : 0;
+                var span = int.TryParse(Attr(e, "Grid.ColumnSpan") ?? "1", out var s) ? s : 1;
+                return col + span < cols;                                             // does not reach the last column
+            })
+            .ToList();
+        Assert.True(singleColumnRouted.Count == 0,
+            $"{singleColumnRouted.Count} <EmptyState>(s) are routed into a SINGLE column of a multi-column grid "
+            + "instead of spanning the whole body — exactly the C6 mistake (a message laid out into a starved, "
+            + "possibly zero-width column). Give the EmptyState a single-column parent or a Grid.ColumnSpan that "
+            + "reaches the last column:\n"
+            + string.Join("\n", singleColumnRouted.Select(e => $"  MainWindow.axaml({Line(e)})")));
+
+        // ---- (C) the three un-starved inventory-register grids keep their MinWidth pin (C6). ----
+        var registerGrids = Elements()
+            .Where(e => Is(e, "Grid") && Attr(e, "ColumnDefinitions") is { } spec
+                        && C6RegisterSpecs.Contains(spec.Replace(" ", "")))
+            .ToList();
+
+        // NON-VACUITY: 6 grids today (3 specs × header/row twin). If the specs are renamed/restructured this
+        // clause must not silently pass over an empty set.
+        Assert.True(registerGrids.Count >= 6,
+            $"Only {registerGrids.Count} inventory-register grids matched the C6 specs (expected >= 6) — the "
+            + "register templates were renamed/restructured, so this clause would be vacuous. Update C6RegisterSpecs.");
+
+        var unpinned = registerGrids.Where(g => !(NumericAttr(g, "MinWidth") is { } m && m >= PageColumnContentWidth)).ToList();
+        Assert.True(unpinned.Count == 0,
+            $"{unpinned.Count} inventory-register grid(s) lost their MinWidth pin (>= {PageColumnContentWidth:F0}px). "
+            + "These grids sit inside an h-scrolling ScrollViewer, so Invariant 2 no longer measures them — without "
+            + "the MinWidth the \"*\" Item column starves back to zero in a narrow pane and the Grand-Total / "
+            + "empty-state paint into zero px again (C6). Restore MinWidth:\n"
+            + string.Join("\n", unpinned.Select(g =>
+                $"  MainWindow.axaml({Line(g)}): \"{Attr(g, "ColumnDefinitions")}\" MinWidth=\"{Attr(g, "MinWidth") ?? "(none)"}\"")));
+
+        // Each register grid must also live inside an h-scrolling ScrollViewer (the other half of the C6 fix:
+        // the pinned width scrolls instead of overflowing the pane).
+        var notScrolled = registerGrids
+            .Where(g => !Ancestors(g).Any(a => Is(a, "ScrollViewer")
+                        && Attr(a, "HorizontalScrollBarVisibility") is "Auto" or "Visible"))
+            .ToList();
+        Assert.True(notScrolled.Count == 0,
+            $"{notScrolled.Count} inventory-register grid(s) are no longer wrapped in an h-scrolling ScrollViewer. "
+            + "A MinWidth-pinned grid with no h-scroll overflows the pane and clips its rightmost columns instead "
+            + "of scrolling (C6). Restore the enclosing <ScrollViewer HorizontalScrollBarVisibility=\"Auto\">:\n"
+            + string.Join("\n", notScrolled.Select(g => $"  MainWindow.axaml({Line(g)})")));
     }
 }
