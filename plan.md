@@ -424,6 +424,105 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   group-company statement.
 - **Exit gate:** R9; no secrets in repo (R13); audit trail verified.
 
+### Phase 10.5 — CA-audit remediation
+- **Goals:** implement the Chartered-Accountant audit backlog — **WI-1 … WI-14** per
+  `docs/ca-audit-backlog.md` (the CA's 15 raw points decoded to 14 work items) — honouring the recorded
+  **user rulings**: (a) point 9 → **KEEP** the existing Payroll §192 module + small discoverability/gate
+  fixes; do **NOT** build a parallel per-employee-ledger salary path (an active correctness regression) —
+  WI-8; (b) WI-3 → ship editable masters now but **DEFER the alteration audit-trail hook to Phase 10**
+  (needs Phase-10 audit infra), so WI-3 stays v44/schema-free; (c) WI-13 renumbering → A14 **web-verifies
+  each rename** (R7), ship the law-confirmed form renames + **flag** the still-unconfirmed TY 2026-27
+  slab/SD/87A/surcharge rate question (retry the 403'd official fetch); (d) point 6 / WI-6 → the §192
+  salary-TDS engine is complete, the sole break is a missing pay-head picker option (an **S** fix). Ground
+  every fidelity/law doubt in A14 (R7); do **NOT** re-derive the backlog — `docs/ca-audit-backlog.md` is the
+  ground truth (per-WI decoded requirement, fidelity target + citation, file:line evidence, gap, proposal,
+  effort, risk, open questions).
+- **Live correctness bugs to fix inside their WIs (found during the decode, NOT CA-reported):** Alt+C
+  mid-voucher silently destroys the in-progress voucher — data loss (**WI-1**); type-ahead selects the
+  **wrong** ledger on 56 domain-bound pickers, every item's search-text being `Apex.Ledger.Domain.Ledger`
+  (no `ToString` override) (**WI-2**); `ImportPlan.cs:172` accepts a group Nature contradicting its parent →
+  Balance-Sheet corruption that still "balances" (**WI-7**); `Unit.cs:146` inverts the conversion direction
+  (**WI-10**); `dd/MM`→`MM/dd` InvariantCulture silent date misread + silent-discard of unparseable dates
+  across ~21 parse sites incl. the main `VoucherEntryViewModel` (**WI-5**).
+- **Work items (id — one-line):**
+  - **WI-1** Context-aware **Alt+C create-on-the-fly** — dispatch on the focused field's master kind
+    (ledger/item/stock-group/category/unit/godown/acct-group), open non-destructively **beside** the
+    voucher, return-to-caller with the new master selected, plus an in-dropdown "Create" entry.
+  - **WI-2** **Dropdown keyboard-nav + type-ahead** — every dropdown navigable (Up/Down/Enter/Esc) and
+    filtering-as-you-type on Name+Alias; fixes the 56-picker wrong-ledger `ToString` bug.
+  - **WI-3** **Master alteration (the "Alter" verb)** — pick a master, open the same form pre-filled, edit
+    any field, accept, save against **stable Guid identity** so a rename propagates retroactively; scoped
+    to ledger + group + item (the other ~15 masters already have tested engine mutation).
+  - **WI-4** **Party ledger Mailing Details** — Mailing Name / Address / Country / State / PIN captured,
+    persisted, Io round-tripped and **printed on invoices** (nullable value-object off `Ledger`; **v45**).
+  - **WI-5** **Date handling** — one canonical format app-wide, lenient day-first input re-rendered
+    canonically on commit, and **F2 sets the working/voucher date on all entry screens** (not just reports).
+  - **WI-6** **Reachable salary-TDS pay-head option** — add the missing `TaxDeductedAtSource` entry to the
+    `PayHeadMaster` income-tax picker so a UI-created head can be the TDS head (today salary TDS ≡ ₹0).
+  - **WI-7** **Accounting-Group master (Create + Alter)** — a real Group creation screen (fix the
+    Create→Group mis-wire that opens Ledger Creation); **Nature derived from the parent, never accepted**;
+    validator **shared** with `ImportPlan.cs:172`. Prerequisite for WI-1 / WI-3 / WI-11.
+  - **WI-8** **TDS on a non-party (employee) ledger** — per the user ruling, do **discoverability**, NOT the
+    dangerous parallel §194x salary path (which would route salary into Form 26Q at the wrong rate mechanic).
+  - **WI-9** **Bare-letter menu hotkeys, letter shown red** — single bare-letter activation, first-letter by
+    default with a per-column-unique fallback; the letter must NOT be encoded in the Label string. Fidelity
+    target **UNVERIFIED** (bare-letter? red? collision rule?) → A14/live-Tally grounding first.
+  - **WI-10** **Multiple units per item + conversion** — pass a **line unit** at entry (fix the always-null
+    `UnitId` and the backwards `Unit.cs:146`); per-item **Alternate Units** and invoice-line rate semantics
+    (Slices A+B no-schema; C+D **v45**).
+  - **WI-11** **Y/N Accept confirmation** — add the terminal "Accept? Y/N" on master save. Ctrl+A
+    accept-as-is is already comprehensively implemented and must **BYPASS** the prompt (do not rebuild it).
+  - **WI-12** **Alt+A add-a-voucher from the Day Book** — a voucher-type picker (any active type) without
+    destroying the report, refreshing it on save; also bind the specified-but-missing **Alt+F5 Debit Note /
+    Alt+F6 Credit Note** keys (engine + screen + tests already exist).
+  - **WI-13** **Income-tax Act 2025 renumbering** — rename §192→**§392** and Forms 24Q→**138** / 16→**130** /
+    12BB→**124** / 16A→**131** ("tax year") on the user-visible surface + citations (A14-verified **per
+    rename**, R7); move hardcoded FY2025-26 rate consts to **effective-dated seeded config**.
+  - **WI-14** **Salary-TDS deposit / challan path** — let accrued salary TDS be deposited/challaned (the
+    Phase-7 deposit machinery keys on `TdsLineTax` §194x, salary carries `PayrollLineDetail`); needs an
+    architecture decision to avoid polluting Form 26Q. **Deferred** (A14-discovered); revisit after WI-13.
+- **Slices (build order — high-value / low-risk first; full per-slice rationale kept in `memory.md`):**
+  1. **S1 — Salary-TDS reachability + TDS discoverability** (WI-6, WI-8) — **S / low / v44** — **FIRST:** an
+     S one-line picker fix that un-breaks the whole already-built §192 engine (today unconditionally ₹0);
+     WI-8 resolves to discoverability, not new build.
+  2. **S2 — Accounting-Group master + shared Nature validator** (WI-7) — **M / med / v44** — prerequisite
+     for S6/S7; the validator simultaneously closes the live `ImportPlan.cs:172` Balance-Sheet-corruption
+     path.
+  3. **S3 — Day-Book Alt+A add-voucher + Alt+F5/F6 CN-DN keys** (WI-12) — **M / low / v44** — independent
+     momentum win; the CN/DN engine, screen and 10 tests already exist (wiring only).
+  4. **S4 — Date handling** (WI-5) — **L / med / v44** — fixes two live date bugs across ~21 parse sites;
+     order its F2-key arm just before the keyboard cluster to share tunnel-handler context.
+  5. **S5 — Keyboard cluster** (WI-2, WI-9, WI-11) — **XL / HIGH / v44** — the three edit the same
+     ~450-line first-match-wins tunnel handler and MUST be designed together (WI-2 type-ahead FILTER vs WI-9
+     bare-letter ACTIVATE collide on data-driven picker columns; WI-11's Y/N block must precede the existing
+     Y/Alt+N handlers). Fixes the live wrong-ledger bug. **A14-gated** (WI-9 fidelity unverified).
+  6. **S6 — Context-aware Alt+C create-on-the-fly** (WI-1) — **L / med / v44** — depends on S2 (group
+     target) + S5 (WI-2 return-to-caller contract); fixes the live Alt+C data-loss and the latent Alt+B
+     return bug.
+  7. **S7 — Master-alteration spine + party mailing details** (WI-3, WI-4) — **XL / med / v45 (WI-4)** —
+     depends on S2; WI-3 makes WI-4's new mailing fields editable (create-only WI-4 would be worse than no
+     field) and unblocks re-tagging the WI-6 pay head.
+  8. **S8 — Multiple units per item + conversion** (WI-10) — **XL / med-high / v45 (C/D)** — independent;
+     Slices A+B (line-unit + the `Unit.cs:146` fix) are schema-free, C/D need v45 and **A14** rate semantics.
+  9. **S9 — Income-tax Act 2025 renumbering + rate effective-dating + salary-TDS deposit** (WI-13, WI-14) —
+     **L / med-high / v44** — **A14-gated per rename** (R7); reconciles the WI-6 picker label naming once
+     (§392); WI-14 carries the deferred deposit-path architecture decision.
+- **Schema (v44 → v45):** only **WI-4** (S7) and **WI-10 C/D** (S8) touch the store — each needs CreateV1 +
+  a `MigrateV44ToV45` with parity, a `DowngradeTo`, and an Io fold-in (mailing address/PIN; alternate
+  units). Everything else is **v44-clean**.
+- **A14 (R7) web-verification required before build:** **WI-13** (each Act-2025 rename + the TY 2026-27
+  slab/SD/87A/surcharge rates — hard R7 law gate), **WI-9** (bare-letter/red/collision fidelity — NOT FOUND
+  in the catalogue or the 10 PDFs), **WI-10** (Dozen/Nos rate semantics); lighter fidelity checks on WI-2
+  (prefix-vs-substring), WI-5 (2-digit-year pivot), WI-11 (bare-Y/N accelerator), WI-12 (Add-vs-Insert).
+- **Deliverables:** every CA point demonstrably addressed (or deferred-with-reason) — Alt+C
+  create-on-the-fly, keyboard-navigable type-ahead pickers, the Alter verb, party mailing/PIN on printed
+  invoices, canonical dates, reachable salary-TDS, a real accounting-Group master, multi-unit items, the
+  Y/N accept prompt, and Day-Book Alt+A.
+- **Exit gate:** R9 — every WI **done or explicitly deferred-with-reason** (recorded in `memory.md`, R6);
+  tests green and **shown** (incl. Robert & Bright); **A10** three-lens adversarial review pass per slice;
+  **A12** (GitHub Expert) commits & pushes small reviewed units (R4/R10); the real app run with evidence;
+  `memory.md` updated; then **user go/no-go** per R12.
+
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
 - **Modules:** performance passes (NFR-4), end-to-end system/acceptance tests, docs completion (user manual,
