@@ -135,6 +135,25 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public ObservableCollection<ReportRow> Rows { get; } = new();
 
     /// <summary>
+    /// True when the current report projected NO rows at all — drives the reusable empty-state (UI-defect C7).
+    /// Reports that always foot a Grand-Total (TB / BS / P&amp;L) are never empty in this sense; the register
+    /// reports that used to park a "No entries…" message into a starved column now leave Rows empty and let the
+    /// shared <c>EmptyState</c> component render the message across the whole body instead.
+    /// <para>G1 fix: the payroll reports (Pay Sheet / Payroll Register / Attendance / Payment Advice / Payslip)
+    /// keep their data in <see cref="PayrollRows"/> / the Payslip* collections, NOT in <see cref="Rows"/>, so a
+    /// populated payroll matrix had <c>Rows.Count == 0</c> and the shared C7 overlay wrongly painted "No entries…"
+    /// OVER the matrix. Payroll reports carry their OWN in-pane empty note (<see cref="IsPayrollEmpty"/> /
+    /// <see cref="IsPayslipEmpty"/>), so they are excluded from the shared overlay entirely — for a payroll report
+    /// this is always false and the C7 EmptyState never covers the payroll pane (a genuinely-empty payroll report
+    /// still shows its own note). Note <see cref="PayrollRows"/> is unreliable as an emptiness signal because the
+    /// matrix always foots a Grand-Total row even when there are no employees.</para>
+    /// </summary>
+    public bool IsEmpty => !IsPayrollReport && Rows.Count == 0;
+
+    /// <summary>The one-line message the empty-state shows for a report with no data.</summary>
+    public string EmptyMessage => "No entries for the selected period.";
+
+    /// <summary>
     /// The highlighted grid row (two-way bound to the accounting/Stock-Summary ListBox <c>SelectedItem</c>).
     /// The shell reads this on Enter so the keyboard drill does not depend on which control holds focus (RQ-7
     /// defect-1): pressing Enter drills <see cref="SelectedRow"/> when it is drillable.
@@ -719,6 +738,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // extra columns are present. This composes the engine ComparativeReport over [base spec, …extras]; the
         // plain Rows above stay intact so a switch back to single column is instant and byte-for-byte the same.
         RebuildComparative();
+
+        // The row set is final — refresh the reusable empty-state's visibility (UI-defect C7).
+        OnPropertyChanged(nameof(IsEmpty));
     }
 
     // =============================================================== RQ-4 comparative build / mutate
@@ -1555,9 +1577,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             total += r.Value;
         }
 
-        if (rows.Count == 0)
-            Rows.Add(new ReportRow { Col4 = "No entries in this period.", IsHeader = true });
-        else
+        // An empty register leaves Rows empty so the shared EmptyState component renders the "no entries"
+        // message across the whole body (UI-defect C6/C7) — not parked into the starved "*" Item column.
+        if (rows.Count > 0)
             Rows.Add(new ReportRow { Col4 = "Grand Total", Col8 = IndianFormat.AmountAlways(total), IsTotal = true });
     }
 
@@ -1606,8 +1628,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col8 = r.Rate is { } rate ? IndianFormat.Amount(rate) : string.Empty,
             });
 
-        if (rows.Count == 0)
-            Rows.Add(new ReportRow { Col4 = "No orders in this period.", IsHeader = true });
+        // Empty ⇒ leave Rows empty so the shared EmptyState renders the message (UI-defect C6/C7).
     }
 
     // --------------------------------------------------------------- Job Work Order Book (Phase 6 slice 8; RQ-51)
@@ -1644,8 +1665,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 });
         }
 
-        if (rows.Count == 0)
-            Rows.Add(new ReportRow { Col4 = "No job work orders in this period.", IsHeader = true });
+        // Empty ⇒ leave Rows empty so the shared EmptyState renders the message (UI-defect C6/C7).
     }
 
     private static string TrackLabel(JobWorkComponentTrack track) =>
@@ -1683,9 +1703,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             if (r.Direction == primary) total += r.Value;
         }
 
-        if (rows.Count == 0)
-            Rows.Add(new ReportRow { Col4 = "No entries in this period.", IsHeader = true });
-        else
+        // An empty register leaves Rows empty so the shared EmptyState renders the message across the whole
+        // body (UI-defect C6/C7) — not parked into the starved "*" Item column.
+        if (rows.Count > 0)
             Rows.Add(new ReportRow { Col4 = "Grand Total", Col8 = IndianFormat.AmountAlways(total), IsTotal = true });
     }
 
@@ -2411,7 +2431,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Rows.Add(new ReportRow
         {
             Col1 = "Grand Total",
+            // G8: foot Assessable (Col3) and Deposited (Col5) too — the detail rows carry both, so leaving the
+            // total-row cells blank under populated columns read as an incomplete footing.
+            Col3 = FootedRupees(report.Rows, r => r.Assessable),
             Col4 = FootedRupees(report.Rows, r => r.Deducted),
+            Col5 = FootedRupees(report.Rows, r => r.Deposited),
             Col6 = FootedRupees(report.Rows, r => r.Outstanding),
             IsTotal = true,
         });
@@ -2445,7 +2469,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Rows.Add(new ReportRow
         {
             Col1 = "Grand Total",
+            // G8: foot Assessable (Col3) and Deposited (Col5) too (mirror of the TDS summary above).
+            Col3 = FootedRupees(report.Rows, r => r.Assessable),
             Col4 = FootedRupees(report.Rows, r => r.Collected),
+            Col5 = FootedRupees(report.Rows, r => r.Deposited),
             Col6 = FootedRupees(report.Rows, r => r.Outstanding),
             IsTotal = true,
         });

@@ -5194,7 +5194,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void SyncActiveColumn()
     {
         for (var i = 0; i < Columns.Count; i++)
+        {
             Columns[i].SetActive(i == ActiveColumnIndex);
+            // C4 F1: only the rightmost column is "terminal" and fills the leftover viewport; a page column
+            // with another column to its right keeps a bounded width so a report + its drill fit together.
+            Columns[i].IsLast = i == Columns.Count - 1;
+        }
 
         Menu.Clear();
         var col = ActiveColumn;

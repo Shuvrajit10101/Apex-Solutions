@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
@@ -37,8 +38,13 @@ public sealed class SubIndentConverter : IValueConverter
 }
 
 /// <summary>
-/// Maps a column's <c>IsMenu</c> flag to its fixed pixel width: a narrow 300 px for a menu column,
-/// a wider 560 px for a page column (so reports/vouchers/the chart render clean without clipping).
+/// LEGACY / floor source. Maps a column's <c>IsMenu</c> flag to a fixed pixel width: 300 px for a menu
+/// column, 640 px for a page column. The live cascade no longer binds <c>Width</c> to this converter —
+/// C4 replaced it with the viewport-aware <see cref="CascadeColumnWidthConverter"/> (page column fills
+/// the leftover viewport, menu columns content-size within a clamp). It is RETAINED because the page
+/// value (640) is the invariant-test FLOOR: <c>XamlLayoutInvariantTests.PageColumnContentWidth</c> reads
+/// <c>Convert(false)</c> so the static budget checks measure against the page column's *minimum* width
+/// (the smallest it is ever laid out at, when the shell floors it at MinWidth). Do not delete.
 /// </summary>
 public sealed class ColumnWidthConverter : IValueConverter
 {
@@ -46,6 +52,91 @@ public sealed class ColumnWidthConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? 300.0 : 640.0;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// C4 — viewport-aware, POSITION-aware cascade column width. Replaces the old fixed
+/// <see cref="ColumnWidthConverter"/> on the Miller-column Border so the TERMINAL (rightmost) PAGE column
+/// fills the leftover viewport (no dead cream to its right) while MENU columns content-size (clamped by
+/// <see cref="ColumnMinWidthConverter"/> / <see cref="ColumnMaxWidthConverter"/>).
+///
+/// <para>Bound with four values (in order): <c>IsMenu</c>, the cascade ScrollViewer's
+/// <c>Bounds.Width</c> (the viewport), this column's own <c>ContentPresenter.Bounds.X</c> (its left
+/// offset = cumulative width of every column to its left), and <c>IsLast</c> (true only for the rightmost
+/// column). Resolution:</para>
+/// <list type="bullet">
+/// <item>A MENU column returns <c>NaN</c> ⇒ <c>Width=Auto</c> (content-sized within the Min/Max clamp).</item>
+/// <item>A NON-TERMINAL PAGE column (another column sits to its right — e.g. a report with a
+/// ledger-vouchers drill column, or an F12 config panel) returns the bounded <see cref="PageFloor"/> so
+/// the report and its drill can be shown SIDE-BY-SIDE when the viewport is wide enough; the horizontal
+/// ScrollViewer is the fallback when even two floored columns overflow. (F1 fix: without this a greedy
+/// report ate the whole viewport and its drill could never sit beside it.)</item>
+/// <item>The TERMINAL PAGE column returns <c>max(PageFloor, viewport − ownX − RightMargin)</c> — it
+/// absorbs exactly the viewport to the right of every column before it, never shrinking below
+/// <see cref="PageFloor"/> so the ScrollViewer scrolls (instead of squeezing) when the columns don't fit.</item>
+/// </list>
+/// </summary>
+public sealed class CascadeColumnWidthConverter : IMultiValueConverter
+{
+    public static readonly CascadeColumnWidthConverter Instance = new();
+
+    /// <summary>The page column's minimum width — identical to the old fixed page width, so every
+    /// static invariant-test budget (638 = 640 − 2px border) stays valid; the semantics merely shift
+    /// from "page is always 640" to "page is AT LEAST 640".</summary>
+    public const double PageFloor = 640.0;
+
+    /// <summary>Holds the content extent this far under the viewport at the fit boundary so the
+    /// horizontal scrollbar does not flicker. Matches the column Border's <c>Margin="0,0,6,0"</c>.</summary>
+    private const double RightMargin = 6.0;
+
+    public object Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (values.Count > 0 && values[0] is true) return double.NaN; // MENU -> Auto (content-sized)
+
+        var viewport = values.Count > 1 && values[1] is double vp && !double.IsNaN(vp) ? vp : 0.0;
+        var ownX = values.Count > 2 && values[2] is double x && !double.IsNaN(x) ? x : 0.0;
+        // IsLast defaults to TRUE (fill-viewport) when not supplied, so the legacy 3-value callers and the
+        // common single-terminal-page case keep the dead-cream-killing behaviour unchanged.
+        var isLast = values.Count <= 3 || values[3] is not false;
+
+        // A non-terminal page column keeps a bounded width so a report + its drill both fit; only the
+        // rightmost page column fills the leftover viewport.
+        if (!isLast) return PageFloor;
+
+        // Before the first arrange the viewport/ownX are 0 -> fall back to the floor; they settle to real
+        // values within a couple of arrange passes (ownX depends only on the preceding columns, never on
+        // the terminal page's own width, so this converges — it is not circular).
+        return viewport <= 0 ? PageFloor : Math.Max(PageFloor, viewport - ownX - RightMargin);
+    }
+}
+
+/// <summary>C4 — the cascade column's MinWidth floor: 260 px for a menu column (so short menus keep a
+/// readable minimum and DB-name pickers do not collapse), <see cref="CascadeColumnWidthConverter.PageFloor"/>
+/// for a page column. Bound to <c>IsMenu</c>.</summary>
+public sealed class ColumnMinWidthConverter : IValueConverter
+{
+    public static readonly ColumnMinWidthConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? 260.0 : CascadeColumnWidthConverter.PageFloor;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>C4 — the cascade column's MaxWidth clamp: 380 px for a menu column (LOAD-BEARING — a
+/// content-sized column inside a horizontal StackPanel is measured at INFINITE width, so without this a
+/// very long ledger name would size its menu column arbitrarily wide, inflate the page column's own
+/// offset and push it off-screen), unbounded for a page column. Bound to <c>IsMenu</c>.</summary>
+public sealed class ColumnMaxWidthConverter : IValueConverter
+{
+    public static readonly ColumnMaxWidthConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? 380.0 : double.PositiveInfinity;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();
@@ -148,6 +239,30 @@ public sealed class OutstandingRowBrushConverter : IMultiValueConverter
         if (highlighted) return Highlight;
         return None;
     }
+}
+
+/// <summary>
+/// Maps a <see cref="Apex.Ledger.Domain.GstStatementType"/> to its branded label ("GSTR-2B" / "GSTR-2A")
+/// for the Import-GSTR-2B "Statement" picker (G4). The combo bound the bare enum, so the dropdown showed the
+/// raw C# member "Gstr2b" while the page title and the results grid used the branded "GSTR-2B" — this pins the
+/// picker to the same branded text.
+/// </summary>
+public sealed class GstStatementTypeLabelConverter : IValueConverter
+{
+    public static readonly GstStatementTypeLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is Apex.Ledger.Domain.GstStatementType t
+            ? t switch
+            {
+                Apex.Ledger.Domain.GstStatementType.Gstr2b => "GSTR-2B",
+                Apex.Ledger.Domain.GstStatementType.Gstr2a => "GSTR-2A",
+                _ => t.ToString(),
+            }
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
 }
 
 /// <summary>Maps a <see cref="Apex.Ledger.Domain.BudgetType"/> to its human label for the Type picker.</summary>
@@ -381,6 +496,29 @@ public sealed class BalancedToBrushConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? Ink : AlertRed;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// True when the bound value is an empty (or null) collection — drives the reusable empty-state's visibility on
+/// master screens that show an "existing items" list (UI-defect C7). Bind the list collection directly; the
+/// converter reports emptiness without the view-model needing its own IsEmpty flag.
+/// </summary>
+public sealed class CollectionEmptyConverter : IValueConverter
+{
+    public static readonly CollectionEmptyConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value switch
+        {
+            null => true,
+            int n => n == 0,                                // bound to a live .Count (reactive on add/remove)
+            ICollection c => c.Count == 0,
+            IEnumerable e => !e.GetEnumerator().MoveNext(),
+            _ => false,
+        };
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

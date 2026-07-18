@@ -65,8 +65,8 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
             Particulars = FormatDate(from),
             Secondary = movement ? "Opening (period)" : "Opening Balance",
             Amount = movement
-                ? $"{IndianFormat.AmountAlways(book.OpeningAmount)} {book.OpeningSide.ToShort()}"
-                : $"{IndianFormat.Amount(book.OpeningAmount)} {book.OpeningSide.ToShort()}",
+                ? IndianFormat.SignedAlways(book.OpeningAmount, book.OpeningSide)
+                : IndianFormat.Signed(book.OpeningAmount, book.OpeningSide),
             IsHeader = true,
         });
 
@@ -79,7 +79,7 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
                 Secondary = counter,
                 Debit = r.Debit != Money.Zero ? IndianFormat.Amount(r.Debit) : string.Empty,
                 Credit = r.Credit != Money.Zero ? IndianFormat.Amount(r.Credit) : string.Empty,
-                Amount = $"{IndianFormat.Amount(r.RunningAmount)} {r.RunningSide.ToShort()}",
+                Amount = IndianFormat.Signed(r.RunningAmount, r.RunningSide),
                 IsTwoColumn = true,
                 DrillVoucherId = r.VoucherId,   // RQ-7: Enter drills one level deeper into the voucher detail
             });
@@ -90,7 +90,7 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
         Rows.Add(new ReportRow
         {
             Particulars = movement ? "Period Movement" : "Closing Balance",
-            Amount = $"{IndianFormat.AmountAlways(book.ClosingAmount)} {book.ClosingSide.ToShort()}",
+            Amount = IndianFormat.SignedAlways(book.ClosingAmount, book.ClosingSide),
             IsTotal = true,
         });
     }
@@ -106,10 +106,4 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
     }
 
     private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy");
-}
-
-/// <summary>Dr/Cr short-label helper for the ledger-book running/opening/closing side.</summary>
-internal static class DrCrShort
-{
-    public static string ToShort(this DrCr side) => side == DrCr.Debit ? "Dr" : "Cr";
 }

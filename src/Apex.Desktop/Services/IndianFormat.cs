@@ -32,6 +32,31 @@ public static class IndianFormat
     /// <summary>Formats <see cref="Money"/> with Indian grouping; empty for zero.</summary>
     public static string Amount(Money money) => Amount(money.Amount);
 
+    /// <summary>
+    /// A side-qualified money label for the ledger-book opening / running / closing lines, e.g.
+    /// "1,05,000.00 Dr". Exactly zero renders EMPTY — the Tally-faithful blank-at-zero of
+    /// <see cref="Amount(decimal)"/>, but WITHOUT leaving a dangling " Dr"/" Cr" behind (the naked-side
+    /// defect): the side is only shown when there is an amount to qualify.
+    /// </summary>
+    public static string Signed(decimal value, DrCr side)
+        => value == 0m ? string.Empty : $"{Amount(value)} {Short(side)}";
+
+    /// <summary>Side-qualified <see cref="Money"/> label; empty at zero (no dangling side).</summary>
+    public static string Signed(Money money, DrCr side) => Signed(money.Amount, side);
+
+    /// <summary>
+    /// A side-qualified money label that ALWAYS renders, even at zero ("0.00 Dr") — for the period-opening
+    /// and closing / period-movement lines where a zero is a meaningful balance rather than a blank cell.
+    /// </summary>
+    public static string SignedAlways(decimal value, DrCr side)
+        => $"{AmountAlways(value)} {Short(side)}";
+
+    /// <summary>Side-qualified <see cref="Money"/> label that always renders (even zero).</summary>
+    public static string SignedAlways(Money money, DrCr side) => SignedAlways(money.Amount, side);
+
+    /// <summary>The Dr/Cr short label for a posting side (the To/By vocabulary abbreviated).</summary>
+    private static string Short(DrCr side) => side == DrCr.Debit ? "Dr" : "Cr";
+
     /// <summary>Always renders a value (even zero) with Indian grouping — for totals rows.</summary>
     public static string AmountAlways(decimal value) => value.ToString("#,##0.00", Indian);
 

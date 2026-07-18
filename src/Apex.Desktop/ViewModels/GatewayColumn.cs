@@ -30,6 +30,16 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// </summary>
     [ObservableProperty] private bool _isActive;
 
+    /// <summary>
+    /// True while this column is the RIGHTMOST (terminal) column in the cascade. Drives the C4
+    /// viewport-aware width (<see cref="Apex.Desktop.Converters.CascadeColumnWidthConverter"/>): only the
+    /// terminal page column fills the leftover viewport (killing the dead-cream band); a page column that
+    /// has ANOTHER column to its right (e.g. a report with a ledger-vouchers drill column) keeps a bounded
+    /// width so BOTH fit side-by-side when the viewport allows, with the h-ScrollViewer as the fallback.
+    /// Kept in sync by <see cref="MainWindowViewModel"/>'s column repaint (SyncActiveColumn).
+    /// </summary>
+    [ObservableProperty] private bool _isLast = true;
+
     /// <summary>True for a menu column (a list of rows); false for a page column.</summary>
     public bool IsMenu => Page is null;
 
@@ -215,6 +225,12 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted O / Alt+O "Import" panel (non-null only for that RQ-20..24 column).</summary>
     public ImportDataViewModel? ImportDataPanel => Page as ImportDataViewModel;
+
+    /// <summary>The hosted M / Ctrl+M "E-Mail" compose panel (non-null only for that RQ-25/26 column).</summary>
+    public EmailComposeViewModel? EmailCompose => Page as EmailComposeViewModel;
+
+    /// <summary>The hosted "SMTP Settings" capture panel (non-null only for that RQ-27 column).</summary>
+    public SmtpSettingsViewModel? SmtpSettings => Page as SmtpSettingsViewModel;
 
     /// <summary>The hosted RQ-7 ledger-vouchers drill column (non-null only for a drilled TB/BS/P&amp;L ledger).</summary>
     public LedgerVouchersViewModel? LedgerVouchers => Page as LedgerVouchersViewModel;

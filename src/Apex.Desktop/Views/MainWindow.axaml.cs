@@ -950,6 +950,14 @@ public partial class MainWindow : Window
     private void OnApplyImportDataClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyImport();
 
+    private void OnSaveEmailClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm is { } vm) SaveEmailToDocuments(vm);
+    }
+
+    private void OnSaveSmtpClick(object? sender, RoutedEventArgs e)
+        => Vm?.SaveSmtpSettings();
+
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();
 

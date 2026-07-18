@@ -275,4 +275,66 @@ public sealed class PayrollReportsViewModelTests : IDisposable
         plain.ShowPayrollReportsMenu();
         Assert.NotEqual(GatewayMenu.PayrollReports, plain.CurrentGatewayMenu);
     }
+
+    // ---------------------------------------------------------------- (7) G1 empty-state regression lock
+    //
+    // THE BUG (D9 / G1). The shared C7 empty-state overlay ("No entries for the selected period.") is drawn
+    // LAST over the report body and gated on ReportsViewModel.IsEmpty. IsEmpty was `Rows.Count == 0` — but a
+    // PAYROLL report keeps its data in PayrollRows / the Payslip* collections, NOT in Rows, so a fully
+    // computed payroll matrix had Rows.Count == 0 → IsEmpty WRONGLY true → the overlay painted "No entries…"
+    // OVER the populated Pay Sheet / Payroll Register / Attendance / Payment Advice / Payslip. The fix makes
+    // IsEmpty `!IsPayrollReport && Rows.Count == 0`: payroll reports are excluded from the shared overlay (they
+    // carry their OWN in-pane note, IsPayrollEmpty / IsPayslipEmpty), and every non-payroll report keeps the
+    // exact old behaviour. These plain-unit facts lock all three legs so the regression cannot silently return.
+
+    [Fact]
+    public void G1_populated_payroll_report_is_not_flagged_empty()
+    {
+        // A payroll matrix WITH data: PayrollRows are populated but Rows is empty. IsEmpty MUST be false, or the
+        // C7 overlay masks the matrix. (Reverting the fix to `Rows.Count == 0` flips this to true — the bite.)
+        var f = BuildGolden("G1 Populated Co");
+        var r = Open(f, ReportKind.PaySheet);
+
+        Assert.True(r.IsPayrollReport);
+        Assert.NotEmpty(r.PayrollRows);        // the matrix HAS rows...
+        Assert.Empty(r.Rows);                  // ...none of which live in Rows (the C7 signal)
+        Assert.False(r.IsPayrollEmpty);        // genuinely populated
+        Assert.False(r.IsEmpty);               // so the shared overlay stays OFF the payroll pane (G1)
+
+        // The Payslip keeps its data in the Payslip* collections; it too must never read as empty.
+        var slip = Open(f, ReportKind.Payslip);
+        slip.SelectedPayrollEmployee = slip.PayrollEmployees.First(e => e.EmployeeId == f.Emp1);
+        Assert.False(slip.IsPayslipEmpty);
+        Assert.False(slip.IsEmpty);
+    }
+
+    [Fact]
+    public void G1_genuinely_empty_payroll_shows_its_own_note_not_the_shared_overlay()
+    {
+        // Payroll enabled but NO run posted for the wage month → the matrix is genuinely empty. The fix must
+        // not merely disable the empty-state: the payroll pane shows its OWN note (IsPayrollEmpty) while the
+        // shared C7 overlay stays off it (IsEmpty false, because payroll is excluded from the shared overlay).
+        var vm = NewPayrollCompany("G1 Empty Payroll Co");
+        vm.OpenReport(ReportKind.PaySheet);
+        var r = vm.Reports!;
+
+        Assert.True(r.IsPayrollReport);
+        Assert.True(r.IsPayrollEmpty);         // the pane's OWN "no employees with salary" note is on
+        Assert.False(r.IsEmpty);               // the shared overlay is excluded from payroll entirely
+    }
+
+    [Fact]
+    public void G1_non_payroll_empty_report_still_shows_the_shared_overlay()
+    {
+        // The fix's `!IsPayrollReport` guard must leave the C7 overlay working for the reports it was built for:
+        // a non-payroll register with no data leaves Rows empty and IsEmpty must be TRUE so the shared overlay
+        // renders "No entries for the selected period." across the whole body.
+        var f = BuildGolden("G1 C7 Co");
+        var r = new ReportsViewModel(f.Company, ReportKind.RejectionRegister); // no rejections seeded → empty
+
+        Assert.False(r.IsPayrollReport);
+        Assert.Empty(r.Rows);
+        Assert.True(r.IsEmpty);                // C7 overlay ON for a genuinely-empty non-payroll report
+        Assert.Equal("No entries for the selected period.", r.EmptyMessage);
+    }
 }
