@@ -139,8 +139,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Reports that always foot a Grand-Total (TB / BS / P&amp;L) are never empty in this sense; the register
     /// reports that used to park a "No entries…" message into a starved column now leave Rows empty and let the
     /// shared <c>EmptyState</c> component render the message across the whole body instead.
+    /// <para>G1 fix: the payroll reports (Pay Sheet / Payroll Register / Attendance / Payment Advice / Payslip)
+    /// keep their data in <see cref="PayrollRows"/> / the Payslip* collections, NOT in <see cref="Rows"/>, so a
+    /// populated payroll matrix had <c>Rows.Count == 0</c> and the shared C7 overlay wrongly painted "No entries…"
+    /// OVER the matrix. Payroll reports carry their OWN in-pane empty note (<see cref="IsPayrollEmpty"/> /
+    /// <see cref="IsPayslipEmpty"/>), so they are excluded from the shared overlay entirely — for a payroll report
+    /// this is always false and the C7 EmptyState never covers the payroll pane (a genuinely-empty payroll report
+    /// still shows its own note). Note <see cref="PayrollRows"/> is unreliable as an emptiness signal because the
+    /// matrix always foots a Grand-Total row even when there are no employees.</para>
     /// </summary>
-    public bool IsEmpty => Rows.Count == 0;
+    public bool IsEmpty => !IsPayrollReport && Rows.Count == 0;
 
     /// <summary>The one-line message the empty-state shows for a report with no data.</summary>
     public string EmptyMessage => "No entries for the selected period.";
@@ -2423,7 +2431,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Rows.Add(new ReportRow
         {
             Col1 = "Grand Total",
+            // G8: foot Assessable (Col3) and Deposited (Col5) too — the detail rows carry both, so leaving the
+            // total-row cells blank under populated columns read as an incomplete footing.
+            Col3 = FootedRupees(report.Rows, r => r.Assessable),
             Col4 = FootedRupees(report.Rows, r => r.Deducted),
+            Col5 = FootedRupees(report.Rows, r => r.Deposited),
             Col6 = FootedRupees(report.Rows, r => r.Outstanding),
             IsTotal = true,
         });
@@ -2457,7 +2469,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Rows.Add(new ReportRow
         {
             Col1 = "Grand Total",
+            // G8: foot Assessable (Col3) and Deposited (Col5) too (mirror of the TDS summary above).
+            Col3 = FootedRupees(report.Rows, r => r.Assessable),
             Col4 = FootedRupees(report.Rows, r => r.Collected),
+            Col5 = FootedRupees(report.Rows, r => r.Deposited),
             Col6 = FootedRupees(report.Rows, r => r.Outstanding),
             IsTotal = true,
         });

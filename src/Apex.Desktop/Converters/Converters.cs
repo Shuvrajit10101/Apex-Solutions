@@ -241,6 +241,30 @@ public sealed class OutstandingRowBrushConverter : IMultiValueConverter
     }
 }
 
+/// <summary>
+/// Maps a <see cref="Apex.Ledger.Domain.GstStatementType"/> to its branded label ("GSTR-2B" / "GSTR-2A")
+/// for the Import-GSTR-2B "Statement" picker (G4). The combo bound the bare enum, so the dropdown showed the
+/// raw C# member "Gstr2b" while the page title and the results grid used the branded "GSTR-2B" — this pins the
+/// picker to the same branded text.
+/// </summary>
+public sealed class GstStatementTypeLabelConverter : IValueConverter
+{
+    public static readonly GstStatementTypeLabelConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is Apex.Ledger.Domain.GstStatementType t
+            ? t switch
+            {
+                Apex.Ledger.Domain.GstStatementType.Gstr2b => "GSTR-2B",
+                Apex.Ledger.Domain.GstStatementType.Gstr2a => "GSTR-2A",
+                _ => t.ToString(),
+            }
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 /// <summary>Maps a <see cref="Apex.Ledger.Domain.BudgetType"/> to its human label for the Type picker.</summary>
 public sealed class BudgetTypeLabelConverter : IValueConverter
 {

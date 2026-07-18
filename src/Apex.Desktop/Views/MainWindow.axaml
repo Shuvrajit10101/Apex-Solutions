@@ -36,6 +36,7 @@
         <conv:BillRefTypeLabelConverter x:Key="BillRefLabel"/>
         <conv:BudgetTypeLabelConverter x:Key="BudgetTypeLabel"/>
         <conv:BankTxTypeLabelConverter x:Key="BankTxTypeLabel"/>
+        <conv:GstStatementTypeLabelConverter x:Key="GstStatementTypeLabel"/>
         <conv:ExpiryRowToBrushConverter x:Key="ExpiryRowBrush"/>
         <conv:ExpiryWarningToBrushConverter x:Key="ExpiryWarningBrush"/>
         <conv:CollectionEmptyConverter x:Key="CollectionEmpty"/>
@@ -99,6 +100,13 @@
              are tagged. Cells holding TEXT (Cmp08 "Trader" / "1% on turnover base") or plain
              counts stay left/left — they already match, and right-aligning them would be a NEW
              defect. The rule is that label and value MATCH, not that everything goes right. -->
+        <!-- G10: GST Actions bars (Generate e-Invoice / Generate e-Way Bill / Post ITC Reversal). Their input
+             TextBoxes top-aligned their text while the row's ComboBoxes centre theirs, so a mixed combo+textbox
+             row sat at two baselines. Centre the TextBox content so every field on a row shares one baseline.
+             Scoped to bars tagged Classes="gstActionBar" so no other TextBox app-wide is affected. -->
+        <Style Selector="Border.gstActionBar TextBox">
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
         <Style Selector="StackPanel.statCell > TextBlock">
             <Setter Property="TextAlignment" Value="Right"/>
             <!-- GUTTER (load-bearing — do not drop). The strips have NO gutter of their own: a
@@ -1094,15 +1102,18 @@
                           </ScrollViewer>
 
                           <!-- == GSTR-1: Party/HSN | GSTIN/Desc | Invoice/UQC | POS/Qty | Taxable | CGST | SGST | IGST ==
-                               8-column statutory grid (~1030px) wider than the pane — horizontal scroll
-                               reveals the right-hand amount columns (Taxable/CGST/SGST/IGST); header + rows
-                               share the SAME explicit width so they scroll together and stay aligned. -->
+                               G2: the grid is FLUID — Width binds to the page pane and MinWidth (950) is now BELOW the
+                               1440-default pane (~998px), so at 1440 the grid equals the pane and ALL eight columns —
+                               including the rightmost IGST — fit within it (previously MinWidth 1030 forced the grid
+                               wider than the pane, scrolling IGST off behind the shortcut bar). The four numeric tax
+                               columns (Taxable/CGST/SGST/IGST) are NOT squeezed; the small saving comes from Invoice/UQC.
+                               A horizontal scrollbar only appears if the pane is narrower than the 950 floor. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr1}">
-                          <Grid RowDefinitions="Auto,*" Width="{Binding #GstReportPane.Bounds.Width}" MinWidth="1030"
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #GstReportPane.Bounds.Width}" MinWidth="950"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="1030">
+                              <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="950">
                                 <TextBlock Grid.Column="0" Text="Party / HSN" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="GSTIN / Description" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Invoice / UQC" Classes="colHdr"/>
@@ -1118,11 +1129,19 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="1030" Height="24">
+                                      <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="950" Height="24">
+                                        <!-- G2: a section-header row (B2B / B2C / Rate-wise / HS-SAC) shows its label
+                                             SPANNING the full width so it is never clipped into the narrow Party/HSN
+                                             column; the columnar Col1 is used only for data rows (party name / HSN). -->
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
-                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="8" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="11.5" FontWeight="Bold"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="0,0,8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -1383,17 +1402,19 @@
                           <!-- == Nature summary (R4/R8): Section/Code | Nature | Assessable | Deducted/Collected | Deposited | Outstanding | Below-thr == -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsStatutoryNatureSummary}">
-                          <Grid RowDefinitions="Auto,*" MinWidth="616" Width="{Binding #StatutoryReportPane.Bounds.Width}"
+                          <Grid RowDefinitions="Auto,*" MinWidth="670" Width="{Binding #StatutoryReportPane.Bounds.Width}"
                                 Height="{Binding #StatutoryReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="96,*,90,88,88,92,66">
+                              <Grid ColumnDefinitions="96,*,90,88,88,92,120">
                                 <TextBlock Grid.Column="0" Text="{Binding StatCodeHeader}" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Nature" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Assessable" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="{Binding StatWithheldHeader}" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="5" Text="Outstanding" Classes="colHdr" TextAlignment="Right"/>
-                                <TextBlock Grid.Column="6" Text="Below Thr." Classes="colHdr" TextAlignment="Right"/>
+                                <!-- G7: full "Below Threshold" (was clipped to "Below Thr." in a 66px column hard against
+                                     the pane border). The column is widened so the header shows in full. -->
+                                <TextBlock Grid.Column="6" Text="Below Threshold" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1401,7 +1422,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="96,*,90,88,88,92,66" Height="24">
+                                      <Grid ColumnDefinitions="96,*,90,88,88,92,120" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    IsVisible="{Binding !IsHeader}"
                                                    VerticalAlignment="Center" FontSize="12.5" TextTrimming="CharacterEllipsis"
@@ -7583,7 +7604,7 @@
                             </Border>
 
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,150,150,80">
+                              <Grid ColumnDefinitions="*,140,185,80">
                                 <TextBlock Grid.Column="0" Text="Attendance / Production Type" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Type" Classes="colHdr"/>
@@ -7596,7 +7617,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:AttendanceTypeListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,150,150,80" Height="24">
+                                      <Grid ColumnDefinitions="*,140,185,80" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -10069,7 +10090,7 @@
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
                                        HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                            <Grid Grid.Row="2" ColumnDefinitions="Auto,320,*" Margin="0,0,0,8"
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,470,*" Margin="0,0,0,8"
                                   IsVisible="{Binding HasSnapshot}">
                               <TextBlock Grid.Column="0" Text="GSTR-2B snapshot" FontWeight="SemiBold" FontSize="12"
                                          VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
@@ -10141,7 +10162,7 @@
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
                                        HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                            <Grid Grid.Row="2" ColumnDefinitions="Auto,320,*" Margin="0,0,0,8"
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,470,*" Margin="0,0,0,8"
                                   IsVisible="{Binding HasSnapshot}">
                               <TextBlock Grid.Column="0" Text="GSTR-2B snapshot" FontWeight="SemiBold" FontSize="12"
                                          VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
@@ -10443,7 +10464,7 @@
                               </StackPanel>
                             </ScrollViewer>
                             <!-- The explicit action bar. -->
-                            <Border Grid.Row="5" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                            <Border Grid.Row="5" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="8" Margin="0,6,0,0">
                               <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="Auto,150,Auto,100">
@@ -10525,7 +10546,13 @@
                               <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="Auto,120,Auto,*">
                                   <TextBlock Grid.Column="0" Text="Statement" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                                  <ComboBox Grid.Column="1" ItemsSource="{Binding StatementTypes}" SelectedItem="{Binding StatementType, Mode=TwoWay}" FontSize="11"/>
+                                  <ComboBox Grid.Column="1" ItemsSource="{Binding StatementTypes}" SelectedItem="{Binding StatementType, Mode=TwoWay}" FontSize="11">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:GstStatementType">
+                                        <TextBlock Text="{Binding Converter={StaticResource GstStatementTypeLabel}}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
                                   <TextBlock Grid.Column="2" Text="File" FontSize="11" VerticalAlignment="Center" Margin="10,0,4,0"/>
                                   <TextBox Grid.Column="3" Text="{Binding FilePath, Mode=TwoWay}" FontSize="11" Padding="4,2"
                                            PlaceholderText="Full path of the portal's GSTR-2B .json"/>
@@ -10618,7 +10645,7 @@
                                 </DataTemplate>
                               </ListBox.ItemTemplate>
                             </ListBox>
-                            <Border Grid.Row="5" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                            <Border Grid.Row="5" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="8" Margin="0,6,0,0">
                               <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="Auto,*">
@@ -10722,7 +10749,7 @@
                                 </DataTemplate>
                               </ListBox.ItemTemplate>
                             </ListBox>
-                            <Border Grid.Row="5" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                            <Border Grid.Row="5" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="8" Margin="0,6,0,0">
                               <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="Auto,100,Auto,110,Auto,70,Auto,*">
@@ -10787,7 +10814,7 @@
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
                                        HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                            <Grid Grid.Row="2" ColumnDefinitions="Auto,320,*" Margin="0,0,0,8"
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,470,*" Margin="0,0,0,8"
                                   IsVisible="{Binding HasSnapshot}">
                               <TextBlock Grid.Column="0" Text="GSTR-2B snapshot" FontWeight="SemiBold" FontSize="12"
                                          VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
@@ -13389,12 +13416,12 @@
                             </Grid>
 
                             <!-- Left: deductee picker · Right: certificate detail -->
-                            <Grid Grid.Row="3" ColumnDefinitions="240,*">
+                            <Grid Grid.Row="3" ColumnDefinitions="280,*">
                               <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,8,0">
                                 <TextBlock Grid.Row="0" Text="Deductees" FontWeight="Bold" FontSize="12"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                                 <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="92,*,68">
+                                  <Grid ColumnDefinitions="80,*,68">
                                     <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Deductee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
@@ -13405,7 +13432,7 @@
                                          SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
                                   <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:Form16ADeducteeOptionVm">
-                                      <Grid ColumnDefinitions="92,*,68" Height="24">
+                                      <Grid ColumnDefinitions="80,*,68" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontFamily="Consolas,Menlo,monospace"
@@ -13610,12 +13637,12 @@
                               </ComboBox>
                             </Grid>
 
-                            <Grid Grid.Row="3" ColumnDefinitions="240,*">
+                            <Grid Grid.Row="3" ColumnDefinitions="280,*">
                               <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Margin="0,0,8,0">
                                 <TextBlock Grid.Row="0" Text="Collectees" FontWeight="Bold" FontSize="12"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                                 <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="92,*,68">
+                                  <Grid ColumnDefinitions="80,*,68">
                                     <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Collectee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
@@ -13626,7 +13653,7 @@
                                          SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
                                   <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:Form27DCollecteeOptionVm">
-                                      <Grid ColumnDefinitions="92,*,68" Height="24">
+                                      <Grid ColumnDefinitions="80,*,68" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    FontFamily="Consolas,Menlo,monospace"

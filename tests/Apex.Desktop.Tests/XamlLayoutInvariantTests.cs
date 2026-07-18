@@ -1424,4 +1424,119 @@ public sealed class XamlLayoutInvariantTests
             $"The currency-list data ScrollViewer is at Grid.Row=\"{Attr(currencyScroll, "Grid.Row") ?? "(0)"}\", "
             + "not Row 1 beneath its header (D-4).");
     }
+
+    // =============================================================================================
+    // INVARIANT 12 — the D9 fluid-fit contract: the GSTR-1 and TDS/TCS Nature-summary report bodies
+    //                FIT the 1440-default report pane, so no rightmost column is clipped off-pane.
+    // =============================================================================================
+    //
+    // WHAT D9 WAS. A GATED-family populated re-sweep (real GST/TDS data) found two wide statutory grids
+    // whose fluid Width binding (Invariant 7) was correct but whose MinWidth FLOOR still exceeded the
+    // 1440-default report pane — so at the DEFAULT window the grid forced itself wider than the pane and
+    // h-scrolled its RIGHTMOST column off behind the shortcut sidebar:
+    //   G2 GSTR-1 (spec "*,150,150,90,130,110,110,110"): MinWidth 1030 > the ~986px 1440 report pane, so the
+    //      rightmost IGST column — the ENTIRE tax on an inter-state supply — was clipped off-pane and showed
+    //      only a leading digit (a financial MIS-READ). The fix lowered MinWidth to 950 (< 986), so the fluid
+    //      Width (== pane) governs and all eight columns, IGST included, fit at the 1440 default.
+    //   G7 TDS/TCS Nature summary (spec "96,*,90,88,88,92,120"): the rightmost header "Below Threshold" was
+    //      clipped to "Below Thr." in a 66px column hard against the pane border; the fix widened that last
+    //      column to 120px (and raised the MinWidth floor to 670 — still < 986).
+    //
+    // WHY INVARIANT 7 IS NOT ENOUGH. Invariant 7 proves these bodies bind Width FLUIDLY and keep a MinWidth
+    // >= the 638 page FLOOR — but it says nothing about an UPPER bound. A revert of GSTR-1's MinWidth back to
+    // 1030 (or the Nature grid's last column back to 66) keeps the fluid binding AND the >= 638 floor, so
+    // Invariant 7 stays green while IGST silently overflows the default pane again. Invariant 4 (twin
+    // identity) also stays green when BOTH twins revert together. This invariant is that missing UPPER bound.
+    //
+    // THE PANE CONSTANT. Pane1440 (986px) is the live content width of GstReportPane / StatutoryReportPane at
+    // the 1440-default window, MEASURED by an Avalonia render (MainWindow at 1440x900) on 2026-07-18. It is
+    // used ONE-SIDED as an upper bound: MinWidth <= 986 guarantees the grid never forces itself wider than
+    // the default pane (the fluid Width, capped at the pane, then governs). A wider window only ever helps,
+    // so this can miss no real clip; it can only fail to fire if the cascade layout later narrows the pane
+    // below 986, at which point the constant must be re-measured.
+    //
+    // TWO PURE RATCHETS, NO ALLOW-LIST (both green today).
+    //   (A) every Grid inside the IsGstr1 body ScrollViewer floors its MinWidth <= 986 (G2).
+    //   (B) the Nature-summary body grid floors its MinWidth <= 986, AND the summary's rightmost column stays
+    //       >= 100px (the "Below Threshold" header width) so it is not re-clipped (G7).
+
+    private const double Pane1440 = 986.0;                     // measured GstReportPane/StatutoryReportPane @1440
+    private const double D9BelowThresholdColMinWidth = 100.0;  // "Below Threshold" header; the G7 defect was 66
+
+    [Fact]
+    public void D9_gstr1_and_nature_summary_bodies_fit_the_default_1440_pane()
+    {
+        Assert.Equal(638.0, PageColumnContentWidth); // the shared page floor this file rests on
+        Assert.True(Pane1440 > PageColumnContentWidth,
+            $"Pane1440 ({Pane1440:F0}) must exceed the page floor ({PageColumnContentWidth:F0}) — a report pane is "
+            + "never narrower than the page column.");
+
+        // ---- (A) GSTR-1: every grid in the IsGstr1 body floors its MinWidth at/under the 1440 pane (G2). ----
+        var gstr1Scroll = Elements().FirstOrDefault(e => Is(e, "ScrollViewer")
+            && Norm(Attr(e, "IsVisible") ?? "") == "{BindingIsGstr1}");
+        Assert.True(gstr1Scroll is not null,
+            "The GSTR-1 body ScrollViewer (IsVisible=\"{Binding IsGstr1}\") is GONE — the G2 fit lock cannot "
+            + "anchor. Re-anchor it.");
+
+        var gstr1MinGrids = gstr1Scroll!.Descendants()
+            .Where(e => Is(e, "Grid") && NumericAttr(e, "MinWidth") is not null)
+            .ToList();
+        // NON-VACUITY: the GSTR-1 body carries 3 MinWidth-pinned grids today (the fluid outer body + the
+        // header/row twins). A restructure that drops them would make this clause judge an empty set.
+        Assert.True(gstr1MinGrids.Count >= 3,
+            $"Only {gstr1MinGrids.Count} MinWidth-pinned grids under the GSTR-1 body (expected >= 3: the fluid outer "
+            + "body + the header/row twins). The body was restructured, so this clause would be vacuous.");
+
+        var gstr1Over = gstr1MinGrids.Where(g => NumericAttr(g, "MinWidth")!.Value > Pane1440).ToList();
+        Assert.True(gstr1Over.Count == 0,
+            $"{gstr1Over.Count} GSTR-1 body grid(s) floor MinWidth ABOVE the {Pane1440:F0}px 1440-default report "
+            + "pane. The grid then forces itself wider than the pane at the default window and h-scrolls its "
+            + "rightmost IGST column — the ENTIRE tax on an inter-state supply — off-pane behind the shortcut "
+            + "sidebar (a financial mis-read; G2). Lower the MinWidth back under the pane (it shipped at 950):\n"
+            + string.Join("\n", gstr1Over.Select(g =>
+                $"  MainWindow.axaml({Line(g)}): MinWidth=\"{Attr(g, "MinWidth")}\"")));
+
+        // ---- (B) TDS/TCS Nature summary: body fits 1440 AND the "Below Threshold" column stays readable. ----
+        var natScroll = Elements().FirstOrDefault(e => Is(e, "ScrollViewer")
+            && Norm(Attr(e, "IsVisible") ?? "") == "{BindingIsStatutoryNatureSummary}");
+        Assert.True(natScroll is not null,
+            "The TDS/TCS Nature-summary body ScrollViewer (IsVisible=\"{Binding IsStatutoryNatureSummary}\") is "
+            + "GONE — the G7 fit lock cannot anchor. Re-anchor it.");
+
+        // (B1) the fluid outer body grid floors its MinWidth under the 1440 pane.
+        var natMinGrids = natScroll!.Descendants()
+            .Where(e => Is(e, "Grid") && NumericAttr(e, "MinWidth") is not null)
+            .ToList();
+        Assert.True(natMinGrids.Count >= 1,
+            "No MinWidth-pinned grid under the Nature-summary body — the body was restructured; this clause "
+            + "would be vacuous.");
+        var natOver = natMinGrids.Where(g => NumericAttr(g, "MinWidth")!.Value > Pane1440).ToList();
+        Assert.True(natOver.Count == 0,
+            $"{natOver.Count} Nature-summary body grid(s) floor MinWidth ABOVE the {Pane1440:F0}px 1440-default pane, "
+            + "so the grid overflows the default pane and clips its rightmost \"Below Threshold\" column (G7). Lower "
+            + "the MinWidth back under the pane (it shipped at 670):\n"
+            + string.Join("\n", natOver.Select(g =>
+                $"  MainWindow.axaml({Line(g)}): MinWidth=\"{Attr(g, "MinWidth")}\"")));
+
+        // (B2) the summary's rightmost column stays wide enough for the "Below Threshold" header. The header
+        //      and row twins are the two 7-column grids under this body; their last column shipped at 120 and
+        //      the defect was 66 (which sliced the header to "Below Thr."). Keyed on "7 columns", NOT the full
+        //      spec, so the check survives a revert of the last column's width (which is what it must catch).
+        var natColGrids = natScroll.Descendants()
+            .Where(e => Is(e, "Grid") && Attr(e, "ColumnDefinitions") is { } s && ParseColumns(s).Count == 7)
+            .ToList();
+        Assert.True(natColGrids.Count >= 2,
+            $"Only {natColGrids.Count} seven-column Nature-summary grids found (expected >= 2: the header/row "
+            + "twins) — the summary was restructured, so the last-column clause would be vacuous.");
+        var narrowLast = natColGrids
+            .Where(g => ParseColumns(Attr(g, "ColumnDefinitions")!)[^1] is { } last
+                        && (last.Kind != ColKind.Fixed || last.Value < D9BelowThresholdColMinWidth))
+            .ToList();
+        Assert.True(narrowLast.Count == 0,
+            $"{narrowLast.Count} Nature-summary grid(s) narrow their rightmost column below "
+            + $"{D9BelowThresholdColMinWidth:F0}px — the \"Below Threshold\" header is re-clipped to \"Below Thr.\" "
+            + "(G7; the column shipped at 120, the defect was 66). Widen the last column back:\n"
+            + string.Join("\n", narrowLast.Select(g =>
+                $"  MainWindow.axaml({Line(g)}): \"{Attr(g, "ColumnDefinitions")}\"")));
+    }
 }
