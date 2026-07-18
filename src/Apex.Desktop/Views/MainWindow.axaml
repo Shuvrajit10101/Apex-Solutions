@@ -2300,10 +2300,13 @@
                                 </Grid>
                               </Border>
 
-                              <!-- Item-lines column header band. Stock Item (star) is given extra room by
-                                   trimming Godown/Rate/Batch so typical item names show in full. -->
+                              <!-- Item-lines column header band. Stock Item stays the flexible star; the
+                                   page pane is now wide (C4/C5 fluid), so Godown (184) fits a real godown
+                                   name like "Main Location" past the chevron (D-2) and the Batch/Lot header
+                                   (92) shows in
+                                   full (D-1). Numeric Qty (84) / Rate (72) columns are left untouched. -->
                               <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                                <Grid ColumnDefinitions="*,116,84,Auto,72,64,36,Auto,Auto,Auto">
+                                <Grid ColumnDefinitions="*,184,84,Auto,72,92,36,Auto,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
                                   <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on. -->
@@ -2336,7 +2339,7 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,116,84,Auto,72,64,36,Auto,Auto,Auto">
+                                          <Grid ColumnDefinitions="*,184,84,Auto,72,92,36,Auto,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
@@ -2349,7 +2352,8 @@
                                                 </DataTemplate>
                                               </ComboBox.ItemTemplate>
                                             </ComboBox>
-                                            <ComboBox Grid.Column="1" Classes="gridCombo" Width="110" Margin="6,0"
+                                            <ComboBox Grid.Column="1" Classes="gridCombo"
+                                                      HorizontalAlignment="Stretch" Margin="6,0"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding Godowns}"
                                                       SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
@@ -2373,7 +2377,7 @@
                                             <TextBox Grid.Column="4" Width="64" Margin="6,0"
                                                      Text="{Binding RateText, Mode=TwoWay}"
                                                      TextAlignment="Right" PlaceholderText="0.00"/>
-                                            <TextBox Grid.Column="5" Width="62"
+                                            <TextBox Grid.Column="5" Width="84" HorizontalAlignment="Left"
                                                      Text="{Binding BatchLabel, Mode=TwoWay}"
                                                      PlaceholderText="—"/>
                                             <!-- Read-only landed (effective) rate + value from the apportionment engine
@@ -4688,7 +4692,7 @@
                                     Content="{Binding CurrencyMaster}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:CurrencyMasterViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="Currency &amp; Rates of Exchange"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
@@ -4786,19 +4790,21 @@
                               </StackPanel>
                             </Border>
 
-                            <!-- Currencies list header -->
-                            <Border Grid.Row="3" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="120,*,90,90">
-                                <TextBlock Grid.Column="0" Text="Symbol" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="Formal Name" Classes="colHdr"/>
-                                <TextBlock Grid.Column="2" Text="Decimals" Classes="colHdr" TextAlignment="Center"/>
-                                <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Center"/>
-                              </Grid>
-                            </Border>
-
-                            <!-- Currencies + Rates lists side by side -->
-                            <Grid Grid.Row="4" ColumnDefinitions="*,*" Margin="0,0,0,0">
-                              <ScrollViewer Grid.Column="0" Background="White">
+                            <!-- Currencies + Rates lists side by side. Each table now owns its OWN header band
+                                 at Row 0 of an Auto,* grid, so the two headers share one baseline (D-4) and each
+                                 header's columns sit over its own data (D-3). The Currencies header used to be a
+                                 full-width Row-3 band whose Decimals/Kind floated over the adjacent Rate table. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="*,*" Margin="0,0,0,0">
+                              <Grid Grid.Column="0" RowDefinitions="Auto,*">
+                                <Border Grid.Row="0" Background="{StaticResource BrandNavyDark}">
+                                  <Grid ColumnDefinitions="120,*,90,90">
+                                    <TextBlock Grid.Column="0" Text="Symbol" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="1" Text="Formal Name" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="2" Text="Decimals" Classes="colHdr" TextAlignment="Center"/>
+                                    <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Center"/>
+                                  </Grid>
+                                </Border>
+                              <ScrollViewer Grid.Row="1" Background="White">
                                 <ItemsControl ItemsSource="{Binding Currencies}">
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:CurrencyListRow">
@@ -4821,6 +4827,7 @@
                                   </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                               </ScrollViewer>
+                              </Grid>
 
                               <Border Grid.Column="1" BorderBrush="{StaticResource GridLine}" BorderThickness="1,0,0,0">
                                 <Grid RowDefinitions="Auto,*">
@@ -5342,7 +5349,11 @@
                                       </ComboBox.ItemTemplate>
                                     </ComboBox>
                                   </Grid>
-                                  <Grid ColumnDefinitions="90,*,90,110,110">
+                                  <!-- Reorder / Min-order-qty are label-less and rely on their placeholder hint;
+                                       the Min-order field was 110px and clipped "Min order qty" → "Min order q"
+                                       (D-5). Widened to 140 (the "*" HSN field yields the room) so the full hint
+                                       shows. -->
+                                  <Grid ColumnDefinitions="90,*,90,120,140">
                                     <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                     <TextBox Grid.Column="1" Text="{Binding HsnSacCode, Mode=TwoWay}"

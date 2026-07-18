@@ -1227,4 +1227,201 @@ public sealed class XamlLayoutInvariantTests
             + "The shipped UI must read as \"Apex Solutions\", never the internal build vocabulary — reword to "
             + "plain user-facing text:\n" + string.Join("\n", leaks));
     }
+
+    // =============================================================================================
+    // INVARIANT 11 — the D7 populated-data contract: three grids widened for REAL data (not the empty
+    //                company). Each holds its widening; none may hard-narrow back.
+    // =============================================================================================
+    //
+    // WHAT D7 WAS. The 2026-07-16 empty-company sweep could not see these — they only surface once a
+    // company carries real inventory/currency rows. A POPULATED re-sweep found five residuals:
+    //   D-1 the Sales/Purchase item-invoice line grid sliced the "Batch/Lot" column HEADER to "Batch/Lo"
+    //       (final glyph cut, no ellipsis) at the grid's right edge — the column was 64px.
+    //   D-2 the same grid's Godown combo truncated the real godown name "Main Location" to "Main Loca"
+    //       against the chevron — the column was 116px and the combo was hard-capped at Width="110".
+    //   D-5 StockItemMaster's label-less min-order-qty field clipped its own placeholder "Min order qty"
+    //       to "Min order q" — the field's column was 110px.
+    //   D-3/D-4 CurrencyMaster drew the currency list's Decimals/Kind HEADERS over the ADJACENT
+    //       Rate-of-Exchange table (a full-width Row-3 header band that floated free of its own data) and
+    //       the two side-by-side tables did not share a header baseline.
+    //
+    // WHY THIS TEST EXISTS — AND WHY THESE CLAUSES. None of Invariants 1-10 catches a REVERT of any D7
+    // fix. Invariant 4 locks that the item-invoice header/row twins MATCH each other — but it stays green
+    // if BOTH twins are narrowed back together (116/64 on both), so it cannot hold the WIDTHS. Invariants
+    // 2/3 skip these grids (the item-invoice grid carries Auto columns; the currency list is a * grid that
+    // does fit). And D-3/D-4 was a STRUCTURAL drift (a header living in the wrong parent), invisible to
+    // every width/twin check. So each clause below locks the exact property the D7 fix established:
+    //   (A) the item-invoice line grid's Godown column stays >= 150px and its Batch/Lot column >= 80px
+    //       (a revert to 116/64 trips it), and the row twin still matches the header spec.
+    //   (B) that grid's Godown combo carries NO fixed width (it fills the widened column) — a revert to
+    //       Width="110" trips it.
+    //   (C) that grid's Batch/Lot editor is not hard-narrowed back below 80px (it shipped at 84).
+    //   (D) StockItemMaster's min-order field sits in a column >= 130px (a revert to 110 trips it).
+    //   (E) the currency list's header Border and its data ScrollViewer share ONE "Auto,*" wrapper grid
+    //       (header Row 0, data Row 1) — the structure that puts each header over its own column and on
+    //       the sibling table's baseline. A revert to the floating full-width band moves the header out of
+    //       that wrapper and trips it.
+    //
+    // NO ALLOW-LIST. All five clauses hold today; pure ratchet. Anchored by edit-stable identities (a
+    // colHdr's text+column, a unique binding, IsHeaderGrid) — NOT by the full ColumnDefinitions string —
+    // so an unrelated column edit (widening Qty, say) does not falsely trip it.
+
+    private const double D7GodownColMinWidth   = 150.0; // "Main Location" + chevron; was 116 (D-2)
+    private const double D7BatchColMinWidth    = 80.0;  // the "Batch/Lot" header glyphs; was 64 (D-1)
+    private const double D7BatchFieldMinWidth  = 80.0;  // the batch editor; shipped 84, was 62
+    private const double D7MinOrderColMinWidth = 130.0; // "Min order qty" placeholder; was 110 (D-5)
+
+    private static string Norm(string spec) => spec.Replace(" ", "");
+
+    /// <summary>The first ancestor Grid (or self) that declares a ColumnDefinitions attribute.</summary>
+    private static XElement? OwningColumnGrid(XElement e)
+    {
+        for (var p = e; p is not null; p = p.Parent)
+            if (Is(p, "Grid") && Attr(p, "ColumnDefinitions") is not null) return p;
+        return null;
+    }
+
+    private static bool IsColHdrText(XElement e, string text)
+        => Is(e, "TextBlock") && Attr(e, "Text") == text && HasClass(e, "colHdr");
+
+    [Fact]
+    public void D7_widened_grids_hold_their_widening_and_the_currency_header_stays_wrapped()
+    {
+        // ---- anchor the Sales/Purchase item-invoice line grid ------------------------------------
+        // Its header is the ONLY header grid carrying a "Batch/Lot" colHdr at COLUMN 5 (the sibling
+        // stock-voucher grid puts Batch/Lot at column 4), so this is a stable, non-circular identity.
+        var itemHeaders = Elements()
+            .Where(g => IsHeaderGrid(g)
+                        && g.Elements().Any(k => IsColHdrText(k, "Batch/Lot") && ColumnIndexOf(k) == 5))
+            .ToList();
+        Assert.True(itemHeaders.Count == 1,
+            $"Expected exactly 1 item-invoice header grid (a header band with a \"Batch/Lot\" colHdr at column 5) "
+            + $"but found {itemHeaders.Count}. The item-invoice line grid was renamed/restructured — this whole "
+            + "D7 lock would be vacuous. Re-anchor it.");
+        var itemHeader = itemHeaders[0];
+        var headerSpec = Norm(Attr(itemHeader, "ColumnDefinitions")!);
+
+        // The row twin: the ONE grid inside an InventoryVoucherLineViewModel row template whose columns
+        // match the header spec (5 other templates reuse that DataType with a different, narrower spec).
+        var itemRows = Elements()
+            .Where(g => Is(g, "Grid") && Attr(g, "ColumnDefinitions") is { } s
+                        && DataTypeOf(g) == "vm:InventoryVoucherLineViewModel"
+                        && Norm(s) == headerSpec)
+            .ToList();
+        Assert.True(itemRows.Count == 1,
+            $"Expected exactly 1 item-invoice ROW grid whose columns match the header spec \"{headerSpec}\" but "
+            + $"found {itemRows.Count}. The header/row twin has drifted apart (Invariant 4 also guards this) or "
+            + "the row template was restructured.");
+        var itemRow = itemRows[0];
+
+        var headerCols = ParseColumns(headerSpec);
+        Assert.True(headerCols.Count >= 6,
+            $"The item-invoice grid declares only {headerCols.Count} columns (expected >= 6) — its structure "
+            + "changed; the Godown (1) / Batch/Lot (5) indices below can no longer be trusted.");
+
+        // (A) Godown column (index 1) and Batch/Lot column (index 5) hold their D7 widths.
+        var godown = headerCols[1];
+        Assert.True(godown.Kind == ColKind.Fixed && godown.Value >= D7GodownColMinWidth,
+            $"The item-invoice Godown column (index 1) is \"{Attr(itemHeader, "ColumnDefinitions")}\" -> "
+            + $"{(godown.Kind == ColKind.Fixed ? godown.Value.ToString("F0") + "px" : godown.Kind.ToString())}, "
+            + $"below the {D7GodownColMinWidth:F0}px a real godown name (\"Main Location\") needs past the combo "
+            + "chevron. This is D-2 restored (the column shipped at 184; the defect was 116). Widen it back.");
+        var batch = headerCols[5];
+        Assert.True(batch.Kind == ColKind.Fixed && batch.Value >= D7BatchColMinWidth,
+            $"The item-invoice Batch/Lot column (index 5) is "
+            + $"{(batch.Kind == ColKind.Fixed ? batch.Value.ToString("F0") + "px" : batch.Kind.ToString())}, below "
+            + $"the {D7BatchColMinWidth:F0}px the \"Batch/Lot\" header glyphs need. This is D-1 restored (the column "
+            + "shipped at 92; the defect was 64, which sliced the header to \"Batch/Lo\"). Widen it back.");
+
+        // (B) the Godown combo carries NO fixed width — it fills the widened column, so a real name is
+        //     readable to the column edge instead of being clipped at a hard 110px cap (D-2's second half).
+        var godownCombos = itemRow.Elements().Where(e => Is(e, "ComboBox") && ColumnIndexOf(e) == 1).ToList();
+        Assert.True(godownCombos.Count == 1,
+            $"Expected exactly 1 Godown ComboBox at column 1 of the item-invoice row, found {godownCombos.Count}.");
+        var godownCombo = godownCombos[0];
+        Assert.True(ExplicitWidth(godownCombo) is null,
+            $"The item-invoice Godown ComboBox hard-caps its Width/MaxWidth at "
+            + $"{ExplicitWidth(godownCombo):F0}px — D-2 restored (it shipped at Width=\"110\", truncating "
+            + "\"Main Location\" to \"Main Loca\"). Drop the fixed width; let HorizontalAlignment=\"Stretch\" fill "
+            + "the column.");
+        Assert.True(Attr(godownCombo, "HorizontalAlignment") == "Stretch",
+            "The item-invoice Godown ComboBox no longer stretches to fill its column "
+            + $"(HorizontalAlignment=\"{Attr(godownCombo, "HorizontalAlignment") ?? "(default)"}\"). Without Stretch "
+            + "it collapses to its content and a long godown name is clipped again (D-2).");
+
+        // (C) the Batch/Lot editor is not hard-narrowed back below its shipped 84px.
+        var batchBoxes = itemRow.Elements().Where(e => Is(e, "TextBox") && ColumnIndexOf(e) == 5).ToList();
+        Assert.True(batchBoxes.Count == 1,
+            $"Expected exactly 1 Batch/Lot TextBox at column 5 of the item-invoice row, found {batchBoxes.Count}.");
+        var batchWidth = ExplicitWidth(batchBoxes[0]);
+        Assert.True(batchWidth is null || batchWidth >= D7BatchFieldMinWidth,
+            $"The item-invoice Batch/Lot editor is hard-narrowed to {batchWidth:F0}px, below {D7BatchFieldMinWidth:F0}px "
+            + "(it shipped at 84; the pre-D7 defect was 62). Widen it or let it stretch.");
+
+        // ---- (D) StockItemMaster: the min-order field's column stays >= 130px (D-5). ---------------
+        // Anchored by the UNIQUE MinimumOrderQtyText binding (the field is label-less; its own placeholder
+        // "Min order qty" is the only hint, so its column must be wide enough to show it).
+        var minOrderBoxes = Elements()
+            .Where(e => Is(e, "TextBox") && (Attr(e, "Text") ?? "").Contains("MinimumOrderQtyText", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(minOrderBoxes.Count == 1,
+            $"Expected exactly 1 min-order-qty TextBox (bound to MinimumOrderQtyText), found {minOrderBoxes.Count}. "
+            + "StockItemMaster was restructured — re-anchor clause (D).");
+        var minOrderBox = minOrderBoxes[0];
+        var minOrderGrid = OwningColumnGrid(minOrderBox);
+        Assert.True(minOrderGrid is not null, "The min-order-qty field is not inside a Grid with ColumnDefinitions.");
+        var minOrderCols = ParseColumns(Attr(minOrderGrid!, "ColumnDefinitions")!);
+        var minOrderIdx = ColumnIndexOf(minOrderBox);
+        Assert.True(minOrderIdx < minOrderCols.Count,
+            $"The min-order field sits at column {minOrderIdx} but its grid declares only {minOrderCols.Count} columns.");
+        var minOrderCol = minOrderCols[minOrderIdx];
+        Assert.True(minOrderCol.Kind == ColKind.Fixed && minOrderCol.Value >= D7MinOrderColMinWidth,
+            $"StockItemMaster's min-order-qty column (index {minOrderIdx} of "
+            + $"\"{Attr(minOrderGrid!, "ColumnDefinitions")}\") is "
+            + $"{(minOrderCol.Kind == ColKind.Fixed ? minOrderCol.Value.ToString("F0") + "px" : minOrderCol.Kind.ToString())}, "
+            + $"below {D7MinOrderColMinWidth:F0}px — D-5 restored (it shipped at 140; the defect was 110, clipping the "
+            + "placeholder \"Min order qty\" to \"Min order q\"). Widen it back.");
+
+        // ---- (E) CurrencyMaster: the currency-list header shares ONE "Auto,*" wrapper with its data. ---
+        // Anchored by the UNIQUE "Decimals" colHdr. D-3/D-4 re-hosted this header at Row 0 of the same
+        // Auto,* grid that holds its ScrollViewer (Row 1), so it sits over its own columns and on the
+        // sibling Rate table's baseline — instead of floating as a full-width band over the Rate table.
+        var currencyHeaders = Elements()
+            .Where(g => IsHeaderGrid(g) && g.Elements().Any(k => IsColHdrText(k, "Decimals")))
+            .ToList();
+        Assert.True(currencyHeaders.Count == 1,
+            $"Expected exactly 1 currency-list header grid (a header band with a \"Decimals\" colHdr), found "
+            + $"{currencyHeaders.Count}. CurrencyMaster was restructured — re-anchor clause (E).");
+        var currencyHeaderBorder = currencyHeaders[0].Parent;
+        Assert.True(currencyHeaderBorder is not null && Is(currencyHeaderBorder, "Border"),
+            "The currency-list header grid is no longer wrapped in its navy header Border.");
+
+        var currencyLists = Elements()
+            .Where(e => IsItemsControl(e) && Attr(e, "ItemsSource") == "{Binding Currencies}")
+            .ToList();
+        Assert.True(currencyLists.Count == 1,
+            $"Expected exactly 1 currency ItemsControl (ItemsSource \"{{Binding Currencies}}\"), found "
+            + $"{currencyLists.Count}.");
+        var currencyScroll = Ancestors(currencyLists[0]).FirstOrDefault(a => Is(a, "ScrollViewer"));
+        Assert.True(currencyScroll is not null,
+            "The currency list is no longer inside a ScrollViewer.");
+
+        // The header Border and the data ScrollViewer must be siblings in ONE Auto,* wrapper grid.
+        Assert.True(ReferenceEquals(currencyHeaderBorder!.Parent, currencyScroll!.Parent),
+            "The currency-list HEADER and its DATA no longer share one parent grid — D-3/D-4 restored. The header "
+            + "has drifted back out of the side-by-side table's wrapper (as the old full-width Row-3 band), so its "
+            + "Decimals/Kind columns float over the adjacent Rate-of-Exchange table instead of sitting over their own "
+            + "data. Re-host the header at Row 0 of the same Auto,* grid that holds the currency ScrollViewer.");
+        var wrapper = currencyHeaderBorder.Parent;
+        Assert.True(wrapper is not null && Is(wrapper, "Grid") && Norm(Attr(wrapper, "RowDefinitions") ?? "") == "Auto,*",
+            $"The currency table's wrapper is not a Grid RowDefinitions=\"Auto,*\" (found "
+            + $"RowDefinitions=\"{Attr(wrapper!, "RowDefinitions") ?? "(none)"}\"). That Auto,* shape is what puts the "
+            + "header on Row 0 above its data on Row 1 and aligns it with the sibling Rate table's baseline (D-4).");
+        Assert.True(Attr(currencyHeaderBorder, "Grid.Row") == "0",
+            $"The currency-list header Border is at Grid.Row=\"{Attr(currencyHeaderBorder, "Grid.Row") ?? "(0)"}\", "
+            + "not Row 0 of its Auto,* wrapper (D-4).");
+        Assert.True(Attr(currencyScroll, "Grid.Row") == "1",
+            $"The currency-list data ScrollViewer is at Grid.Row=\"{Attr(currencyScroll, "Grid.Row") ?? "(0)"}\", "
+            + "not Row 1 beneath its header (D-4).");
+    }
 }
