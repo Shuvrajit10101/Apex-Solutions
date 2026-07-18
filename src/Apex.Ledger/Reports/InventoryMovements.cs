@@ -79,7 +79,7 @@ internal static class InventoryMovements
                 result.Add(new Movement(v.Date, v.Number, v.Id, v.TypeId, typeName, baseType,
                     OriginOfAllocation(baseType, isDestination: false),
                     a.StockItemId, a.GodownId, a.BatchLabel, QuantityInBase(company, a), a.Direction,
-                    a.Rate, v.PartyId, v.Narration));
+                    RateInBase(company, a), v.PartyId, v.Narration));
             }
 
             foreach (var a in v.DestinationAllocations)
@@ -88,7 +88,7 @@ internal static class InventoryMovements
                 result.Add(new Movement(v.Date, v.Number, v.Id, v.TypeId, typeName, baseType,
                     OriginOfAllocation(baseType, isDestination: true),
                     a.StockItemId, a.GodownId, a.BatchLabel, QuantityInBase(company, a), a.Direction,
-                    a.Rate, v.PartyId, v.Narration));
+                    RateInBase(company, a), v.PartyId, v.Narration));
             }
         }
 
@@ -157,5 +157,21 @@ internal static class InventoryMovements
         if (a.UnitId is not { } unitId) return a.Quantity;
         var unit = company.FindUnit(unitId);
         return unit is null ? a.Quantity : unit.QuantityInBaseMeasure(a.Quantity);
+    }
+
+    /// <summary>
+    /// The allocation's rate re-expressed PER BASE UNIT — the same unit <see cref="QuantityInBase"/> reports
+    /// the quantity in (WI-10 slice C; see <see cref="Unit.RateInBaseMeasure"/>). A movement's Rate is
+    /// consumed straight into report rate columns (e.g. <see cref="StockItemMovement"/>) beside that base
+    /// quantity, so emitting the raw per-displayed-unit rate would make Rate × Quantity disagree with the
+    /// row's own value by the conversion factor. Item-invoice lines carry no line unit and are already
+    /// per-base.
+    /// </summary>
+    private static Money? RateInBase(Company company, InventoryAllocation a)
+    {
+        if (a.Rate is not { } r) return null;
+        if (a.UnitId is not { } unitId) return r;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? r : new Money(unit.RateInBaseMeasure(r.Amount));
     }
 }

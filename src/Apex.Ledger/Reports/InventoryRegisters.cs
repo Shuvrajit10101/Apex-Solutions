@@ -167,11 +167,15 @@ public static class InventoryRegisters
                 var item = company.FindStockItem(a.StockItemId);
                 var godown = company.FindGodown(a.GodownId);
                 var qtyBase = QuantityInBase(company, a);
-                var value = a.Rate is { } r ? Money.ForexBase(r, qtyBase) : Money.Zero;
+                var rateBase = RateInBase(company, a);
+                var value = rateBase is { } r ? Money.ForexBase(r, qtyBase) : Money.Zero;
+                // The Rate column is emitted PER BASE UNIT — the same unit Quantity is in — so a reader can
+                // multiply the two columns and land on Value. Emitting the raw per-displayed-unit rate beside
+                // a base-unit quantity made the row disagree with itself by the conversion factor.
                 rows.Add(new InventoryRegisterRow(
                     v.Date, type.Name, v.Number, a.StockItemId, item?.Name ?? "(unknown)",
                     a.GodownId, godown?.Name ?? "(unknown)", qtyBase, a.Direction,
-                    a.Rate, value, a.BatchLabel, v.PartyId, partyName, v.Narration));
+                    rateBase, value, a.BatchLabel, v.PartyId, partyName, v.Narration));
             }
         }
 
@@ -196,4 +200,16 @@ public static class InventoryRegisters
         var unit = company.FindUnit(unitId);
         return unit is null ? a.Quantity : unit.QuantityInBaseMeasure(a.Quantity);
     }
+
+    /// <summary>The allocation's rate re-expressed per the item's BASE unit — the rate on a line is per the
+    /// unit the LINE is stated in (WI-10 slice C), so it is divided by exactly the factor the quantity was
+    /// multiplied by, keeping value = qty x rate invariant under the conversion.</summary>
+    private static Money? RateInBase(Company company, InventoryAllocation a)
+    {
+        if (a.Rate is not { } r) return null;
+        if (a.UnitId is not { } unitId) return r;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? r : new Money(unit.RateInBaseMeasure(r.Amount));
+    }
+
 }

@@ -187,7 +187,7 @@ public static class AdditionalCostApportionment
             var a = dest[i];
             var q = BaseQuantity(company, a);
             baseQty[i] = q;
-            var value = a.Rate is { } r ? Money.ForexBase(r, q) : Money.Zero;
+            var value = RateInBase(company, a) is { } r ? Money.ForexBase(r, q) : Money.Zero;
             baseValue[i] = value;
             qtyWeights[i] = q;
             valueWeights[i] = value.Amount;
@@ -220,4 +220,16 @@ public static class AdditionalCostApportionment
         var unit = company.FindUnit(unitId);
         return unit is null ? a.Quantity : unit.QuantityInBaseMeasure(a.Quantity);
     }
+
+    /// <summary>The allocation's rate re-expressed per the item's BASE unit — the rate on a line is per the
+    /// unit the LINE is stated in (WI-10 slice C), so it is divided by exactly the factor the quantity was
+    /// multiplied by, keeping value = qty x rate invariant under the conversion.</summary>
+    private static Money? RateInBase(Company company, InventoryAllocation a)
+    {
+        if (a.Rate is not { } r) return null;
+        if (a.UnitId is not { } unitId) return r;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? r : new Money(unit.RateInBaseMeasure(r.Amount));
+    }
+
 }

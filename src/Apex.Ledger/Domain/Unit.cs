@@ -128,22 +128,91 @@ public sealed class Unit
 
     /// <summary>
     /// Converts a <paramref name="quantity"/> expressed in <b>this</b> unit into a quantity in the unit's
-    /// underlying base measure (its <see cref="FirstUnitId"/>). For a simple unit the quantity is already in
-    /// its own measure, so it is returned unchanged. For a compound unit "1 first = (numerator/denominator)"
-    /// of the base measure — e.g. 1 Dozen = 12 Nos — so the quantity is scaled by the exact integer factor
-    /// (no float drift, RQ-4/DP-6). The stock-movement engine calls this to normalise a line's quantity to
-    /// the item's base unit before accumulating on-hand.
+    /// underlying base measure (its <see cref="TailUnitId"/>). For a simple unit the quantity is already in
+    /// its own measure, so it is returned unchanged. For a compound unit the canonical invariant is
+    /// <c>1 × FirstUnit = (numerator/denominator) × TailUnit</c> — e.g. 1 Dozen = 12 Nos — so a quantity
+    /// stated in the compound (a count of FIRST units) is scaled UP by the exact integer factor to land in
+    /// the smaller TAIL unit (no float drift, RQ-4/DP-6). The stock-movement engine calls this to normalise
+    /// a line's quantity to the item's base unit before accumulating on-hand.
     /// </summary>
+    /// <remarks>
+    /// The direction is fixed by the corpus (R7): the Tally Prime Book (§ Compound Unit) defines
+    /// "Doz (Dozen) of 12 Nos (Numbers)" with <b>First Unit = "Dozen"</b> and <b>Second/Tail Unit =
+    /// "Numbers"</b>, and the Study Guide's table lists First/Factor/Second as Dozen/12/Pcs, Kg/1000/Grams,
+    /// Box/20/Pcs. The FIRST unit is always the LARGER unit and the TAIL the smaller one, so scaling a
+    /// count of First units by the factor can only yield TAIL units.
+    /// </remarks>
     public decimal QuantityInBaseMeasure(decimal quantity)
     {
         if (!IsCompound) return quantity;
-        // numerator/denominator = base-measure units per one of THIS compound unit.
+        // numerator/denominator = TAIL units per one FIRST unit ("the 12 in 1 Dozen = 12 Nos"), so
+        // multiplying a quantity stated in this compound unit yields a quantity in the TAIL unit.
         return quantity * ConversionNumerator!.Value / ConversionDenominator!.Value;
     }
 
-    /// <summary>The id of the underlying base measure this unit's quantities normalise to: a compound unit's
-    /// <see cref="FirstUnitId"/>, or the unit itself when simple.</summary>
-    public Guid BaseMeasureUnitId => FirstUnitId ?? Id;
+    /// <summary>
+    /// The id of the underlying base measure this unit's quantities normalise to: a compound unit's
+    /// <see cref="TailUnitId"/> (the smaller unit <see cref="QuantityInBaseMeasure"/> scales into), or the
+    /// unit itself when simple. A voucher line may only state its quantity in a unit whose
+    /// <c>BaseMeasureUnitId</c> equals the stock item's own base unit.
+    /// </summary>
+    public Guid BaseMeasureUnitId => TailUnitId ?? Id;
+
+    /// <summary>
+    /// <b>RATE SEMANTICS (WI-10 slice C) — the rate on a line is PER THE UNIT THE LINE IS STATED IN.</b>
+    /// "2 Doz-Nos @ ₹10.00" is <b>₹20.00</b>, not ₹240.00 — the conventional invoice reading, and the one
+    /// the corpus shows: a Tally invoice line carries an explicit <b>"per"</b> column naming the rate's unit
+    /// (<c>tally/719244897-Tally-Book.pdf</c>, "Quantity | Rate per | Amount"), and its worked example
+    /// reads Quantity 2 · Rate 10,000 · Amount 20,000 — i.e. <c>Amount = Quantity × Rate</c> with the
+    /// quantity in the unit shown, never silently re-expressed in some smaller base unit. (See also
+    /// <c>tally/703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf</c>: "purchased 10 nos … for 6000 per piece".)
+    /// <para>
+    /// Converts a per-<b>this</b>-unit <paramref name="rate"/> into the equivalent per-<b>base-measure</b>
+    /// rate, the inverse of <see cref="QuantityInBaseMeasure"/>. Valuation works in base units, so a rate
+    /// must be divided by exactly the factor the quantity was multiplied by — otherwise value would inflate
+    /// by that factor (a 12× error on every such line, flowing straight into GST). The product
+    /// <c>QuantityInBaseMeasure(q) × RateInBaseMeasure(r)</c> is therefore <c>q × r</c>: the line total is
+    /// invariant under the conversion, which is exactly the property the arithmetic test locks.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// The per-base rate can be non-terminating (₹10 per Dozen = ₹0.8333… per Nos). That is deliberate: it
+    /// is a derived intermediate, kept at full <see cref="decimal"/> precision so the recomposed line VALUE
+    /// rounds to the correct paisa. Only the value is money; the per-base rate is never itself persisted.
+    /// </remarks>
+    public decimal RateInBaseMeasure(decimal rate)
+    {
+        if (!IsCompound) return rate;
+        return rate * ConversionDenominator!.Value / ConversionNumerator!.Value;
+    }
+
+    /// <summary>
+    /// The exact inverse of <see cref="RateInBaseMeasure"/>: converts a per-<b>base-measure</b>
+    /// <paramref name="baseRate"/> back into the equivalent rate per <b>this</b> unit (₹0.8333…/Nos ⇒
+    /// ₹10.00/Doz). Use this whenever a rate DERIVED in base units (a live issue cost, a running average, a
+    /// layer cost) is about to be stored on, or displayed against, a line whose quantity is stated in this
+    /// compound unit.
+    /// <para>
+    /// <b>THE RISK CLASS THIS GUARDS (WI-10 defects D1–D4).</b> A site is correct only when the QUANTITY and
+    /// the RATE are expressed in the SAME unit. There are exactly two ways to break that, and BOTH misstate
+    /// money by precisely the conversion factor:
+    /// </para>
+    /// <list type="number">
+    ///   <item><b>Over-statement (12×)</b> — a base-normalised quantity (24 Nos) paired with a
+    ///     per-displayed-unit rate (₹10/Doz) reports ₹240 instead of ₹20. Fixed by
+    ///     <see cref="RateInBaseMeasure"/> (defects D1/D2/D3).</item>
+    ///   <item><b>Under-statement (12×)</b> — a per-displayed-unit quantity (2 Doz) paired with a per-base
+    ///     rate, or equivalently a rate converted TWICE, reports ₹2 instead of ₹24. Fixed by THIS method
+    ///     (defect D4).</item>
+    /// </list>
+    /// Blanket-converting to cure one direction simply creates the other; the only safe rule is to name the
+    /// unit each side is in at every site that multiplies them.
+    /// </summary>
+    public decimal RateFromBaseMeasure(decimal baseRate)
+    {
+        if (!IsCompound) return baseRate;
+        return baseRate * ConversionNumerator!.Value / ConversionDenominator!.Value;
+    }
 
     /// <summary>
     /// Rehydrates a unit from persisted fields (the SQLite adapter). Chooses simple or compound by

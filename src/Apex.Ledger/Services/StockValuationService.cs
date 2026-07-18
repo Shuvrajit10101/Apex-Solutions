@@ -185,9 +185,10 @@ public sealed class StockValuationService
             {
                 if (a.StockItemId != stockItemId) continue;
                 var qty = QuantityInBase(a);
+                var srcRate = RateInBase(a, a.Rate?.Amount);
                 tagged.Add((v.Date, physicalLast, v.Number, v.Id, a.Direction == StockDirection.Inward
-                    ? MovementEvent.Inward(qty, a.Rate?.Amount)
-                    : MovementEvent.Outward(qty, a.Rate?.Amount)));
+                    ? MovementEvent.Inward(qty, srcRate)
+                    : MovementEvent.Outward(qty, srcRate)));
             }
 
             // Destination (inward) allocations: on a Stock-Journal transfer carrying additional-cost lines, load
@@ -200,7 +201,9 @@ public sealed class StockValuationService
                 var a = v.DestinationAllocations[di];
                 if (a.StockItemId != stockItemId) continue;
                 var qty = QuantityInBase(a);
-                var rate = a.Rate?.Amount;
+                // The bare rate is per the LINE's unit, so normalise it; a landed rate already comes out of
+                // the apportionment engine per BASE unit (it is LandedValue / base quantity), so it does not.
+                var rate = RateInBase(a, a.Rate?.Amount);
                 if (landed is { } ll && ll[di].HasLoad) rate = ll[di].LandedUnitRate;
                 tagged.Add((v.Date, physicalLast, v.Number, v.Id, a.Direction == StockDirection.Inward
                     ? MovementEvent.Inward(qty, rate)
@@ -429,6 +432,20 @@ public sealed class StockValuationService
         if (a.UnitId is not { } unitId) return a.Quantity;
         var unit = _company.FindUnit(unitId);
         return unit is null ? a.Quantity : unit.QuantityInBaseMeasure(a.Quantity);
+    }
+
+    /// <summary>
+    /// The allocation's rate re-expressed per the item's BASE unit. The rate on a line is per the unit the
+    /// LINE is stated in (WI-10 slice C; see <see cref="Unit.RateInBaseMeasure"/>), so it must be divided by
+    /// exactly the factor <see cref="QuantityInBase"/> multiplied by — otherwise "2 Doz @ 10" would value at
+    /// 24 x 10 = 240 instead of 20.
+    /// </summary>
+    private decimal? RateInBase(InventoryAllocation a, decimal? rate)
+    {
+        if (rate is not { } r) return null;
+        if (a.UnitId is not { } unitId) return r;
+        var unit = _company.FindUnit(unitId);
+        return unit is null ? r : unit.RateInBaseMeasure(r);
     }
 
     private static decimal RoundQty(decimal q) => Math.Round(q, Quantities.DecimalPlaces, MidpointRounding.AwayFromZero);

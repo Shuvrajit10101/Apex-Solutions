@@ -171,7 +171,8 @@ public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExpo
         }
         if (FirstUnit is null || TailUnit is null)
         {
-            Message = "Pick a first (base) unit and a tail unit (both existing simple units).";
+            Message = "Pick a first (larger) unit and a tail (smaller, base-measure) unit — "
+                    + "both existing simple units, e.g. 1 Doz = 12 Nos.";
             return false;
         }
         if (FirstUnit.Id == TailUnit.Id)

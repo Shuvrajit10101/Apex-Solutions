@@ -211,15 +211,18 @@ public class StockMovementTests
     [Fact]
     public void Stock_journal_balances_after_compound_unit_conversion()
     {
-        // Item measured in a compound "Dozen = 12 Nos": consume 1 Dozen (source, in Dozen) and produce
+        // Item measured in a compound "Doz of 12 Nos": consume 1 Dozen (source, in Dozen) and produce
         // 12 Nos (destination, in the base) — quantities normalise to the base and balance.
         var c = CompanyFactory.CreateSeeded("Compound Co", new DateOnly(2024, 4, 1));
         var masters = new InventoryService(c);
         var grp = masters.CreateStockGroup("Goods");
         var nos = masters.CreateSimpleUnit("Nos", "Numbers");
-        var box = masters.CreateSimpleUnit("Box", "Box");
-        // Compound "Dozen": first = Nos (base measure), tail = Box (distinct), 1 Dozen = 12 Nos.
-        var dozen = masters.CreateCompoundUnit("Dozen", "Dozen", nos.Id, box.Id, 12);
+        var doz = masters.CreateSimpleUnit("Doz", "Dozens");
+        // Compound, built the corpus way: FIRST = Doz (the larger unit), TAIL = Nos (the smaller/base
+        // measure), factor 12 ⇒ 1 Doz = 12 Nos. Scaling by the factor therefore lands in the TAIL (Nos),
+        // so the compound's BaseMeasureUnitId is Nos — which is exactly this item's base unit.
+        var dozen = masters.CreateCompoundUnit("Doz-Nos", "Dozen of 12 Numbers", doz.Id, nos.Id, 12);
+        Assert.Equal(nos.Id, dozen.BaseMeasureUnitId);
         // Item held in Nos (base); source line is expressed in the item's Dozen unit for the transfer.
         var item = masters.CreateStockItem("Egg", grp.Id, nos.Id);
         var wh2 = masters.CreateGodown("WH2");

@@ -70,6 +70,13 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// <summary>The godowns each line's picker chooses from.</summary>
     public IReadOnlyList<Godown> Godowns { get; }
 
+    /// <summary>
+    /// Every unit in the company. Each line filters these down to the ones its picked item can legally be
+    /// stated in (its base unit + the compound units reducing to it) — see
+    /// <see cref="InventoryVoucherLineViewModel.UnitOptions"/> (WI-10 slice B).
+    /// </summary>
+    public IReadOnlyList<Unit> Units { get; }
+
     /// <summary>The party (supplier/customer) ledgers a PO/SO may optionally reference; empty first = "(none)".</summary>
     public ObservableCollection<PartyOption> Parties { get; } = new();
 
@@ -258,6 +265,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
 
         StockItems = company.StockItems;
         Godowns = company.Godowns;
+        Units = company.Units;
 
         // Additional-cost ledgers (Book pp.133–141): the Direct-Expenses ledgers marked as additional-cost
         // ledgers (a non-null Method of Appropriation). A plain Direct-Expenses ledger stays out (RQ-19).
@@ -301,7 +309,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// <summary>Adds a blank primary line (order / source-movement / counted); recomputes Accept-enabled.</summary>
     public InventoryVoucherLineViewModel AddLine()
     {
-        var line = new InventoryVoucherLineViewModel(PrimaryLineKind, StockItems, Godowns, Recalculate);
+        var line = new InventoryVoucherLineViewModel(PrimaryLineKind, StockItems, Godowns, Recalculate, Units);
         Lines.Add(line);
         Recalculate();
         return line;
@@ -319,7 +327,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     public InventoryVoucherLineViewModel? AddDestinationLine()
     {
         if (!IsStockJournal) return null;
-        var line = new InventoryVoucherLineViewModel(InventoryLineKind.Movement, StockItems, Godowns, Recalculate);
+        var line = new InventoryVoucherLineViewModel(InventoryLineKind.Movement, StockItems, Godowns, Recalculate, Units);
         DestinationLines.Add(line);
         Recalculate();
         return line;
@@ -385,7 +393,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
 
         var dest = destComplete
             .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch))
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch, l.UnitId))
             .ToList();
 
         var temp = InventoryVoucher.StockJournal(
@@ -457,11 +465,25 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         var sum = 0m;
         foreach (var l in lines)
             if (l.IsComplete && l.SelectedItem is not null && l.SelectedGodown is not null)
-                sum += l.ParsedQuantity; // lines are entered in the item's base unit (no compound-unit UI yet)
+                // Normalise each line into the item's base unit before summing (WI-10 slice B), so a source
+                // of "1 Doz-Nos" balances a destination of "12 Nos" — exactly what the engine accumulates.
+                sum += l.ParsedQuantityInBaseUnit;
         return sum;
     }
 
     private static string Qty(decimal q) => q.ToString("#,##0.######", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// A built allocation's quantity normalised into the stock item's BASE unit — the same conversion the
+    /// engine applies before it accumulates on hand (WI-10 slice B). Used by the Accept-time Stock-Journal
+    /// balance pre-check so it compares like with like.
+    /// </summary>
+    private decimal QuantityInBaseUnit(InventoryAllocation a)
+    {
+        if (a.UnitId is not { } unitId) return a.Quantity;
+        var unit = _company.FindUnit(unitId);
+        return unit is null ? a.Quantity : unit.QuantityInBaseMeasure(a.Quantity);
+    }
 
     /// <summary>
     /// Ctrl+A accept: pre-validates (friendly message, before the engine), builds the real
@@ -542,7 +564,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
 
         var allocations = CompleteLines(Lines)
             .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, direction, RateOf(l), l.Batch))
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, direction, RateOf(l), l.Batch, l.UnitId))
             .ToList();
         if (allocations.Count == 0) throw Blank();
 
@@ -555,11 +577,11 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     {
         var source = CompleteLines(Lines)
             .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Outward, RateOf(l), l.Batch))
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Outward, RateOf(l), l.Batch, l.UnitId))
             .ToList();
         var dest = CompleteLines(DestinationLines)
             .Select(l => new InventoryAllocation(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch))
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedQuantity, StockDirection.Inward, RateOf(l), l.Batch, l.UnitId))
             .ToList();
 
         if (source.Count == 0 || dest.Count == 0)
@@ -567,8 +589,10 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
                 "A Stock Journal needs at least one source (consumed) line and one destination (produced) line.");
 
         // Pre-check the balance before the engine so the message is friendly (the engine also enforces it).
-        var srcBase = source.Sum(a => a.Quantity);
-        var destBase = dest.Sum(a => a.Quantity);
+        // Both sides are normalised into the item's BASE unit first (WI-10 slice B) — a line may now be
+        // stated in a compound unit, so summing the raw quantities would compare Dozens against Nos.
+        var srcBase = source.Sum(QuantityInBaseUnit);
+        var destBase = dest.Sum(QuantityInBaseUnit);
         if (srcBase != destBase)
             throw new InvalidValidationException(
                 $"Stock Journal is out of balance — source {Qty(srcBase)} ≠ destination {Qty(destBase)} (base unit). Not saved.");

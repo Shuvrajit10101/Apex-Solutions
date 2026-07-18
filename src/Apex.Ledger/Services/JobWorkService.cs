@@ -94,10 +94,11 @@ public sealed class JobWorkService
         // Source (consumption/outward) lines re-priced at each item's live issue rate. The valuation engine ignores
         // an outward line's own rate (average leaves the running average unchanged; FIFO/LIFO drains layers), so
         // this only sharpens the register display — it never changes what the components' stock actually loses.
+        // The rate is re-expressed PER THE LINE'S OWN UNIT (see RatePerLineUnit) because the line keeps a.UnitId.
         var source = consume
             .Select(a => new InventoryAllocation(
                 a.StockItemId, a.GodownId, a.Quantity, StockDirection.Outward,
-                perItemRate[a.StockItemId], a.BatchLabel, a.UnitId))
+                RatePerLineUnit(perItemRate[a.StockItemId], a.UnitId), a.BatchLabel, a.UnitId))
             .ToList();
 
         // Destination (finished-good/inward) lines valued so their Σ equals the live consumed cost (paisa-conserved).
@@ -114,6 +115,16 @@ public sealed class JobWorkService
     /// Quantities are preserved on both sides (the transfer still balances in the base unit); each item's inward
     /// value is set to exactly the value the outward removes, paisa-conserved. The result is an un-posted
     /// <see cref="InventoryVoucher.MaterialMovement"/> the caller posts through <see cref="InventoryPostingService"/>.
+    /// <para>
+    /// <b>VALUE-NEUTRALITY INVARIANT (locked by test, defect D4).</b> For every item: the value the OUTWARD leg
+    /// removes equals the value the INWARD leg re-adds — both as the engine books it (total Stock-in-Hand is
+    /// unchanged by the transfer) and as the Material Out register REPORTS it (goods-out value reconciles with
+    /// goods-in value, line by line). The reported half is the fragile one: it holds only while each leg's stored
+    /// rate is expressed per that line's OWN unit, so that the register's base-unit normalisation applies the
+    /// conversion factor exactly once. Storing a per-base rate on a compound-unit line broke the reported half
+    /// silently — ₹2.00 out against ₹24.00 in — while the engine half stayed green, because valuation ignores an
+    /// outward line's own rate. See <see cref="RatePerLineUnit"/>.
+    /// </para>
     /// </summary>
     public InventoryVoucher BuildMaterialOutTransfer(
         Guid typeId,
@@ -143,11 +154,14 @@ public sealed class JobWorkService
             perItemDestQty[a.StockItemId] = q + BaseQty(a);
         }
 
-        // Source outward re-priced at live issue rate (cosmetic — valuation ignores an outward rate).
+        // Source outward re-priced at live issue rate (cosmetic — valuation ignores an outward rate), expressed
+        // PER THE LINE'S OWN UNIT (see RatePerLineUnit) because the line keeps a.UnitId. Storing the raw per-BASE
+        // rate here understated the value of goods sent to the job worker by exactly the conversion factor.
         var src = source
             .Select(a => new InventoryAllocation(
                 a.StockItemId, a.GodownId, a.Quantity, StockDirection.Outward,
-                perItemRate.TryGetValue(a.StockItemId, out var sr) ? sr : Money.Zero, a.BatchLabel, a.UnitId))
+                RatePerLineUnit(perItemRate.TryGetValue(a.StockItemId, out var sr) ? sr : Money.Zero, a.UnitId),
+                a.BatchLabel, a.UnitId))
             .ToList();
 
         // Destination inward valued so each item's Σ inward value = the value its outward removed (value-neutral).
@@ -285,5 +299,25 @@ public sealed class JobWorkService
         if (a.UnitId is not { } unitId) return a.Quantity;
         var unit = _company.FindUnit(unitId);
         return unit is null ? a.Quantity : unit.QuantityInBaseMeasure(a.Quantity);
+    }
+
+    /// <summary>
+    /// Re-expresses a rate DERIVED IN BASE UNITS (the live issue cost from <see cref="ValuePerItemIssue"/>, which
+    /// divides an issue value by the BASE quantity) as a rate per <paramref name="unitId"/> — the unit the line's
+    /// own <c>Quantity</c> is stated in — so that quantity and rate are in the SAME unit.
+    /// <para>
+    /// <b>Why this exists (defect D4).</b> Every consumer of a stored line pairs <c>Quantity</c> with <c>Rate</c>,
+    /// and the registers additionally normalise BOTH to base units before multiplying. Writing a per-base rate onto
+    /// a line whose quantity is "2 Doz" therefore got the rate divided by the factor a SECOND time: goods worth
+    /// ₹24.00 sent to a third-party job worker were reported at ₹2.00, a 12× understatement that also silently
+    /// broke the value-neutrality invariant below (goods-out value must reconcile with goods-in value). See
+    /// <see cref="Unit.RateFromBaseMeasure"/> for the full statement of the two-directional risk class.
+    /// </para>
+    /// </summary>
+    private Money RatePerLineUnit(Money baseRate, Guid? unitId)
+    {
+        if (unitId is not { } id) return baseRate;
+        var unit = _company.FindUnit(id);
+        return unit is null ? baseRate : new Money(unit.RateFromBaseMeasure(baseRate.Amount));
     }
 }

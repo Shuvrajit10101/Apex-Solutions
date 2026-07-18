@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -129,16 +131,97 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     /// <summary>True when this line's kind carries a Batch column (Movement / Counted, not Order).</summary>
     public bool ShowsBatch => Kind is InventoryLineKind.Movement or InventoryLineKind.Counted;
 
+    // --------------------------------------------------------------- line unit (WI-10 slice B)
+
+    /// <summary>
+    /// Every unit defined in the company (set by the parent; empty when the parent supplies none). The
+    /// per-line <see cref="UnitOptions"/> are filtered out of this by the picked item's base unit.
+    /// </summary>
+    public IReadOnlyList<Unit> AllUnits { get; }
+
+    /// <summary>
+    /// The units this line's quantity may legally be stated in: the picked item's own <b>base</b> unit
+    /// first, followed by every <b>compound</b> unit that reduces to it (i.e. whose
+    /// <see cref="Unit.BaseMeasureUnitId"/> is that base unit) — so an item held in Nos offers "Nos" and
+    /// "Doz-Nos", never "Kg-g". Empty until an item is picked. This is precisely the filter the
+    /// <see cref="Unit.BaseMeasureUnitId"/> direction fix makes correct.
+    /// </summary>
+    public ObservableCollection<Unit> UnitOptions { get; } = new();
+
+    /// <summary>
+    /// The unit the typed <see cref="QuantityText"/> is stated in. Defaults to the item's base unit, so an
+    /// untouched line behaves exactly as it did before line units existed.
+    /// </summary>
+    [ObservableProperty] private Unit? _selectedUnit;
+
+    /// <summary>
+    /// True when this line has a real choice of unit — the item's base unit plus at least one compound unit
+    /// reducing to it. With no alternative the picker is hidden and the line is byte-identical to a
+    /// pre-line-unit line (ER-13).
+    /// </summary>
+    public bool ShowUnit => UnitOptions.Count > 1;
+
+    /// <summary>
+    /// The unit id to stamp on the posted <see cref="InventoryAllocation"/>, or <c>null</c> when the quantity
+    /// is already in the item's base unit. Returning null for the base unit (and whenever the picker is
+    /// hidden) keeps an unchanged line's persisted + exported shape byte-identical to before this feature
+    /// (ER-13) — and it is the <b>gated-field discipline</b>: a unit is written only when the picker is
+    /// actually shown, so a hidden picker can never silently stamp a unit onto the line.
+    /// </summary>
+    public Guid? UnitId =>
+        ShowUnit && SelectedUnit is { } u && SelectedItem is { } item && u.Id != item.BaseUnitId
+            ? u.Id
+            : null;
+
+    /// <summary>
+    /// The typed quantity converted into the stock item's <b>base</b> unit — the quantity the engine
+    /// accumulates on hand. "2 Doz-Nos" ⇒ 24 Nos. Equals <see cref="ParsedQuantity"/> whenever the line is in
+    /// the base unit.
+    /// </summary>
+    public decimal ParsedQuantityInBaseUnit =>
+        UnitId is not null && SelectedUnit is { } u ? u.QuantityInBaseMeasure(ParsedQuantity) : ParsedQuantity;
+
+    /// <summary>
+    /// Rebuilds <see cref="UnitOptions"/> for the currently picked item and re-defaults
+    /// <see cref="SelectedUnit"/> when the previous pick no longer applies (a different item's units).
+    /// </summary>
+    private void RefreshUnitOptions()
+    {
+        var previous = SelectedUnit;
+        UnitOptions.Clear();
+
+        if (SelectedItem is { } item && AllUnits.Count > 0)
+        {
+            var baseUnit = AllUnits.FirstOrDefault(u => u.Id == item.BaseUnitId);
+            if (baseUnit is not null)
+            {
+                UnitOptions.Add(baseUnit);
+                foreach (var u in AllUnits)
+                    if (u.IsCompound && u.BaseMeasureUnitId == item.BaseUnitId)
+                        UnitOptions.Add(u);
+            }
+        }
+
+        OnPropertyChanged(nameof(ShowUnit));
+        // Keep the operator's pick when it is still legal for the new item; otherwise fall back to the base
+        // unit (the first option) so the line always states a unit it can actually be converted from.
+        SelectedUnit = previous is not null && UnitOptions.Any(u => u.Id == previous.Id)
+            ? UnitOptions.First(u => u.Id == previous.Id)
+            : UnitOptions.FirstOrDefault();
+    }
+
     public InventoryVoucherLineViewModel(
         InventoryLineKind kind,
         IReadOnlyList<StockItem> stockItems,
         IReadOnlyList<Godown> godowns,
-        Action onChanged)
+        Action onChanged,
+        IReadOnlyList<Unit>? units = null)
     {
         Kind = kind;
         StockItems = stockItems ?? throw new ArgumentNullException(nameof(stockItems));
         Godowns = godowns ?? throw new ArgumentNullException(nameof(godowns));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        AllUnits = units ?? Array.Empty<Unit>();
 
         // Default the godown to the Main Location so the common single-godown case needs no picking.
         foreach (var g in godowns)
@@ -149,8 +232,11 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     {
         // A new item starts a fresh, un-dirtied line so the Price-Level auto-fill can supply its rate.
         ClearPriceAutoFill();
+        RefreshUnitOptions();
         _onChanged();
     }
+
+    partial void OnSelectedUnitChanged(Unit? value) => _onChanged();
     partial void OnSelectedGodownChanged(Godown? value) => _onChanged();
     partial void OnQuantityTextChanged(string value) => _onChanged();
     partial void OnBilledQuantityTextChanged(string value) => _onChanged();

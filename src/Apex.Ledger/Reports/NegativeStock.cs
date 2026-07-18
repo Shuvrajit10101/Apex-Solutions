@@ -97,7 +97,11 @@ public sealed record NegativeStock(
                 if (a.StockItemId != item.Id || a.Direction != StockDirection.Inward) continue;
                 if (a.Rate is { } rate && rate.Amount > 0m && iv.Date >= lastDate)
                 {
-                    lastRate = rate.Amount;
+                    // The allocation's rate is PER THE LINE'S OWN UNIT, while the quantity this cost is
+                    // multiplied by is base-normalised (InventoryLedger.OnHand) — so it must be re-expressed
+                    // per base unit or the shortfall inflates by the conversion factor ("2 Doz @ ₹10" would
+                    // value each Nos at ₹10 instead of ₹0.8333…, a 12× overstatement).
+                    lastRate = RateInBase(company, a, rate.Amount);
                     lastDate = iv.Date;
                 }
             }
@@ -119,5 +123,18 @@ public sealed record NegativeStock(
         }
 
         return lastRate ?? 0m;
+    }
+
+    /// <summary>
+    /// An allocation's rate re-expressed per the item's BASE unit (WI-10 slice C; see
+    /// <see cref="Unit.RateInBaseMeasure"/>). A line states its rate per the unit the LINE is in, so pairing it
+    /// with a base-normalised quantity requires dividing by exactly the factor the quantity was multiplied by.
+    /// Opening balances and item-invoice lines carry no line unit, so they are already per-base.
+    /// </summary>
+    private static decimal RateInBase(Company company, InventoryAllocation a, decimal rate)
+    {
+        if (a.UnitId is not { } unitId) return rate;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? rate : unit.RateInBaseMeasure(rate);
     }
 }
