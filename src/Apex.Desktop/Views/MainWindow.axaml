@@ -435,7 +435,7 @@
                         </Grid>
 
                         <!-- ============ INVENTORY reports (slice 3.4b): wide per-report grids ============ -->
-                        <Grid Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*"
+                        <Grid x:Name="InventoryReportPane" Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*"
                               IsVisible="{Binding ShowSingleInventoryGrid}">
 
                           <!-- == Stock Summary: Item | Inward | Outward | Closing Qty | Rate | Value (drill: dbl-click / Enter) == -->
@@ -824,9 +824,9 @@
                                explicit widths so they scroll together and line up. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsBatchwise}">
-                          <Grid RowDefinitions="Auto,*" Width="1080" HorizontalAlignment="Left">
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="1080">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="180,120,110,110,140,100,100,100,120">
+                              <Grid ColumnDefinitions="*,120,110,110,140,100,100,100,120" MinWidth="1080">
                                 <TextBlock Grid.Column="0" Text="Item" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Batch" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Mfg" Classes="colHdr"/>
@@ -843,7 +843,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="180,120,110,110,140,100,100,100,120" Height="24">
+                                      <Grid ColumnDefinitions="*,120,110,110,140,100,100,100,120" MinWidth="1080" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -880,9 +880,9 @@
                                Past-expiry rows flagged distinctly (red foreground via ExpiryRowBrush). -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsBatchAgeAnalysis}">
-                          <Grid RowDefinitions="Auto,*" Width="1030" HorizontalAlignment="Left">
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="1030">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="190,120,110,110,130,140,110,120">
+                              <Grid ColumnDefinitions="*,120,110,110,130,140,110,120" MinWidth="1030">
                                 <TextBlock Grid.Column="0" Text="Item" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Batch" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Mfg" Classes="colHdr"/>
@@ -898,7 +898,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="190,120,110,110,130,140,110,120" Height="24">
+                                      <Grid ColumnDefinitions="*,120,110,110,130,140,110,120" MinWidth="1030" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -937,9 +937,9 @@
                                Level + item repeat only at the top of each group so the nesting reads. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsPriceList}">
-                          <Grid RowDefinitions="Auto,*" Width="1080" HorizontalAlignment="Left">
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="1080">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="170,200,130,90,90,120,90,120">
+                              <Grid ColumnDefinitions="170,*,130,90,90,120,90,120" MinWidth="1080">
                                 <TextBlock Grid.Column="0" Text="Price Level" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Item" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Applicable From" Classes="colHdr"/>
@@ -955,7 +955,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="170,200,130,90,90,120,90,120" Height="24">
+                                      <Grid ColumnDefinitions="170,*,130,90,90,120,90,120" MinWidth="1080" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -998,10 +998,10 @@
                                the SAME explicit width so they scroll together and line up. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsTaxAnalysis}">
-                          <Grid RowDefinitions="Auto,*" Width="830" HorizontalAlignment="Left"
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #GstReportPane.Bounds.Width}" MinWidth="830"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="170,120,120,120,150,150">
+                              <Grid ColumnDefinitions="*,120,120,120,150,150" MinWidth="830">
                                 <TextBlock Grid.Column="0" Text="Rate / Head" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
@@ -1015,7 +1015,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="170,120,120,120,150,150" Height="24">
+                                      <Grid ColumnDefinitions="*,120,120,120,150,150" MinWidth="830" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -1049,10 +1049,10 @@
                                share the SAME explicit width so they scroll together and stay aligned. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr1}">
-                          <Grid RowDefinitions="Auto,*" Width="1030" HorizontalAlignment="Left"
+                          <Grid RowDefinitions="Auto,*" Width="{Binding #GstReportPane.Bounds.Width}" MinWidth="1030"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="180,150,150,90,130,110,110,110">
+                              <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="1030">
                                 <TextBlock Grid.Column="0" Text="Party / HSN" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="GSTIN / Description" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Invoice / UQC" Classes="colHdr"/>
@@ -1068,7 +1068,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="180,150,150,90,130,110,110,110" Height="24">
+                                      <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="1030" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -3569,15 +3569,23 @@
                             <Border Grid.Row="1" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
-                              <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                              <StackPanel Spacing="10" Grid.IsSharedSizeScope="True">
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LedTopL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. State Bank of India"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LedTopL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Groups}"
@@ -3592,8 +3600,12 @@
                                 </Grid>
 
                                 <!-- Currency of ledger (base ₹/INR, or a created foreign currency) -->
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Currency" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LedTopL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Currency" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding CurrencyChoices}"
@@ -3609,8 +3621,12 @@
                                 <!-- Default Price Level (Book pp.34–35; slice 5 RQ-30): shown ONLY when the company's
                                      "Enable multiple Price Levels" F11 flag is on AND the group is a party (Sundry
                                      Debtors). A Sales voucher for this party defaults its Price-Level header to this. -->
-                                <Grid ColumnDefinitions="130,*" IsVisible="{Binding ShowDefaultPriceLevel}">
-                                  <TextBlock Grid.Column="0" Text="Default Price Level" FontWeight="SemiBold"
+                                <Grid IsVisible="{Binding ShowDefaultPriceLevel}">
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LedTopL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Default Price Level" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding PriceLevelChoices}"
@@ -3632,8 +3648,8 @@
                                   <StackPanel Spacing="8">
                                     <TextBlock Text="Additional Cost of Purchase (F12)" FontWeight="SemiBold" FontSize="12.5"
                                                Foreground="{StaticResource BrandNavy}"/>
-                                    <Grid ColumnDefinitions="150,*">
-                                      <TextBlock Grid.Column="0" Text="Method of Appropriation" FontWeight="SemiBold"
+                                    <Grid ColumnDefinitions="Auto,*">
+                                      <TextBlock Grid.Column="0" Text="Method of Appropriation" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                  VerticalAlignment="Center" FontSize="12.5"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3676,15 +3692,23 @@
                                   <StackPanel Spacing="8">
                                     <TextBlock Text="GST Details (party)" FontWeight="SemiBold" FontSize="12.5"
                                                Foreground="{StaticResource BrandNavy}"/>
-                                    <Grid ColumnDefinitions="110,*">
-                                      <TextBlock Grid.Column="0" Text="GSTIN/UIN" FontWeight="SemiBold"
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="GSTIN/UIN" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                  VerticalAlignment="Center" FontSize="12.5"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding PartyGstin, Mode=TwoWay}"
                                                PlaceholderText="15-char GSTIN (blank ⇒ B2C)"/>
                                     </Grid>
-                                    <Grid ColumnDefinitions="110,*">
-                                      <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold"
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                  VerticalAlignment="Center" FontSize="12.5"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3697,8 +3721,12 @@
                                         </ComboBox.ItemTemplate>
                                       </ComboBox>
                                     </Grid>
-                                    <Grid ColumnDefinitions="110,*">
-                                      <TextBlock Grid.Column="0" Text="State/UT" FontWeight="SemiBold"
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="State/UT" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                  VerticalAlignment="Center" FontSize="12.5"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3729,8 +3757,12 @@
                                     <StackPanel Spacing="8" IsVisible="{Binding TdsEnabled}">
                                       <CheckBox Content="Is TDS Applicable (withhold on payments to this ledger)"
                                                 IsChecked="{Binding TdsApplicable, Mode=TwoWay}" FontSize="12.5"/>
-                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TdsApplicable}">
-                                        <TextBlock Grid.Column="0" Text="Nature of Payment" FontWeight="SemiBold"
+                                      <Grid IsVisible="{Binding TdsApplicable}">
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedTdsL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Nature of Payment" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3749,8 +3781,12 @@
                                     <StackPanel Spacing="8" IsVisible="{Binding TcsEnabled}">
                                       <CheckBox Content="Is TCS Applicable (collect on sales through this ledger)"
                                                 IsChecked="{Binding TcsApplicable, Mode=TwoWay}" FontSize="12.5"/>
-                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TcsApplicable}">
-                                        <TextBlock Grid.Column="0" Text="Nature of Goods" FontWeight="SemiBold"
+                                      <Grid IsVisible="{Binding TcsApplicable}">
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedTdsL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Nature of Goods" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3767,16 +3803,24 @@
 
                                     <!-- Party deductee/collectee details (party group only) -->
                                     <StackPanel Spacing="8" IsVisible="{Binding ShowPartyTdsTcs}">
-                                      <Grid ColumnDefinitions="140,*">
-                                        <TextBlock Grid.Column="0" Text="Party PAN" FontWeight="SemiBold"
+                                      <Grid>
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedTdsL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Party PAN" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <TextBox Grid.Column="1" Text="{Binding PartyPan, Mode=TwoWay}"
                                                  FontFamily="Consolas,Menlo,monospace"
                                                  PlaceholderText="10-char PAN (blank ⇒ no-PAN higher rate)"/>
                                       </Grid>
-                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TdsEnabled}">
-                                        <TextBlock Grid.Column="0" Text="Deductee Type" FontWeight="SemiBold"
+                                      <Grid IsVisible="{Binding TdsEnabled}">
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedTdsL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Deductee Type" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3789,8 +3833,12 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
                                       </Grid>
-                                      <Grid ColumnDefinitions="140,*" IsVisible="{Binding TcsEnabled}">
-                                        <TextBlock Grid.Column="0" Text="Collectee Type" FontWeight="SemiBold"
+                                      <Grid IsVisible="{Binding TcsEnabled}">
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedTdsL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Collectee Type" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3820,16 +3868,24 @@
                                               FontSize="13" FontWeight="SemiBold"
                                               Foreground="{StaticResource BrandNavy}"/>
                                     <StackPanel Spacing="8" IsVisible="{Binding EnableInterest}">
-                                      <Grid ColumnDefinitions="110,*">
-                                        <TextBlock Grid.Column="0" Text="Rate %"
+                                      <Grid>
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedIntL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Rate %" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <TextBox Grid.Column="1" Width="120" HorizontalAlignment="Left"
                                                  Text="{Binding InterestRateText, Mode=TwoWay}"
                                                  PlaceholderText="e.g. 18" TextAlignment="Right"/>
                                       </Grid>
-                                      <Grid ColumnDefinitions="110,*">
-                                        <TextBlock Grid.Column="0" Text="Per"
+                                      <Grid>
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedIntL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Per" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3842,8 +3898,12 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
                                       </Grid>
-                                      <Grid ColumnDefinitions="110,*">
-                                        <TextBlock Grid.Column="0" Text="On"
+                                      <Grid>
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedIntL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="On" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3856,8 +3916,12 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
                                       </Grid>
-                                      <Grid ColumnDefinitions="110,*">
-                                        <TextBlock Grid.Column="0" Text="Applicability"
+                                      <Grid>
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedIntL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Applicability" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -3870,8 +3934,12 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
                                       </Grid>
-                                      <Grid ColumnDefinitions="110,*">
-                                        <TextBlock Grid.Column="0" Text="Style"
+                                      <Grid>
+                                        <Grid.ColumnDefinitions>
+                                          <ColumnDefinition Width="Auto" SharedSizeGroup="LedIntL"/>
+                                          <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Style" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -4098,8 +4166,8 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Departments"/>
@@ -4167,15 +4235,23 @@
                             <Border Grid.Row="1" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
-                              <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                              <StackPanel Spacing="10" Grid.IsSharedSizeScope="True">
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="CcL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Sales Team A"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Category" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="CcL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Category" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Categories}"
@@ -4188,8 +4264,12 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="CcL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding ParentOptions}"
@@ -4451,8 +4531,8 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="120,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Provisional"/>
@@ -5302,8 +5382,8 @@
                                     <StackPanel Spacing="8">
                                       <TextBlock Text="TCS Details" FontWeight="SemiBold" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
-                                      <Grid ColumnDefinitions="130,*">
-                                        <TextBlock Grid.Column="0" Text="Nature of Goods" FontWeight="SemiBold"
+                                      <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Grid.Column="0" Text="Nature of Goods" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                                    VerticalAlignment="Center" FontSize="12.5"
                                                    Foreground="{StaticResource BrandNavy}"/>
                                         <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -6348,28 +6428,44 @@
                                 <!-- Retail-receipt settings (RQ-44 / §4.3): print-after-save + title/messages/declaration on the POS type -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
                                         BorderThickness="1" Padding="14,10">
-                                  <StackPanel Spacing="6">
+                                  <StackPanel Spacing="6" Grid.IsSharedSizeScope="True">
                                     <TextBlock Text="Retail Receipt" FontWeight="Bold" FontSize="12.5"
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <CheckBox Content="Print receipt after Accept"
                                               IsChecked="{Binding PrintAfterSave, Mode=TwoWay}"/>
-                                    <Grid ColumnDefinitions="120,*">
-                                      <TextBlock Grid.Column="0" Text="Receipt title" VerticalAlignment="Center"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PosRcpt"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Receipt title" VerticalAlignment="Center" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"/>
                                       <TextBox Grid.Column="1" Text="{Binding ReceiptTitle, Mode=TwoWay}"
                                                PlaceholderText="Retail Invoice"/>
                                     </Grid>
-                                    <Grid ColumnDefinitions="120,*">
-                                      <TextBlock Grid.Column="0" Text="Message line 1" VerticalAlignment="Center"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PosRcpt"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Message line 1" VerticalAlignment="Center" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"/>
                                       <TextBox Grid.Column="1" Text="{Binding Message1, Mode=TwoWay}"
                                                PlaceholderText="Thank-you message…"/>
                                     </Grid>
-                                    <Grid ColumnDefinitions="120,*">
-                                      <TextBlock Grid.Column="0" Text="Message line 2" VerticalAlignment="Center"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PosRcpt"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Message line 2" VerticalAlignment="Center" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"/>
                                       <TextBox Grid.Column="1" Text="{Binding Message2, Mode=TwoWay}"
                                                PlaceholderText="(optional)"/>
                                     </Grid>
-                                    <Grid ColumnDefinitions="120,*">
-                                      <TextBlock Grid.Column="0" Text="Declaration" VerticalAlignment="Center"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="PosRcpt"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Declaration" VerticalAlignment="Center" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"/>
                                       <TextBox Grid.Column="1" Text="{Binding Declaration, Mode=TwoWay}"
                                                PlaceholderText="(optional)" TextWrapping="Wrap" AcceptsReturn="True"/>
                                     </Grid>
@@ -6423,8 +6519,8 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Wholesale, Retail"/>
@@ -6782,8 +6878,8 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="140,*">
-                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. On-Roll / Contract"/>
@@ -11593,7 +11689,7 @@
                                     Content="{Binding PfEcrReport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PfEcrReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
+                          <Grid x:Name="PfEcrReportPane" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -11676,9 +11772,9 @@
                                        Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                             <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Auto">
-                              <Grid RowDefinitions="Auto,*" Width="1120">
+                              <Grid RowDefinitions="Auto,*" Width="{Binding #PfEcrReportPane.Bounds.Width}" MinWidth="1120">
                                 <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="120,*,90,90,90,90,90,90,90,60,80">
+                                  <Grid ColumnDefinitions="120,*,90,90,90,90,90,90,90,60,80" MinWidth="1120">
                                     <TextBlock Grid.Column="0" Text="UAN" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Member" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="Gross" Classes="colHdr" TextAlignment="Right"/>
@@ -11696,7 +11792,7 @@
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:PfEcrMemberRowVm">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="120,*,90,90,90,90,90,90,90,60,80" Height="24">
+                                        <Grid ColumnDefinitions="120,*,90,90,90,90,90,90,90,60,80" MinWidth="1120" Height="24">
                                           <TextBlock Grid.Column="0" Text="{Binding Uan}" Margin="6,0"
                                                      VerticalAlignment="Center" FontSize="11.5"
                                                      FontFamily="Consolas,Menlo,monospace"
@@ -12369,7 +12465,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Form24Q}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:Form24QViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                          <Grid x:Name="Form24QReportPane" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -12509,9 +12605,9 @@
                                            FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                                               MaxHeight="200">
-                                  <Grid RowDefinitions="Auto,*" MinWidth="1160">
+                                  <Grid RowDefinitions="Auto,*" Width="{Binding #Form24QReportPane.Bounds.Width}" MinWidth="1160">
                                     <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                                      <Grid ColumnDefinitions="140,110,60,100,90,90,100,100,90,80,100,100">
+                                      <Grid ColumnDefinitions="*,110,60,100,90,90,100,100,90,80,100,100" MinWidth="1160">
                                         <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
                                         <TextBlock Grid.Column="1" Text="PAN" Classes="colHdr"/>
                                         <TextBlock Grid.Column="2" Text="Regime" Classes="colHdr"/>
@@ -12530,7 +12626,7 @@
                                       <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:Form24QAnnexureIIRowVm">
                                           <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                            <Grid ColumnDefinitions="140,110,60,100,90,90,100,100,90,80,100,100" Height="24">
+                                            <Grid ColumnDefinitions="*,110,60,100,90,90,100,100,90,80,100,100" MinWidth="1160" Height="24">
                                               <TextBlock Grid.Column="0" Text="{Binding Name}" Margin="4,0"
                                                          VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold"
                                                          TextTrimming="CharacterEllipsis"/>
@@ -14097,13 +14193,17 @@
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" VerticalAlignment="Top">
-                              <StackPanel Spacing="14" MinWidth="300">
+                              <StackPanel Spacing="14" MinWidth="300" Grid.IsSharedSizeScope="True">
 
                                 <!-- Sort -->
                                 <TextBlock Text="Sort" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="By" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="RsfL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="By" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding SortKeys}"
@@ -14122,22 +14222,34 @@
                                 <!-- Filter: amount range + name -->
                                 <TextBlock Text="Filter" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Min" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="RsfL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Min" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MinText, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no lower bound)"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Max" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="RsfL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Max" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MaxText, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no upper bound)"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Name has" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="RsfL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Name has" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding NameContains, Mode=TwoWay}"
                                            PlaceholderText="substring (blank = all)"/>
@@ -14177,13 +14289,17 @@
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" VerticalAlignment="Top">
-                              <StackPanel Spacing="14" MinWidth="300">
+                              <StackPanel Spacing="14" MinWidth="300" Grid.IsSharedSizeScope="True">
 
                                 <TextBlock Text="Add one comparison column" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
 
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Label" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="AccL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Label" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Label, Mode=TwoWay}"
                                            PlaceholderText="(blank = from period / scenario)"/>
@@ -14193,15 +14309,23 @@
                                 <CheckBox Content="Use an explicit period [From, To] (unchecked = as-at / whole books)"
                                           IsChecked="{Binding UsePeriod, Mode=TwoWay}"
                                           Foreground="{StaticResource BrandNavy}"/>
-                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding UsePeriod}">
-                                  <TextBlock Grid.Column="0" Text="From" FontWeight="SemiBold"
+                                <Grid IsVisible="{Binding UsePeriod}">
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="AccL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="From" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
-                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding UsePeriod}">
-                                  <TextBlock Grid.Column="0" Text="To" FontWeight="SemiBold"
+                                <Grid IsVisible="{Binding UsePeriod}">
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="AccL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="To" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding PeriodToText, Mode=TwoWay}"
                                            FontFamily="Consolas,Menlo,monospace"
@@ -14209,8 +14333,12 @@
                                 </Grid>
 
                                 <!-- Scenario -->
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Scenario" FontWeight="SemiBold"
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="AccL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Scenario" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Scenarios}"

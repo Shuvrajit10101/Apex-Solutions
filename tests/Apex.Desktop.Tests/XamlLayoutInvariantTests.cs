@@ -844,4 +844,100 @@ public sealed class XamlLayoutInvariantTests
                 + string.Join(", ", x.Stack.Elements().Select(t =>
                     $"{Attr(t, "Text")}=>{TextEdge(t, HasClass(x.Stack, "statCell"))}")) + "]")));
     }
+
+    // =============================================================================================
+    // INVARIANT 7 — the C5b contract: a wide "tier-3" report grid must be FLUID, never a hard wide
+    //               constant Width.
+    // =============================================================================================
+    //
+    // WHAT C5b WAS. Seven report bodies hardcoded a fixed WIDE size: a Width constant (Tax Analysis 830,
+    // GSTR-1 1030, Batch Age 1030, Batchwise 1080, Price List 1080, PF ECR 1120) or — Form 24Q's
+    // Annexure-II — a bare wide MinWidth (1160) with no Width at all. At the 1120/1440 default window the
+    // page column is NARROWER than that constant, so the grid overflowed the pane and hid its rightmost
+    // columns behind an inner horizontal scrollbar WHILE the pane still had empty room to the side (the
+    // "wider-than-pane" / "off-pane-blank" defect class from the sweep). The fix made each grid FLUID:
+    // Width bound to the enclosing page-pane's Bounds.Width — so it fills the pane and the widest TEXT
+    // column (turned to *) absorbs the slack — with MinWidth = the OLD constant, so at a genuinely narrow
+    // window it keeps its size and the existing inner ScrollViewer h-scrolls rather than SQUEEZING the
+    // numeric/amount columns (financial legibility).
+    //
+    // WHY THIS TEST EXISTS. The header/row twin identity is already locked by Invariant 4, and the
+    // starved-* / fixed-overflow arithmetic by Invariants 2-3 — but NONE of them sees a wide constant on
+    // the OUTER body grid. Those bodies sit inside an h-scrolling ScrollViewer, so FiniteBudget() is
+    // infinite and MeasurableGrids() skips them entirely; and Invariant 4 stays green when BOTH twins are
+    // reverted together. So a revert of the C5b outer Width — back to Width="830", or back to a bare wide
+    // MinWidth with no fluid Width — would go completely unnoticed. This invariant is that missing lock.
+    //
+    // TWO PURE RATCHETS, NO ALLOW-LIST (both green today; each may only ever stay at zero).
+    //   (A) No Grid may hardcode a numeric Width at or above the page-column floor (638). Such a grid is by
+    //       construction wider than the narrowest pane and overflows it. Today the only numeric Grid Widths
+    //       in the file are the 560/596 statutory panes, both < 638; every wide report body binds its Width
+    //       fluidly. Reverting any C5b (or D1/D2) fluid body to Width="<constant>" trips this.
+    //   (B) Every WIDE REPORT BODY — a Grid carrying a numeric MinWidth >= the floor and CONTAINING a colHdr
+    //       header (so it is provably a report body), excluding the header grid itself and any row-template
+    //       grid — must declare a fluid Width binding (a Binding to some element's .Bounds.). This catches
+    //       the Form 24Q shape, whose defect was a bare wide MinWidth with NO Width: (A) cannot see that
+    //       (there is no numeric Width to flag), but (B) demands the fluid Width be present.
+
+    private static double? NumericAttr(XElement e, string name)
+        => Attr(e, name) is { } raw
+           && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+            ? v
+            : (double?)null;
+
+    /// <summary>A wide report BODY: a Grid whose MinWidth floor meets/exceeds the page-column floor and
+    /// which CONTAINS a colHdr header grid as a descendant (so it is provably the OUTER report body — a
+    /// header grid IS its own colHdr TextBlocks' parent, so it is excluded by <see cref="IsHeaderGrid"/>,
+    /// and a per-row template grid contains only data cells, no colHdr, so the header-containment
+    /// requirement excludes it too — no DataTemplate test needed, which matters because the PF-ECR /
+    /// Form-24Q bodies legitimately live inside a report-level ContentTemplate).</summary>
+    private static List<XElement> WideReportBodies() => Elements()
+        .Where(e => Is(e, "Grid")
+                    && NumericAttr(e, "MinWidth") is { } m && m >= PageColumnContentWidth
+                    && !IsHeaderGrid(e)
+                    && e.Descendants().Any(IsHeaderGrid))
+        .ToList();
+
+    [Fact]
+    public void Wide_report_grids_must_be_fluid_not_a_hardcoded_wide_width()
+    {
+        Assert.Equal(638.0, PageColumnContentWidth); // the floor this whole test rests on
+
+        // (A) No Grid may hardcode a numeric Width >= the page floor.
+        var wideFixed = Elements()
+            .Where(e => Is(e, "Grid") && NumericAttr(e, "Width") is { } w && w >= PageColumnContentWidth)
+            .ToList();
+        Assert.True(wideFixed.Count == 0,
+            $"{wideFixed.Count} Grid(s) hardcode a numeric Width >= the page-column floor "
+            + $"({PageColumnContentWidth:F0}px). A grid wider than the narrowest pane overflows it and hides its "
+            + "rightmost columns behind an inner h-scrollbar while the pane still has room (C5b). Bind Width to the "
+            + "enclosing page-pane's Bounds.Width (MinWidth = the old constant) instead:\n"
+            + string.Join("\n", wideFixed.Select(g =>
+                $"  MainWindow.axaml({Line(g)}): Width=\"{Attr(g, "Width")}\"")));
+
+        // (B) Every wide report body must be fluid.
+        var bodies = WideReportBodies();
+
+        // NON-VACUITY: 8 wide report bodies exist today (the 7 C5b grids + the D1/D2 GSTR-3B body). If the
+        // signature stops matching (a renamed colHdr class, the MinWidth floors dropped, a restructured
+        // body), both this clause and clause (A) — which share the same XAML walk — would be judging an
+        // empty set. The floor guards the whole test.
+        Assert.True(bodies.Count >= 6,
+            $"Only {bodies.Count} wide report bodies found (expected ~8) — the wide-report-body signature has "
+            + "stopped matching, so this test would be vacuous. Fix the signature; do not lower this floor.");
+
+        var notFluid = bodies
+            .Where(g => Attr(g, "Width") is not { } w
+                        || !(w.Contains("Binding", StringComparison.Ordinal)
+                             && w.Contains(".Bounds.", StringComparison.Ordinal)))
+            .ToList();
+        Assert.True(notFluid.Count == 0,
+            $"{notFluid.Count} wide report body Grid(s) (numeric MinWidth >= {PageColumnContentWidth:F0}px, "
+            + "containing a colHdr header) do NOT bind Width fluidly to a pane's .Bounds.Width. A bare wide "
+            + "MinWidth with no fluid Width re-introduces C5b (the Form 24Q shape): the body overflows the default "
+            + "pane. Restore Width=\"{Binding #<Pane>.Bounds.Width}\":\n"
+            + string.Join("\n", notFluid.Select(g =>
+                $"  MainWindow.axaml({Line(g)}): MinWidth=\"{Attr(g, "MinWidth")}\" "
+                + $"Width=\"{Attr(g, "Width") ?? "(none)"}\"")));
+    }
 }
