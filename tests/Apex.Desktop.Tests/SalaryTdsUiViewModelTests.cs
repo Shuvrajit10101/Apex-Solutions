@@ -354,6 +354,67 @@ public sealed class SalaryTdsUiViewModelTests : IDisposable
         Assert.Equal("8,125.00", row.Tds);
     }
 
+    // ---------------------------------------------------------------- (5b) WI-6 — the §192 TDS pay-head option is
+    // reachable from the Pay Head master PICKER, and a payroll run through the SAME path the UI uses computes a
+    // NON-ZERO salary TDS that matches the SalaryIncomeTax §192 engine. This is the regression lock for WI-6: the
+    // picker used to omit IncomeTaxComponent.TaxDeductedAtSource, so PayrollComputationService's §192 gate could
+    // never be satisfied by a UI-created head and salary TDS was unconditionally ₹0 on every payslip.
+
+    [Fact]
+    public void Pay_head_master_picker_offers_the_salary_tds_marker_and_a_run_computes_non_zero_tds()
+    {
+        var vm = NewSalaryTdsCompany("PayHead TDS Picker Co");
+        var c = vm.Company!;
+
+        // (a) A Basic earnings head, created through the master screen (₹1.25L/mo flat → ₹15L/yr, the NEW-regime
+        //     golden). NEGATIVE GATE: the §192 TDS marker is NOT offered on an Earnings head.
+        vm.ShowPayHeadMaster();
+        var m = vm.PayHeadMaster!;
+        m.Name = "Basic";
+        m.SelectedType = m.Types.Single(t => t.Value == PayHeadType.Earnings);
+        m.SelectedCalcType = m.CalcTypes.Single(cc => cc.Value == PayHeadCalculationType.FlatRate);
+        m.SelectedGroup = m.GroupOptions.Single(o => o.Group is { } g && g.Name == "Indirect Expenses");
+        Assert.DoesNotContain(m.IncomeTaxComponents, i => i.Value == IncomeTaxComponent.TaxDeductedAtSource);
+        m.SelectedIncomeTaxComponent = m.IncomeTaxComponents.Single(i => i.Value == IncomeTaxComponent.BasicSalary);
+        Assert.True(m.Create(), m.Message);
+
+        // (b) The salary-TDS head, created through the master screen. The picker MUST now offer the §192 marker on an
+        //     Employees' Statutory Deductions head — the WI-6 fix. (Before the fix this option did not exist, so the
+        //     head below could not be tagged and salary TDS stayed ₹0.)
+        vm.ShowPayHeadMaster();
+        m = vm.PayHeadMaster!;
+        m.Name = "TDS on Salary";
+        m.SelectedType = m.Types.Single(t => t.Value == PayHeadType.EmployeesStatutoryDeductions);
+        m.SelectedCalcType = m.CalcTypes.Single(cc => cc.Value == PayHeadCalculationType.AsUserDefinedValue);
+        m.SelectedGroup = m.GroupOptions.Single(o => o.Group is { } g && g.Name == "Current Liabilities");
+        var tdsOption = m.IncomeTaxComponents.SingleOrDefault(i => i.Value == IncomeTaxComponent.TaxDeductedAtSource);
+        Assert.NotNull(tdsOption); // WI-6: reachable from the UI picker
+        m.SelectedIncomeTaxComponent = tdsOption;
+        Assert.True(m.Create(), m.Message);
+
+        var tdsHead = c.FindPayHeadByName("TDS on Salary")!;
+        Assert.Equal(IncomeTaxComponent.TaxDeductedAtSource, tdsHead.IncomeTaxComponent);
+
+        // (c) Wire an employee + structure and run payroll through the real §192 engine.
+        var basic = c.FindPayHeadByName("Basic")!;
+        var groupId = new PayrollService(c).CreateEmployeeGroup("Staff").Id;
+        var empId = AddEmployee(c, new Heads(basic.Id, tdsHead.Id), groupId, "Anita Rao", 125_000m);
+
+        var from = c.FinancialYearStart;
+        var to = new DateOnly(from.Year, from.Month, DateTime.DaysInMonth(from.Year, from.Month));
+        var result = new PayrollComputationService(c).Compute(empId, from, to);
+
+        // HEADLINE: salary TDS is NON-ZERO (the bug made it unconditionally ₹0) …
+        Assert.NotEqual(Money.Zero, result.SalaryTdsDeducted);
+
+        // … and equals the SalaryIncomeTax §192 average-rate monthly figure (golden ₹8,125/mo on ₹15L NEW).
+        var annualTax = SalaryIncomeTax.ComputeAnnual(
+            SalaryIncomeTax.TaxableIncome(15_00_000m, 0m, TaxRegime.New), TaxRegime.New).AnnualTax;
+        var expectedMonthly = SalaryIncomeTax.MonthlyTds(annualTax, Money.Zero, SalaryIncomeTax.MonthsRemainingInFy(to));
+        Assert.Equal(expectedMonthly, result.SalaryTdsDeducted);
+        Assert.Equal(new Money(8_125m), result.SalaryTdsDeducted);
+    }
+
     // ---------------------------------------------------------------- (6) gating
 
     [Fact]

@@ -831,9 +831,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
-        // ---- STATUTORY (GST) ----
+        // ---- STATUTORY (F11 Company Features → Statutory Configuration) ----
+        // This one F11 page hosts GST *and* TDS/TCS, Payroll Statutory (PF/ESI/PT) and §192 salary-TDS, gratuity and
+        // bonus (its own title is "Statutory Configuration (F11)"). Labelling the entry "GST" hid the salary-TDS
+        // enable toggle from anyone not looking under GST (WI-8); "GST & Taxation" signals the tax config lives here.
         col.Add(MenuItemViewModel.Header("Statutory"));
-        col.Add(new MenuItemViewModel("GST", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GST & Taxation", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
         // GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — only once GST is enabled.
         if (Company is { GstEnabled: true })
             col.Add(new MenuItemViewModel("GST Rate Setup", () => { }, "Ctrl+R", isSubItem: true, kind: MenuItemKind.Page));
@@ -4915,7 +4918,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
-            case "GST": ShowGstConfig(); break;
+            case "GST & Taxation": ShowGstConfig(); break;
             case "GST Rate Setup": ShowGstRateSetup(); break;
             // Composition returns (Phase 9 slice 3) — under Reports → Statutory Reports → Composition Returns.
             case "CMP-08": OpenCmp08Report(); break;
