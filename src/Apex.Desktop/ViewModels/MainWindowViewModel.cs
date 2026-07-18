@@ -17,6 +17,12 @@ public enum Screen
     CreateCompany,
     Gateway,
     Report,
+
+    // WI-12 — the Day-Book "Add Voucher" (Alt+A) voucher-type picker: a menu column of every ACTIVE voucher
+    // type appended to the RIGHT of the live Day Book (the report stays bound beneath it, mirroring the F12
+    // report-config column), so picking a type opens that entry over the Day Book and Esc pops back to it.
+    AddVoucherPicker,
+
     ReportConfig,
     ReportSortFilter,
     AddComparisonColumn,
@@ -2069,6 +2075,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsReportContext => Reports is not null
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
+    /// <summary>
+    /// True while the LIVE report is the Day Book (WI-12) — the single context the Alt+A "Add Voucher" picker is
+    /// offered in. Stays true while its own picker column is open (<see cref="Reports"/> is left bound beneath the
+    /// picker), so Esc/Back returns to the same live Day Book.
+    /// </summary>
+    public bool IsDayBookReport => Reports is { Kind: ReportKind.DayBook }
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+
     /// <summary>True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, or a drilled
     /// voucher-detail (which prints the voucher / tax invoice). Used to gate the Print shortcut.</summary>
     public bool IsPrintablePage =>
@@ -2584,8 +2598,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens the reusable voucher-entry screen for the given base type as a page column on the right of
     /// the cascade, resolving the seeded voucher type on the current company.
+    /// <para>WI-12: the optional <paramref name="date"/> seeds the new voucher's date (used by the Day-Book
+    /// Alt+A "Add Voucher" flow so the entry lands on the highlighted row's date); when null the entry keeps its
+    /// own default (last voucher date, else books-begin). The optional <paramref name="onSaved"/> overrides the
+    /// post-save action — defaulting to <see cref="ShowGateway"/> so every existing single-argument call site is
+    /// byte-identical — letting the Day-Book flow return to a REFRESHED Day Book instead of the Gateway.</para>
     /// </summary>
-    public void OpenVoucher(VoucherBaseType baseType)
+    public void OpenVoucher(VoucherBaseType baseType, DateOnly? date = null, Action? onSaved = null)
     {
         if (Company is null) return;
 
@@ -2599,8 +2618,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var entry = new VoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: ShowGateway,
-            onCancelled: BackFromPage);
+            onSaved: onSaved ?? ShowGateway,
+            onCancelled: BackFromPage,
+            date: date);
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
@@ -2615,7 +2635,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// screen posts to the separate <see cref="InventoryVoucher"/> aggregate via
     /// <see cref="InventoryPostingService"/> — no Dr/Cr balancing.
     /// </summary>
-    public void OpenInventoryVoucher(VoucherBaseType baseType)
+    public void OpenInventoryVoucher(VoucherBaseType baseType, DateOnly? date = null, Action? onSaved = null)
     {
         if (Company is null) return;
 
@@ -2635,14 +2655,105 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var entry = new InventoryVoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: ShowGateway,
-            onCancelled: BackFromPage);
+            onSaved: onSaved ?? ShowGateway,
+            onCancelled: BackFromPage,
+            date: date);
         // RQ-3: a batch-tracked line opens the batch-allocation sub-screen as a cascade column to the right.
         entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
             ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
         var title = $"Inventory Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.InventoryVoucherEntry, title,
             () => InventoryVoucherEntry = entry);
+    }
+
+    // =============================================================== screen: WI-12 Day-Book "Add Voucher" picker
+
+    /// <summary>
+    /// WI-12 — Alt+A on the Day Book: opens a voucher-type PICKER listing EVERY active voucher type ("Entering any
+    /// type of voucher … from the day book"; Book p.431 "Alt+A → Add a voucher in a report"). The picker is a menu
+    /// column appended to the RIGHT of the live Day Book, mirroring <see cref="OpenReportConfig"/>: it does NOT
+    /// <see cref="ClearSubScreens"/>, so <see cref="Reports"/> stays bound beneath it (the report is NOT destroyed)
+    /// and Esc/Back pops the picker straight back to the same live Day Book. Picking a type opens that voucher over
+    /// the Day Book and, on save, returns to a REFRESHED Day Book so the new entry is visible. A no-op unless the
+    /// live report is the Day Book. Reusing the cascade's own menu column (not a bespoke page/DataTemplate) keeps
+    /// the arrow/Enter navigation and rendering identical to every other submenu — and adds no new layout surface.
+    /// </summary>
+    public void OpenAddVoucherFromReport()
+    {
+        if (Company is null || !IsDayBookReport) return;
+        if (CurrentScreen == Screen.AddVoucherPicker) return; // already open — don't stack a second picker
+
+        // Seed the new voucher's date from the highlighted Day-Book row (its own voucher's date); resolve it NOW
+        // while the report is still bound, before the picker column takes focus.
+        var seedDate = ResolveAddVoucherSeedDate();
+
+        var picker = new GatewayColumn("Add Voucher");
+        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
+        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive))
+        {
+            var baseType = type.BaseType;
+            picker.Add(new MenuItemViewModel(
+                type.Name,
+                () => PickAddVoucherType(baseType, seedDate),
+                type.DefaultShortcut ?? string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        // Append WITHOUT ClearSubScreens/OpenPageColumn — the Day Book page column survives beneath (Reports stays
+        // bound), exactly like the F12 config column sits beside its live report.
+        Columns.Add(picker);
+        picker.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AddVoucherPicker;
+        ScreenTitle = "Add Voucher";
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
+    /// the Day Book's place — one page column, honouring the cascade invariant) and opens that type's entry seeded
+    /// with <paramref name="seedDate"/>, wiring the post-save action to re-run the Day Book so the new voucher
+    /// appears. Routes inventory/order kinds to the inventory entry and the Job-Work / Material kinds to their own
+    /// dedicated screens (they carry no date/refresh override, matching their existing menu route).
+    /// </summary>
+    private void PickAddVoucherType(VoucherBaseType baseType, DateOnly? seedDate)
+    {
+        // Drop the picker menu column so OpenPageColumn's trim leaves exactly one page column (the new voucher,
+        // in the Day Book's place). Without this the picker (a menu column) would survive the trim.
+        if (CurrentScreen == Screen.AddVoucherPicker && Columns.Count > 0)
+            Columns.RemoveAt(Columns.Count - 1);
+
+        // On save, return to a freshly-built Day Book (its projection now includes the just-posted voucher).
+        Action refreshDayBook = () => OpenReport(ReportKind.DayBook);
+
+        switch (baseType)
+        {
+            case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In); break;
+            case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out); break;
+            case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
+            case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            default:
+                if (VoucherEffects.IsInventoryBaseType(baseType))
+                    OpenInventoryVoucher(baseType, seedDate, refreshDayBook);
+                else
+                    OpenVoucher(baseType, seedDate, refreshDayBook);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// WI-12 — the date the Day-Book Alt+A entry defaults to: the highlighted Day-Book row's own voucher date (so an
+    /// added voucher lands in the visible period, beside the row the user was on). Falls back to null when no
+    /// drillable row is highlighted — the entry VM then keeps its default (last voucher date, else books-begin).
+    /// </summary>
+    private DateOnly? ResolveAddVoucherSeedDate()
+    {
+        var row = Reports?.SelectedRow;
+        if (row is not null && row.DrillVoucherId != Guid.Empty)
+            return Company?.FindVoucher(row.DrillVoucherId)?.Date;
+        return null;
     }
 
     // =============================================================== screen: ledger master
@@ -5291,7 +5402,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
         ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
-        ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
+        // Alt+A is context-sensitive: on the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
+        // Only ONE Alt+A row is emitted — the shell's Fire()/hint lookup takes the first key match, so a second
+        // Alt+A would shadow this. The Day-Book "Add Voucher" wins whenever the live report is the Day Book.
+        if (IsDayBookReport)
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
+        else
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
         // Create master + report quick-jumps (enabled once a company is open).
         ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));

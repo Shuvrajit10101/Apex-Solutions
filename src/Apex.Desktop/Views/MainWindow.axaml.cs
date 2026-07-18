@@ -332,6 +332,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+A on the Day Book ADDS a voucher (WI-12; Book p.431 "Add a voucher in a report"): it opens a
+        // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
+        // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying
+        // the Alt+K report-context pattern below — so it never hijacks Alt+A elsewhere. A no-op off the Day Book.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsDayBookReport)
+        {
+            vm.OpenAddVoucherFromReport();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+S (RQ-8) opens the "Save View" panel over an open report — name and store the report's current
         // configuration (kind + period/as-of + detail + F12 options + sort/filter + comparative columns). Report
         // context only, so it never fires while a drill column is the active pane. Ctrl+A on the panel saves it.
@@ -451,6 +463,12 @@ public partial class MainWindow : Window
 
             switch (e.Key)
             {
+                // Alt+F5 Debit Note / Alt+F6 Credit Note (WI-12; catalog §"Alt+F5 Debit Note · Alt+F6 Credit Note").
+                // The §34 CN/DN entry screens are fully implemented but had no key route; these bind the advertised
+                // accelerators to the existing accounting voucher entry. Checked before the inventory Alt+F kinds and
+                // after the report-context Alt+F block above so a report page's Alt+F1/F2/F12 still win.
+                case Key.F5: vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.DebitNote); e.Handled = true; return;
+                case Key.F6: vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.CreditNote); e.Handled = true; return;
                 case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.ReceiptNote); e.Handled = true; return;
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.DeliveryNote); e.Handled = true; return;
                 // Alt+F7 (RQ-53): a Manufacturing Journal is a Stock-Journal-derived type, so once the BOM feature
