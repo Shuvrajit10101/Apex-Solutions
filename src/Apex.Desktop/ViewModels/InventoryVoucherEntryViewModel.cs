@@ -37,8 +37,19 @@ namespace Apex.Desktop.ViewModels;
 /// (the engine rejects a content/type mismatch, an unbalanced Stock Journal, or any movement that would drive
 /// on-hand negative — nothing persists on failure), then saves the whole company aggregate.</para>
 /// </summary>
-public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
+public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the voucher date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => DateText;
+        set => DateText = value;
+    }
+
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly InventoryPostingService _service;
@@ -108,14 +119,25 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase
     /// <summary>True while Accept is allowed (at least one complete line, no half-filled row, SJ balanced).</summary>
     [ObservableProperty] private bool _canAccept;
 
-    /// <summary>The date as editable text (dd-MMM-yyyy) for the header TextBox (parsed on Accept via <see cref="Date"/>).</summary>
+    /// <summary>
+    /// The voucher date as editable text, in the one canonical <see cref="ApexDate.Canonical"/> spelling (WI-5).
+    /// Read by the shared DAY-FIRST parser ("03/04/2024" is 3-Apr, not the 4-Mar month-first misread).
+    /// Unparseable input is rejected, never silently discarded: <see cref="Date"/> keeps its last valid value,
+    /// <see cref="Message"/> names the problem, and the field snaps back to the canonical rendering.
+    /// </summary>
     public string DateText
     {
-        get => Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        get => ApexDate.Format(Date);
         set
         {
-            if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            if (ApexDate.TryParse(value, Date, out var parsed))
                 Date = parsed;
+            else
+                Message = ApexDate.ErrorFor(value);
+
+            // Unconditional — this VM has no OnDateChanged at all, so without an explicit notify even a
+            // SUCCESSFUL parse never echoed canonically, and a failed one left the bad text on screen.
+            OnPropertyChanged(nameof(DateText));
         }
     }
 

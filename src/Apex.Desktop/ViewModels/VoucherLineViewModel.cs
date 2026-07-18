@@ -8,6 +8,7 @@ using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
 using DomainLedger = Apex.Ledger.Domain.Ledger;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -416,11 +417,19 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         }
     }
 
-    /// <summary>The parsed instrument date, or null when blank/unparsable.</summary>
+    /// <summary>The parsed instrument date (WI-5 shared day-first parser), or null when blank/unparsable.</summary>
     public DateOnly? ParsedInstrumentDate =>
-        DateOnly.TryParse(InstrumentDateText, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
+        ApexDate.TryParse(InstrumentDateText, _voucherDate ?? DateOnly.FromDateTime(DateTime.Today), out var d)
             ? d
             : (DateOnly?)null;
+
+    /// <summary>
+    /// True when an instrument date was TYPED but cannot be read (WI-5). Blank is legitimate (no instrument
+    /// date); unreadable text is not, and the parent's Accept refuses on it rather than silently dropping the
+    /// operator's input and banking a null allocation date.
+    /// </summary>
+    public bool HasUnreadableInstrumentDate =>
+        !string.IsNullOrWhiteSpace(InstrumentDateText) && ParsedInstrumentDate is null;
 
     /// <summary>
     /// The domain <see cref="BankAllocation"/> for this line — the captured transaction type, instrument

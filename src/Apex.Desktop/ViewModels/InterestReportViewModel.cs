@@ -103,5 +103,5 @@ public sealed partial class InterestReportViewModel : ViewModelBase
         return last ?? company.FinancialYearStart.AddYears(1).AddDays(-1);
     }
 
-    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy");
+    private static string FormatDate(DateOnly d) => ApexDate.Format(d);
 }

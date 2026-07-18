@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Apex.Ledger.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -74,7 +75,7 @@ public sealed partial class EInvoiceEWayStatusReportViewModel : ViewModelBase
                 Irn = Short(e.Irn),
                 Qr = string.IsNullOrWhiteSpace(e.SignedQr) ? "—" : "Signed",
                 AckNo = e.AckNo ?? "—",
-                AckDate = e.AckDate?.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture) ?? "—",
+                AckDate = e.AckDate is { } ad ? ApexDate.Format(ad) : "—",
             });
 
         foreach (var w in _company.EWayBillRecords.OrderBy(r => r.DocumentNumberUpper, StringComparer.Ordinal))

@@ -105,5 +105,5 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
             DrillToVoucherRequested?.Invoke(id);
     }
 
-    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy");
+    private static string FormatDate(DateOnly d) => ApexDate.Format(d);
 }

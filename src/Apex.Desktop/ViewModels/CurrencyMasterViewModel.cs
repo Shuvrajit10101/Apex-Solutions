@@ -93,8 +93,7 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
 
         // A sensible default rate date: the financial-year start.
-        _rateDateText = company.FinancialYearStart
-            .ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        _rateDateText = ApexDate.Format(company.FinancialYearStart);
 
         RefreshCurrencies();
         RefreshRates();
@@ -164,10 +163,10 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
             RateMessage = "Pick a currency to set a rate for (create a foreign currency first).";
             return false;
         }
-        if (!DateOnly.TryParseExact((RateDateText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        // WI-5: shared lenient DAY-FIRST parse (was strict dd-MMM-yyyy-only on this screen).
+        if (!ApexDate.TryParse(RateDateText, out var date))
         {
-            RateMessage = "Date must be dd-MMM-yyyy (e.g. 01-Apr-2024).";
+            RateMessage = ApexDate.ErrorFor(RateDateText);
             return false;
         }
         if (!TryParseRate(StandardRateText, out var standard) || standard <= 0m)
@@ -253,7 +252,7 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
             Rates.Add(new ExchangeRateListRow
             {
                 Currency = CurrencyName(r.CurrencyId),
-                Date = r.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(r.Date),
                 Standard = r.StandardRate.ToString("#,##0.####", CultureInfo.InvariantCulture),
                 Selling = r.SellingRate is { } s ? s.ToString("#,##0.####", CultureInfo.InvariantCulture) : "—",
                 Buying = r.BuyingRate is { } b ? b.ToString("#,##0.####", CultureInfo.InvariantCulture) : "—",

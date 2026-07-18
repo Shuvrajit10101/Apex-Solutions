@@ -112,7 +112,7 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase
             });
 
         Subtitle = $"{_company.Name}  —  candidates from GSTR-2B {snapshot.ReturnPeriod} " +
-                   $"({from.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {to.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})  —  advisory only, posts nothing";
+                   $"({ApexDate.Format(from)} to {ApexDate.Format(to)})  —  advisory only, posts nothing";
         CandidatesHeader = $"Reversal candidates ({Candidates.Count})";
         StatusText = $"Outstanding reclaimable reversal balance (ECRS) ₹{BalanceTotalText}  ·  {Candidates.Count} candidate(s) surfaced for review.";
     }

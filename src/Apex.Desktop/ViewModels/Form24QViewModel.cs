@@ -204,7 +204,7 @@ public sealed partial class Form24QViewModel : ViewModelBase
                 Pan = string.IsNullOrEmpty(r.Pan) ? "PANNOTAVBL" : r.Pan!,
                 Name = r.EmployeeName,
                 Section = r.SectionCode,
-                Date = r.DeductionDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(r.DeductionDate),
                 Tds = IndianFormat.AmountAlways(r.TdsAmount),
             });
 

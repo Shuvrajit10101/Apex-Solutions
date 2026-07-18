@@ -805,7 +805,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         Company = company;
         StatusCompany = company.Name;
-        StatusDate = company.FinancialYearStart.ToString("dd-MMM-yyyy");
+        StatusDate = ApexDate.Format(company.FinancialYearStart);
         ShowGateway();
     }
 
@@ -2114,6 +2114,68 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Alt+F1 on a report — toggles detailed↔summary in place (RQ-2). A no-op on reports that do not roll up.</summary>
     public void ReportToggleDetailed() => Reports?.ToggleDetailed();
+
+    // =============================================================== F2 — set the date, in whatever window (WI-5 4c)
+
+    /// <summary>
+    /// The open ENTRY page's working-date field, or <c>null</c> when the current screen has none. This is what
+    /// makes <b>F2 — Date</b> work beyond reports: previously F2 was a stub on every non-report screen that
+    /// merely printed the financial-year start to the status line, so on a voucher-entry screen — precisely the
+    /// case the corpus documents ("Date — Type date of Purchase/Sale transactions by pressing F2") — it did
+    /// nothing useful.
+    /// </summary>
+    public ISetsWorkingDate? ActiveWorkingDateTarget => CurrentScreen switch
+    {
+        Screen.VoucherEntry => VoucherEntry,
+        Screen.InventoryVoucherEntry => InventoryVoucherEntry,
+        Screen.ManufacturingJournalEntry => ManufacturingJournalEntry,
+        Screen.JobWorkOrderEntry => JobWorkOrderEntry,
+        Screen.MaterialMovementEntry => MaterialMovementEntry,
+        Screen.PosBilling => PosBilling,
+        Screen.AttendanceVoucherEntry => AttendanceVoucher,
+        Screen.PayrollVoucherEntry => PayrollVoucher,
+        _ => null,
+    };
+
+    /// <summary>True while the open screen owns a working date that F2 can set.</summary>
+    public bool IsWorkingDateContext => ActiveWorkingDateTarget is not null;
+
+    /// <summary>
+    /// Raised when F2 asks to set the working date on an entry screen. The shell (view) responds by moving the
+    /// caret into that screen's working-date box — the keyboard-first equivalent of Tally's F2 date prompt.
+    /// <b>It deliberately does NOT open a calendar/DatePicker</b>: the app has zero DatePicker controls by
+    /// design, and F2 must stay a keyboard action.
+    /// </summary>
+    public event EventHandler? WorkingDateEditRequested;
+
+    /// <summary>
+    /// <b>F2 — Date.</b> On an entry screen this puts the caret in the working-date field so the operator types
+    /// the date (read by the one shared day-first parser, echoed canonically). Everywhere else it reports the
+    /// current working date. Reports never reach here — their bare F2 is intercepted earlier and sets the
+    /// report as-of instead (the Tally F2 / Alt+F2 split, left untouched).
+    /// </summary>
+    public void SetWorkingDate()
+    {
+        if (ActiveWorkingDateTarget is { } target)
+        {
+            StatusDate = target.WorkingDateText;
+            WorkingDateEditRequested?.Invoke(this, EventArgs.Empty);
+            Message = $"F2 — set the date (type {ApexDate.Canonical}, e.g. 01-Apr-2020).";
+            return;
+        }
+
+        Message = StatusDate;
+    }
+
+    /// <summary>
+    /// Keeps the status bar's "Current Date" showing the WORKING date of the open entry screen. Previously
+    /// <see cref="StatusDate"/> was written once, at company open, with the financial-year start and never
+    /// updated again — so it disagreed with the voucher being entered.
+    /// </summary>
+    public void RefreshStatusDate()
+    {
+        if (ActiveWorkingDateTarget is { } target) StatusDate = target.WorkingDateText;
+    }
 
     /// <summary>True while the open report is the Reorder Status report (drives its F8 / Ctrl+F9 shortcuts).</summary>
     public bool IsReorderStatusReport => IsReportContext && Reports is { IsReorderStatus: true };
@@ -5382,7 +5444,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // The core accounting F-keys. Report/voucher shortcuts are wired where implemented.
         ButtonBar.Add(new ButtonBarItem("F1", "Help", () => Message = "Apex Solutions — accounting (Phase 1)."));
-        ButtonBar.Add(new ButtonBarItem("F2", "Date", () => Message = StatusDate));
+        // F2 — Date. On an entry screen this now SETS the working date (caret into the date field, keyboard-only);
+        // elsewhere it reports the current date. It used to unconditionally print the never-updated FY-start.
+        ButtonBar.Add(new ButtonBarItem("F2", "Date", SetWorkingDate));
         ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 
         var hasCompany = Company is not null;

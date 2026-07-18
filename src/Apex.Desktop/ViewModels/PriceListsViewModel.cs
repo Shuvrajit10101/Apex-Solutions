@@ -97,7 +97,7 @@ public sealed partial class PriceListsViewModel : ViewModelBase
         // screens use — a sensible "as of today's books" starting point.
         var last = company.Vouchers.Count == 0 ? (DateOnly?)null : company.Vouchers.Max(v => v.Date);
         var applicable = last ?? company.BooksBeginFrom;
-        _applicableFromText = applicable.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        _applicableFromText = ApexDate.Format(applicable);
 
         AddSlabRow();          // one blank trailing row ready to type into
         RefreshHistory();
@@ -140,10 +140,10 @@ public sealed partial class PriceListsViewModel : ViewModelBase
             Message = "Pick an inventory item.";
             return false;
         }
-        if (!DateOnly.TryParse((ApplicableFromText ?? string.Empty).Trim(), CultureInfo.InvariantCulture,
-                DateTimeStyles.None, out var applicableFrom))
+        // WI-5: shared DAY-FIRST parse (was a bare InvariantCulture parse — the MM/dd misread).
+        if (!ApexDate.TryParse(ApplicableFromText, out var applicableFrom))
         {
-            Message = "Enter a valid Applicable-From date (e.g. 01-Apr-2026).";
+            Message = $"Applicable-From: {ApexDate.ErrorFor(ApplicableFromText)}";
             return false;
         }
 
@@ -221,7 +221,7 @@ public sealed partial class PriceListsViewModel : ViewModelBase
             var slabs = string.Join("   ", pl.Slabs.Select(FormatSlab));
             History.Add(new PriceListVersionRow
             {
-                ApplicableFrom = pl.ApplicableFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                ApplicableFrom = ApexDate.Format(pl.ApplicableFrom),
                 Slabs = slabs,
             });
         }

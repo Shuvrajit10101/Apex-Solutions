@@ -223,7 +223,10 @@ public sealed class ComparativeReportViewModelTests : IDisposable
 
         Assert.False(report.IsComparative);
         Assert.DoesNotContain("Added", panel.Status);
-        Assert.Contains("Unrecognized date", panel.Status);
+        // WI-5: the rejection is unchanged; the message now comes from the ONE shared date contract and
+        // names both the offending input and the canonical format the whole app agrees on.
+        Assert.Contains("not-a-date", panel.Status);
+        Assert.Contains(ApexDate.Canonical, panel.Status);
     }
 
     [Fact]

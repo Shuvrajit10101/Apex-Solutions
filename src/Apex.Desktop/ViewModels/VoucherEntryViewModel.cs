@@ -24,8 +24,19 @@ namespace Apex.Desktop.ViewModels;
 /// <see cref="LedgerService.Post"/> (which rejects an unbalanced/invalid voucher), then persists the
 /// whole company aggregate to its <c>.db</c> via <see cref="CompanyStorage.Save"/>.</para>
 /// </summary>
-public sealed partial class VoucherEntryViewModel : ViewModelBase
+public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the voucher date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => DateText;
+        set => DateText = value;
+    }
+
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly LedgerService _service;
@@ -431,18 +442,31 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     [ObservableProperty] private string _applicableUptoText = string.Empty;
 
     /// <summary>
-    /// The date as editable text (dd-MMM-yyyy) for the header TextBox. Setting it with a parseable
-    /// value updates <see cref="Date"/>; an unparseable value is kept as-typed and left for Accept
-    /// to surface (the engine also rejects a date before books-begin).
+    /// The voucher date as editable text, in the one canonical <see cref="ApexDate.Canonical"/> spelling
+    /// (WI-5). Input is read by the shared DAY-FIRST parser, so "03/04/2024" is 3-Apr — never the 4-Mar
+    /// month-first misread the old InvariantCulture parse produced.
+    /// <para>
+    /// Unparseable input is <b>rejected, never silently discarded</b>: <see cref="Date"/> keeps its last
+    /// valid value, <see cref="Message"/> names the problem, and the field is re-notified so the rejected
+    /// text snaps back to the canonical rendering of the date actually held. (Previously the typed text
+    /// stayed on screen while a DIFFERENT date posted — screen and stored value silently disagreed.)
+    /// </para>
     /// </summary>
     public string DateText
     {
-        get => Date.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        get => ApexDate.Format(Date);
         set
         {
-            if (DateOnly.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None, out var parsed))
+            if (ApexDate.TryParse(value, Date, out var parsed))
                 Date = parsed;
+            else
+                Message = ApexDate.ErrorFor(value);
+
+            // Re-notify UNCONDITIONALLY. On success this echoes the canonical spelling even when the parsed
+            // date equals the current one (Date would not raise); on failure it replaces the rejected text
+            // with the date actually held. The property-changed path alone cannot do this — it only fires
+            // when Date CHANGES, which is exactly why the discard used to be silent.
+            OnPropertyChanged(nameof(DateText));
         }
     }
 
@@ -532,8 +556,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         Title = $"{type.Name} Voucher";
 
         // A Reversing Journal defaults its "Applicable Upto" to the financial-year end.
-        _applicableUptoText = company.FinancialYearStart.AddYears(1).AddDays(-1)
-            .ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        _applicableUptoText = ApexDate.Format(company.FinancialYearStart.AddYears(1).AddDays(-1));
 
         // Seed two starter lines: the first Dr, the second Cr (opens with a By/To pair).
         AddLine(DrCr.Debit);
@@ -1285,12 +1308,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return (invoice.Id, invoice.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), invoice.Date);
 
         var number = string.IsNullOrWhiteSpace(CdnOriginalInvoiceNumber) ? null : CdnOriginalInvoiceNumber.Trim();
-        DateOnly? date = DateOnly.TryParseExact(
-            (CdnOriginalInvoiceDateText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-            System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.None, out var parsed)
-            ? parsed
-            : null;
+        // WI-5: the shared lenient day-first parser, so a typed original-invoice date accepts the same
+        // spellings as every other date field in the app.
+        DateOnly? date = ApexDate.TryParse(CdnOriginalInvoiceDateText, Date, out var parsed) ? parsed : null;
         return (null, number, date);
     }
 
@@ -1732,6 +1752,23 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // WI-5: reject an UNREADABLE typed date up front rather than silently banking a null. A blank
+        // instrument / bill due date legitimately means "none"; text that cannot be read does not, and
+        // dropping it would post a voucher whose dates disagree with what the operator typed.
+        var badLineDate = Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate);
+        if (badLineDate is not null)
+        {
+            Message = ApexDate.ErrorFor(badLineDate.InstrumentDateText);
+            return false;
+        }
+
+        var badDueDate = Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate);
+        if (badDueDate is not null)
+        {
+            Message = ApexDate.ErrorFor(badDueDate.DueDateText);
+            return false;
+        }
+
         // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
         var badBill = Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk);
         if (badBill is not null)
@@ -1917,11 +1954,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         DateOnly? applicableUpto = null;
         if (IsReversing)
         {
-            if (!DateOnly.TryParseExact((ApplicableUptoText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None, out var upto))
+            if (!ApexDate.TryParse(ApplicableUptoText, Date, out var upto))
             {
-                Message = "Applicable Upto must be dd-MMM-yyyy (e.g. 30-Apr-2024).";
+                Message = ApexDate.ErrorFor(ApplicableUptoText);
                 return false;
             }
             if (upto < Date)

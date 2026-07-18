@@ -1924,7 +1924,7 @@
                                              VerticalAlignment="Center" Margin="16,0,0,0">
                                     <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                   </TextBlock>
-                                  <TextBox Grid.Column="3" Width="140"
+                                  <TextBox Classes="working-date" Grid.Column="3" Width="140"
                                            Text="{Binding DateText, Mode=TwoWay}"
                                            FontSize="12" VerticalAlignment="Center"/>
                                 </Grid>
@@ -2945,7 +2945,7 @@
                                           IsChecked="{Binding IsPostDated, Mode=TwoWay}"
                                           Foreground="#CFE0FF" FontSize="11"
                                           VerticalAlignment="Center" Margin="0,0,16,0"/>
-                                <TextBox Grid.Column="3" Width="140"
+                                <TextBox Classes="working-date" Grid.Column="3" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -3229,7 +3229,7 @@
                                            VerticalAlignment="Center" Margin="0,0,18,0">
                                   <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                 </TextBlock>
-                                <TextBox Grid.Column="2" Width="140"
+                                <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -3451,7 +3451,7 @@
                                            VerticalAlignment="Center" Margin="0,0,18,0">
                                   <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                 </TextBlock>
-                                <TextBox Grid.Column="2" Width="140"
+                                <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -6221,7 +6221,7 @@
                                   <TextBlock Grid.Column="2" Text="Date" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="10,0,0,0"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                  <TextBox Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
+                                  <TextBox Classes="working-date" Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="110,*,110,*">
@@ -6433,7 +6433,7 @@
                                   <TextBlock Grid.Column="2" Text="Date" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="10,0,0,0"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                  <TextBox Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
+                                  <TextBox Classes="working-date" Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="110,*,90,150">
@@ -8113,7 +8113,7 @@
                                                  VerticalAlignment="Center" Margin="10,0,0,0"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding EffectiveFromText, Mode=TwoWay}"
-                                               PlaceholderText="yyyy-MM-dd"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                     </Grid>
                                     <Grid ColumnDefinitions="130,*,130,*">
                                       <TextBlock Grid.Column="0" Text="{Binding ScopeTargetLabel}" FontWeight="SemiBold"
@@ -8278,13 +8278,13 @@
                                     <Grid ColumnDefinitions="130,*,130,*">
                                       <TextBlock Grid.Column="0" Text="Period From" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                      <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBox Classes="working-date" Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Period To" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding PeriodToText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                     </Grid>
 
                                     <!-- attendance / production lines -->
@@ -8405,18 +8405,18 @@
                                       <TextBlock Grid.Column="0" Text="Period From" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Period To" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding PeriodToText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                     </Grid>
                                     <Grid ColumnDefinitions="120,*,120,*">
                                       <TextBlock Grid.Column="0" Text="Voucher Date" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                      <TextBox Grid.Column="1" Text="{Binding VoucherDateText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBox Classes="working-date" Grid.Column="1" Text="{Binding VoucherDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="" />
                                       <TextBlock Grid.Column="3" Text="" />
                                     </Grid>
@@ -11592,7 +11592,7 @@
                                                  VerticalAlignment="Center" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Section" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
@@ -13158,7 +13158,7 @@
                                                  VerticalAlignment="Center" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Collection Code" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>

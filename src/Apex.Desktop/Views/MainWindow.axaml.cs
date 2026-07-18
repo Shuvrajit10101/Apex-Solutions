@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Specialized;
 using System.IO;
+using System.Linq;
+using Avalonia.VisualTree;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -19,11 +21,52 @@ public partial class MainWindow : Window
         InitializeComponent();
         // Handle keys at the tunnelling stage so arrow/Enter/Esc work regardless of focus.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
-        DataContextChanged += (_, _) => HookCascadeAutoScroll();
+        DataContextChanged += (_, _) => { HookCascadeAutoScroll(); HookWorkingDateFocus(); };
         HookCascadeAutoScroll();
+        HookWorkingDateFocus();
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    private MainWindowViewModel? _watchedVm;
+
+    /// <summary>
+    /// Subscribes to the shell's "F2 — set the date" request (WI-5 4c). The view's only job is to move the
+    /// caret into the open entry screen's working-date box; parsing and canonical echo belong to the view model.
+    /// </summary>
+    private void HookWorkingDateFocus()
+    {
+        if (_watchedVm is not null)
+            _watchedVm.WorkingDateEditRequested -= OnWorkingDateEditRequested;
+
+        _watchedVm = Vm;
+        if (_watchedVm is not null)
+            _watchedVm.WorkingDateEditRequested += OnWorkingDateEditRequested;
+    }
+
+    private void OnWorkingDateEditRequested(object? sender, EventArgs e)
+        // Defer to the next layout pass: F2 may have opened/switched the page, so the target box can still be
+        // materialising when the request is raised.
+        => Dispatcher.UIThread.Post(FocusWorkingDateBox, DispatcherPriority.Loaded);
+
+    /// <summary>
+    /// Focuses (and selects) the visible working-date TextBox of the open entry screen — the boxes tagged
+    /// <c>Classes="working-date"</c> in the XAML. Selecting the text means the operator can simply type the new
+    /// date over it, which is what F2 does in the reference product. No calendar is opened: the app has zero
+    /// DatePicker controls by design and this keeps F2 keyboard-only.
+    /// </summary>
+    private void FocusWorkingDateBox()
+    {
+        foreach (var box in this.GetVisualDescendants().OfType<TextBox>())
+        {
+            if (!box.Classes.Contains("working-date")) continue;
+            if (!box.IsEffectivelyVisible || !box.IsEffectivelyEnabled) continue;
+
+            box.Focus();
+            box.SelectAll();
+            return;
+        }
+    }
 
     /// <summary>
     /// Keeps the newly-active (rightmost) cascade column in view: whenever a column is added/removed we

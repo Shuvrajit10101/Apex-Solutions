@@ -5,6 +5,7 @@ using System.Globalization;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -83,10 +84,13 @@ public sealed partial class JobWorkComponentLineViewModel : ViewModelBase
     /// <summary>True when a rate was typed (so the parent must validate it is paisa-exact + ≥ 0).</summary>
     public bool HasRate => !string.IsNullOrWhiteSpace(RateText);
 
-    /// <summary>The parsed due date (null when blank/unparsable).</summary>
+    /// <summary>The parsed due date (WI-5 shared day-first parser; null when blank/unparsable).</summary>
     public DateOnly? ParsedDue =>
-        DateOnly.TryParse((DueText ?? string.Empty).Trim(), CultureInfo.InvariantCulture,
-            DateTimeStyles.None, out var d) ? d : (DateOnly?)null;
+        ApexDate.TryParse(DueText, out var d) ? d : (DateOnly?)null;
+
+    /// <summary>True when a due date was TYPED but cannot be read (WI-5) — the parent refuses rather than dropping it.</summary>
+    public bool HasUnreadableDue =>
+        !string.IsNullOrWhiteSpace(DueText) && ParsedDue is null;
 
     /// <summary>True once the row has been touched at all — a wholly blank trailing row is ignored.</summary>
     public bool IsBlank =>

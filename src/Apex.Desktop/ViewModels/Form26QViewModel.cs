@@ -183,7 +183,7 @@ public sealed partial class Form26QViewModel : ViewModelBase
             {
                 ChallanNo = ch.ChallanNo,
                 BsrCode = ch.BsrCode,
-                DepositDate = ch.DepositDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                DepositDate = ApexDate.Format(ch.DepositDate),
                 Amount = IndianFormat.AmountAlways(ch.Amount),
                 Section = ch.Section,
                 DeducteeCount = ch.DeducteeRows.Count.ToString(CultureInfo.InvariantCulture),
@@ -197,7 +197,7 @@ public sealed partial class Form26QViewModel : ViewModelBase
                 Name = r.DeducteeName,
                 Section = r.SectionCode,
                 FvuCode = r.FvuSectionCode,
-                Date = r.DeductionDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(r.DeductionDate),
                 AmountPaid = IndianFormat.AmountAlways(r.AmountPaid),
                 Tds = IndianFormat.AmountAlways(r.TdsAmount),
                 Rate = r.RatePercent.ToString("0.00", CultureInfo.InvariantCulture),

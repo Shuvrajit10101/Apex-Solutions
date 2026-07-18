@@ -184,7 +184,7 @@ public sealed partial class Form27EQViewModel : ViewModelBase
             {
                 ChallanNo = ch.ChallanNo,
                 BsrCode = ch.BsrCode,
-                DepositDate = ch.DepositDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                DepositDate = ApexDate.Format(ch.DepositDate),
                 Amount = IndianFormat.AmountAlways(ch.Amount),
                 CollectionCode = ch.CollectionCode,
                 CollecteeCount = ch.CollecteeRows.Count.ToString(CultureInfo.InvariantCulture),
@@ -198,7 +198,7 @@ public sealed partial class Form27EQViewModel : ViewModelBase
                 Name = r.CollecteeName,
                 CollectionCode = r.CollectionCode,
                 FvuCode = r.FvuCollectionCode,
-                Date = r.CollectionDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(r.CollectionDate),
                 AmountReceived = IndianFormat.AmountAlways(r.AmountReceived),
                 Tcs = IndianFormat.AmountAlways(r.TcsAmount),
                 Rate = r.RatePercent.ToString("0.00", CultureInfo.InvariantCulture),

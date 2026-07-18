@@ -129,7 +129,7 @@ public sealed partial class ItcSetOffReportViewModel : ViewModelBase
         Allocation = alloc;
 
         Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}  " +
-                   $"({fyFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {fyTo.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})  —  projection only, posts nothing";
+                   $"({ApexDate.Format(fyFrom)} to {ApexDate.Format(fyTo)})  —  projection only, posts nothing";
 
         LiabCgstText = R(demand.LiabCgst); LiabSgstText = R(demand.LiabSgst); LiabIgstText = R(demand.LiabIgst);
         LiabRcmCashText = R(demand.LiabRcmCash);

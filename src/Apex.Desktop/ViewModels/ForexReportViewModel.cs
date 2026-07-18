@@ -93,8 +93,7 @@ public sealed partial class ForexReportViewModel : ViewModelBase
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
 
-        _asOfText = ComputeDefaultAsOf(company)
-            .ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        _asOfText = ApexDate.Format(ComputeDefaultAsOf(company));
 
         Recompute();
     }
@@ -106,10 +105,10 @@ public sealed partial class ForexReportViewModel : ViewModelBase
     public void Recompute()
     {
         Message = null;
-        if (!DateOnly.TryParseExact((AsOfText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var asOf))
+        // WI-5: shared lenient DAY-FIRST parse (was strict dd-MMM-yyyy-only on this screen).
+        if (!ApexDate.TryParse(AsOfText, out var asOf))
         {
-            Message = "As-of date must be dd-MMM-yyyy (e.g. 31-Mar-2024).";
+            Message = ApexDate.ErrorFor(AsOfText);
             return;
         }
 
@@ -177,10 +176,10 @@ public sealed partial class ForexReportViewModel : ViewModelBase
     public Voucher? BookAdjustment()
     {
         Message = null;
-        if (!DateOnly.TryParseExact((AsOfText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var asOf))
+        // WI-5: shared lenient DAY-FIRST parse (was strict dd-MMM-yyyy-only on this screen).
+        if (!ApexDate.TryParse(AsOfText, out var asOf))
         {
-            Message = "As-of date must be dd-MMM-yyyy (e.g. 31-Mar-2024).";
+            Message = ApexDate.ErrorFor(AsOfText);
             return null;
         }
 

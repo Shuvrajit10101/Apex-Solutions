@@ -244,7 +244,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                 {
                     VoucherId = v.Id,
                     DocNo = EInvoiceService.DocumentNumberOf(v),
-                    Date = v.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                    Date = ApexDate.Format(v.Date),
                     Party = v.PartyId is { } pid ? _company.FindLedger(pid)?.Name ?? string.Empty : string.Empty,
                     InputTax = R(itc),
                 });

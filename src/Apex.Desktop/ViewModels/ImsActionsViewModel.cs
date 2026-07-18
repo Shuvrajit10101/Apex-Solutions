@@ -149,7 +149,7 @@ public sealed partial class ImsActionsViewModel : ViewModelBase
 
         var (from, to) = GstAdvancedSnapshots.Window(snap.ReturnPeriod, _company.FinancialYearStart);
         Subtitle = $"{_company.Name}  —  GSTR-2B {snap.ReturnPeriod} " +
-                   $"({from.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {to.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})";
+                   $"({ApexDate.Format(from)} to {ApexDate.Format(to)})";
         StatusText = $"Accepted {AcceptedCount}  ·  rejected {RejectedCount}  ·  pending {PendingCount}" +
                      (NotActionableCount > 0 ? $"  ·  {NotActionableCount} RCM line(s) bypass IMS (§3.3)." : ".") +
                      "  A line left un-actioned is deemed accepted on filing.";
@@ -294,7 +294,7 @@ public sealed partial class ImsActionsViewModel : ViewModelBase
             LineId = line.Id,
             Supplier = line.SupplierGstin,
             DocNo = line.DocNumber,
-            Date = line.DocDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+            Date = ApexDate.Format(line.DocDate),
             TaxableValue = R(line.TaxableValuePaisa),
             Tax = R(line.TotalTaxPaisa),
             Status = line.ReverseCharge ? "Not actionable" : status,

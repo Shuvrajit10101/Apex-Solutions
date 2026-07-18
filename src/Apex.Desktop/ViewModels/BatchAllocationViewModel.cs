@@ -7,6 +7,7 @@ using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -66,9 +67,9 @@ public sealed partial class BatchAllocationLineViewModel : ViewModelBase
         {
             NewBatchNumber = string.Empty;
             ManufacturingDateText = b.ManufacturingDate is { } m
-                ? m.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture) : string.Empty;
+                ? ApexDate.Format(m) : string.Empty;
             ExpiryText = b.ResolvedExpiryDate is { } e
-                ? e.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture) : string.Empty;
+                ? ApexDate.Format(e) : string.Empty;
         }
         _onChanged();
     }
@@ -198,7 +199,7 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
     private static string BatchLabel(BatchMaster b)
     {
         var expiry = b.ResolvedExpiryDate is { } e
-            ? "  (exp " + e.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture) + ")"
+            ? "  (exp " + ApexDate.Format(e) + ")"
             : string.Empty;
         return b.BatchNumber + expiry;
     }
@@ -270,7 +271,7 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
             if (warn is null) continue;
 
             line.IsExpired = warn.Kind == BatchExpiryKind.Expired;
-            var on = warn.ExpiryDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+            var on = ApexDate.Format(warn.ExpiryDate);
             line.Warning = warn.Kind == BatchExpiryKind.Expired
                 ? $"EXPIRED on {on} ({-warn.DaysToExpiry} day(s) ago) — issuing anyway is allowed."
                 : $"Near expiry: expires {on} (in {warn.DaysToExpiry} day(s)).";

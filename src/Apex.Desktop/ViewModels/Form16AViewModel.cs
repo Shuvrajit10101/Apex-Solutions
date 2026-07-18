@@ -250,7 +250,7 @@ public sealed partial class Form16AViewModel : ViewModelBase
             {
                 Section = d.SectionCode,
                 FvuCode = d.FvuSectionCode,
-                Date = d.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(d.Date),
                 AmountPaid = IndianFormat.AmountAlways(d.AmountPaid),
                 Tds = IndianFormat.AmountAlways(d.TdsAmount),
                 Rate = d.RatePercent.ToString("0.00", CultureInfo.InvariantCulture),
@@ -261,7 +261,7 @@ public sealed partial class Form16AViewModel : ViewModelBase
             {
                 ChallanNo = ch.ChallanNo,
                 BsrCode = ch.BsrCode,
-                DepositDate = ch.DepositDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                DepositDate = ApexDate.Format(ch.DepositDate),
                 TdsDeposited = IndianFormat.AmountAlways(ch.TdsDeposited),
             });
 

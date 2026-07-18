@@ -287,9 +287,10 @@ public sealed partial class EmployeeMasterViewModel : ViewModelBase, IMasterList
         value = null;
         var trimmed = (text ?? string.Empty).Trim();
         if (trimmed.Length == 0) return true;
-        if (!DateOnly.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        // WI-5: shared DAY-FIRST parse (was a bare InvariantCulture parse — the MM/dd misread).
+        if (!ApexDate.TryParse(trimmed, out var parsed))
         {
-            Message = $"{fieldLabel} must be a valid date (e.g. 2025-04-01), or blank.";
+            Message = $"{fieldLabel}: {ApexDate.ErrorFor(trimmed)}";
             return false;
         }
         value = parsed;

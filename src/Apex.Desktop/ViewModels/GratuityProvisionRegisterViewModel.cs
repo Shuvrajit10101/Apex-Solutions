@@ -170,7 +170,7 @@ public sealed partial class GratuityProvisionRegisterViewModel : ViewModelBase
                 {
                     EmployeeName = r.EmployeeName,
                     EmployeeNumber = string.IsNullOrWhiteSpace(r.EmployeeNumber) ? "—" : r.EmployeeNumber!,
-                    DateOfJoining = r.DateOfJoining is { } d ? d.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture) : "—",
+                    DateOfJoining = r.DateOfJoining is { } d ? ApexDate.Format(d) : "—",
                     CompletedYears = r.CompletedYears.ToString(CultureInfo.InvariantCulture),
                     Vested = r.Vested ? "Yes" : "No",
                     BasicPlusDa = R(r.BasicPlusDa),

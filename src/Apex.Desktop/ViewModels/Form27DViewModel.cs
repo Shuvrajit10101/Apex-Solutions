@@ -222,7 +222,7 @@ public sealed partial class Form27DViewModel : ViewModelBase
             {
                 CollectionCode = d.CollectionCode,
                 FvuCode = d.FvuCollectionCode,
-                Date = d.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(d.Date),
                 AmountReceived = IndianFormat.AmountAlways(d.AmountReceived),
                 Tcs = IndianFormat.AmountAlways(d.TcsAmount),
                 Rate = d.RatePercent.ToString("0.00", CultureInfo.InvariantCulture),
@@ -233,7 +233,7 @@ public sealed partial class Form27DViewModel : ViewModelBase
             {
                 ChallanNo = ch.ChallanNo,
                 BsrCode = ch.BsrCode,
-                DepositDate = ch.DepositDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                DepositDate = ApexDate.Format(ch.DepositDate),
                 TcsDeposited = IndianFormat.AmountAlways(ch.TcsDeposited),
             });
 

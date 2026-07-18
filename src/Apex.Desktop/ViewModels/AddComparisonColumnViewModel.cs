@@ -4,6 +4,7 @@ using System.Globalization;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -22,7 +23,6 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class AddComparisonColumnViewModel : ViewModelBase
 {
-    private const string DateFormat = "dd-MMM-yyyy";
 
     private readonly ReportsViewModel _report;
 
@@ -104,9 +104,14 @@ public sealed partial class AddComparisonColumnViewModel : ViewModelBase
         PeriodRange? period = null;
         if (UsePeriod)
         {
-            if (!TryParse(PeriodFromText, out var from) || !TryParse(PeriodToText, out var to))
+            if (!TryParse(PeriodFromText, out var from))
             {
-                Status = "Unrecognized date. Use the dd-MMM-yyyy format (e.g. 01-Apr-2020).";
+                Status = ApexDate.ErrorFor(PeriodFromText);
+                return;
+            }
+            if (!TryParse(PeriodToText, out var to))
+            {
+                Status = ApexDate.ErrorFor(PeriodToText);
                 return;
             }
             if (from > to)
@@ -128,9 +133,9 @@ public sealed partial class AddComparisonColumnViewModel : ViewModelBase
         Status = "Added — report now shows a comparison column.";
     }
 
-    private static string Fmt(DateOnly d) => d.ToString(DateFormat, CultureInfo.InvariantCulture);
+    // WI-5: the ONE app-wide date contract. This screen used to declare its own private format const and a
+    // STRICT dd-MMM-yyyy-only parse, so a date the user could type on one screen was rejected on this one.
+    private static string Fmt(DateOnly d) => ApexDate.Format(d);
 
-    private static bool TryParse(string? text, out DateOnly date) =>
-        DateOnly.TryParseExact((text ?? string.Empty).Trim(), DateFormat,
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    private static bool TryParse(string? text, out DateOnly date) => ApexDate.TryParse(text, out date);
 }

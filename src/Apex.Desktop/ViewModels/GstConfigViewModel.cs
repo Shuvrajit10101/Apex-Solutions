@@ -557,7 +557,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // advisory opt-in date. Both are only written back to the config when RegistrationType is Composition.
         SelectedCompositionSubType = CompositionSubTypes.FirstOrDefault(o => o.Value == cfg?.CompositionSubType)
                                      ?? CompositionSubTypes.First();
-        CompositionOptInDateText = cfg?.CompositionOptInDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        CompositionOptInDateText = cfg?.CompositionOptInDate is { } optIn ? ApexDate.Format(optIn) : string.Empty;
         LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
     }
@@ -1375,7 +1375,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         var s = (text ?? string.Empty).Trim();
         if (s.Length == 0) return null;
-        return DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+        // WI-5: shared DAY-FIRST parse (was a bare InvariantCulture parse — the MM/dd misread).
+        return ApexDate.TryParse(s, out var d) ? d : null;
     }
 
     /// <summary>Reverts the <see cref="GstEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>
