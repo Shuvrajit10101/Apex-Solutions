@@ -338,7 +338,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                 Rule = isReclaim ? "Reclaim" : RuleLabel(r.Rule),
                 Period = r.Period,
                 Total = R(r.CgstPaisa + r.SgstPaisa + r.IgstPaisa + r.CessPaisa),
-                Bucket = r.Table4bBucket.ToString(),
+                Bucket = BucketLabel(r.Table4bBucket),
                 IsReclaimable = reclaimable,
                 Note = isReclaim
                     ? "A reclaim of an earlier Rule 37 / 37A reversal (Table 4(D)(1))."
@@ -625,6 +625,16 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         ItcReversalReason.Section16_2aaNotInPortal => "§16(2)(aa) not in 2B",
         ItcReversalReason.ImsAcceptedCreditNote => "Accepted CN/DN",
         _ => reason.ToString(),
+    };
+
+    // A user-facing GSTR-3B table label — never the raw enum name (which surfaced as
+    // "Table4B1" / "Table4B2" / "Table4D1" in the posted-reversal grid's Bucket column).
+    private static string BucketLabel(Table4bBucket bucket) => bucket switch
+    {
+        Table4bBucket.Table4B1 => "Table 4(B)(1)",
+        Table4bBucket.Table4B2 => "Table 4(B)(2)",
+        Table4bBucket.Table4D1 => "Table 4(D)(1)",
+        _ => bucket.ToString(),
     };
 
     private static string R(long paisa) => IndianFormat.AmountAlways(new Money(paisa / 100m));

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Apex.Desktop.Converters;
 
@@ -1048,5 +1049,182 @@ public sealed class XamlLayoutInvariantTests
             + "A MinWidth-pinned grid with no h-scroll overflows the pane and clips its rightmost columns instead "
             + "of scrolling (C6). Restore the enclosing <ScrollViewer HorizontalScrollBarVisibility=\"Auto\">:\n"
             + string.Join("\n", notScrolled.Select(g => $"  MainWindow.axaml({Line(g)})")));
+    }
+
+    // =============================================================================================
+    // INVARIANT 9 — the D5 C10 numeric-cell style + the D5 C7-completion master empty-states.
+    // =============================================================================================
+    //
+    // WHAT C10 / C7-COMPLETION WERE. (C10) The accounting-report value cells (Debit / Credit / single
+    // Amount) each carried an ad-hoc TextAlignment="Right" Margin="0,0,10,0", a 10px right inset that did
+    // NOT match the shared colHdr header Padding.Right (8), so a value's right edge sat 2px left of its
+    // column header's right edge. The fix is a single shared <Style Selector="TextBlock.numCell"> —
+    // TextAlignment=Right + Margin="0,0,8,0" (right inset == the colHdr Padding.Right) — that the value
+    // cells adopt via Classes="numCell", pinning every figure flush under its header. (C7-completion) six
+    // more masters that improvised no "empty" message at all got the reusable <EmptyState> overlay D4
+    // introduced, gated by the CollectionEmpty converter so it shows ONLY when the list is empty.
+    //
+    // WHY THIS TEST EXISTS. Neither piece has any other lock. The numCell style is a shared resource: if
+    // it is deleted or its right-alignment / gutter is changed, every migrated value cell silently
+    // reverts and the column drifts off its header again — nothing else would notice (Invariant 4 checks
+    // header/row COLUMN definitions, not per-cell alignment). And the six D5 empty-states are additive
+    // overlays: deleting one, or dropping its CollectionEmpty gate (so it either never shows on an empty
+    // list, or COVERS a populated one), is invisible to every other invariant. Two headless-safe clauses.
+
+    /// <summary>The six D5 C7-completion master empty-states, keyed by their (edit-stable) Message text.
+    /// Each MUST be present and gated by the CollectionEmpty converter on a <c>.Count</c> binding.</summary>
+    private static readonly string[] D5EmptyStateMessages =
+    {
+        "No budgets created yet.",
+        "No bills of materials created yet.",
+        "No employee categories created yet.",
+        "No payroll units created yet.",
+        "No deductee rows for this quarter yet.",
+        "No collectees for this quarter yet.",
+    };
+
+    [Fact]
+    public void Numeric_cell_style_and_D5_master_empty_states_are_present_and_gated()
+    {
+        // ---- (A) the shared numeric-value-cell style exists, right-aligns, and keeps its gutter (C10). ----
+        var numCell = Elements().FirstOrDefault(e => Is(e, "Style")
+                                                     && (Attr(e, "Selector") ?? "") == "TextBlock.numCell");
+        Assert.True(numCell is not null,
+            "The 'TextBlock.numCell' style is GONE. Every accounting value cell tagged Classes=\"numCell\" then "
+            + "renders with default (left) alignment and no gutter — the money columns un-align from their headers "
+            + "(C10). Restore <Style Selector=\"TextBlock.numCell\"> with TextAlignment=\"Right\" Margin=\"0,0,8,0\".");
+        Assert.True(
+            numCell!.Elements(Av + "Setter").Any(s => Attr(s, "Property") == "TextAlignment" && Attr(s, "Value") == "Right"),
+            "The 'TextBlock.numCell' style no longer sets TextAlignment=\"Right\". A money value must right-align so "
+            + "its last digit lands under the column header's right edge (C10).");
+        var numCellGutter = numCell.Elements(Av + "Setter").FirstOrDefault(s => Attr(s, "Property") == "Margin");
+        Assert.True(numCellGutter is not null && MarginRightInset(Attr(numCellGutter!, "Value")) > 0,
+            "The 'TextBlock.numCell' style no longer declares a Margin with a non-zero RIGHT inset. That inset is "
+            + "what makes a value's right edge coincide with its colHdr header's right edge (the header's Padding.Right "
+            + "is 8); a zero inset pins the value hard against the pane edge, 8px right of its header (C10). Restore "
+            + "Margin=\"0,0,8,0\".");
+
+        // (A2) The style is only meaningful if the value cells USE it. The three accounting value cells
+        //      (two-column Debit + Credit, and the single-amount Amount) were migrated to Classes="numCell";
+        //      a revert to the ad-hoc local TextAlignment/Margin drops every reference.
+        var numCellUsers = Elements().Count(e => Is(e, "TextBlock") && HasClass(e, "numCell"));
+        Assert.True(numCellUsers >= 3,
+            $"Only {numCellUsers} TextBlock(s) carry Classes=\"numCell\" (expected >= 3: the accounting Debit, "
+            + "Credit and single-Amount value cells). The C10 migration has been reverted to ad-hoc per-cell "
+            + "TextAlignment/Margin, so the shared alignment contract no longer binds those cells.");
+
+        // ---- (B) the six D5 master empty-states are present and correctly gated (C7-completion). ----
+        var emptyStates = Elements().Where(IsEmptyState).ToList();
+
+        // NON-VACUITY: 10 <EmptyState> overlays exist after D5 (D4's report-body + Scenario/Price-Level/
+        // Reorder-Level, plus these six). If the element is renamed or the walk breaks, the per-message loop
+        // below becomes an empty search that passes while proving nothing.
+        Assert.True(emptyStates.Count >= 10,
+            $"Only {emptyStates.Count} <EmptyState> element(s) found (expected >= 10 after D5). The reusable "
+            + "empty-state has been removed or renamed; the per-master checks below would be vacuous.");
+
+        foreach (var msg in D5EmptyStateMessages)
+        {
+            var es = emptyStates.FirstOrDefault(e => Attr(e, "Message") == msg);
+            Assert.True(es is not null,
+                $"The D5 master empty-state '{msg}' is MISSING. Its screen shows a blank body again when the list "
+                + "is empty (C7). Restore <views:EmptyState Message=\"" + msg + "\" IsVisible=\"{Binding <List>.Count, "
+                + "Converter={StaticResource CollectionEmpty}}\"/> spanning the list body.");
+
+            var vis = Attr(es!, "IsVisible") ?? "";
+            Assert.True(
+                vis.Contains("CollectionEmpty", StringComparison.Ordinal) && vis.Contains(".Count", StringComparison.Ordinal),
+                $"The D5 master empty-state '{msg}' is not gated by the CollectionEmpty converter on a .Count binding "
+                + $"(IsVisible=\"{vis}\"). Without that gate it either never appears on an empty list, or it COVERS a "
+                + "populated one. Restore IsVisible=\"{Binding <List>.Count, Converter={StaticResource CollectionEmpty}}\".");
+        }
+    }
+
+    // =============================================================================================
+    // INVARIANT 10 — no INTERNAL BUILD JARGON leaks into user-facing text (C12 de-brand guard).
+    // =============================================================================================
+    //
+    // THE RULE FAMILY. The shipped app is "Apex Solutions"; it must never surface the internal build
+    // vocabulary the team writes in comments and commits — slice/phase codenames ("Phase 1 defaults",
+    // "S7 poster", "UI-2", "Cluster 2", "slice 8") — in text a user actually reads. C12 removed two such
+    // leaks that had reached the UI: the create-company hint "…base currency ₹ INR (Phase 1 defaults)."
+    // and the ITC-reversal heading "Reversal candidates (for the S7 poster)". This is the same de-brand
+    // discipline as the no-"Tally" rule, and it had NO lock — a third leak could ship unseen.
+    //
+    // WHAT IS SCANNED. Only USER-FACING LITERAL strings: the content attributes below (and any literal
+    // element text), on real XElements. XML COMMENTS are XComment nodes, never XElement attributes, so the
+    // hundreds of legitimate "Phase 6 slice 8" build annotations in comments are correctly invisible here
+    // — this guard fires only on jargon that escaped a comment into a Text/Content/Message/etc. that
+    // paints on screen. Binding/markup-extension values ("{Binding …}") are skipped: they are code paths,
+    // not literals, and a property name like ControlTotalsTally is not a displayed string.
+
+    /// <summary>Attribute local-names whose LITERAL value is painted on screen for the user to read.</summary>
+    private static readonly HashSet<string> UserFacingAttrs = new(StringComparer.Ordinal)
+    {
+        "Text", "Content", "Header", "Watermark", "PlaceholderText", "Title", "Message", "Description", "ToolTip.Tip",
+    };
+
+    /// <summary>The internal build vocabulary that must never reach a user-facing string. Each pattern is
+    /// case-insensitive and documented; the two D5 leaks it was calibrated to catch are named.</summary>
+    private static readonly (string Pattern, string What)[] JargonPatterns =
+    {
+        (@"\bPhase\s*\d+\b",           "a phase number (e.g. the removed \"(Phase 1 defaults)\")"),
+        (@"\bslice\s*\d+\b",           "a slice number (internal build unit)"),
+        (@"\bposter\b",                "the internal \"poster\" term (e.g. the removed \"(for the S7 poster)\")"),
+        (@"\bS[1-9]\b\s*(?:poster|slice)","a slice codename (e.g. \"S7 poster\")"),
+        (@"\bUI-[1-9]\b",              "a UI-slice codename (UI-1 / UI-2 / UI-3)"),
+        (@"\bCluster\s*\d+\b",         "a build-cluster codename (e.g. \"Cluster 2\")"),
+    };
+
+    /// <summary>Every user-facing LITERAL string in the file, paired with the element carrying it. A value
+    /// beginning with '{' is a binding / markup extension (not a literal a user reads) and is excluded.</summary>
+    private static IEnumerable<(XElement Owner, string Source, string Value)> UserFacingLiterals()
+    {
+        foreach (var e in Elements())
+        {
+            foreach (var a in e.Attributes())
+            {
+                if (!UserFacingAttrs.Contains(a.Name.LocalName)) continue;
+                var v = a.Value.Trim();
+                if (v.Length == 0 || v[0] == '{') continue; // binding / markup extension -> not a literal
+                yield return (e, a.Name.LocalName, a.Value);
+            }
+            // Literal element text: <TextBlock>Some literal</TextBlock>. XComment children are skipped by
+            // taking XText nodes only, so comment jargon never reaches this scan.
+            foreach (var t in e.Nodes().OfType<XText>())
+            {
+                var v = t.Value.Trim();
+                if (v.Length == 0 || v[0] == '{') continue;
+                yield return (e, "(text)", t.Value);
+            }
+        }
+    }
+
+    [Fact]
+    public void No_internal_build_jargon_in_user_facing_text()
+    {
+        var literals = UserFacingLiterals().ToList();
+
+        // NON-VACUITY: this file has thousands of user-facing literals. If the extraction breaks (a renamed
+        // content attribute, the XText walk failing), the jargon scan below would judge an empty set.
+        Assert.True(literals.Count > 500,
+            $"Only {literals.Count} user-facing literal strings were extracted — the content-attribute / text walk "
+            + "is broken, so this de-brand guard would be vacuous.");
+
+        var regexes = JargonPatterns
+            .Select(j => (Rx: new Regex(j.Pattern, RegexOptions.IgnoreCase), j.What))
+            .ToArray();
+
+        var leaks = new List<string>();
+        foreach (var (owner, source, value) in literals)
+            foreach (var (rx, what) in regexes)
+                if (rx.Match(value) is { Success: true } m)
+                    leaks.Add($"  MainWindow.axaml({Line(owner)}): {source}=\"{value}\" leaks {what} "
+                              + $"(matched \"{m.Value}\")");
+
+        Assert.True(leaks.Count == 0,
+            $"{leaks.Count} user-facing string(s) leak internal build jargon (slice/phase/cluster codenames). "
+            + "The shipped UI must read as \"Apex Solutions\", never the internal build vocabulary — reword to "
+            + "plain user-facing text:\n" + string.Join("\n", leaks));
     }
 }

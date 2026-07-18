@@ -68,6 +68,17 @@
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="8,4"/>
         </Style>
+        <!-- Report grid NUMERIC VALUE cell (C10). Right-aligned with an 8px right inset that MATCHES
+             the colHdr Padding.Right (8,4) above, so a value's right edge lands EXACTLY under its column
+             header's right edge. Value cells previously carried an ad-hoc 10px right margin, leaving a
+             2px drift between the header figure and the value beneath it. Tagging a money/amount value
+             cell Classes="numCell" (instead of the local TextAlignment="Right" Margin="0,0,10,0") pins
+             it flush with its header. The header style is deliberately UNTOUCHED (it drives ~277 headers
+             app-wide); only the value cells migrate. -->
+        <Style Selector="TextBlock.numCell">
+            <Setter Property="TextAlignment" Value="Right"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
         <!-- Editable-grid dropdown: left-align the selection box so the item name is never
              clipped on the left (the default Fluent ComboBox anchors the selection oddly when
              the content is wide). Applies only to comboboxes tagged Classes="gridCombo". -->
@@ -189,7 +200,7 @@
                                 <TextBlock Text="Name" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                 <TextBox x:Name="CompanyNameBox" Text="{Binding NewCompanyName, Mode=TwoWay}"
                                          PlaceholderText="e.g. Acme Traders" FontSize="14"/>
-                                <TextBlock Text="Financial year begins 1-Apr; base currency ₹ INR (Phase 1 defaults)."
+                                <TextBlock Text="Financial year begins 1-Apr; base currency ₹ INR."
                                            FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
                                 <Button Content="Create (Ctrl+A)" HorizontalAlignment="Right"
                                         Click="OnCreateCompanyClick"
@@ -278,8 +289,15 @@
                                             </Border.Background>
                                             <Grid ColumnDefinitions="*,Auto"
                                                   Margin="{Binding IsSubItem, Converter={StaticResource SubIndent}}">
+                                              <!-- C11: this shared cascade menu row reaches EVERY menu column on all
+                                                   screens (party/ledger pickers included). The full label stays VISIBLE
+                                                   by default (C4 widened the panes) and TextTrimming degrades honestly if
+                                                   a name still overflows; ToolTip.Tip surfaces the full label — including
+                                                   the parenthetical disambiguator (state / GSTIN / branch) — on hover, a
+                                                   bonus for mouse users of this keyboard-first list. -->
                                               <TextBlock Grid.Column="0" Text="{Binding Label}"
                                                          FontSize="14" TextTrimming="CharacterEllipsis"
+                                                         ToolTip.Tip="{Binding Label}"
                                                          Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
                                               <TextBlock Grid.Column="1" Text="{Binding Hint}"
                                                          FontSize="11" Foreground="#6A6A6A"
@@ -382,6 +400,18 @@
                             <ListBox ItemsSource="{Binding Rows}" Background="White" Tag="drill"
                                      SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
                                      DoubleTapped="OnAccountingReportDrill" KeyDown="OnAccountingReportKeyDown">
+                                <!-- C10: zero the ListBoxItem chrome so a row's grid spans the FULL width
+                                     (matching the header band, which has no such inset) and each row's height
+                                     is driven by the template's own Height=24. Without this the default Fluent
+                                     ListBoxItem padding inset the row grid, so value right edges sat left of the
+                                     header right edges and rows were taller than the header band. Copied verbatim
+                                     from the working Stock Summary ListBox. -->
+                                <ListBox.Styles>
+                                  <Style Selector="ListBoxItem">
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="MinHeight" Value="0"/>
+                                  </Style>
+                                </ListBox.Styles>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="vm:ReportRow">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
@@ -413,18 +443,18 @@
                                                 </TextBlock>
                                                 <!-- Two-column (Dr/Cr) mode: Debit + Credit both visible -->
                                                 <TextBlock Grid.Column="1" Text="{Binding Debit}"
-                                                           TextAlignment="Right" Margin="0,0,10,0"
+                                                           Classes="numCell"
                                                            IsVisible="{Binding IsTwoColumn}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                                 <TextBlock Grid.Column="2" Text="{Binding Credit}"
-                                                           TextAlignment="Right" Margin="0,0,10,0"
+                                                           Classes="numCell"
                                                            IsVisible="{Binding IsTwoColumn}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                                 <!-- Single-amount mode: Amount occupies column 2 alone -->
                                                 <TextBlock Grid.Column="2" Text="{Binding Amount}"
-                                                           TextAlignment="Right" Margin="0,0,10,0"
+                                                           Classes="numCell"
                                                            IsVisible="{Binding !IsTwoColumn}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
@@ -2196,7 +2226,7 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10,6" Margin="0,2"
                                     IsVisible="{Binding !IsItemInvoice}">
-                              <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                              <Grid ColumnDefinitions="Auto,*,Auto,Auto,40">
                                 <TextBlock Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center">
                                   <Run Text="Difference: "/>
                                 </TextBlock>
@@ -2906,7 +2936,11 @@
                                             IsVisible="{Binding IsOrder}" VerticalAlignment="Center">
                                   <TextBlock Text="Party" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"/>
-                                  <ComboBox Width="240" ItemsSource="{Binding Parties}"
+                                  <!-- C11: the pane fix does not reach this hardcoded picker (it sits in a
+                                       horizontal StackPanel). Let it grow with the party name — floored so it
+                                       never collapses, capped so it never crowds the direction hint — instead
+                                       of a fixed 240px that ellipsized a party's state/GSTIN disambiguator. -->
+                                  <ComboBox MinWidth="240" MaxWidth="420" ItemsSource="{Binding Parties}"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -4539,6 +4573,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No budgets created yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -5997,6 +6034,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No bills of materials created yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -6970,6 +7010,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No employee categories created yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -7449,6 +7492,9 @@
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
                             </ScrollViewer>
+                            <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
+                            <views:EmptyState Grid.Row="3" Message="No payroll units created yet."
+                                              IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -9979,7 +10025,10 @@
                                             <TextBlock Grid.Column="2" Text="{Binding Cgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
                                             <TextBlock Grid.Column="3" Text="{Binding Sgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
                                             <TextBlock Grid.Column="4" Text="{Binding Igst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
-                                            <TextBlock Grid.Column="5" Text="{Binding Cess}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Foreground="#777777" Margin="0,0,6,0"/>
+                                            <!-- C12: the Cess value is a data column alongside CGST/SGST/IGST — drop the
+                                                 odd grey tint so all four amount cells read consistently (the sibling
+                                                 CGST/SGST/IGST cells carry no Foreground). -->
+                                            <TextBlock Grid.Column="5" Text="{Binding Cess}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
                                           </Grid>
                                         </Border>
                                       </DataTemplate>
@@ -10770,7 +10819,7 @@
                                     </DataTemplate>
                                   </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <TextBlock Text="Reversal candidates (for the S7 poster)"
+                                <TextBlock Text="Reversal candidates"
                                            FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"
                                            IsVisible="{Binding HasSnapshot}"/>
                                 <ItemsControl Background="White" ItemsSource="{Binding Candidates}">
@@ -12636,6 +12685,10 @@
                                   </DataTemplate>
                                 </ListBox.ItemTemplate>
                               </ListBox>
+                              <!-- Reusable empty-state (C7): shown across the Annexure I body when this
+                                   quarter has no deductee rows yet. -->
+                              <views:EmptyState Grid.Row="2" Message="No deductee rows for this quarter yet."
+                                                IsVisible="{Binding Deductees.Count, Converter={StaticResource CollectionEmpty}}"/>
 
                               <StackPanel Grid.Row="3" Margin="0,8,0,0" IsVisible="{Binding IsQ4}">
                                 <TextBlock Text="Annexure II — per-employee annual salary &amp; tax (Q4)" FontWeight="Bold"
@@ -13576,6 +13629,10 @@
                                     </DataTemplate>
                                   </ListBox.ItemTemplate>
                                 </ListBox>
+                                <!-- Reusable empty-state (C7): shown across the collectee picker body when this
+                                     quarter has no collectees yet. -->
+                                <views:EmptyState Grid.Row="2" Message="No collectees for this quarter yet."
+                                                  IsVisible="{Binding Collectees.Count, Converter={StaticResource CollectionEmpty}}"/>
                               </Grid>
 
                               <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
