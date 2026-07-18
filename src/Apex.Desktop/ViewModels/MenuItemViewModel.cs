@@ -66,6 +66,16 @@ public sealed partial class MenuItemViewModel : ViewModelBase
     /// <summary>True to indent this item one level under its section header.</summary>
     public bool IsSubItem { get; }
 
+    /// <summary>
+    /// WI-1 — true for a picker's own pinned <b>Create …</b> row (the corpus's second entry point: a Create
+    /// option "under List of Ledger Accounts"). The row is an AFFORDANCE, not company data, so
+    /// <see cref="GatewayColumn"/>'s type-ahead must never match it — a bare letter belongs to the real masters,
+    /// and landing the highlight on "Create Ledger" when the operator typed "c" for "Cash" is exactly the
+    /// wrong-selection failure the picker work exists to remove. It stays <see cref="IsSelectable"/>, so the
+    /// arrow keys still reach it and Enter still activates it.
+    /// </summary>
+    public bool IsCreateRow { get; init; }
+
     // =========================================================== WI-9: the bare-letter hotkey
 
     /// <summary>

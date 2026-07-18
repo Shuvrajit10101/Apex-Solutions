@@ -2167,6 +2167,34 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         RecalculateItemInvoice();
     }
 
+    /// <summary>
+    /// WI-1 — re-reads the company's ledgers into the party / stock-leg pickers WITHOUT disturbing the
+    /// in-progress voucher, so a ledger created on the fly (Alt+C) is immediately selectable in the field that
+    /// created it. <see cref="BuildItemInvoicePickers"/> cannot be reused here: it RESETS both selections to the
+    /// first row and seeds a blank item line — on a half-typed invoice that is itself data loss.
+    /// <para>The current selections are re-resolved by ledger id (not by object identity of the wrapper), so a
+    /// party already chosen stays chosen across the refresh.</para>
+    /// </summary>
+    public void RefreshMasterPickers()
+    {
+        var partyId = SelectedParty?.Ledger?.Id;
+        var stockLedgerId = SelectedStockLedger?.Id;
+
+        Parties.Clear();
+        Parties.Add(new PartyOption { Ledger = null, Display = "◦ (none)" });
+        foreach (var l in _company.Ledgers.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            Parties.Add(new PartyOption { Ledger = l, Display = l.Name });
+        SelectedParty = Parties.FirstOrDefault(p => p.Ledger?.Id == partyId) ?? Parties.FirstOrDefault();
+
+        StockLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(IsStockLegLedger)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            StockLedgers.Add(l);
+        SelectedStockLedger = StockLedgers.FirstOrDefault(l => l.Id == stockLedgerId)
+                              ?? StockLedgers.FirstOrDefault();
+    }
+
     /// <summary>Pushes the Price-Level Discount-column gate to every item line so it shows/hides in sync (ER-13).</summary>
     private void SyncPriceLevelOnLines()
     {

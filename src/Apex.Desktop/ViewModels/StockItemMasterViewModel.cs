@@ -596,7 +596,13 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
 
     // ---- refresh ----
 
-    private void RefreshPickers()
+    /// <summary>
+    /// Rebuilds the group / category / unit / godown pickers from the company, preserving the current choices.
+    /// <para>WI-1 — PUBLIC because an Alt+C "create on the fly" launched FROM this screen (Under → Stock Group,
+    /// Base unit → Unit, Category → Stock Category) adds a record while this view model is alive; without a
+    /// refresh the new record would not be in the list and selecting it back would silently do nothing.</para>
+    /// </summary>
+    public void RefreshPickers()
     {
         var groupId = SelectedGroup?.Id;
         Groups.Clear();

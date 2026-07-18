@@ -471,6 +471,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>
     /// The first selectable row whose label starts with <paramref name="prefix"/>. When <paramref name="after"/>
     /// is given the scan STARTS just past that index and wraps, which is what makes a repeated letter cycle.
+    /// <para>WI-1 — a pinned <see cref="MenuItemViewModel.IsCreateRow"/> row is SKIPPED: it is an affordance, not
+    /// company data, so typing "c" must filter to the ledger named "Cash", never drag the highlight onto
+    /// "Create Ledger". The row stays arrow-reachable; only type-ahead ignores it.</para>
     /// </summary>
     private int IndexOfPrefix(string prefix, int? after = null)
     {
@@ -480,7 +483,7 @@ public sealed partial class GatewayColumn : ViewModelBase
         for (var step = 0; step < Items.Count; step++)
         {
             var i = ((start + step) % Items.Count + Items.Count) % Items.Count;
-            if (Items[i].IsSelectable &&
+            if (Items[i].IsSelectable && !Items[i].IsCreateRow &&
                 Items[i].Label.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase))
                 return i;
         }

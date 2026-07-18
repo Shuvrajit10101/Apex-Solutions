@@ -217,9 +217,16 @@ public partial class MainWindow : Window
         }
 
         // Alt+C opens the Ledger-creation master whenever a company is open.
+        // WI-1 — on a voucher-entry screen it is CONTEXT-AWARE: the focused picker's tagged field id (resolved by
+        // walking up from the key source; see CreateField) selects WHICH master screen opens, and its DataContext
+        // is the row the new master is written back into. An untagged field yields (null, null), which the view
+        // model treats as inert on a voucher and as the historic Ledger/Stock-Item behaviour elsewhere.
+        // ORDER: this stays BELOW the RQ-4 comparative arm above (a report's Alt+C still adds a comparison
+        // column) and ABOVE nothing that claims Alt+C — no other arm in this chain matches C with Alt.
         if (e.Key == Key.C && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
-            vm.CreateLedgerShortcut();
+            var (fieldId, caller) = CreateField.Focused(e);
+            vm.CreateLedgerShortcut(fieldId, caller);
             e.Handled = true;
             return;
         }

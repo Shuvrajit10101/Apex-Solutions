@@ -871,6 +871,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         EnterCascade();
 
         Columns.Clear();
+        // WI-1 (DEFECT 2) — the cascade was rebuilt from scratch, so any armed Alt+C request lost its column.
+        AbandonCreateOnTheFlyIfColumnGone();
         Columns.Add(BuildRootColumn());
         ActiveColumnIndex = 0;
         Columns[0].SelectFirstSelectable();
@@ -1466,6 +1468,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else
             foreach (var ledger in ledgers)
                 col.Add(new MenuItemViewModel(ledger.Name, () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // WI-1 — THE CORPUS'S SECOND ENTRY POINT: "Alt+C … in place of the Ledger field OR select Create option
+        // under List of Ledger Accounts" (Study Guide ~2046–47). Only the key half shipped; this is the list
+        // half. The row is PINNED at the end of the real ledgers, arrow-reachable and Enter-activated, and runs
+        // the SAME CreateLedgerShortcut dispatch as the key — one mechanism, two entry points, rather than a
+        // parallel path that could drift. It is flagged IsCreateRow so type-ahead SKIPS it: a bare "c" must
+        // filter to the ledger named "Cash", never land the highlight on "Create Ledger".
+        col.Add(new MenuItemViewModel("Create Ledger",
+            () => CreateLedgerShortcut(MasterCreateFields.Ledger, caller: null),
+            "Alt+C", isSubItem: true, kind: MenuItemKind.Action)
+        { IsCreateRow = true });
 
         return col;
     }
@@ -4355,11 +4368,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return -1;
     }
 
-    /// <summary>Removes every column after <paramref name="index"/> (keeps [0..index]).</summary>
+    /// <summary>
+    /// Removes every column after <paramref name="index"/> (keeps [0..index]).
+    /// <para>WI-1 (DEFECT 2) — this is the single choke point every page-REPLACING route funnels through, so an
+    /// armed Alt+C create-on-the-fly is disarmed HERE the moment its column is trimmed away. Clearing it only in
+    /// <see cref="BackFromPage"/> left the request armed after any navigation and soft-locked Alt+C for the rest
+    /// of the session.</para>
+    /// </summary>
     private void TrimColumnsAfter(int index)
     {
         for (var i = Columns.Count - 1; i > index; i--)
             Columns.RemoveAt(i);
+
+        AbandonCreateOnTheFlyIfColumnGone();
     }
 
     /// <summary>Nulls every page view model (they are mutually exclusive — at most one page column open).</summary>
@@ -4477,6 +4498,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void LeaveCascade()
     {
         Columns.Clear();
+        // WI-1 (DEFECT 2) — leaving the cascade takes any create column with it; disarm so Alt+C is not soft-locked.
+        AbandonCreateOnTheFlyIfColumnGone();
         IsGatewayCascade = false;
     }
 
@@ -4725,17 +4748,442 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Alt+C: create the master appropriate to the active screen. On the stock-only Manufacturing Journal and
     /// BOM screens it inline-creates a COMPONENT stock item (RQ-53) — opening the accounting Ledger master there
     /// is nonsensical. Everywhere else (with a company open) it opens the Ledger-creation master.
+    /// <para>WI-1: <paramref name="fieldId"/>/<paramref name="caller"/> carry the FOCUSED voucher field (the view
+    /// resolves them from the key source; see <c>Views.CreateField</c>). When they name a master-backed field the
+    /// shortcut becomes context-aware "create on the fly": the matching creation screen opens NON-DESTRUCTIVELY
+    /// beside the live voucher and the new master is selected back into that very field. Both are null off a
+    /// voucher (or on an untagged enum/voucher-reference field), where the historic behaviour above applies.</para>
     /// </summary>
-    public void CreateLedgerShortcut()
+    public void CreateLedgerShortcut(string? fieldId = null, object? caller = null)
     {
         if (Company is null) return;
-        if (CurrentScreen is Screen.ManufacturingJournalEntry or Screen.BomMaster)
+
+        // WI-1 — the context-aware arm. Only a TAGGED field dispatches — from a voucher-entry screen, OR from a
+        // create column already open over one. That second case is DEPTH 2 and it is the corpus's own example:
+        // Alt+C on the Stock Item master's "Under" / "Base unit" picker. Without it the Stock Item creation
+        // screen is a DEAD END on a company with no stock group or unit (CanCreate is false and the only offered
+        // escape — create the missing master — is unreachable).
+        var kind = MasterCreateFields.KindFor(fieldId);
+        if (kind != MasterCreateKind.None && (IsCreateOnTheFlyCaller() || IsCreateOnTheFlyOpen))
+        {
+            CreateMasterOnTheFly(kind, fieldId!, caller);
+            return;
+        }
+
+        // WI-1 / DEFECT 1 — THE SECOND DATA-LOSS GATE. A create column is open OVER a live entry screen, so
+        // CurrentScreen is the MASTER screen and IsCreateOnTheFlyCaller() below is false. Every route past this
+        // line replaces the page (OpenPageColumn → TrimColumnsAfter + ClearSubScreens), which would null the
+        // entry view model still living underneath and destroy the in-progress voucher — the very loss WI-1
+        // exists to remove, reintroduced one screen deeper. Alt+C on an UNTAGGED field of a create column is
+        // therefore INERT. (Before this guard a nested Alt+C over a non-Ledger create column fell through to
+        // ShowLedgerMaster; over a Ledger create column it was safe only by the != Screen.LedgerMaster accident.)
+        if (IsCreateOnTheFlyOpen) return;
+
+        // RQ-53 — the stock-only Manufacturing Journal / BOM screens inline-create a COMPONENT stock item;
+        // opening the accounting Ledger master there is nonsensical. On the Manufacturing Journal (a live ENTRY
+        // screen) this now goes through the non-destructive open too, so the shipped shortcut can no longer
+        // discard a half-built manufacturing entry either. The BOM master is not an entry screen, so it keeps
+        // the ordinary page-replacing route.
+        if (CurrentScreen == Screen.ManufacturingJournalEntry)
+        {
+            CreateMasterOnTheFly(MasterCreateKind.StockItem, MasterCreateFields.StockItem, caller: null);
+            return;
+        }
+        if (CurrentScreen == Screen.BomMaster)
         {
             ShowStockItemMaster();
             return;
         }
+
+        // WI-1 — INERT on an entry screen whose focused field has no creatable master behind it (a Dr/Cr side,
+        // a bill Ref-Type, a reference to an existing voucher). Falling through to the Ledger master here would
+        // be BOTH a wrong-screen open AND — because that route replaces the page — the very data loss this work
+        // item exists to remove.
+        if (IsCreateOnTheFlyCaller()) return;
+
         if (CurrentScreen != Screen.LedgerMaster)
             ShowLedgerMaster();
+    }
+
+    /// <summary>
+    /// WI-1 — the master kind the Alt+C BUTTON creates on the active screen. The button carries no focused
+    /// field, so it cannot use the key's field dispatch; it uses the screen's own default instead. On the
+    /// stock-only Manufacturing-Journal / BOM screens that is a Stock Item, everywhere else a Ledger.
+    /// </summary>
+    private MasterCreateKind CreateMasterButtonKind() => CurrentScreen
+        is Screen.ManufacturingJournalEntry or Screen.BomMaster
+        ? MasterCreateKind.StockItem
+        : MasterCreateKind.Ledger;
+
+    /// <summary>
+    /// WI-1 — the Alt+C button label for the active screen. On the stock-only Manufacturing-Journal / BOM
+    /// screens the shortcut creates a Stock Item, so the button must say so rather than promise a Ledger.
+    /// </summary>
+    private string CreateMasterButtonLabel()
+        => "Create " + MasterCreateFields.NounFor(CreateMasterButtonKind());
+
+    /// <summary>
+    /// WI-1 / DEFECT 3 — what the Alt+C BUTTON-BAR item runs. Binding it straight to
+    /// <see cref="CreateLedgerShortcut()"/> made it a DEAD control on every voucher-entry screen: with no field
+    /// context it hit the inert guard and did nothing while still rendering enabled and captioned "Create
+    /// Ledger" (before WI-1 the button bound <c>ShowLedgerMaster</c> and worked, so that was a regression of
+    /// shipped behaviour). The button now takes the SAME non-destructive dispatch the key takes — the screen's
+    /// default master opens beside the live voucher instead of replacing it — and simply has no field to return
+    /// the new master into. Off an entry screen it keeps the historic page-replacing route.
+    /// </summary>
+    private void CreateMasterFromButton()
+    {
+        if (Company is null) return;
+
+        if (IsCreateOnTheFlyCaller())
+        {
+            var kind = CreateMasterButtonKind();
+            CreateMasterOnTheFly(kind, MasterCreateFields.FieldIdFor(kind), caller: null);
+            return;
+        }
+
+        CreateLedgerShortcut();
+    }
+
+    // =============================================================== WI-1: Alt+C create-on-the-fly
+
+    /// <summary>
+    /// WI-1 — the in-flight "create on the fly" round-trip: which master screen was opened, from which field of
+    /// which caller view model, the exact column it was appended as, and the master ids that existed BEFORE it
+    /// opened (so the newly-created one can be identified by set difference — no reliance on "the last row",
+    /// which a name-sorted master list does not guarantee).
+    /// </summary>
+    private sealed record CreateOnTheFlyRequest(
+        MasterCreateKind Kind,
+        string FieldId,
+        object? Caller,
+        GatewayColumn Column,
+        System.Collections.Generic.HashSet<Guid> ExistingIds);
+
+    /// <summary>
+    /// WI-1 — the in-flight requests, innermost LAST (a stack). It is a stack rather than a single slot because
+    /// the corpus's own case nests: Alt+C on a voucher's item field opens Stock Item Creation, and Alt+C on THAT
+    /// screen's "Under" / "Base unit" picker must open Stock Group / Unit Creation over it, then unwind — each
+    /// pop returning to the screen beneath with the new master selected. There is deliberately no depth cap.
+    /// </summary>
+    private readonly System.Collections.Generic.List<CreateOnTheFlyRequest> _createOnTheFly = new();
+
+    /// <summary>True while an Alt+C create screen is open OVER a live entry screen (WI-1).</summary>
+    public bool IsCreateOnTheFlyOpen => _createOnTheFly.Count > 0;
+
+    /// <summary>How many create-on-the-fly columns are stacked (0 when none is open). 2 = the nested case.</summary>
+    public int CreateOnTheFlyDepth => _createOnTheFly.Count;
+
+    /// <summary>The screens a create-on-the-fly may be launched FROM — the voucher-entry family.</summary>
+    private bool IsCreateOnTheFlyCaller() => CurrentScreen
+        is Screen.VoucherEntry or Screen.InventoryVoucherEntry or Screen.ManufacturingJournalEntry
+        or Screen.JobWorkOrderEntry or Screen.MaterialMovementEntry or Screen.PosBilling;
+
+    /// <summary>
+    /// WI-1 — opens <paramref name="kind"/>'s creation screen NON-DESTRUCTIVELY over the live voucher and arms
+    /// the return-to-caller. Returns false when the kind has no master screen, or when the shell is not on a
+    /// screen a create may be launched from — an entry screen, or a create column already open over one (the
+    /// nested Stock Item → Stock Group / Unit case). Anywhere else the ordinary page-replacing route applies.
+    /// </summary>
+    public bool CreateMasterOnTheFly(MasterCreateKind kind, string fieldId, object? caller)
+    {
+        if (Company is null || kind == MasterCreateKind.None) return false;
+        if (!IsCreateOnTheFlyCaller() && !IsCreateOnTheFlyOpen) return false;
+
+        var existing = SnapshotMasterIds(kind);
+
+        // Build the master with its onChanged wired to the round-trip completion — this is the ONLY difference
+        // from the ordinary Show*Master route, which passes an empty callback.
+        Action onCreated = CompleteCreateOnTheFly;
+        GatewayColumn column;
+        Screen screen;
+        string title;
+        Action setPage;
+
+        switch (kind)
+        {
+            case MasterCreateKind.Ledger:
+            {
+                var m = new LedgerMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Ledger Creation", m), Screen.LedgerMaster, "Ledger Creation",
+                     () => LedgerMaster = m);
+                break;
+            }
+            case MasterCreateKind.AccountGroup:
+            {
+                // WI-7 (S2) shipped this master; Alt+C REUSES it rather than introducing a second Group screen.
+                var m = new AccountGroupMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Group Creation", m), Screen.AccountGroupMaster, "Group Creation",
+                     () => AccountGroupMaster = m);
+                break;
+            }
+            case MasterCreateKind.CostCategory:
+            {
+                var m = new CostCategoryMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Cost Category Creation", m), Screen.CostCategoryMaster,
+                     "Cost Category Creation", () => CostCategoryMaster = m);
+                break;
+            }
+            case MasterCreateKind.CostCentre:
+            {
+                var m = new CostCentreMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Cost Centre Creation", m), Screen.CostCentreMaster,
+                     "Cost Centre Creation", () => CostCentreMaster = m);
+                break;
+            }
+            case MasterCreateKind.StockItem:
+            {
+                var m = new StockItemMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Stock Item Creation", m), Screen.StockItemMaster,
+                     "Stock Item Creation", () => StockItemMaster = m);
+                break;
+            }
+            case MasterCreateKind.StockGroup:
+            {
+                var m = new StockGroupMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Stock Group Creation", m), Screen.StockGroupMaster,
+                     "Stock Group Creation", () => StockGroupMaster = m);
+                break;
+            }
+            case MasterCreateKind.StockCategory:
+            {
+                var m = new StockCategoryMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Stock Category Creation", m), Screen.StockCategoryMaster,
+                     "Stock Category Creation", () => StockCategoryMaster = m);
+                break;
+            }
+            case MasterCreateKind.Unit:
+            {
+                var m = new UnitMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Unit Creation", m), Screen.UnitMaster,
+                     "Unit Creation", () => UnitMaster = m);
+                break;
+            }
+            case MasterCreateKind.Godown:
+            {
+                var m = new GodownMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Godown Creation", m), Screen.GodownMaster,
+                     "Godown Creation", () => GodownMaster = m);
+                break;
+            }
+            default:
+                return false;
+        }
+
+        _createOnTheFly.Add(new CreateOnTheFlyRequest(kind, fieldId, caller, column, existing));
+        OpenCreateMasterColumn(column, screen, title, setPage);
+        return true;
+    }
+
+    /// <summary>
+    /// WI-1 — THE DATA-LOSS FIX. Appends a create-master page column to the right of the LIVE entry screen
+    /// WITHOUT <see cref="TrimColumnsAfter"/>/<see cref="ClearSubScreens"/> — the same non-destructive append the
+    /// WI-12 Day-Book Alt+A picker uses (<see cref="OpenAddVoucherFromReport"/>) and the F12 config column uses
+    /// over its live report.
+    /// <para>Going through <see cref="OpenPageColumn"/> instead would trim back to the last MENU column and null
+    /// <see cref="VoucherEntry"/>, SILENTLY DESTROYING the half-typed voucher: the operator who pressed Alt+C to
+    /// add one missing ledger would lose every line already keyed. The entry view model instance therefore
+    /// survives beneath this column, and popping the column (Esc / Alt+X / a completed create) re-binds that SAME
+    /// instance through <see cref="RehydratePageFromRightmostColumn"/> with its state intact.</para>
+    /// </summary>
+    private void OpenCreateMasterColumn(GatewayColumn pageColumn, Screen screen, string title, Action setPage)
+    {
+        setPage();
+        Columns.Add(pageColumn);
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>The ids of every master of <paramref name="kind"/> currently on the company.</summary>
+    private System.Collections.Generic.HashSet<Guid> SnapshotMasterIds(MasterCreateKind kind)
+        => new(EnumerateMasterIds(kind));
+
+    private System.Collections.Generic.IEnumerable<Guid> EnumerateMasterIds(MasterCreateKind kind)
+    {
+        if (Company is null) return Array.Empty<Guid>();
+        return kind switch
+        {
+            MasterCreateKind.Ledger => Company.Ledgers.Select(x => x.Id),
+            MasterCreateKind.AccountGroup => Company.Groups.Select(x => x.Id),
+            MasterCreateKind.CostCategory => Company.CostCategories.Select(x => x.Id),
+            MasterCreateKind.CostCentre => Company.CostCentres.Select(x => x.Id),
+            MasterCreateKind.StockItem => Company.StockItems.Select(x => x.Id),
+            MasterCreateKind.StockGroup => Company.StockGroups.Select(x => x.Id),
+            MasterCreateKind.StockCategory => Company.StockCategories.Select(x => x.Id),
+            MasterCreateKind.Unit => Company.Units.Select(x => x.Id),
+            MasterCreateKind.Godown => Company.Godowns.Select(x => x.Id),
+            _ => Array.Empty<Guid>(),
+        };
+    }
+
+    /// <summary>
+    /// WI-1 — the master was created: pop the create column (returning to the SAME live voucher) and SELECT the
+    /// new master in the very field Alt+C was pressed in. Identifying the new master by set difference against
+    /// the pre-open snapshot is deliberate — master lists are name-sorted, so "the last one" would frequently be
+    /// the wrong record.
+    /// </summary>
+    private void CompleteCreateOnTheFly()
+    {
+        if (_createOnTheFly.Count == 0) return;
+
+        // The INNERMOST request is the one whose screen just created something (the create columns unwind in
+        // stack order), so pop from the top.
+        var req = _createOnTheFly[^1];
+        var created = EnumerateMasterIds(req.Kind).FirstOrDefault(id => !req.ExistingIds.Contains(id));
+        _createOnTheFly.RemoveAt(_createOnTheFly.Count - 1);
+
+        // Pop the create column — the entry view model beneath is re-bound by BackFromPage's rehydrate.
+        if (Columns.Count > 0 && ReferenceEquals(Columns[^1], req.Column))
+            BackFromPage();
+
+        if (created != Guid.Empty)
+            ApplyCreatedMaster(req.Kind, req.FieldId, req.Caller, created);
+    }
+
+    /// <summary>
+    /// WI-1 — drops every armed create-on-the-fly whose column is no longer in the cascade, i.e. one popped
+    /// WITHOUT a create (Esc / Alt+X) or TRIMMED AWAY by a page-replacing navigation. Without this the request
+    /// would stay armed and a later, unrelated master create on the same screen would jump back into a stale
+    /// field.
+    /// <para><b>DEFECT 2 — the session soft-lock.</b> This used to be called from <see cref="BackFromPage"/>
+    /// ALONE, so any <see cref="OpenPageColumn"/> navigation trimmed the create column while leaving the request
+    /// armed — and <see cref="IsCreateOnTheFlyOpen"/> then made the new Alt+C guard (and, before it, the
+    /// "already open" check) reject EVERY subsequent Alt+C for the rest of the session, silently, because
+    /// <see cref="CreateLedgerShortcut"/> discards the false. It is now driven from
+    /// <see cref="TrimColumnsAfter"/> — the one place every page-replacing route funnels through — so the
+    /// request cannot outlive its column by any path.</para>
+    /// </summary>
+    private void AbandonCreateOnTheFlyIfColumnGone()
+    {
+        for (var i = _createOnTheFly.Count - 1; i >= 0; i--)
+            if (!Columns.Contains(_createOnTheFly[i].Column))
+                _createOnTheFly.RemoveAt(i);
+    }
+
+    /// <summary>
+    /// WI-1 — writes the newly-created master back into the field Alt+C was pressed in. The caller is the tagged
+    /// control's own DataContext (the specific line/row view model), so the value lands in THAT row.
+    /// </summary>
+    private void ApplyCreatedMaster(MasterCreateKind kind, string fieldId, object? caller, Guid createdId)
+    {
+        if (Company is null) return;
+
+        // The party/stock-leg pickers are wrapper lists owned by the entry view model; refresh them first so the
+        // new ledger is an option before it is selected (otherwise the selection would silently not stick).
+        (VoucherEntry as VoucherEntryViewModel)?.RefreshMasterPickers();
+
+        switch (caller)
+        {
+            case VoucherLineViewModel line when fieldId == MasterCreateFields.Ledger:
+                line.SelectedLedger = Company.Ledgers.FirstOrDefault(l => l.Id == createdId);
+                return;
+
+            case AdditionalCostRowViewModel row when fieldId == MasterCreateFields.Ledger:
+                row.SelectedLedger = Company.Ledgers.FirstOrDefault(l => l.Id == createdId);
+                return;
+
+            case CostAllocationRowViewModel row when fieldId == MasterCreateFields.CostCategory:
+                row.SelectedCategory = Company.CostCategories.FirstOrDefault(c => c.Id == createdId);
+                return;
+
+            case CostAllocationRowViewModel row when fieldId == MasterCreateFields.CostCentre:
+                row.SelectedCentre = Company.CostCentres.FirstOrDefault(c => c.Id == createdId);
+                return;
+
+            case InventoryVoucherLineViewModel line when fieldId == MasterCreateFields.StockItem:
+                line.SelectedItem = Company.StockItems.FirstOrDefault(i => i.Id == createdId);
+                return;
+
+            case InventoryVoucherLineViewModel line when fieldId == MasterCreateFields.Godown:
+                line.SelectedGodown = Company.Godowns.FirstOrDefault(g => g.Id == createdId);
+                return;
+
+            case JobWorkComponentLineViewModel line when fieldId == MasterCreateFields.StockItem:
+                line.SelectedItem = Company.StockItems.FirstOrDefault(i => i.Id == createdId);
+                return;
+
+            case JobWorkComponentLineViewModel line when fieldId == MasterCreateFields.Godown:
+                line.SelectedGodown = Company.Godowns.FirstOrDefault(g => g.Id == createdId);
+                return;
+
+            case VoucherEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case VoucherEntryViewModel entry when fieldId == MasterCreateFields.StockLedger:
+                entry.SelectedStockLedger = entry.StockLedgers.FirstOrDefault(l => l.Id == createdId)
+                                            ?? entry.SelectedStockLedger;
+                return;
+
+            case InventoryVoucherEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case JobWorkOrderEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case MaterialMovementEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case PosBillingViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            // ---- DEPTH 2: the CREATE SCREEN's own pickers (the corpus's Stock Item → Unit / Stock Group /
+            // Stock Category case, plus Ledger → Group). Refresh the master's picker list FIRST — the list was
+            // built before the new record existed, so selecting into a stale list silently would not stick.
+            case StockItemMasterViewModel m when fieldId == MasterCreateFields.StockGroup:
+                m.RefreshPickers();
+                m.SelectedGroup = m.Groups.FirstOrDefault(g => g.Id == createdId) ?? m.SelectedGroup;
+                return;
+
+            case StockItemMasterViewModel m when fieldId == MasterCreateFields.Unit:
+                m.RefreshPickers();
+                m.SelectedUnit = m.Units.FirstOrDefault(u => u.Id == createdId) ?? m.SelectedUnit;
+                return;
+
+            case StockItemMasterViewModel m when fieldId == MasterCreateFields.StockCategory:
+                m.RefreshPickers();
+                m.SelectedCategory = m.CategoryOptions.FirstOrDefault(o => o.Category?.Id == createdId)
+                                     ?? m.SelectedCategory;
+                return;
+
+            case LedgerMasterViewModel m when fieldId == MasterCreateFields.AccountGroup:
+                m.RefreshGroups();
+                m.SelectedGroup = m.Groups.FirstOrDefault(g => g.Id == createdId) ?? m.SelectedGroup;
+                return;
+        }
+    }
+
+    /// <summary>
+    /// WI-1 — the <see cref="PartyOption"/> for a just-created ledger, APPENDING one when the entry screen's
+    /// party list was built before the ledger existed. Without the append the round-trip would silently fail on
+    /// every entry screen whose party picker is a snapshot wrapper list: the ledger would be created, the
+    /// operator returned to the voucher, and the field left blank as though nothing had happened.
+    /// </summary>
+    private PartyOption? ResolvePartyOption(
+        System.Collections.ObjectModel.ObservableCollection<PartyOption> parties, Guid createdId)
+    {
+        if (parties.FirstOrDefault(p => p.Ledger?.Id == createdId) is { } existing) return existing;
+        if (Company?.Ledgers.FirstOrDefault(l => l.Id == createdId) is not { } ledger) return null;
+
+        var option = new PartyOption { Ledger = ledger, Display = ledger.Name };
+        parties.Add(option);
+        return option;
     }
 
     /// <summary>Adds a fresh blank particulars line to the current voucher (view "Add line" button).</summary>
@@ -5480,6 +5928,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         Columns.RemoveAt(Columns.Count - 1);
         ClearSubScreens();
+        // WI-1: an Alt+C create column that is popped WITHOUT creating (Esc / Alt+X) disarms the round-trip.
+        AbandonCreateOnTheFlyIfColumnGone();
         ActiveColumnIndex = Columns.Count - 1;
         // If a page column survives (e.g. the report under a just-closed F12 config column), re-bind its
         // page view model and screen so the surviving page stays live — otherwise fall to the Gateway.
@@ -5499,32 +5949,95 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void RehydratePageFromRightmostColumn()
     {
-        var col = Columns[ActiveColumnIndex];
+        CurrentScreen = BindPageColumn(Columns[ActiveColumnIndex]);
+
+        // WI-1 DEPTH 2 — while a create column is STILL open, the page columns BENEATH it must stay bound too.
+        // BackFromPage's ClearSubScreens nulls every page property, and binding only the rightmost would leave
+        // the in-progress voucher unreachable from the shell (VoucherEntry null) even though its column, and all
+        // its data, are still there — so the write-back that follows a nested create would silently skip it.
+        if (IsCreateOnTheFlyOpen)
+            for (var i = 0; i < ActiveColumnIndex; i++)
+                if (Columns[i].IsPage) BindPageColumn(Columns[i]);
+    }
+
+    /// <summary>
+    /// Re-binds ONE surviving column's page view model to its shell property and reports the screen it
+    /// represents (Gateway for a menu column or a page kind that never sits beneath another).
+    /// </summary>
+    private Screen BindPageColumn(GatewayColumn col)
+    {
         switch (col.Page)
         {
             case ReportsViewModel r:
                 Reports = r;
-                CurrentScreen = Screen.Report;
-                break;
+                return Screen.Report;
             // RQ-7 drill columns can sit beneath one another (report → ledger-vouchers → voucher-detail); when a
             // deeper drill column is popped the surviving one must be re-bound so it stays live. A report may also
             // survive beneath a just-popped ledger-vouchers/voucher-detail column.
             case LedgerVouchersViewModel lv:
                 LedgerVouchers = lv;
-                CurrentScreen = Screen.LedgerVouchers;
-                break;
+                return Screen.LedgerVouchers;
             case VoucherDetailViewModel vd:
                 VoucherDetail = vd;
-                CurrentScreen = Screen.VoucherDetail;
-                break;
+                return Screen.VoucherDetail;
             // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
-                CurrentScreen = Screen.PrintPreview;
-                break;
+                return Screen.PrintPreview;
+            // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
+            // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
+            // come back with every line, party and amount intact instead of as a fresh blank entry.
+            case VoucherEntryViewModel ve:
+                VoucherEntry = ve;
+                return Screen.VoucherEntry;
+            case InventoryVoucherEntryViewModel ive:
+                InventoryVoucherEntry = ive;
+                return Screen.InventoryVoucherEntry;
+            case ManufacturingJournalEntryViewModel mje:
+                ManufacturingJournalEntry = mje;
+                return Screen.ManufacturingJournalEntry;
+            case JobWorkOrderEntryViewModel jwe:
+                JobWorkOrderEntry = jwe;
+                return Screen.JobWorkOrderEntry;
+            case MaterialMovementEntryViewModel mme:
+                MaterialMovementEntry = mme;
+                return Screen.MaterialMovementEntry;
+            case PosBillingViewModel pos:
+                PosBilling = pos;
+                return Screen.PosBilling;
+            // WI-1 DEPTH 2 — a MASTER-creation column can itself sit beneath a nested Alt+C create column (Stock
+            // Item Creation with Stock Group / Unit Creation over it). Re-binding the SAME instance is what
+            // brings the half-filled master back with its name, alias and opening balance intact — and what lets
+            // ApplyCreatedMaster then select the just-created record into the field it was launched from.
+            case LedgerMasterViewModel lm:
+                LedgerMaster = lm;
+                return Screen.LedgerMaster;
+            case AccountGroupMasterViewModel agm:
+                AccountGroupMaster = agm;
+                return Screen.AccountGroupMaster;
+            case StockItemMasterViewModel sim:
+                StockItemMaster = sim;
+                return Screen.StockItemMaster;
+            case StockGroupMasterViewModel sgm:
+                StockGroupMaster = sgm;
+                return Screen.StockGroupMaster;
+            case StockCategoryMasterViewModel scm:
+                StockCategoryMaster = scm;
+                return Screen.StockCategoryMaster;
+            case UnitMasterViewModel um:
+                UnitMaster = um;
+                return Screen.UnitMaster;
+            case GodownMasterViewModel gm:
+                GodownMaster = gm;
+                return Screen.GodownMaster;
+            case CostCategoryMasterViewModel ccatm:
+                CostCategoryMaster = ccatm;
+                return Screen.CostCategoryMaster;
+            case CostCentreMasterViewModel ccm:
+                CostCentreMaster = ccm;
+                return Screen.CostCentreMaster;
             default:
-                CurrentScreen = Screen.Gateway;
-                break;
+                return Screen.Gateway;
         }
     }
 
@@ -5717,7 +6230,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
         // Create master + report quick-jumps (enabled once a company is open).
-        ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
+        // WI-1: the button runs the SAME dispatch as the Alt+C key (it previously bound ShowLedgerMaster
+        // directly, so on the Manufacturing-Journal / BOM screens the key created a Stock Item while the button
+        // created a Ledger — key and button advertised one shortcut and did two different things). The button
+        // carries no focused field, so it opens the SCREEN's default master (CreateMasterFromButton) — but
+        // still through the non-destructive route, so clicking it mid-voucher no longer discards the entry.
+        // DEFECT 3: it is DISABLED while a create column is already open, where Alt+C is inert by design — an
+        // enabled button captioned "Create Ledger" that does nothing is worse than an honestly dimmed one.
+        ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
+            hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
         // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));

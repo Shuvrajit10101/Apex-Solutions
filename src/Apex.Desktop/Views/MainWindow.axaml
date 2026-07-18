@@ -2002,6 +2002,7 @@
                                         <Grid ColumnDefinitions="*,90,160,40">
                                           <ComboBox Grid.Column="0" MinWidth="200"
                                                     HorizontalAlignment="Stretch"
+                                                    views:CreateField.Master="Ledger"
                                                     ItemsSource="{Binding Ledgers}"
                                                     SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
                                                     PlaceholderText="Select ledger…">
@@ -2112,6 +2113,7 @@
                                                 <DataTemplate x:DataType="vm:CostAllocationRowViewModel">
                                                   <Grid ColumnDefinitions="*,*,120" Margin="0,1">
                                                     <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
+                                                              views:CreateField.Master="CostCategory"
                                                               ItemsSource="{Binding Categories}"
                                                               SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
                                                               FontSize="11" PlaceholderText="Category…">
@@ -2123,6 +2125,7 @@
                                                     </ComboBox>
                                                     <ComboBox Grid.Column="1" Margin="4,0,0,0"
                                                               HorizontalAlignment="Stretch"
+                                                              views:CreateField.Master="CostCentre"
                                                               ItemsSource="{Binding Centres}"
                                                               SelectedItem="{Binding SelectedCentre, Mode=TwoWay}"
                                                               FontSize="11" PlaceholderText="Centre…">
@@ -2288,6 +2291,7 @@
                                              Margin="0,0,8,0"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}"
                                             PlaceholderText="Select party…">
                                     <ComboBox.ItemTemplate>
@@ -2301,6 +2305,7 @@
                                              Margin="16,0,8,0"/>
                                   <ComboBox Grid.Column="3" Width="220"
                                             ItemsSource="{Binding StockLedgers}"
+                                            views:CreateField.Master="StockLedger"
                                             SelectedItem="{Binding SelectedStockLedger, Mode=TwoWay}"
                                             PlaceholderText="Value ledger…">
                                     <ComboBox.ItemTemplate>
@@ -2373,6 +2378,7 @@
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding StockItems}"
+                                                      views:CreateField.Master="StockItem"
                                                       SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                       PlaceholderText="Select item…">
                                               <ComboBox.ItemTemplate>
@@ -2385,6 +2391,7 @@
                                                       HorizontalAlignment="Stretch" Margin="6,0"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding Godowns}"
+                                                      views:CreateField.Master="Godown"
                                                       SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                       PlaceholderText="Godown…">
                                               <ComboBox.ItemTemplate>
@@ -2478,6 +2485,7 @@
                                             <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
                                               <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
                                                         ItemsSource="{Binding AdditionalCostLedgers}"
+                                                        views:CreateField.Master="Ledger"
                                                         SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
                                                         PlaceholderText="Additional-cost ledger…">
                                                 <ComboBox.ItemTemplate>
@@ -2974,6 +2982,7 @@
                                        never collapses, capped so it never crowds the direction hint — instead
                                        of a fixed 240px that ellipsized a party's state/GSTIN disambiguator. -->
                                   <ComboBox MinWidth="240" MaxWidth="420" ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -3022,6 +3031,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3033,6 +3043,7 @@
                                           <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3086,6 +3097,7 @@
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding StockItems}"
+                                                      views:CreateField.Master="StockItem"
                                                       SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                       PlaceholderText="Select item…">
                                               <ComboBox.ItemTemplate>
@@ -3097,6 +3109,7 @@
                                             <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding Godowns}"
+                                                      views:CreateField.Master="Godown"
                                                       SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                       PlaceholderText="Godown…">
                                               <ComboBox.ItemTemplate>
@@ -3152,6 +3165,7 @@
                                             <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
                                               <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
                                                         ItemsSource="{Binding AdditionalCostLedgers}"
+                                                        views:CreateField.Master="Ledger"
                                                         SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
                                                         PlaceholderText="Additional-cost ledger…">
                                                 <ComboBox.ItemTemplate>
@@ -3255,6 +3269,7 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -3370,6 +3385,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3391,6 +3407,7 @@
                                           <ComboBox Grid.Column="2" Classes="gridCombo" Width="144"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3477,6 +3494,7 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -3543,6 +3561,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3554,6 +3573,7 @@
                                           <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3591,6 +3611,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3602,6 +3623,7 @@
                                           <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3683,6 +3705,7 @@
                                   <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            views:CreateField.Master="AccountGroup"
                                             ItemsSource="{Binding Groups}"
                                             SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                             PlaceholderText="Select group…">
@@ -5426,6 +5449,7 @@
                                     <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                     <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="StockGroup"
                                               ItemsSource="{Binding Groups}"
                                               SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                               PlaceholderText="stock group…">
@@ -5439,6 +5463,7 @@
                                                VerticalAlignment="Center" Margin="10,0,0,0"
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="StockCategory"
                                               ItemsSource="{Binding CategoryOptions}"
                                               SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
                                               PlaceholderText="(none)">
@@ -5453,6 +5478,7 @@
                                     <TextBlock Grid.Column="0" Text="Base unit" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                     <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="Unit"
                                               ItemsSource="{Binding Units}"
                                               SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
                                               PlaceholderText="unit…">
@@ -6430,6 +6456,7 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}"
                                             PlaceholderText="(cash) walk-in…">
                                     <ComboBox.ItemTemplate>
@@ -6500,6 +6527,7 @@
                                           <Grid ColumnDefinitions="*,90,120" Margin="0,2">
                                             <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
                                                       ItemsSource="{Binding StockItems}"
+                                                      views:CreateField.Master="StockItem"
                                                       SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                       PlaceholderText="stock item…">
                                               <ComboBox.ItemTemplate>

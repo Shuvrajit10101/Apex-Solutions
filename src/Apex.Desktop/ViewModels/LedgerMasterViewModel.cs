@@ -111,8 +111,25 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             r.Name, r.Under, r.Opening, r.Currency, r.Interest,
         }).ToList());
 
-    /// <summary>The 28 groups (excluding the reserved P&amp;L head) the Under-picker offers, name-sorted.</summary>
-    public IReadOnlyList<Group> Groups { get; }
+    /// <summary>
+    /// The groups the Under-picker offers, name-sorted. Observable (not a fixed snapshot) because WI-1 lets the
+    /// operator create a GROUP on the fly from this very field — the list has to grow under the picker.
+    /// </summary>
+    public ObservableCollection<Group> Groups { get; } = new();
+
+    /// <summary>
+    /// WI-1 — rebuilds the Under-picker from the company, keeping the current choice. Called after an Alt+C
+    /// "create on the fly" launched from this screen's Under field adds a group; without it the new group would
+    /// not be an option and selecting it back would silently do nothing.
+    /// </summary>
+    public void RefreshGroups()
+    {
+        var previousId = SelectedGroup?.Id;
+        Groups.Clear();
+        foreach (var g in _company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+            Groups.Add(g);
+        SelectedGroup = Groups.FirstOrDefault(g => g.Id == previousId) ?? SelectedGroup;
+    }
 
     /// <summary>The existing ledgers, refreshed after each create.</summary>
     public ObservableCollection<LedgerListRow> Existing { get; } = new();
@@ -333,7 +350,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
 
-        Groups = company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (var g in company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+            Groups.Add(g);
         SelectedGroup = company.FindGroupByName("Sundry Debtors") ?? Groups.FirstOrDefault();
 
         _selectedPer = PerChoices[0];
