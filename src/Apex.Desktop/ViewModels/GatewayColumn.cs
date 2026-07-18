@@ -64,6 +64,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted ledger-master view model (non-null only for the Ledger-creation column).</summary>
     public LedgerMasterViewModel? Ledger => Page as LedgerMasterViewModel;
 
+    /// <summary>The hosted accounting-Group master (non-null only for the Group-creation column; WI-7).</summary>
+    public AccountGroupMasterViewModel? AccountGroupMaster => Page as AccountGroupMasterViewModel;
+
     /// <summary>The hosted chart-of-accounts view model (non-null only for the Chart-of-Accounts column).</summary>
     public ChartOfAccountsViewModel? Chart => Page as ChartOfAccountsViewModel;
 

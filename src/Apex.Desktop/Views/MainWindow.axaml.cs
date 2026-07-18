@@ -631,6 +631,9 @@ public partial class MainWindow : Window
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
 
+    private void OnCreateAccountGroupClick(object? sender, RoutedEventArgs e)
+        => Vm?.AccountGroupMaster?.Create();
+
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();
 

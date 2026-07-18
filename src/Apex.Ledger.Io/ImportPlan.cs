@@ -169,7 +169,16 @@ internal sealed class ImportPlan
                 continue;
             }
             var parent = g.ParentId is { } pid ? ResolveGroupId(pid, groupId, t) : (Guid?)null;
-            var domain = new Group(Guid.NewGuid(), g.Name, ParseEnum<GroupNature>(g.Nature), parent, g.Alias,
+            var declaredNature = ParseEnum<GroupNature>(g.Nature);
+            // WI-7: a group's nature MUST match the nature derived from its parent ancestry. The import previously
+            // accepted the caller-supplied nature VERBATIM, so a canonical file declaring Nature=Asset under Current
+            // Liabilities silently landed a payable on the ASSET side of the Balance Sheet — it still "balanced", so
+            // nothing failed loudly (a financial-misread corruption). Groups are added parents-before-children here,
+            // so the parent chain is already on `t` and PrimaryAncestorOf resolves. A contradiction throws → the
+            // whole batch rolls back all-or-nothing (Applied = false, target untouched). Shared with GroupService so
+            // the master screen and the import enforce the SAME invariant.
+            GroupService.ValidateNatureAgainstParent(declaredNature, parent, t);
+            var domain = new Group(Guid.NewGuid(), g.Name, declaredNature, parent, g.Alias,
                 isPredefined: false);
             t.AddGroup(domain);
             journal.RecordGroup(domain);

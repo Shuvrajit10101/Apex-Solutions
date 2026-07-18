@@ -33,6 +33,7 @@ public enum Screen
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
+    AccountGroupMaster,
     ChartOfAccounts,
     Outstandings,
     CostCategoryMaster,
@@ -256,6 +257,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The ledger-master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
+
+    /// <summary>The accounting-Group master view model, non-null only while that page column is open (WI-7).</summary>
+    [ObservableProperty] private AccountGroupMasterViewModel? _accountGroupMaster;
 
     /// <summary>The chart-of-accounts tree view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private ChartOfAccountsViewModel? _chartOfAccounts;
@@ -547,6 +551,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public bool IsMenuScreen => !IsGatewayCascade
         && Reports is null && VoucherEntry is null && InventoryVoucherEntry is null && LedgerMaster is null
+        && AccountGroupMaster is null
         && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
@@ -586,6 +591,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnInventoryVoucherEntryChanged(InventoryVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAccountGroupMasterChanged(AccountGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostCategoryMasterChanged(CostCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2651,6 +2657,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Ledger Creation", () => LedgerMaster = master);
     }
 
+    /// <summary>
+    /// Opens the accounting-Group creation master (Masters → Create → Group; WI-7) as a page column: create a
+    /// custom group (e.g. "Salary Payable") under a chosen parent, with the nature derived read-only from that
+    /// parent. This is what "Create → Group" opens — it previously mis-routed to Ledger Creation.
+    /// </summary>
+    public void ShowAccountGroupMaster()
+    {
+        if (Company is null) return;
+
+        var master = new AccountGroupMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Group Creation", master), Screen.AccountGroupMaster,
+            "Group Creation", () => AccountGroupMaster = master);
+    }
+
     // =============================================================== screen: chart of accounts
 
     /// <summary>
@@ -4125,6 +4145,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         VoucherEntry = null;
         InventoryVoucherEntry = null;
         LedgerMaster = null;
+        AccountGroupMaster = null;
         ChartOfAccounts = null;
         Outstandings = null;
         CostCategoryMaster = null;
@@ -4252,7 +4273,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             MaterialMovementEntry?.Cancel();
         else if (CurrentScreen == Screen.PosBilling)
             PosBilling?.Cancel();
-        else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
+        else if (CurrentScreen is Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
@@ -4571,6 +4592,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.LedgerMaster:
                 LedgerMaster?.Create();
+                return;
+            case Screen.AccountGroupMaster:
+                AccountGroupMaster?.Create();
                 return;
             case Screen.CostCategoryMaster:
                 CostCategoryMaster?.Create();
@@ -4897,7 +4921,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Profit & Loss A/c": OpenReport(ReportKind.ProfitAndLoss); break;
             case "Trial Balance": OpenReport(ReportKind.TrialBalance); break;
             case "Ledger": ShowLedgerMaster(); break;
-            case "Group": ShowLedgerMaster(); break;
+            case "Group": ShowAccountGroupMaster(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
             case "Stock Group": ShowStockGroupMaster(); break;
