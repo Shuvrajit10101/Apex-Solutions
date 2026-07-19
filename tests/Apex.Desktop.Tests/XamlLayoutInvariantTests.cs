@@ -510,9 +510,32 @@ public sealed class XamlLayoutInvariantTests
     // positively identified by its colHdr TextBlocks rather than guessed positionally. Unpairable row
     // grids are simply not judged.
 
+    /// <summary>
+    /// A Grid's column spec, whichever syntax declared it: the inline <c>ColumnDefinitions="*,184,…"</c>
+    /// attribute, or the long form <c>&lt;Grid.ColumnDefinitions&gt;&lt;ColumnDefinition Width="*" …/&gt;</c>.
+    /// <para><b>Why both.</b> The inline string cannot express <c>MinWidth</c>, so a column that must not be
+    /// starved to zero (the item-invoice Stock Item picker) has to use the long form. Reading only the
+    /// attribute made every long-form grid INVISIBLE to these invariants — a silent skip, which is the one
+    /// failure mode this whole file exists to prevent. The synthesized spec is the same comma string the
+    /// inline form would have produced, so <see cref="ParseColumns"/> and every width clause are unchanged.</para>
+    /// </summary>
+    private static string? ColumnSpecOf(XElement e)
+    {
+        if (Attr(e, "ColumnDefinitions") is { } inline) return inline;
+
+        var block = e.Elements().FirstOrDefault(k => k.Name == Av + "Grid.ColumnDefinitions");
+        if (block is null) return null;
+
+        var widths = block.Elements()
+            .Where(c => Is(c, "ColumnDefinition"))
+            .Select(c => Attr(c, "Width") ?? "*")
+            .ToList();
+        return widths.Count == 0 ? null : string.Join(",", widths);
+    }
+
     private static bool IsHeaderGrid(XElement e)
         => Is(e, "Grid")
-           && Attr(e, "ColumnDefinitions") is not null
+           && ColumnSpecOf(e) is not null
            && e.Elements().Any(k => Is(k, "TextBlock")
                                     && (Attr(k, "Classes") ?? "").Split(' ').Contains("colHdr"));
 
@@ -1299,12 +1322,12 @@ public sealed class XamlLayoutInvariantTests
             + $"but found {itemHeaders.Count}. The item-invoice line grid was renamed/restructured — this whole "
             + "D7 lock would be vacuous. Re-anchor it.");
         var itemHeader = itemHeaders[0];
-        var headerSpec = Norm(Attr(itemHeader, "ColumnDefinitions")!);
+        var headerSpec = Norm(ColumnSpecOf(itemHeader)!);
 
         // The row twin: the ONE grid inside an InventoryVoucherLineViewModel row template whose columns
         // match the header spec (5 other templates reuse that DataType with a different, narrower spec).
         var itemRows = Elements()
-            .Where(g => Is(g, "Grid") && Attr(g, "ColumnDefinitions") is { } s
+            .Where(g => Is(g, "Grid") && ColumnSpecOf(g) is { } s
                         && DataTypeOf(g) == "vm:InventoryVoucherLineViewModel"
                         && Norm(s) == headerSpec)
             .ToList();
@@ -1322,7 +1345,7 @@ public sealed class XamlLayoutInvariantTests
         // (A) Godown column (index 1) and Batch/Lot column (index 5) hold their D7 widths.
         var godown = headerCols[1];
         Assert.True(godown.Kind == ColKind.Fixed && godown.Value >= D7GodownColMinWidth,
-            $"The item-invoice Godown column (index 1) is \"{Attr(itemHeader, "ColumnDefinitions")}\" -> "
+            $"The item-invoice Godown column (index 1) is \"{ColumnSpecOf(itemHeader)}\" -> "
             + $"{(godown.Kind == ColKind.Fixed ? godown.Value.ToString("F0") + "px" : godown.Kind.ToString())}, "
             + $"below the {D7GodownColMinWidth:F0}px a real godown name (\"Main Location\") needs past the combo "
             + "chevron. This is D-2 restored (the column shipped at 184; the defect was 116). Widen it back.");
