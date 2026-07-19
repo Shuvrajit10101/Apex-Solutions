@@ -3,7 +3,8 @@ using Apex.Ledger.Domain;
 namespace Apex.Ledger.Services;
 
 /// <summary>
-/// The <b>§192 salary-TDS income-tax engine</b> (Phase 8 slice 7; RQ-12; Finance Act 2025 / §115BAC(1A) / §87A;
+/// The <b>§192 (2025 Act: §392) salary-TDS income-tax engine</b> (Phase 8 slice 7; RQ-12; Finance Act 2025 /
+/// §115BAC(1A) / §87A (2025 Act: §156);
 /// A14-verified FY 2025-26 / AY 2026-27) — a <b>pure, deterministic</b>, framework-/DB-/clock-/RNG-free calculator
 /// for the annual income-tax on an employee's estimated salary and the average-rate monthly §192 withholding. It is
 /// dedicated logic (not the generic As-Computed-Value slabs) because the statutory computation cannot be expressed
@@ -19,6 +20,14 @@ namespace Apex.Ledger.Services;
 ///     as estimates change, never negative.</item>
 /// </list>
 /// Money rounds to the <b>nearest rupee, half-up</b> (the Phase-7 income-tax convention, <see cref="TdsService.NearestRupee"/>).
+///
+/// <para><b>Statute vocabulary (CA S9).</b> The Income-tax Act 2025 renumbers the sections cited here — §192→§392,
+/// §87A→§156 — from <b>FY 2026-27</b>, when the 1961 Act stands repealed. Those are <b>display</b> changes only and
+/// are resolved by <see cref="Domain.StatuteVocabulary"/>; <b>this engine computes nothing differently</b>. The slab
+/// boundaries and thresholds below were checked against the 2025 Act (s.202(1) slabs, s.19(1) standard deduction,
+/// s.156(2) rebate) and are <b>identical</b> to the Finance Act 2025 figures already encoded, so no rate table forks
+/// at the cutover. Sections that were <b>not</b> verified against a primary source — notably §115BAC and the Chapter
+/// VI-A deductions — are deliberately left <b>un-renumbered and un-re-cited</b> throughout.</para>
 /// </summary>
 public static class SalaryIncomeTax
 {
@@ -35,6 +44,13 @@ public static class SalaryIncomeTax
     public const decimal OldRegimeRebateCap = 12_500m;
 
     /// <summary>Health &amp; Education Cess — 4% on (income-tax + surcharge − rebate), both regimes, applied last.</summary>
+    /// <remarks>
+    /// TODO(R7): <b>correct for FY 2025-26</b> (Finance Act 2025), which is the data this app holds — leave it as is.
+    /// <b>FY 2026-27 onward is UNCONFIRMED</b>: a full text search of the Finance Act 2026 First Schedule found <b>no
+    /// cess levy in Part III</b>. That is an absence of evidence, not evidence of absence, so the rate is deliberately
+    /// <b>neither removed nor re-cited</b> here. Before the FY 2026-27 rate tables are relied on, the cess must be
+    /// re-verified against a primary source; do not infer its status from a secondary aggregator.
+    /// </remarks>
     public const decimal CessRate = 0.04m;
 
     /// <summary>The §206AA no-PAN floor rate — 20% of taxable income (higher of average rate or 20%).</summary>

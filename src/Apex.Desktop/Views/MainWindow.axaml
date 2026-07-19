@@ -303,10 +303,18 @@
                                                    a name still overflows; ToolTip.Tip surfaces the full label — including
                                                    the parenthetical disambiguator (state / GSTIN / branch) — on hover, a
                                                    bonus for mouse users of this keyboard-first list. -->
-                                              <TextBlock Grid.Column="0" Text="{Binding Label}"
+                                              <!-- WI-9: the bare-letter hotkey is painted RED inside the label. The
+                                                   three Runs live in ONE TextBlock on purpose — a horizontal
+                                                   StackPanel would measure at infinite width and kill the
+                                                   TextTrimming above it. When a row has no hotkey the first two
+                                                   Runs are empty and HotKeyAfter carries the whole label, so the
+                                                   row renders exactly as it did before. The letter is a SEPARATE
+                                                   property; Label itself is never marked up (shell code dispatches
+                                                   on Label text and would break silently). -->
+                                              <TextBlock Grid.Column="0"
                                                          FontSize="14" TextTrimming="CharacterEllipsis"
                                                          ToolTip.Tip="{Binding Label}"
-                                                         Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"/>
+                                                         Foreground="{Binding IsSelected, Converter={StaticResource SelFore}}"><Run Text="{Binding HotKeyBefore}"/><Run Text="{Binding HotKeyText}" Foreground="#C62828" FontWeight="Bold"/><Run Text="{Binding HotKeyAfter}"/></TextBlock>
                                               <TextBlock Grid.Column="1" Text="{Binding Hint}"
                                                          FontSize="11" Foreground="#6A6A6A"
                                                          VerticalAlignment="Center" Margin="12,0,0,0"/>
@@ -1924,7 +1932,7 @@
                                              VerticalAlignment="Center" Margin="16,0,0,0">
                                     <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                   </TextBlock>
-                                  <TextBox Grid.Column="3" Width="140"
+                                  <TextBox Classes="working-date" Grid.Column="3" Width="140"
                                            Text="{Binding DateText, Mode=TwoWay}"
                                            FontSize="12" VerticalAlignment="Center"/>
                                 </Grid>
@@ -1994,6 +2002,7 @@
                                         <Grid ColumnDefinitions="*,90,160,40">
                                           <ComboBox Grid.Column="0" MinWidth="200"
                                                     HorizontalAlignment="Stretch"
+                                                    views:CreateField.Master="Ledger"
                                                     ItemsSource="{Binding Ledgers}"
                                                     SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
                                                     PlaceholderText="Select ledger…">
@@ -2104,6 +2113,7 @@
                                                 <DataTemplate x:DataType="vm:CostAllocationRowViewModel">
                                                   <Grid ColumnDefinitions="*,*,120" Margin="0,1">
                                                     <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
+                                                              views:CreateField.Master="CostCategory"
                                                               ItemsSource="{Binding Categories}"
                                                               SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
                                                               FontSize="11" PlaceholderText="Category…">
@@ -2115,6 +2125,7 @@
                                                     </ComboBox>
                                                     <ComboBox Grid.Column="1" Margin="4,0,0,0"
                                                               HorizontalAlignment="Stretch"
+                                                              views:CreateField.Master="CostCentre"
                                                               ItemsSource="{Binding Centres}"
                                                               SelectedItem="{Binding SelectedCentre, Mode=TwoWay}"
                                                               FontSize="11" PlaceholderText="Centre…">
@@ -2280,6 +2291,7 @@
                                              Margin="0,0,8,0"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}"
                                             PlaceholderText="Select party…">
                                     <ComboBox.ItemTemplate>
@@ -2293,6 +2305,7 @@
                                              Margin="16,0,8,0"/>
                                   <ComboBox Grid.Column="3" Width="220"
                                             ItemsSource="{Binding StockLedgers}"
+                                            views:CreateField.Master="StockLedger"
                                             SelectedItem="{Binding SelectedStockLedger, Mode=TwoWay}"
                                             PlaceholderText="Value ledger…">
                                     <ComboBox.ItemTemplate>
@@ -2327,10 +2340,14 @@
                                    (92) shows in
                                    full (D-1). Numeric Qty (84) / Rate (72) columns are left untouched. -->
                               <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                                <Grid ColumnDefinitions="*,184,84,Auto,72,92,36,Auto,Auto,Auto">
+                                <Grid ColumnDefinitions="*,184,120,Auto,72,92,36,Auto,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
-                                  <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on. -->
+                                  <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on.
+                                       WI-10 Gap 2: the Qty column widens 84 -> 120 so the quantity and the UNIT it is
+                                       stated in share ONE column (the "per" of an invoice line), exactly as the
+                                       inventory-voucher grid does. Every other column index is untouched, so the
+                                       Billed / Rate / Batch / Landed / Disc gating is unaffected. -->
                                   <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Classes="colHdr" TextAlignment="Right"/>
                                   <!-- Billed-quantity column — shown only when the company "Use separate Actual &amp; Billed
                                        Qty" flag is on (Sales/Purchase item-invoice only). Value + GST derive from Billed. -->
@@ -2360,11 +2377,12 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,184,84,Auto,72,92,36,Auto,Auto,Auto">
+                                          <Grid ColumnDefinitions="*,184,120,Auto,72,92,36,Auto,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding StockItems}"
+                                                      views:CreateField.Master="StockItem"
                                                       SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                       PlaceholderText="Select item…">
                                               <ComboBox.ItemTemplate>
@@ -2377,6 +2395,7 @@
                                                       HorizontalAlignment="Stretch" Margin="6,0"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding Godowns}"
+                                                      views:CreateField.Master="Godown"
                                                       SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                       PlaceholderText="Godown…">
                                               <ComboBox.ItemTemplate>
@@ -2385,10 +2404,30 @@
                                                 </DataTemplate>
                                               </ComboBox.ItemTemplate>
                                             </ComboBox>
-                                            <!-- Actual (stock) quantity. -->
-                                            <TextBox Grid.Column="2" Width="78"
-                                                     Text="{Binding QuantityText, Mode=TwoWay}"
-                                                     TextAlignment="Right" PlaceholderText="0"/>
+                                            <!-- Actual (stock) quantity + the UNIT it is stated in, in ONE cell
+                                                 (WI-10 Gap 2). A fixed 2-column inner Grid, never a horizontal
+                                                 StackPanel (which measures at infinite width). The unit picker
+                                                 shows only when the picked item HAS an alternative unit;
+                                                 otherwise this cell is just the quantity box, exactly as before.
+                                                 THE RATE IS PER THIS UNIT — "2 Doz @ 10.00" is 20.00, not 240.00,
+                                                 and 24 Nos of stock move. -->
+                                            <Grid Grid.Column="2" ColumnDefinitions="66,50">
+                                              <TextBox Grid.Column="0" Width="66"
+                                                       Text="{Binding QuantityText, Mode=TwoWay}"
+                                                       TextAlignment="Right" PlaceholderText="0"/>
+                                              <ComboBox Grid.Column="1" Classes="gridCombo" Width="48" Margin="2,0,0,0"
+                                                        HorizontalContentAlignment="Left" Padding="4,3,2,3"
+                                                        ItemsSource="{Binding UnitOptions}"
+                                                        SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                                                        ToolTip.Tip="Unit this quantity is stated in (the rate is per this unit)"
+                                                        IsVisible="{Binding ShowUnit}">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:Unit">
+                                                    <TextBlock Text="{Binding Symbol}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                            </Grid>
                                             <!-- Billed (accounts/GST) quantity — shown only when the company A/B flag is
                                                  on (ShowActualBilled). Blank ⇒ Billed defaults to Actual (RQ-22/25). -->
                                             <TextBox Grid.Column="3" Width="78" Margin="6,0,0,0"
@@ -2470,6 +2509,7 @@
                                             <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
                                               <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
                                                         ItemsSource="{Binding AdditionalCostLedgers}"
+                                                        views:CreateField.Master="Ledger"
                                                         SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
                                                         PlaceholderText="Additional-cost ledger…">
                                                 <ComboBox.ItemTemplate>
@@ -2878,7 +2918,8 @@
                                       BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
                                       Padding="10,8" Margin="0,0,0,2">
                                 <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
-                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="TCS — Nature of Goods (§206C)"
+                                  <!-- CA S9: FY-gated (§206C 1961 Act / §394 2025 Act) — never a literal. -->
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding TcsNatureOfGoodsCaption}"
                                              FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
                                              VerticalAlignment="Center" Margin="0,0,8,0"/>
                                   <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="18"
@@ -2945,7 +2986,7 @@
                                           IsChecked="{Binding IsPostDated, Mode=TwoWay}"
                                           Foreground="#CFE0FF" FontSize="11"
                                           VerticalAlignment="Center" Margin="0,0,16,0"/>
-                                <TextBox Grid.Column="3" Width="140"
+                                <TextBox Classes="working-date" Grid.Column="3" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -2966,6 +3007,7 @@
                                        never collapses, capped so it never crowds the direction hint — instead
                                        of a fixed 240px that ellipsized a party's state/GSTIN disambiguator. -->
                                   <ComboBox MinWidth="240" MaxWidth="420" ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -2984,9 +3026,13 @@
 
                             <!-- Primary lines column header band -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                              <Grid ColumnDefinitions="*,152,84,88,86,36">
+                              <Grid ColumnDefinitions="*,152,120,88,86,36">
                                 <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
+                                <!-- WI-10 slice B: Qty and the UNIT it is stated in share ONE column (the
+                                     "per" of a Tally invoice line). Keeping them in one column leaves the
+                                     Stock Item * column wide enough to read real item names, and keeps
+                                     Batch/Lot at index 4 (the identity D7 anchors the item-invoice grid by). -->
                                 <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"
                                            IsVisible="{Binding LinesShowRate}"/>
@@ -3009,11 +3055,12 @@
                                     <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                               Padding="6,4">
-                                        <Grid ColumnDefinitions="*,152,84,88,86,36">
+                                        <Grid ColumnDefinitions="*,152,120,88,86,36">
                                           <ComboBox Grid.Column="0" Classes="gridCombo"
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3025,6 +3072,7 @@
                                           <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3033,9 +3081,29 @@
                                               </DataTemplate>
                                             </ComboBox.ItemTemplate>
                                           </ComboBox>
-                                          <TextBox Grid.Column="2" Width="78"
-                                                   Text="{Binding QuantityText, Mode=TwoWay}"
-                                                   TextAlignment="Right" PlaceholderText="0"/>
+                                          <!-- WI-10 slice B: Qty + the UNIT it is stated in, in ONE cell. A
+                                               fixed 2-column inner Grid (never a horizontal StackPanel, which
+                                               measures at infinite width). The unit picker appears only when
+                                               the picked item HAS an alternative unit; otherwise this cell is
+                                               just the quantity box, exactly as before. The RATE is per THIS
+                                               unit - "2 Doz-Nos @ 10.00" is 20.00, not 240.00. -->
+                                          <Grid Grid.Column="2" ColumnDefinitions="66,50">
+                                            <TextBox Grid.Column="0" Width="66"
+                                                     Text="{Binding QuantityText, Mode=TwoWay}"
+                                                     TextAlignment="Right" PlaceholderText="0"/>
+                                            <ComboBox Grid.Column="1" Classes="gridCombo" Width="48" Margin="2,0,0,0"
+                                                      HorizontalContentAlignment="Left" Padding="4,3,2,3"
+                                                      ItemsSource="{Binding UnitOptions}"
+                                                      SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                                                      ToolTip.Tip="Unit this quantity is stated in (the rate is per this unit)"
+                                                      IsVisible="{Binding ShowUnit}">
+                                              <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="ledger:Unit">
+                                                  <TextBlock Text="{Binding Symbol}"/>
+                                                </DataTemplate>
+                                              </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                          </Grid>
                                           <TextBox Grid.Column="3" Width="80" Margin="6,0"
                                                    Text="{Binding RateText, Mode=TwoWay}"
                                                    TextAlignment="Right" PlaceholderText="0.00"
@@ -3073,11 +3141,12 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,152,84,88,86,36,Auto,Auto">
+                                          <Grid ColumnDefinitions="*,152,120,88,86,36,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding StockItems}"
+                                                      views:CreateField.Master="StockItem"
                                                       SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                       PlaceholderText="Select item…">
                                               <ComboBox.ItemTemplate>
@@ -3089,6 +3158,7 @@
                                             <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                       ItemsSource="{Binding Godowns}"
+                                                      views:CreateField.Master="Godown"
                                                       SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                       PlaceholderText="Godown…">
                                               <ComboBox.ItemTemplate>
@@ -3097,9 +3167,26 @@
                                                 </DataTemplate>
                                               </ComboBox.ItemTemplate>
                                             </ComboBox>
-                                            <TextBox Grid.Column="2" Width="78"
-                                                     Text="{Binding QuantityText, Mode=TwoWay}"
-                                                     TextAlignment="Right" PlaceholderText="0"/>
+                                            <!-- WI-10 slice B: Qty + the UNIT it is stated in, in ONE cell.
+                                                 The Stock-Journal balance check normalises both sides to the
+                                                 item's base unit, so "1 Doz-Nos" out balances "12 Nos" in. -->
+                                            <Grid Grid.Column="2" ColumnDefinitions="66,50">
+                                              <TextBox Grid.Column="0" Width="66"
+                                                       Text="{Binding QuantityText, Mode=TwoWay}"
+                                                       TextAlignment="Right" PlaceholderText="0"/>
+                                              <ComboBox Grid.Column="1" Classes="gridCombo" Width="48" Margin="2,0,0,0"
+                                                        HorizontalContentAlignment="Left" Padding="4,3,2,3"
+                                                        ItemsSource="{Binding UnitOptions}"
+                                                        SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                                                        ToolTip.Tip="Unit this quantity is stated in (the rate is per this unit)"
+                                                        IsVisible="{Binding ShowUnit}">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:Unit">
+                                                    <TextBlock Text="{Binding Symbol}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                            </Grid>
                                             <TextBox Grid.Column="3" Width="80" Margin="6,0"
                                                      Text="{Binding RateText, Mode=TwoWay}"
                                                      TextAlignment="Right" PlaceholderText="0.00"
@@ -3144,6 +3231,7 @@
                                             <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
                                               <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
                                                         ItemsSource="{Binding AdditionalCostLedgers}"
+                                                        views:CreateField.Master="Ledger"
                                                         SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
                                                         PlaceholderText="Additional-cost ledger…">
                                                 <ComboBox.ItemTemplate>
@@ -3229,7 +3317,7 @@
                                            VerticalAlignment="Center" Margin="0,0,18,0">
                                   <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                 </TextBlock>
-                                <TextBox Grid.Column="2" Width="140"
+                                <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -3247,6 +3335,7 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -3362,6 +3451,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3383,6 +3473,7 @@
                                           <ComboBox Grid.Column="2" Classes="gridCombo" Width="144"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3451,7 +3542,7 @@
                                            VerticalAlignment="Center" Margin="0,0,18,0">
                                   <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
                                 </TextBlock>
-                                <TextBox Grid.Column="2" Width="140"
+                                <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
                                          FontSize="12" VerticalAlignment="Center"/>
                               </Grid>
@@ -3469,6 +3560,7 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="vm:PartyOption">
@@ -3535,6 +3627,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3546,6 +3639,7 @@
                                           <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3583,6 +3677,7 @@
                                                     MinWidth="0" HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding StockItems}"
+                                                    views:CreateField.Master="StockItem"
                                                     SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                     PlaceholderText="Select item…">
                                             <ComboBox.ItemTemplate>
@@ -3594,6 +3689,7 @@
                                           <ComboBox Grid.Column="1" Classes="gridCombo" Width="146" Margin="6,0"
                                                     HorizontalContentAlignment="Left" Padding="8,3,6,3"
                                                     ItemsSource="{Binding Godowns}"
+                                                    views:CreateField.Master="Godown"
                                                     SelectedItem="{Binding SelectedGodown, Mode=TwoWay}"
                                                     PlaceholderText="Godown…">
                                             <ComboBox.ItemTemplate>
@@ -3675,6 +3771,7 @@
                                   <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            views:CreateField.Master="AccountGroup"
                                             ItemsSource="{Binding Groups}"
                                             SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                             PlaceholderText="Select group…">
@@ -3771,6 +3868,94 @@
                                              PlaceholderText="e.g. 30" TextAlignment="Right"/>
                                   </Grid>
                                 </StackPanel>
+
+                                <!-- Party Mailing Details (WI-4). Shown for ANY party ledger — deliberately not
+                                     behind an F11 flag, unlike the GST block below. The State/UT field lives in
+                                     the GST block only: there is ONE party State (the place-of-supply driver),
+                                     and showing a second editable State here would let the two contradict and
+                                     silently mis-compute CGST+SGST vs IGST. -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowMailingDetails}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="Mailing Details (party)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Mailing Name" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingName, Mode=TwoWay}"
+                                               PlaceholderText="defaults to the ledger name"/>
+                                    </Grid>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Address" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Top" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingAddress, Mode=TwoWay}"
+                                               AcceptsReturn="True" TextWrapping="Wrap"
+                                               MinHeight="58" MaxHeight="96"
+                                               VerticalContentAlignment="Top"
+                                               PlaceholderText="one line per line; each prints on the invoice"/>
+                                    </Grid>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="Country" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingCountry, Mode=TwoWay}"
+                                               PlaceholderText="India"/>
+                                    </Grid>
+                                    <!-- State/UT. This is the SAME single field as the GST block's State/UT below:
+                                         both combos bind one view-model property, which writes one stored value
+                                         (PartyGstDetails.StateCode) through Ledger.MailingStateCode. Editing
+                                         either updates both, so a mailing State can never contradict the GST
+                                         place of supply. It is surfaced here as well so a party's State is still
+                                         capturable on a company that has GST switched off. -->
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="State/UT" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding PartyStates}"
+                                                SelectedItem="{Binding MailingState, Mode=TwoWay}"
+                                                PlaceholderText="State/UT…">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:IndianStateOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid>
+                                      <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="LedGstL"/>
+                                        <ColumnDefinition Width="*"/>
+                                      </Grid.ColumnDefinitions>
+                                      <TextBlock Grid.Column="0" Text="PIN Code" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                                 VerticalAlignment="Center" FontSize="12.5"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Text="{Binding MailingPincode, Mode=TwoWay}"
+                                               PlaceholderText="6 digits, e.g. 700001"/>
+                                    </Grid>
+                                    <TextBlock Text="State/UT is a single value shared with GST Details — it also sets the place of supply."
+                                               FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
 
                                 <!-- Party GST details (shown for a party group while GST is enabled; catalog §12) -->
                                 <Border Background="#FBF7EE"
@@ -4099,7 +4284,7 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: Chart of Accounts (read-only group/ledger tree) -->
+                    <!-- PAGE: Chart of Accounts (group/ledger tree; WI-3 arrow highlight + Enter → Alter) -->
                     <ContentControl IsVisible="{Binding Chart, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding Chart}">
                       <ContentControl.ContentTemplate>
@@ -4127,6 +4312,11 @@
                                   <DataTemplate x:DataType="vm:ChartRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,160" Height="24">
+                                        <!-- WI-3 keyboard highlight. Declared FIRST so it paints BEHIND the row's
+                                             text (Grid children stack in declaration order); this keeps the
+                                             highlight converter-free and cannot obscure the account name. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="{Binding Indent, Converter={StaticResource Indent}}"
                                                    VerticalAlignment="Center"
@@ -4895,6 +5085,103 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Accounting Group master (create + list) — WI-7. Nature is DERIVED read-only from the
+                         chosen parent; the user never picks a nature (Tally derives Asset/Liability/Income/Expense). -->
+                    <ContentControl IsVisible="{Binding AccountGroupMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AccountGroupMaster}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AccountGroupMasterViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Group Creation"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- Create form -->
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" Margin="0,0,0,10">
+                              <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="90,*,70,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Salary Payable"/>
+                                  <TextBlock Grid.Column="2" Text="Alias" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding ParentOptions}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}"
+                                            PlaceholderText="Select parent group…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Group">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <!-- Nature: READ-ONLY, derived from the parent. Never an input. -->
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Nature" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding DerivedNature}" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Text="(derived from parent)" FontSize="11" FontStyle="Italic"
+                                               VerticalAlignment="Center" Foreground="#6A6A6A"/>
+                                  </StackPanel>
+                                </Grid>
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource AlertRed}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnCreateAccountGroupClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+
+                            <!-- Existing groups header -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,200,120">
+                                <TextBlock Grid.Column="0" Text="Group" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Nature" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Existing}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:AccountGroupListRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="*,200,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Under}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Nature}"
+                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Stock Group master (create + list) -->
                     <ContentControl IsVisible="{Binding StockGroupMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding StockGroupMaster}">
@@ -5296,7 +5583,7 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:StockItemMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Stock Item Creation"
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,8"/>
 
@@ -5321,6 +5608,7 @@
                                     <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                     <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="StockGroup"
                                               ItemsSource="{Binding Groups}"
                                               SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                               PlaceholderText="stock group…">
@@ -5334,6 +5622,7 @@
                                                VerticalAlignment="Center" Margin="10,0,0,0"
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="StockCategory"
                                               ItemsSource="{Binding CategoryOptions}"
                                               SelectedItem="{Binding SelectedCategory, Mode=TwoWay}"
                                               PlaceholderText="(none)">
@@ -5348,6 +5637,7 @@
                                     <TextBlock Grid.Column="0" Text="Base unit" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                     <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              views:CreateField.Master="Unit"
                                               ItemsSource="{Binding Units}"
                                               SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
                                               PlaceholderText="unit…">
@@ -5601,6 +5891,11 @@
                                   <DataTemplate x:DataType="vm:StockItemListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,150,70,150,120" Height="24">
+                                        <!-- WI-3 keyboard highlight (Up/Down move it, Ctrl+Enter alters that
+                                             item). Declared FIRST so it paints BEHIND the row's text — same
+                                             converter-free pattern as the Chart of Accounts tree above. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -6124,7 +6419,7 @@
                                   <TextBlock Grid.Column="2" Text="Date" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="10,0,0,0"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                  <TextBox Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
+                                  <TextBox Classes="working-date" Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="110,*,110,*">
@@ -6325,6 +6620,7 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                             ItemsSource="{Binding Parties}"
+                                            views:CreateField.Master="Party"
                                             SelectedItem="{Binding SelectedParty, Mode=TwoWay}"
                                             PlaceholderText="(cash) walk-in…">
                                     <ComboBox.ItemTemplate>
@@ -6336,7 +6632,7 @@
                                   <TextBlock Grid.Column="2" Text="Date" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="10,0,0,0"
                                              Foreground="{StaticResource BrandNavy}"/>
-                                  <TextBox Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
+                                  <TextBox Classes="working-date" Grid.Column="3" Text="{Binding DateText, Mode=TwoWay}"
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="110,*,90,150">
@@ -6395,6 +6691,7 @@
                                           <Grid ColumnDefinitions="*,90,120" Margin="0,2">
                                             <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
                                                       ItemsSource="{Binding StockItems}"
+                                                      views:CreateField.Master="StockItem"
                                                       SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                                       PlaceholderText="stock item…">
                                               <ComboBox.ItemTemplate>
@@ -8016,7 +8313,7 @@
                                                  VerticalAlignment="Center" Margin="10,0,0,0"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding EffectiveFromText, Mode=TwoWay}"
-                                               PlaceholderText="yyyy-MM-dd"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                     </Grid>
                                     <Grid ColumnDefinitions="130,*,130,*">
                                       <TextBlock Grid.Column="0" Text="{Binding ScopeTargetLabel}" FontWeight="SemiBold"
@@ -8181,13 +8478,13 @@
                                     <Grid ColumnDefinitions="130,*,130,*">
                                       <TextBlock Grid.Column="0" Text="Period From" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                      <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBox Classes="working-date" Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Period To" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding PeriodToText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                     </Grid>
 
                                     <!-- attendance / production lines -->
@@ -8308,18 +8605,18 @@
                                       <TextBlock Grid.Column="0" Text="Period From" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding PeriodFromText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Period To" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="3" Text="{Binding PeriodToText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                     </Grid>
                                     <Grid ColumnDefinitions="120,*,120,*">
                                       <TextBlock Grid.Column="0" Text="Voucher Date" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                      <TextBox Grid.Column="1" Text="{Binding VoucherDateText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                      <TextBox Classes="working-date" Grid.Column="1" Text="{Binding VoucherDateText, Mode=TwoWay}"
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="" />
                                       <TextBlock Grid.Column="3" Text="" />
                                     </Grid>
@@ -9015,7 +9312,8 @@
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <TextBlock Grid.Column="1" Text="{Binding SalaryTdsFinancialYearLabel}"
                                                VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
-                                    <TextBlock Grid.Column="2" Text="Assessment Year" FontWeight="SemiBold"
+                                    <!-- CA S9: FY-gated caption ("Assessment Year" 1961 Act / "Tax Year" 2025 Act). -->
+                                    <TextBlock Grid.Column="2" Text="{Binding SalaryTdsPeriodCaption}" FontWeight="SemiBold"
                                                FontSize="12" VerticalAlignment="Center"
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <TextBlock Grid.Column="3" Text="{Binding SalaryTdsAssessmentYearLabel}"
@@ -11495,7 +11793,7 @@
                                                  VerticalAlignment="Center" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Section" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
@@ -12689,7 +12987,8 @@
 
                             <!-- Annexure I deductee grid (selectable) + Annexure II (Q4 only) -->
                             <Grid Grid.Row="5" RowDefinitions="Auto,Auto,*,Auto">
-                              <TextBlock Grid.Row="0" Text="Annexure I — deductee-wise §192 TDS" FontWeight="Bold"
+                              <!-- CA S9: FY-gated (§192 1961 Act / §392 2025 Act) — never a literal. -->
+                              <TextBlock Grid.Row="0" Text="{Binding AnnexureIHeading}" FontWeight="Bold"
                                          FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                               <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
                                 <Grid ColumnDefinitions="120,*,70,110,110">
@@ -12884,7 +13183,9 @@
                                                  FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
                                       <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding EmployeeName}"
                                                  FontSize="12" FontWeight="SemiBold" Margin="0,0,12,2"/>
-                                      <TextBlock Grid.Row="0" Grid.Column="2" Text="AY" FontWeight="SemiBold"
+                                      <!-- CA S9: caption is FY-gated ("AY" 1961 Act / "Tax Year" 2025 Act) — it must
+                                           never be a literal, because the two vocabularies collide numerically. -->
+                                      <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding PeriodCaptionShort}" FontWeight="SemiBold"
                                                  FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
                                       <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding AssessmentYear}"
                                                  FontSize="12" Margin="0,0,0,2"/>
@@ -13061,7 +13362,7 @@
                                                  VerticalAlignment="Center" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
                                       <TextBox Grid.Column="1" Text="{Binding DepositDateText, Mode=TwoWay}"
-                                               PlaceholderText="dd-MM-yyyy"/>
+                                               PlaceholderText="dd-MMM-yyyy"/>
                                       <TextBlock Grid.Column="2" Text="Collection Code" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12"
                                                  Foreground="{StaticResource BrandNavy}"/>
@@ -15385,6 +15686,18 @@
                     <Run Text="Current Date: "/><Run Text="{Binding StatusDate}"/>
                 </TextBlock>
             </Grid>
+        </Border>
+
+        <!-- ============ WI-11: the terminal "Accept? (Y/N)" confirmation ============
+             Shares the status-bar row and is declared AFTER it so it paints on top while open. Amber, so it
+             reads as a question awaiting an answer rather than as status. Keyboard-only by design (Y / N / Esc
+             are handled in the window's tunnel handler); Ctrl+A never raises it and still accepts outright. -->
+        <Border Grid.Row="3" Background="#8A5300" Height="26"
+                IsVisible="{Binding IsAcceptPromptOpen}">
+            <TextBlock VerticalAlignment="Center" Margin="12,0" FontSize="11"
+                       Foreground="White" FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis"
+                       Text="{Binding AcceptPromptText}"/>
         </Border>
     </Grid>
 </Window>

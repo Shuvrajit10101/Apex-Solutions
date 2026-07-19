@@ -238,12 +238,27 @@ public sealed class InventoryPostingService
     {
         void CheckAlloc(InventoryAllocation a)
         {
-            if (_company.FindStockItem(a.StockItemId) is null)
+            var item = _company.FindStockItem(a.StockItemId);
+            if (item is null)
                 throw new InvalidOperationException($"Inventory line references unknown stock item {a.StockItemId}.");
             if (_company.FindGodown(a.GodownId) is null)
                 throw new InvalidOperationException($"Inventory line references unknown godown {a.GodownId}.");
-            if (a.UnitId is { } uid && _company.FindUnit(uid) is null)
-                throw new InvalidOperationException($"Inventory line references unknown unit {uid}.");
+            if (a.UnitId is { } uid)
+            {
+                var unit = _company.FindUnit(uid);
+                if (unit is null)
+                    throw new InvalidOperationException($"Inventory line references unknown unit {uid}.");
+                // A line's quantity is normalised via Unit.QuantityInBaseMeasure before it accumulates on
+                // hand, so the unit MUST reduce to the item's own base unit — otherwise "1 Kg" of a
+                // Nos-measured item would silently scale by an unrelated factor. (WI-10 Gap 7.)
+                if (unit.BaseMeasureUnitId != item.BaseUnitId)
+                {
+                    var itemUnit = _company.FindUnit(item.BaseUnitId)?.Symbol ?? item.BaseUnitId.ToString();
+                    throw new InvalidOperationException(
+                        $"Inventory line for '{item.Name}' states its quantity in '{unit.Symbol}', which does not " +
+                        $"reduce to the item's base unit '{itemUnit}'.");
+                }
+            }
         }
 
         foreach (var a in v.Allocations) CheckAlloc(a);

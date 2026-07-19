@@ -280,8 +280,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The financial-year label the salary-TDS estimate runs for (e.g. "2025-26").</summary>
     public string SalaryTdsFinancialYearLabel => FyLabel(_company.FinancialYearStart.Year);
 
-    /// <summary>The assessment-year label (FY + 1, e.g. "2026-27") the §192 return is filed for.</summary>
-    public string SalaryTdsAssessmentYearLabel => FyLabel(_company.FinancialYearStart.Year + 1);
+    /// <summary>The period label the §192 return is filed for — the assessment year (FY + 1, e.g. "2026-27") under the
+    /// 1961 Act, or the tax year (== the financial year) from FY 2026-27 onward under the 2025 Act. Always render it
+    /// beside <see cref="SalaryTdsPeriodCaption"/>: the two vocabularies collide numerically (CA S9).</summary>
+    public string SalaryTdsAssessmentYearLabel => StatuteVocabulary.PeriodLabel(_company.FinancialYearStart.Year);
+
+    /// <summary>The FY-gated caption for <see cref="SalaryTdsAssessmentYearLabel"/> — "Assessment Year" / "Tax Year".</summary>
+    public string SalaryTdsPeriodCaption => StatuteVocabulary.PeriodCaption(_company.FinancialYearStart.Year);
+
+    /// <summary>The abbreviated caption ("AY" / "Tax Year") for the enable/disable confirmation message.</summary>
+    public string SalaryTdsPeriodCaptionShort => StatuteVocabulary.PeriodCaptionShort(_company.FinancialYearStart.Year);
 
     /// <summary>The reused Phase-7 deductor identity the Form 24Q / Form 16 print (TAN + responsible person), or a
     /// prompt to enable TDS when no TAN is captured yet — §192 does not fork a parallel deductor config.</summary>
@@ -557,7 +565,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // advisory opt-in date. Both are only written back to the config when RegistrationType is Composition.
         SelectedCompositionSubType = CompositionSubTypes.FirstOrDefault(o => o.Value == cfg?.CompositionSubType)
                                      ?? CompositionSubTypes.First();
-        CompositionOptInDateText = cfg?.CompositionOptInDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty;
+        CompositionOptInDateText = cfg?.CompositionOptInDate is { } optIn ? ApexDate.Format(optIn) : string.Empty;
         LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
     }
@@ -1069,7 +1077,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         var category = SelectedSalarySectionCode?.Code ?? "92B";
         SalaryTdsMessage = SalaryTdsEnabled
             ? $"§192 salary TDS enabled for {_company.Name} (average-rate monthly withholding; deductor {category}; "
-              + $"AY {SalaryTdsAssessmentYearLabel})."
+              + $"{SalaryTdsPeriodCaptionShort} {SalaryTdsAssessmentYearLabel})."
             : "§192 salary TDS is now OFF for this company. Employee tax declarations are unchanged.";
         OnPropertyChanged(nameof(SalaryTdsDeductorText));
         _onChanged();
@@ -1375,7 +1383,8 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     {
         var s = (text ?? string.Empty).Trim();
         if (s.Length == 0) return null;
-        return DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null;
+        // WI-5: shared DAY-FIRST parse (was a bare InvariantCulture parse — the MM/dd misread).
+        return ApexDate.TryParse(s, out var d) ? d : null;
     }
 
     /// <summary>Reverts the <see cref="GstEnabled"/> toggle to reflect the company's real (unchanged) state.</summary>

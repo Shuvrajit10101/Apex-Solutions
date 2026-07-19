@@ -43,8 +43,19 @@ public sealed class JobWorkOrderOption
 /// On <see cref="Accept"/> the screen posts an <see cref="InventoryVoucher.MaterialMovement"/> through
 /// <see cref="InventoryPostingService"/>. MVVM boundary: engine + persistence only, no Avalonia types.</para>
 /// </summary>
-public sealed partial class MaterialMovementEntryViewModel : ViewModelBase
+public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the movement date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => DateText;
+        set => DateText = value;
+    }
+
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly InventoryPostingService _service;
@@ -118,11 +129,16 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase
     /// <summary>The date as editable text (dd-MMM-yyyy) for the header TextBox.</summary>
     public string DateText
     {
-        get => Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        get => ApexDate.Format(Date);
         set
         {
-            if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            // WI-5: shared DAY-FIRST parse; reject-and-keep rather than silently discard.
+            if (ApexDate.TryParse(value, Date, out var parsed))
                 Date = parsed;
+            else
+                Message = ApexDate.ErrorFor(value);
+
+            OnPropertyChanged(nameof(DateText));
         }
     }
 

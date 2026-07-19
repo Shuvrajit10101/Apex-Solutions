@@ -107,7 +107,7 @@ public sealed partial class Gstr4ReportViewModel : ViewModelBase
         }
 
         Return = ret;
-        Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}  ({fyFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {fyTo.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})";
+        Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}  ({ApexDate.Format(fyFrom)} to {ApexDate.Format(fyTo)})";
 
         if (!ret.Applicable)
         {

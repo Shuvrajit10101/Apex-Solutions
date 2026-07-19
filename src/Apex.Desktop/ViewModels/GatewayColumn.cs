@@ -6,6 +6,26 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>
+/// WI-2 / WI-9 — what a bare letter MEANS in a menu column. The two features contend for the same keystroke
+/// on the same widget, so the shell resolves it by COLUMN KIND rather than case by case:
+/// <list type="bullet">
+/// <item><see cref="Authored"/> — a fixed, hand-built menu (Gateway, Vouchers, Create, …). Its rows are known
+/// at build time, so each gets a computed bare-letter hotkey and a bare letter <b>ACTIVATES</b> that row.</item>
+/// <item><see cref="DataDriven"/> — a picker over company data (ledgers, stock items, parties). Its rows are
+/// whatever the company holds, so hotkeys are meaningless and a bare letter <b>FILTERS</b> (type-ahead);
+/// Enter then selects the highlighted row.</item>
+/// </list>
+/// </summary>
+public enum GatewayColumnKind
+{
+    /// <summary>A fixed, hand-built menu column — a bare letter activates its hotkey row.</summary>
+    Authored,
+
+    /// <summary>A picker over company data — a bare letter filters (type-ahead) instead of activating.</summary>
+    DataDriven,
+}
+
+/// <summary>
 /// One column in the cascading (Miller-columns) Gateway. A column is either:
 /// <list type="bullet">
 /// <item>a <b>menu column</b> — a titled, keyboard-navigable list of <see cref="MenuItemViewModel"/>
@@ -63,6 +83,9 @@ public sealed partial class GatewayColumn : ViewModelBase
 
     /// <summary>The hosted ledger-master view model (non-null only for the Ledger-creation column).</summary>
     public LedgerMasterViewModel? Ledger => Page as LedgerMasterViewModel;
+
+    /// <summary>The hosted accounting-Group master (non-null only for the Group-creation column; WI-7).</summary>
+    public AccountGroupMasterViewModel? AccountGroupMaster => Page as AccountGroupMasterViewModel;
 
     /// <summary>The hosted chart-of-accounts view model (non-null only for the Chart-of-Accounts column).</summary>
     public ChartOfAccountsViewModel? Chart => Page as ChartOfAccountsViewModel;
@@ -241,6 +264,16 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The index of the highlighted row within a menu column (−1 when none selectable).</summary>
     public int SelectedIndex { get; private set; } = -1;
 
+    /// <summary>
+    /// Whether a bare letter ACTIVATES a hotkey row (<see cref="GatewayColumnKind.Authored"/>, the default for a
+    /// hand-built menu) or FILTERS the rows (<see cref="GatewayColumnKind.DataDriven"/>, a picker over company
+    /// data). See <see cref="GatewayColumnKind"/> for why the rule is by column kind.
+    /// </summary>
+    public GatewayColumnKind Kind { get; init; } = GatewayColumnKind.Authored;
+
+    /// <summary>True when a bare letter should filter this column rather than activate a row.</summary>
+    public bool IsTypeAheadColumn => Kind == GatewayColumnKind.DataDriven;
+
     /// <summary>Builds a menu column with the given title (rows are added by the caller).</summary>
     public GatewayColumn(string title)
     {
@@ -304,5 +337,156 @@ public sealed partial class GatewayColumn : ViewModelBase
         IsActive = active;
         foreach (var item in Items)
             item.IsActiveColumn = active;
+    }
+
+    // =========================================================== WI-9: computed bare-letter hotkeys
+
+    /// <summary>
+    /// WI-9 — assigns each selectable row a bare-letter hotkey, COMPUTED per column at build time so none of
+    /// the ~176 menu rows needs a hand-picked letter (and so a row added later cannot silently collide).
+    /// <para>
+    /// The rule: prefer the label's FIRST letter; if another row in this column already claimed it, walk the
+    /// label for the next letter still free. A row whose every letter is taken simply gets no hotkey
+    /// (<see cref="MenuItemViewModel.HotKeyIndex"/> stays −1) — better a missing accelerator than two rows
+    /// answering to one key. Matching is case-insensitive, and only letters are eligible (never a digit,
+    /// space or punctuation).
+    /// </para>
+    /// <para>
+    /// A <see cref="GatewayColumnKind.DataDriven"/> column is skipped entirely: there a bare letter filters,
+    /// so every row is cleared to −1 (see <see cref="GatewayColumnKind"/>).
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Letters that are ALREADY bound as bare accelerators everywhere on the Gateway cascade, and so can never
+    /// be handed out as a menu hotkey: <b>O</b> opens Import and <b>Y</b> opens Export Data (both scoped only to
+    /// <c>CurrentScreen == Screen.Gateway</c>, which every cascade menu column is). Those arms sit earlier in the
+    /// window's first-match-wins chain, so a row given one of these letters would paint a red accelerator that
+    /// silently does something else. Reserving them keeps every painted hotkey honest.
+    /// <para>
+    /// E / P / M are deliberately NOT reserved: their arms are gated on <c>IsExportablePage</c> /
+    /// <c>IsPrintablePage</c>, both false while a menu column is on top, so they are free here.
+    /// </para>
+    /// </summary>
+    private static readonly char[] ReservedLetters = { 'O', 'Y' };
+
+    public void AssignHotKeys()
+    {
+        if (Kind == GatewayColumnKind.DataDriven)
+        {
+            foreach (var item in Items)
+                item.HotKeyIndex = -1;
+            return;
+        }
+
+        var claimed = new System.Collections.Generic.HashSet<char>(ReservedLetters);
+
+        foreach (var item in Items)
+        {
+            item.HotKeyIndex = -1;
+            if (!item.IsSelectable) continue;
+
+            for (var i = 0; i < item.Label.Length; i++)
+            {
+                var candidate = char.ToUpperInvariant(item.Label[i]);
+                if (!char.IsLetter(candidate)) continue;
+                if (!claimed.Add(candidate)) continue;
+
+                item.HotKeyIndex = i;
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// WI-9 — the row this column's bare <paramref name="letter"/> activates, or null when no row claimed it.
+    /// Always null for a <see cref="GatewayColumnKind.DataDriven"/> column, where a letter filters instead.
+    /// </summary>
+    public MenuItemViewModel? FindByHotKey(char letter)
+    {
+        if (Kind == GatewayColumnKind.DataDriven) return null;
+
+        var wanted = char.ToUpperInvariant(letter);
+        return Items.FirstOrDefault(
+            i => i.IsSelectable && i.HotKey is { } key && char.ToUpperInvariant(key) == wanted);
+    }
+
+    // =========================================================== WI-2: type-ahead over a data-driven picker
+
+    /// <summary>The prefix typed so far in a data-driven picker column (empty when not filtering).</summary>
+    public string TypeAheadPrefix { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// WI-2 — extends the type-ahead prefix by one character and moves the highlight to the first row whose
+    /// label starts with it, so the operator narrows a long ledger/party list by typing rather than arrowing.
+    /// <para>
+    /// Returns <c>false</c> (leaving the highlight and the prefix untouched) when nothing matches, so a stray
+    /// keystroke never silently drags the selection onto an unrelated party — the wrong-ledger failure this
+    /// campaign exists to remove. A no-op on an <see cref="GatewayColumnKind.Authored"/> column.
+    /// </para>
+    /// </summary>
+    public bool TypeAhead(char c)
+    {
+        if (Kind != GatewayColumnKind.DataDriven) return false;
+
+        // Conventional type-ahead: pressing the SAME single letter again CYCLES to the next row starting with
+        // it (wrapping), rather than re-selecting the first match forever. Without this, two parties sharing a
+        // first letter are unreachable by keyboard — "A" would always land on the same one.
+        if (TypeAheadPrefix.Length == 1
+            && char.ToUpperInvariant(TypeAheadPrefix[0]) == char.ToUpperInvariant(c))
+        {
+            var next = IndexOfPrefix(c.ToString(), after: SelectedIndex);
+            if (next < 0) return false;
+
+            TypeAheadPrefix = c.ToString();
+            SetSelected(next);
+            return true;
+        }
+
+        var candidate = TypeAheadPrefix + c;
+        var index = IndexOfPrefix(candidate);
+
+        // A fresh single letter restarts the search when the extended prefix matches nothing — the operator
+        // has moved on to a different party rather than continuing to spell the previous one.
+        if (index < 0 && TypeAheadPrefix.Length > 0)
+        {
+            candidate = c.ToString();
+            index = IndexOfPrefix(candidate);
+        }
+
+        if (index < 0) return false;
+
+        TypeAheadPrefix = candidate;
+        SetSelected(index);
+        return true;
+    }
+
+    /// <summary>
+    /// Clears the type-ahead prefix. Called from <see cref="MainWindowViewModel"/>'s single focus choke point
+    /// whenever the active column changes — so the prefix is dropped on Esc/Back, on a completed selection
+    /// (which opens the next column), and on both leaving and entering a column. A prefix belongs to the column
+    /// the operator is IN; carrying one across focus would silently extend the next column's first keystroke.
+    /// </summary>
+    public void ResetTypeAhead() => TypeAheadPrefix = string.Empty;
+
+    /// <summary>
+    /// The first selectable row whose label starts with <paramref name="prefix"/>. When <paramref name="after"/>
+    /// is given the scan STARTS just past that index and wraps, which is what makes a repeated letter cycle.
+    /// <para>WI-1 — a pinned <see cref="MenuItemViewModel.IsCreateRow"/> row is SKIPPED: it is an affordance, not
+    /// company data, so typing "c" must filter to the ledger named "Cash", never drag the highlight onto
+    /// "Create Ledger". The row stays arrow-reachable; only type-ahead ignores it.</para>
+    /// </summary>
+    private int IndexOfPrefix(string prefix, int? after = null)
+    {
+        if (Items.Count == 0) return -1;
+
+        var start = after is { } from ? from + 1 : 0;
+        for (var step = 0; step < Items.Count; step++)
+        {
+            var i = ((start + step) % Items.Count + Items.Count) % Items.Count;
+            if (Items[i].IsSelectable && !Items[i].IsCreateRow &&
+                Items[i].Label.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return -1;
     }
 }

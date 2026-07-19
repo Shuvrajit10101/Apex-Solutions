@@ -367,7 +367,7 @@ public sealed partial class GstRateSetupViewModel : ViewModelBase
     private static string FormatPercent(int basisPoints) =>
         (basisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%";
 
-    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+    private static string FormatDate(DateOnly d) => ApexDate.Format(d);
 
     private bool TryParsePercent(string? text, string label, out int basisPoints)
     {
@@ -432,13 +432,14 @@ public sealed partial class GstRateSetupViewModel : ViewModelBase
             }
             return true; // optional blank ⇒ open-ended
         }
-        if (DateOnly.TryParseExact(t, "dd-MMM-yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d1)
-            || DateOnly.TryParse(t, CultureInfo.InvariantCulture, DateTimeStyles.None, out d1))
+        // WI-5: the ONE app-wide day-first parser. The old ladder fell through to a bare InvariantCulture
+        // parse, so "03/04/2024" silently read as 4-Mar instead of 3-Apr.
+        if (ApexDate.TryParse(t, out var d1))
         {
             value = d1;
             return true;
         }
-        Message = $"{label} '{t}' is not a valid date (use dd-MMM-yyyy or yyyy-MM-dd).";
+        Message = $"{label}: {ApexDate.ErrorFor(t)}";
         return false;
     }
 }

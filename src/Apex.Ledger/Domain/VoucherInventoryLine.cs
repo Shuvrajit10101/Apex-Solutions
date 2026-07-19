@@ -61,6 +61,26 @@ public sealed class VoucherInventoryLine
     /// <summary>Optional batch/lot label (DP-10); <c>null</c> for a non-batch line.</summary>
     public string? BatchLabel { get; }
 
+    /// <summary>
+    /// The unit <see cref="Quantity"/>, <see cref="BilledQuantity"/> and <see cref="Rate"/> are ALL stated in
+    /// (WI-10 Gap 2; schema v46). <c>null</c> ⇒ the item's own base unit — which is what every line written
+    /// before this feature carries, so an unchanged line stays byte-identical (ER-13).
+    ///
+    /// <para><b>The money risk class — read before touching any consumer.</b> A site is correct only when the
+    /// quantity and the rate it multiplies are expressed in the SAME unit. On this line they always are (both
+    /// are per <see cref="UnitId"/>), which is exactly why <see cref="Value"/> needs no conversion: "2 Doz @
+    /// ₹10" is ₹20. A consumer that normalises the quantity to the item's base unit (24 Nos) MUST also divide
+    /// the rate by the same factor (<see cref="Unit.RateInBaseMeasure"/>) — pairing a base quantity with a
+    /// per-displayed rate overstates by the factor (₹240), and converting a rate twice, or pairing a displayed
+    /// quantity with a per-base rate, understates by it (₹1.67). Both directions are wrong; curing one by
+    /// blanket-converting creates the other.</para>
+    ///
+    /// <para>The line deliberately holds the unit <b>id</b>, not the <see cref="Unit"/>: resolving it needs
+    /// <c>Company.FindUnit</c>, which the domain object has no access to. Conversion is a CONSUMER-side
+    /// responsibility here, exactly as it already is for <see cref="InventoryAllocation.UnitId"/>.</para>
+    /// </summary>
+    public Guid? UnitId { get; }
+
     public VoucherInventoryLine(
         Guid stockItemId,
         Guid godownId,
@@ -68,7 +88,8 @@ public sealed class VoucherInventoryLine
         Money rate,
         StockDirection direction = StockDirection.Inward,
         string? batchLabel = null,
-        decimal? billedQuantity = null)
+        decimal? billedQuantity = null,
+        Guid? unitId = null)
     {
         if (quantity <= 0m)
             throw new ArgumentException("An item-invoice line quantity must be > 0.", nameof(quantity));
@@ -98,18 +119,31 @@ public sealed class VoucherInventoryLine
         Rate = rate;
         Direction = direction;
         BatchLabel = string.IsNullOrWhiteSpace(batchLabel) ? null : batchLabel.Trim();
+        UnitId = unitId;
     }
 
     /// <summary>The paisa-exact extended value of this line = <see cref="BilledQuantity"/> × <see cref="Rate"/> —
     /// the amount the accounting stock/purchase/sales leg (and GST) is backed by. <b>Not</b> Actual × Rate: when
-    /// Billed ≠ Actual the two diverge, and a zero-valued line (Billed 0) contributes ₹0 (RQ-23).</summary>
+    /// Billed ≠ Actual the two diverge, and a zero-valued line (Billed 0) contributes ₹0 (RQ-23).
+    ///
+    /// <para><b><see cref="UnitId"/> deliberately does NOT enter here.</b> Quantity and Rate are both stated in
+    /// the line unit, so the product is already the correct money: "2 Doz @ ₹10" = ₹20. Applying
+    /// <see cref="Unit.RateInBaseMeasure"/> to the rate while the quantity stays at 2 would yield ₹1.67 — the
+    /// 12× understatement — and would feed straight into the GST taxable value and the pairing invariant
+    /// (which reconciles this against the posted Sales/Purchase leg). Consumers that want a base-unit view
+    /// convert BOTH sides; see <see cref="UnitId"/>.</para></summary>
     public Money Value => Money.ForexBase(Rate, BilledQuantity);
 
     /// <summary>The effective <b>stock valuation</b> unit cost of this inward lot = <see cref="Value"/> ÷
     /// <see cref="Quantity"/> (billed value spread over the Actual units moved). A zero-valued line yields ₹0 (so
     /// free goods drag the moving average down, RQ-24); a short-billed line yields a below-rate unit. The
     /// valuation bridge feeds this as the movement's inward rate so closing stock reconciles to the billed value
-    /// to the paisa (ER-4). Exact decimal (the valuation snaps to the paisa only when it aggregates).</summary>
+    /// to the paisa (ER-4). Exact decimal (the valuation snaps to the paisa only when it aggregates).
+    ///
+    /// <para><b>This rate is PER <see cref="UnitId"/>, not per base unit</b> — both operands are in the line
+    /// unit. A consumer that hands it to the valuation engine beside a base-normalised quantity must first
+    /// re-express it via <see cref="Unit.RateInBaseMeasure"/>; <c>ItemInvoiceStock</c> does exactly that, and
+    /// publishes its <c>Movement.LandedUnitRate</c> already per base unit.</para></summary>
     public decimal StockValuationUnitRate => Quantity != 0m ? Value.Amount / Quantity : 0m;
 
     /// <summary>Returns a copy of this line with its <see cref="Direction"/> set to <paramref name="direction"/>
@@ -117,5 +151,5 @@ public sealed class VoucherInventoryLine
     /// <see cref="BilledQuantity"/> through so the Actual/Billed split survives the stamping (which runs before
     /// validation and valuation).</summary>
     public VoucherInventoryLine WithDirection(StockDirection direction) =>
-        new(StockItemId, GodownId, Quantity, Rate, direction, BatchLabel, BilledQuantity);
+        new(StockItemId, GodownId, Quantity, Rate, direction, BatchLabel, BilledQuantity, UnitId);
 }

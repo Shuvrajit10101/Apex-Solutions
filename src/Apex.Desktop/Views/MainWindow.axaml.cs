@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Specialized;
 using System.IO;
+using System.Linq;
+using Avalonia.VisualTree;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -19,11 +21,52 @@ public partial class MainWindow : Window
         InitializeComponent();
         // Handle keys at the tunnelling stage so arrow/Enter/Esc work regardless of focus.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
-        DataContextChanged += (_, _) => HookCascadeAutoScroll();
+        DataContextChanged += (_, _) => { HookCascadeAutoScroll(); HookWorkingDateFocus(); };
         HookCascadeAutoScroll();
+        HookWorkingDateFocus();
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
+
+    private MainWindowViewModel? _watchedVm;
+
+    /// <summary>
+    /// Subscribes to the shell's "F2 — set the date" request (WI-5 4c). The view's only job is to move the
+    /// caret into the open entry screen's working-date box; parsing and canonical echo belong to the view model.
+    /// </summary>
+    private void HookWorkingDateFocus()
+    {
+        if (_watchedVm is not null)
+            _watchedVm.WorkingDateEditRequested -= OnWorkingDateEditRequested;
+
+        _watchedVm = Vm;
+        if (_watchedVm is not null)
+            _watchedVm.WorkingDateEditRequested += OnWorkingDateEditRequested;
+    }
+
+    private void OnWorkingDateEditRequested(object? sender, EventArgs e)
+        // Defer to the next layout pass: F2 may have opened/switched the page, so the target box can still be
+        // materialising when the request is raised.
+        => Dispatcher.UIThread.Post(FocusWorkingDateBox, DispatcherPriority.Loaded);
+
+    /// <summary>
+    /// Focuses (and selects) the visible working-date TextBox of the open entry screen — the boxes tagged
+    /// <c>Classes="working-date"</c> in the XAML. Selecting the text means the operator can simply type the new
+    /// date over it, which is what F2 does in the reference product. No calendar is opened: the app has zero
+    /// DatePicker controls by design and this keeps F2 keyboard-only.
+    /// </summary>
+    private void FocusWorkingDateBox()
+    {
+        foreach (var box in this.GetVisualDescendants().OfType<TextBox>())
+        {
+            if (!box.Classes.Contains("working-date")) continue;
+            if (!box.IsEffectivelyVisible || !box.IsEffectivelyEnabled) continue;
+
+            box.Focus();
+            box.SelectAll();
+            return;
+        }
+    }
 
     /// <summary>
     /// Keeps the newly-active (rightmost) cascade column in view: whenever a column is added/removed we
@@ -57,6 +100,17 @@ public partial class MainWindow : Window
     {
         var vm = Vm;
         if (vm is null) return;
+
+        // WI-3: Ctrl+Enter on a master LIST row opens that master for ALTERATION. This must sit ahead of every
+        // other Enter arm below — the plain-Enter drill immediately after ignores modifiers, and the
+        // IsMasterAcceptScreen arm in the switch would otherwise raise "Accept Stock Item? (Y/N)" instead. The VM
+        // returns false on any screen without a highlighted alterable row, so Ctrl+Enter is untouched elsewhere.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedStockItemRow())
+        {
+            e.Handled = true;
+            return;
+        }
 
         // RQ-7 keyboard drill (defect-1): Enter must drill the highlighted drillable report/drill row BEFORE
         // the Window's generic Enter handling (which drives cascade navigation via ActivateSelected) consumes
@@ -113,6 +167,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        // WI-11 — the "Accept? (Y/N)" confirmation. ORDER IS LOAD-BEARING, in both directions:
+        //   • It sits AFTER the Ctrl+A arm above, so the accept-as-is shortcut still reaches its own handler and
+        //     saves WITHOUT the prompt (the ~40 Ctrl+A screens are untouched, and Ctrl+A while the prompt happens
+        //     to be up simply accepts, as the reference product does).
+        //   • It sits BEFORE the bare-Y (Gateway → Export Data) and Alt+N (Auto Columns) arms further down, so
+        //     while the confirmation IS up, Y answers the confirmation rather than opening a backup panel.
+        // The whole arm is SCOPED to vm.IsAcceptPromptOpen, which is false everywhere else — so Y and N keep
+        // their existing meanings across the rest of the app.
+        if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            switch (e.Key)
+            {
+                case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
+                case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
+                case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
+            }
+        }
+
         // Ctrl+R opens the GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — the
         // advertised accelerator for that screen. Scoped to a GST-enabled company so it never fires otherwise.
         if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Control)
@@ -156,9 +228,16 @@ public partial class MainWindow : Window
         }
 
         // Alt+C opens the Ledger-creation master whenever a company is open.
+        // WI-1 — on a voucher-entry screen it is CONTEXT-AWARE: the focused picker's tagged field id (resolved by
+        // walking up from the key source; see CreateField) selects WHICH master screen opens, and its DataContext
+        // is the row the new master is written back into. An untagged field yields (null, null), which the view
+        // model treats as inert on a voucher and as the historic Ledger/Stock-Item behaviour elsewhere.
+        // ORDER: this stays BELOW the RQ-4 comparative arm above (a report's Alt+C still adds a comparison
+        // column) and ABOVE nothing that claims Alt+C — no other arm in this chain matches C with Alt.
         if (e.Key == Key.C && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
-            vm.CreateLedgerShortcut();
+            var (fieldId, caller) = CreateField.Focused(e);
+            vm.CreateLedgerShortcut(fieldId, caller);
             e.Handled = true;
             return;
         }
@@ -332,6 +411,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Alt+A on the Day Book ADDS a voucher (WI-12; Book p.431 "Add a voucher in a report"): it opens a
+        // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
+        // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying
+        // the Alt+K report-context pattern below — so it never hijacks Alt+A elsewhere. A no-op off the Day Book.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsDayBookReport)
+        {
+            vm.OpenAddVoucherFromReport();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+S (RQ-8) opens the "Save View" panel over an open report — name and store the report's current
         // configuration (kind + period/as-of + detail + F12 options + sort/filter + comparative columns). Report
         // context only, so it never fires while a drill column is the active pane. Ctrl+A on the panel saves it.
@@ -451,6 +542,12 @@ public partial class MainWindow : Window
 
             switch (e.Key)
             {
+                // Alt+F5 Debit Note / Alt+F6 Credit Note (WI-12; catalog §"Alt+F5 Debit Note · Alt+F6 Credit Note").
+                // The §34 CN/DN entry screens are fully implemented but had no key route; these bind the advertised
+                // accelerators to the existing accounting voucher entry. Checked before the inventory Alt+F kinds and
+                // after the report-context Alt+F block above so a report page's Alt+F1/F2/F12 still win.
+                case Key.F5: vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.DebitNote); e.Handled = true; return;
+                case Key.F6: vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.CreditNote); e.Handled = true; return;
                 case Key.F9: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.ReceiptNote); e.Handled = true; return;
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.DeliveryNote); e.Handled = true; return;
                 // Alt+F7 (RQ-53): a Manufacturing Journal is a Stock-Journal-derived type, so once the BOM feature
@@ -503,6 +600,18 @@ public partial class MainWindow : Window
                 vm.DrillIn();
                 e.Handled = true;
                 break;
+            // WI-11: Enter on a master screen ASKS before saving ("Accept Ledger? (Y/N)") instead of committing
+            // silently. Ctrl+A is unaffected — it has its own arm far above and still saves outright. Guarded on
+            // the prompt not already being up so Enter cannot stack a second confirmation; every other Enter
+            // (cascade navigation, drill-in, non-master pages) falls through to ActivateSelected exactly as before.
+            // The guard is deliberately SIDE-EFFECT-FREE — it only reads state. RequestMasterAccept (which
+            // RAISES the prompt) is called in the body, never in the `when` clause: a pattern-match guard that
+            // mutates would raise a confirmation as a side effect of merely testing this arm, and would silently
+            // change meaning the moment anyone appended another condition after it.
+            case Key.Enter when vm.IsMasterAcceptScreen && !vm.IsAcceptPromptOpen:
+                vm.RequestMasterAccept();
+                e.Handled = true;
+                break;
             case Key.Enter:
                 vm.ActivateSelected();
                 e.Handled = true;
@@ -543,6 +652,37 @@ public partial class MainWindow : Window
             case Key.T when CanQuickJump(vm, e): Fire(vm, "T"); e.Handled = true; break;
             case Key.D when CanQuickJump(vm, e): Fire(vm, "D"); e.Handled = true; break;
         }
+
+        // WI-9 / WI-2 — the bare-letter menu arm, LAST on purpose.
+        //
+        // Placed at the very end of the first-match-wins chain so it cannot shadow a single accelerator that
+        // already shipped: every earlier arm (Ctrl+A, Alt+X, the report Alt+F1/F2/F12, the E/O/Y/M/P panels, the
+        // B/P/T/D quick-jumps, the F-key bar) gets the keystroke first and only an UNCLAIMED letter reaches here.
+        //
+        // What it then does depends on the focused column's KIND, which is how WI-2 and WI-9 stop fighting over
+        // the same keystroke: on an AUTHORED menu column the letter activates the row that owns it as a hotkey
+        // (the letter painted red); on a DATA-DRIVEN picker column it filters the list (type-ahead) instead.
+        // MainWindowViewModel.HandleMenuLetter owns that decision and returns false when nothing claimed the
+        // letter, leaving the event unhandled so behaviour elsewhere is unchanged.
+        if (!e.Handled && !IsTyping(e)
+            && e.KeyModifiers == KeyModifiers.None
+            && TryGetLetter(e.Key, out var letter)
+            && vm.HandleMenuLetter(letter))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Maps a bare A–Z key to its letter; false for anything else (digits, F-keys, navigation).</summary>
+    private static bool TryGetLetter(Key key, out char letter)
+    {
+        if (key >= Key.A && key <= Key.Z)
+        {
+            letter = (char)('A' + (key - Key.A));
+            return true;
+        }
+        letter = '\0';
+        return false;
     }
 
     private static bool IsTyping(KeyEventArgs e) => e.Source is TextBox;
@@ -630,6 +770,9 @@ public partial class MainWindow : Window
 
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
+
+    private void OnCreateAccountGroupClick(object? sender, RoutedEventArgs e)
+        => Vm?.AccountGroupMaster?.Create();
 
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();

@@ -55,7 +55,7 @@ public sealed class GatewayHierarchyTests : IDisposable
         var items = ItemLabels(vm);
         Assert.Contains("Create", items);              // Masters
         Assert.Contains("Chart of Accounts", items);   // Masters
-        Assert.Contains("GST", items);                 // Statutory
+        Assert.Contains("GST & Taxation", items);      // Statutory (F11 config — GST + TDS/TCS + Payroll/§192 salary-TDS)
         Assert.Contains("Vouchers", items);            // Transactions
         Assert.Contains("Day Book", items);            // Transactions
         Assert.Contains("Balance Sheet", items);       // Reports

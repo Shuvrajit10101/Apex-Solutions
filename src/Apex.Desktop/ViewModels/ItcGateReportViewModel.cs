@@ -128,7 +128,7 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase
             });
 
         Subtitle = $"{_company.Name}  —  GSTR-2B {snap.ReturnPeriod} " +
-                   $"({from.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {to.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})  —  advisory only, posts nothing";
+                   $"({ApexDate.Format(from)} to {ApexDate.Format(to)})  —  advisory only, posts nothing";
         StatusText = $"Books eligible ₹{A(gate.BooksEligibleTotal)}  ·  claimable ₹{A(gate.ClaimableTotal)}  ·  " +
                      $"not-in-portal ₹{A(gate.NotInPortalTotal)}  ·  blocked ₹{A(gate.BlockedTotal)}  ·  {Candidates.Count} reversal candidate(s).";
     }

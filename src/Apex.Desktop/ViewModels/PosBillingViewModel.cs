@@ -109,8 +109,19 @@ public sealed partial class PosTenderRowViewModel : ViewModelBase
 /// with the retail receipt to preview. MVVM boundary: engine + persistence + Io, no Avalonia types — headlessly
 /// unit-testable.
 /// </summary>
-public sealed partial class PosBillingViewModel : ViewModelBase
+public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the bill date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => DateText;
+        set => DateText = value;
+    }
+
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly LedgerService _service;
@@ -186,8 +197,21 @@ public sealed partial class PosBillingViewModel : ViewModelBase
     /// <summary>The date as editable text (dd-MMM-yyyy) for the header TextBox.</summary>
     public string DateText
     {
-        get => Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
-        set { if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var p) && p != Date) Date = p; }
+        get => ApexDate.Format(Date);
+        set
+        {
+            // WI-5: shared DAY-FIRST parse; reject-and-keep rather than silently discard.
+            if (ApexDate.TryParse(value, Date, out var p))
+            {
+                if (p != Date) Date = p;
+            }
+            else
+            {
+                Message = ApexDate.ErrorFor(value);
+            }
+
+            OnPropertyChanged(nameof(DateText));
+        }
     }
 
     public PosBillingViewModel(
@@ -778,7 +802,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase
             Title = _type.PosConfig?.DefaultTitle ?? "Retail Invoice",
             StoreName = _company.Name,
             BillNumber = posted.Number.ToString(CultureInfo.InvariantCulture),
-            DateText = Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+            DateText = ApexDate.Format(Date),
             Party = SelectedParty?.Ledger?.Name ?? "(cash)",
             IsInterState = interState,
             Items = items,

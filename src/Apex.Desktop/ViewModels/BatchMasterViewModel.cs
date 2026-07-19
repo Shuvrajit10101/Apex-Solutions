@@ -262,9 +262,8 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
 
     // ---- parsing helpers ----
 
-    private static bool TryParseDate(string? text, out DateOnly value) =>
-        DateOnly.TryParse((text ?? string.Empty).Trim(), CultureInfo.InvariantCulture,
-            DateTimeStyles.None, out value);
+    // WI-5: the ONE app-wide day-first parser (was a bare InvariantCulture parse — the MM/dd misread).
+    private static bool TryParseDate(string? text, out DateOnly value) => ApexDate.TryParse(text, out value);
 
     private bool TryParseQuantity(string? text, string label, out decimal value)
     {
@@ -324,7 +323,7 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
             var item = _company.FindStockItem(b.StockItemId);
             var godown = b.GodownId is { } gid ? _company.FindGodown(gid)?.Name ?? "—" : "—";
             var expiry = b.ResolvedExpiryDate is { } e
-                ? e.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)
+                ? ApexDate.Format(e)
                   + (b.ExpiryPeriod is { } p ? $" ({p.RawText})" : string.Empty)
                 : "—";
             var openingValue = b.InwardQuantity is { } iq && b.InwardRate is { } ir && iq > 0m
@@ -336,7 +335,7 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
                 Item = item?.Name ?? "—",
                 Godown = godown,
                 MfgDate = b.ManufacturingDate is { } m
-                    ? m.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)
+                    ? ApexDate.Format(m)
                     : "—",
                 Expiry = expiry,
                 OpeningValue = openingValue,

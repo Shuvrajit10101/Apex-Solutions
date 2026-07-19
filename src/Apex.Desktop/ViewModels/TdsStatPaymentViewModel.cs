@@ -67,7 +67,7 @@ public sealed partial class TdsStatPaymentViewModel : ViewModelBase
         _onChanged = onChanged ?? (() => { });
         _deposit = new TdsDepositService(company);
         _asOf = ComputeAsOf(company);
-        _depositDateText = _asOf.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
+        _depositDateText = ApexDate.Format(_asOf);
         LoadBankOptions();
         Rebuild();
     }
@@ -209,14 +209,12 @@ public sealed partial class TdsStatPaymentViewModel : ViewModelBase
         return true;
     }
 
-    private static bool TryParseDate(string? text, out DateOnly date)
-    {
-        date = default;
-        var t = (text ?? string.Empty).Trim();
-        return DateOnly.TryParseExact(t, new[] { "dd-MM-yyyy", "dd-MMM-yyyy", "yyyy-MM-dd" },
-                   CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
-               || DateOnly.TryParse(t, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
-    }
+    /// <summary>
+    /// WI-5: delegates to the ONE app-wide day-first parser. This used to be a per-screen ladder that fell
+    /// through to a bare InvariantCulture parse — i.e. the MM/dd misread — so "03/04/2024" silently read as
+    /// 4-Mar instead of 3-Apr. The shared helper accepts the same day-first spellings on every screen.
+    /// </summary>
+    private static bool TryParseDate(string? text, out DateOnly date) => ApexDate.TryParse(text, out date);
 
     private static DateOnly ComputeAsOf(Company company)
     {

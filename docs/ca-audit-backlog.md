@@ -2445,6 +2445,64 @@ designed together.** Doing WI-9 first and WI-2 later risks re-litigating the key
 
 **Covers point 12.** **State: PARTIAL.** **Effort: XL** (slices A+B alone are ~M and carry no schema).
 
+> ## ✅ STATUS UPDATE — Slices A, B and C SHIPPED (CA slice S8). Slice D DEFERRED.
+>
+> Everything below this box is the original find-only analysis and is preserved verbatim. This box
+> records what actually landed, so a future session does not redo it.
+>
+> **A — direction bug FIXED.** `Unit.cs` `BaseMeasureUnitId` now returns `TailUnitId ?? Id` (was
+> `FirstUnitId`). Grounded in TWO independent corpus PDFs (Tally Prime Book "Doz (Dozen) of 12 Nos",
+> First = "Dozen" / Second = "Numbers"; Study Guide First/Factor/Second table Dozen-12-Pcs,
+> Kg-1000-Grams, Box-20-Pcs) ⇒ First is the LARGER unit, so scaling by the factor lands in the TAIL.
+> **Both backwards tests rewritten** (`StockMovementTests.cs` built "Dozen" as first=Nos/tail=Box;
+> `InventoryMastersViewModelTests.cs` as first=Nos/tail=Pcs). **Gap 7 guard added** at
+> `InventoryPostingService.EnsureReferencesResolve`: a line unit whose `BaseMeasureUnitId` ≠ the item's
+> `BaseUnitId` is rejected. That guard is what proved the old test encoded the wrong model — with the
+> guard in and the test unchanged it failed with *"Inventory line for 'Egg' states its quantity in
+> 'Dozen', which does not reduce to the item's base unit 'Nos'."*
+>
+> **B — line unit REACHABLE.** `InventoryVoucherLineViewModel` gained `UnitOptions` (the item's base unit
+> + every compound reducing to it), `SelectedUnit`, `ShowUnit`, `UnitId` and `ParsedQuantityInBaseUnit`;
+> `InventoryVoucherEntryViewModel` passes `company.Units` and stamps `l.UnitId` at all four
+> `InventoryAllocation` sites. **NO SCHEMA CHANGE WAS NEEDED** — `inventory_allocations.unit_id` already
+> exists at CreateV1 and `InventoryAllocationDto.UnitId` already round-trips (`CanonicalMapper.cs:1003`);
+> proven, not assumed, by a reload-from-.db assertion. Store stays **v45**.
+> **Two stale un-normalised sums fixed:** `SumBase` (the live balance strip) and the Accept-time
+> Stock-Journal balance pre-check both summed raw quantities while *labelling them "(base unit)"*.
+>
+> **C — 🔴 RATE SEMANTICS SETTLED: the rate is PER THE LINE UNIT DISPLAYED.** "2 Doz-Nos @ ₹10" = **₹20**,
+> not ₹240. Corpus support (the corpus does NOT state it for a compound line, but nothing contradicts it
+> and two things point the same way): Tally's invoice line carries an explicit **"per"** column naming the
+> rate's unit (`719244897-Tally-Book.pdf`, "Quantity | Rate per | Amount"), and its worked example reads
+> Quantity 2 · Rate 10,000 · Amount 20,000 — `Amount = Quantity × Rate` with the quantity in the unit
+> shown; likewise `703679456`: "purchased 10 nos … for **6000 per piece**".
+> **This required a real engine fix, not just a decision.** Valuation paired the NORMALISED base quantity
+> with the RAW rate, so "2 Doz @ ₹10" would have valued at 24 × ₹10 = **₹240** — exactly the 12× error this
+> document warned about. New `Unit.RateInBaseMeasure(rate)` = `rate × den / num` (the exact inverse of
+> `QuantityInBaseMeasure`, so `qty × rate` is invariant) is now applied at every site that multiplies a
+> normalised quantity by a rate: `StockValuationService` (both allocation loops), `InventoryRegisters`,
+> `JobWorkReports`, `AdditionalCostApportionment`.
+>
+> **D — DEFERRED (not dropped).** Per-item Tally **Alternate Units** (`StockItem.AlternateUnitId` + factor,
+> `Company.UseAlternateUnits` F12 flag, schema **v45→v46** with CreateV1 + `MigrateV45ToV46` parity +
+> downgrade + `StockItemDto` fold-in + ER-13, and the gated item-master sub-form). Reasons, in order:
+> 1. **R7 gate.** Alternate Units is **absent from `docs/tally-feature-catalog.md`** (see the 🔴 CATALOGUE
+>    GAP above). The catalogue must be corrected first, and that is a requirements change → R12 user gate.
+> 2. **The CA's ask is already answered functionally.** An item measured in Nos can now be transacted in
+>    Nos *or* Doz-Nos, and one in grams in g *or* Kg-g — i.e. "multiple units for the same item", with
+>    exactly the CA's two examples (1 dozen = 12, 1 kg = 1000 g) working end to end. This document's own
+>    inference ("the CA most likely hit the fact that he could not ENTER a voucher line in dozens") is
+>    now satisfied, and its own recommendation was "Ship A+B, demo to the CA, and let their reaction
+>    decide … that avoids a migration on a guess."
+> 3. **An unsettled interaction.** If an item carries BOTH an alternate unit and a compound unit reducing
+>    to its base, which appears in the picker, and does the alternate unit follow the same per-line-unit
+>    rate rule? The corpus has **3 hits total** on the feature (one PDF) and shows **no invoice arithmetic**
+>    for it — so this must be grounded (A14) before it is built, not guessed at the end of a slice.
+>
+> **Still open after this slice:** **Gap 2** (Sales/Purchase INVOICE lines still have no `UnitId` —
+> `VoucherInventoryLine`; that is the schema-bearing half) and the **GSTR-1 UQC** risk at `Gstr1.cs:584`,
+> which stays latent only because invoice lines remain base-unit by construction. **Ship those together.**
+
 ### Raw wording (verbatim fragments)
 
 > "Multiple units should be allowed for same item" · "1 dozen should be equal to 12, 1kg should be equal to

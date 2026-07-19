@@ -169,15 +169,27 @@ public sealed partial class Form16AViewModel : ViewModelBase
     /// <summary>The certificate currently displayed (rebuilt on selection change). Null until a deductee is picked.</summary>
     public Form16A? Certificate { get; private set; }
 
-    /// <summary>The PDF file name the export will write (FY + quarter + deductee PAN), no extension.</summary>
+    /// <summary>
+    /// The PDF file name the export will write (FY + quarter + deductee PAN), no extension.
+    /// <para>CA S9 closeout — <b>FY-gated, for the same reason Form 16's export name is</b>: this is a per-recipient
+    /// PDF certificate that leaves the product and is filed, archived and cited by the deductee, so a wrong form
+    /// number in its name is a statutory misstatement that outlives the open correction window. Left ungated, the
+    /// product exported <c>Form130_….pdf</c> and <c>Form16A_….pdf</c> from the same company on the same day.
+    /// Gating on the selected year (not on today) keeps FY 2025-26 and earlier exports named exactly as before —
+    /// ER-13.</para>
+    /// <para>Deliberately <b>not</b> applied to the three FVU <c>.txt</c> exports (Form 24Q / 26Q / 27EQ): those are
+    /// machine files whose names may be bound by the FVU/RPU utility's own conventions, and their wire format is
+    /// pinned. Their legacy names stay legacy by decision, not by oversight.</para>
+    /// </summary>
     public string ExportFileName
     {
         get
         {
+            var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
             var fy = (SelectedYear?.Label ?? "FY").Replace('-', '_');
             var q = SelectedQuarter?.Quarter ?? 0;
             var pan = string.IsNullOrWhiteSpace(SelectedDeductee?.Pan) ? "NOPAN" : SelectedDeductee!.Pan;
-            return $"Form16A_{fy}_Q{q}_{pan}";
+            return $"Form{StatuteVocabulary.FormLabel("16A", fyStart)}_{fy}_Q{q}_{pan}";
         }
     }
 
@@ -190,6 +202,11 @@ public sealed partial class Form16AViewModel : ViewModelBase
     {
         var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
         var quarter = SelectedQuarter?.Quarter ?? 1;
+
+        // CA S9 closeout: the page heading is FY-gated, like Form24QViewModel's. The Miller cascade keeps the
+        // parent menu row visible beside the page, so an ungated "Form 16A" heading would sit on screen
+        // next to the renumbered menu label that opened it. Prior years are unchanged (ER-13).
+        Title = $"Form {StatuteVocabulary.FormLabel("16A", fyStart)} — TDS Certificate";
 
         _certs = Form16A.BuildAll(_company, fyStart, quarter);
 
@@ -250,7 +267,7 @@ public sealed partial class Form16AViewModel : ViewModelBase
             {
                 Section = d.SectionCode,
                 FvuCode = d.FvuSectionCode,
-                Date = d.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(d.Date),
                 AmountPaid = IndianFormat.AmountAlways(d.AmountPaid),
                 Tds = IndianFormat.AmountAlways(d.TdsAmount),
                 Rate = d.RatePercent.ToString("0.00", CultureInfo.InvariantCulture),
@@ -261,7 +278,7 @@ public sealed partial class Form16AViewModel : ViewModelBase
             {
                 ChallanNo = ch.ChallanNo,
                 BsrCode = ch.BsrCode,
-                DepositDate = ch.DepositDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                DepositDate = ApexDate.Format(ch.DepositDate),
                 TdsDeposited = IndianFormat.AmountAlways(ch.TdsDeposited),
             });
 

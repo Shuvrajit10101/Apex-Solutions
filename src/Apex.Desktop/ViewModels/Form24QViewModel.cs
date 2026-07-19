@@ -84,6 +84,10 @@ public sealed partial class Form24QViewModel : ViewModelBase
     [ObservableProperty] private string _title = "Form 24Q — Quarterly Salary-TDS Return (§192)";
     [ObservableProperty] private string _subtitle = string.Empty;
 
+    /// <summary>The Annexure I heading, FY-gated (CA S9): the salary-TDS section is §192 under the 1961 Act and
+    /// §392 under the 2025 Act, so the heading cannot be a literal in the view.</summary>
+    [ObservableProperty] private string _annexureIHeading = "Annexure I — deductee-wise §192 TDS";
+
     // Deductor (filer) block — reused from the Phase-7 deductor config.
     [ObservableProperty] private string _deductorTan = string.Empty;
     [ObservableProperty] private string _deductorType = string.Empty;
@@ -168,7 +172,12 @@ public sealed partial class Form24QViewModel : ViewModelBase
         set { if (SetProperty(ref _selectedSectionCode, value)) Rebuild(); }
     }
 
-    /// <summary>The FVU file name the export will write (FY + quarter), no extension.</summary>
+    /// <summary>The FVU file name the export will write (FY + quarter), no extension.
+    /// <para><b>Deliberately NOT FY-gated</b> (CA S9 closeout), unlike the per-recipient PDF certificate names in
+    /// <c>Form16AViewModel</c> / <c>Form27DViewModel</c> / <c>Form16ViewModel</c>. This is a <b>machine file</b> whose
+    /// name may be bound by the FVU/RPU utility's own conventions and whose wire format (<c>FH^24Q^…</c>) is pinned;
+    /// renaming it could break the very tool that consumes it, and the deductee never sees it. The legacy name stays
+    /// legacy <b>by decision, not by oversight</b> — the same call is recorded on Form 26Q and Form 27EQ.</para></summary>
     public string ExportFileName =>
         $"Form24Q_{(SelectedYear?.Label ?? "FY").Replace('-', '_')}_Q{SelectedQuarter?.Quarter ?? 0}";
 
@@ -189,6 +198,10 @@ public sealed partial class Form24QViewModel : ViewModelBase
         Return = q;
         IsQ4 = quarter == 4;
 
+        Title = $"Form {StatuteVocabulary.FormLabel("24Q", fyStart)} — Quarterly Salary-TDS Return "
+              + $"(§{StatuteVocabulary.SectionLabel("192", fyStart)})";
+        AnnexureIHeading = $"Annexure I — deductee-wise §{StatuteVocabulary.SectionLabel("192", fyStart)} TDS";
+
         var (from, to) = Form24Q.QuarterWindow(fyStart, quarter);
         Subtitle = $"{_company.Name}  —  FY {q.FinancialYearLabel}  {q.QuarterLabel}  "
                    + $"({from:dd-MMM-yyyy} to {to:dd-MMM-yyyy})  ·  section {section}";
@@ -204,7 +217,7 @@ public sealed partial class Form24QViewModel : ViewModelBase
                 Pan = string.IsNullOrEmpty(r.Pan) ? "PANNOTAVBL" : r.Pan!,
                 Name = r.EmployeeName,
                 Section = r.SectionCode,
-                Date = r.DeductionDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(r.DeductionDate),
                 Tds = IndianFormat.AmountAlways(r.TdsAmount),
             });
 

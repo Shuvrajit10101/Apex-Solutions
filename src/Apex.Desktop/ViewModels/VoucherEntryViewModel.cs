@@ -24,8 +24,19 @@ namespace Apex.Desktop.ViewModels;
 /// <see cref="LedgerService.Post"/> (which rejects an unbalanced/invalid voucher), then persists the
 /// whole company aggregate to its <c>.db</c> via <see cref="CompanyStorage.Save"/>.</para>
 /// </summary>
-public sealed partial class VoucherEntryViewModel : ViewModelBase
+public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the voucher date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => DateText;
+        set => DateText = value;
+    }
+
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly LedgerService _service;
@@ -183,6 +194,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// (ER-13).
     /// </summary>
     [ObservableProperty] private bool _showTcs;
+
+    /// <summary>The TCS band caption, FY-gated (CA S9) — the TCS charging section is <b>§206C</b> under the 1961 Act
+    /// and <b>§394</b> under the 2025 Act, so the caption cannot be a literal in the view. Note this is §206C, the
+    /// charging section — <b>not</b> §206CC, the (unverified, deliberately unmapped) no-PAN higher-rate section.</summary>
+    public string TcsNatureOfGoodsCaption =>
+        $"TCS — Nature of Goods (§{StatuteVocabulary.SectionLabel("206C", _company.FinancialYearStart.Year)})";
 
     /// <summary>The resolved §206C collection code for the band header (e.g. "6CE" scrap, or "Multiple" on a mixed
     /// invoice); empty when no TCS.</summary>
@@ -431,18 +448,31 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     [ObservableProperty] private string _applicableUptoText = string.Empty;
 
     /// <summary>
-    /// The date as editable text (dd-MMM-yyyy) for the header TextBox. Setting it with a parseable
-    /// value updates <see cref="Date"/>; an unparseable value is kept as-typed and left for Accept
-    /// to surface (the engine also rejects a date before books-begin).
+    /// The voucher date as editable text, in the one canonical <see cref="ApexDate.Canonical"/> spelling
+    /// (WI-5). Input is read by the shared DAY-FIRST parser, so "03/04/2024" is 3-Apr — never the 4-Mar
+    /// month-first misread the old InvariantCulture parse produced.
+    /// <para>
+    /// Unparseable input is <b>rejected, never silently discarded</b>: <see cref="Date"/> keeps its last
+    /// valid value, <see cref="Message"/> names the problem, and the field is re-notified so the rejected
+    /// text snaps back to the canonical rendering of the date actually held. (Previously the typed text
+    /// stayed on screen while a DIFFERENT date posted — screen and stored value silently disagreed.)
+    /// </para>
     /// </summary>
     public string DateText
     {
-        get => Date.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        get => ApexDate.Format(Date);
         set
         {
-            if (DateOnly.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None, out var parsed))
+            if (ApexDate.TryParse(value, Date, out var parsed))
                 Date = parsed;
+            else
+                Message = ApexDate.ErrorFor(value);
+
+            // Re-notify UNCONDITIONALLY. On success this echoes the canonical spelling even when the parsed
+            // date equals the current one (Date would not raise); on failure it replaces the rejected text
+            // with the date actually held. The property-changed path alone cannot do this — it only fires
+            // when Date CHANGES, which is exactly why the discard used to be silent.
+            OnPropertyChanged(nameof(DateText));
         }
     }
 
@@ -532,8 +562,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         Title = $"{type.Name} Voucher";
 
         // A Reversing Journal defaults its "Applicable Upto" to the financial-year end.
-        _applicableUptoText = company.FinancialYearStart.AddYears(1).AddDays(-1)
-            .ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        _applicableUptoText = ApexDate.Format(company.FinancialYearStart.AddYears(1).AddDays(-1));
 
         // Seed two starter lines: the first Dr, the second Cr (opens with a By/To pair).
         AddLine(DrCr.Debit);
@@ -1285,12 +1314,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return (invoice.Id, invoice.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), invoice.Date);
 
         var number = string.IsNullOrWhiteSpace(CdnOriginalInvoiceNumber) ? null : CdnOriginalInvoiceNumber.Trim();
-        DateOnly? date = DateOnly.TryParseExact(
-            (CdnOriginalInvoiceDateText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-            System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.None, out var parsed)
-            ? parsed
-            : null;
+        // WI-5: the shared lenient day-first parser, so a typed original-invoice date accepts the same
+        // spellings as every other date field in the app.
+        DateOnly? date = ApexDate.TryParse(CdnOriginalInvoiceDateText, Date, out var parsed) ? parsed : null;
         return (null, number, date);
     }
 
@@ -1732,6 +1758,23 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             return false;
         }
 
+        // WI-5: reject an UNREADABLE typed date up front rather than silently banking a null. A blank
+        // instrument / bill due date legitimately means "none"; text that cannot be read does not, and
+        // dropping it would post a voucher whose dates disagree with what the operator typed.
+        var badLineDate = Lines.FirstOrDefault(l => l.HasUnreadableInstrumentDate);
+        if (badLineDate is not null)
+        {
+            Message = ApexDate.ErrorFor(badLineDate.InstrumentDateText);
+            return false;
+        }
+
+        var badDueDate = Lines.SelectMany(l => l.BillAllocations).FirstOrDefault(b => b.HasUnreadableDueDate);
+        if (badDueDate is not null)
+        {
+            Message = ApexDate.ErrorFor(badDueDate.DueDateText);
+            return false;
+        }
+
         // Reject an invalid bill-wise split up front (allocations must sum to the line amount).
         var badBill = Lines.FirstOrDefault(l => l.IsComplete && !l.BillSplitOk);
         if (badBill is not null)
@@ -1917,11 +1960,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         DateOnly? applicableUpto = null;
         if (IsReversing)
         {
-            if (!DateOnly.TryParseExact((ApplicableUptoText ?? string.Empty).Trim(), "dd-MMM-yyyy",
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None, out var upto))
+            if (!ApexDate.TryParse(ApplicableUptoText, Date, out var upto))
             {
-                Message = "Applicable Upto must be dd-MMM-yyyy (e.g. 30-Apr-2024).";
+                Message = ApexDate.ErrorFor(ApplicableUptoText);
                 return false;
             }
             if (upto < Date)
@@ -2132,6 +2173,34 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         RecalculateItemInvoice();
     }
 
+    /// <summary>
+    /// WI-1 — re-reads the company's ledgers into the party / stock-leg pickers WITHOUT disturbing the
+    /// in-progress voucher, so a ledger created on the fly (Alt+C) is immediately selectable in the field that
+    /// created it. <see cref="BuildItemInvoicePickers"/> cannot be reused here: it RESETS both selections to the
+    /// first row and seeds a blank item line — on a half-typed invoice that is itself data loss.
+    /// <para>The current selections are re-resolved by ledger id (not by object identity of the wrapper), so a
+    /// party already chosen stays chosen across the refresh.</para>
+    /// </summary>
+    public void RefreshMasterPickers()
+    {
+        var partyId = SelectedParty?.Ledger?.Id;
+        var stockLedgerId = SelectedStockLedger?.Id;
+
+        Parties.Clear();
+        Parties.Add(new PartyOption { Ledger = null, Display = "◦ (none)" });
+        foreach (var l in _company.Ledgers.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            Parties.Add(new PartyOption { Ledger = l, Display = l.Name });
+        SelectedParty = Parties.FirstOrDefault(p => p.Ledger?.Id == partyId) ?? Parties.FirstOrDefault();
+
+        StockLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(IsStockLegLedger)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            StockLedgers.Add(l);
+        SelectedStockLedger = StockLedgers.FirstOrDefault(l => l.Id == stockLedgerId)
+                              ?? StockLedgers.FirstOrDefault();
+    }
+
     /// <summary>Pushes the Price-Level Discount-column gate to every item line so it shows/hides in sync (ER-13).</summary>
     private void SyncPriceLevelOnLines()
     {
@@ -2271,8 +2340,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
     /// <summary>Adds a blank item-invoice inventory line (Movement kind: Item / Godown / Qty / Rate / Batch).</summary>
     public InventoryVoucherLineViewModel AddInventoryLine()
     {
+        // WI-10 Gap 2: hand the line the company's units so its picker can offer the item's base unit plus every
+        // compound unit that reduces to it. Without this argument the picker's option list is empty, ShowUnit is
+        // false and the column never appears — which is exactly the state the item-invoice grid was in before
+        // this slice, and why the CA's "2 Dozen @ ₹10" invoice line was unreachable.
         var line = new InventoryVoucherLineViewModel(
-            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice)
+            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice, _company.Units)
         {
             ShowActualBilled = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity,
             ShowDiscount = ShowPriceLevelSelector,
@@ -2655,7 +2728,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
             // The rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             invLines.Add(new VoucherInventoryLine(
                 l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
-                StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity));
+                StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity,
+                // WI-10 Gap 2: the preview must model the SAME line the posting will build, unit included —
+                // otherwise a by-quantity apportionment would weigh 2 where the posted voucher weighs 24 and the
+                // operator would be shown a landed rate the books never use.
+                unitId: l.UnitId));
         }
 
         var costLines = new List<EntryLine>();
@@ -2671,9 +2748,28 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
         {
             var ll = landed[i];
             completeItems[i].ShowLanded = true;
-            completeItems[i].LandedRateText = IndianFormat.AmountAlways(ll.LandedUnitRate);
+            // WI-10 Gap 2: LandedUnitRate is per the item's BASE unit (the engine's unit). This column sits
+            // beside the Rate column, which is per the LINE unit, so it is converted BACK with the documented
+            // exact inverse — showing a per-Nos landed rate next to a per-Dozen rate would read as a 12× drop in
+            // cost. LandedValue is a total and is unit-invariant, so it is displayed as-is. For a line with no
+            // unit RateFromBaseMeasure is the identity, so the display is unchanged (ER-13).
+            completeItems[i].LandedRateText =
+                IndianFormat.AmountAlways(LandedRateInLineUnit(completeItems[i], ll.LandedUnitRate));
             completeItems[i].LandedValueText = IndianFormat.AmountAlways(ll.LandedValue.Amount);
         }
+    }
+
+    /// <summary>
+    /// A per-BASE-unit landed rate from <see cref="AdditionalCostApportionment"/> re-expressed per the unit the
+    /// LINE is stated in (WI-10 Gap 2), via the documented exact inverse <see cref="Unit.RateFromBaseMeasure"/>,
+    /// so the Landed Rate column is directly comparable to the Rate column beside it. Identity for a line that
+    /// carries no unit (ER-13).
+    /// </summary>
+    private decimal LandedRateInLineUnit(InventoryVoucherLineViewModel line, decimal baseRate)
+    {
+        if (line.UnitId is not { } unitId) return baseRate;
+        var unit = _company.FindUnit(unitId);
+        return unit is null ? baseRate : unit.RateFromBaseMeasure(baseRate);
     }
 
     /// <summary>
@@ -2734,7 +2830,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase
                 l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
                 // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
                 direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
-                batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity));
+                batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity,
+                // WI-10 Gap 2: the unit the typed quantity AND rate are stated in. l.UnitId is the gated field —
+                // it returns null unless the picker is actually shown AND a non-base unit is chosen, so a hidden
+                // picker can never stamp a unit onto the line (the hidden-sub-form discipline). The quantity is
+                // posted AS TYPED (2), not base-normalised: Value = 2 × ₹10 = ₹20 must foot against the Sales
+                // leg, and the engine converts to 24 Nos for stock on its own side.
+                unitId: l.UnitId));
         }
 
         // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant

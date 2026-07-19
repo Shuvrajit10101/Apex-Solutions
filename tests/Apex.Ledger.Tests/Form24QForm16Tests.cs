@@ -204,4 +204,51 @@ public sealed class Form24QForm16Tests
         Assert.Equal(Money.Zero, f24.TotalTdsDeducted);
         Assert.Empty(Form24Q.Build(c, FyStart, 4).AnnexureII);
     }
+
+    // ------------------------------------------- ER-13 (CA S9): the certificate's period vocabulary is FY-gated
+
+    /// <summary>
+    /// <b>A FY 2025-26 certificate must reprint exactly as before S9.</b> <see cref="Form16.AssessmentYearLabel"/> is
+    /// the 1961-Act value and is kept verbatim precisely so already-issued certificates reproduce; the new
+    /// <see cref="Form16.PeriodCaption"/> / <see cref="Form16.PeriodLabel"/> pair must <b>agree with it</b> for a
+    /// prior year, i.e. adding the gate changed nothing that a FY 2025-26 employee would see.
+    /// </summary>
+    [Fact]
+    public void ER13_a_prior_year_form_16_still_prints_the_assessment_year_unchanged()
+    {
+        var (c, empId, _) = Build(monthlyBasic: 125_000m, TaxRegime.New);
+        PostFullYear(c, empId);
+
+        var cert = Form16.Build(c, empId, 2025);
+        Assert.Equal("2025-26", cert.FinancialYearLabel);
+        Assert.Equal("2026-27", cert.AssessmentYearLabel);   // frozen — a filed document's value
+        Assert.Equal("Assessment Year", cert.PeriodCaption);
+        Assert.Equal("AY", cert.PeriodCaptionShort);
+        Assert.Equal(cert.AssessmentYearLabel, cert.PeriodLabel);   // gate is a no-op before FY 2026-27
+    }
+
+    /// <summary>
+    /// From FY 2026-27 the 2025 Act governs: the caption becomes "Tax Year" and — because the <b>tax year IS the
+    /// financial year</b> — the <b>value</b> moves too, away from the retired assessment-year framing.
+    /// <para>This is also where the date trap is pinned in a real certificate: the FY 2025-26 certificate above and
+    /// the FY 2026-27 certificate here both display <b>"2026-27"</b>, for <b>different years</b>. Only the caption
+    /// distinguishes them, which is why the caption is never a literal in the view.</para>
+    /// </summary>
+    [Fact]
+    public void A_form_16_from_fy_2026_27_switches_to_the_tax_year_vocabulary()
+    {
+        var (c, empId, _) = Build(monthlyBasic: 125_000m, TaxRegime.New);
+        PostFullYear(c, empId);
+
+        var cert = Form16.Build(c, empId, 2026);
+        Assert.Equal("Tax Year", cert.PeriodCaption);
+        Assert.Equal("2026-27", cert.PeriodLabel);            // == the financial year, NOT FY + 1
+        Assert.Equal("2027-28", cert.AssessmentYearLabel);    // the retired framing, kept but no longer displayed
+        Assert.NotEqual(cert.AssessmentYearLabel, cert.PeriodLabel);
+
+        // The collision, stated outright: same numerals, different years, different captions.
+        var priorYear = Form16.Build(c, empId, 2025);
+        Assert.Equal(priorYear.PeriodLabel, cert.PeriodLabel);
+        Assert.NotEqual(priorYear.PeriodCaption, cert.PeriodCaption);
+    }
 }

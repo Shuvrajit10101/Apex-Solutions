@@ -166,7 +166,7 @@ public sealed partial class SalaryStructureMasterViewModel : ViewModelBase
         SelectedEmployeeGroup = EmployeeGroups.FirstOrDefault();
 
         // Default the effective-from to books-begin (a sensible "as of the books" starting point).
-        EffectiveFromText = company.BooksBeginFrom.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        EffectiveFromText = ApexDate.Format(company.BooksBeginFrom);
 
         AddLineRow();          // one blank trailing row ready to type into
         _initialized = true;
@@ -372,7 +372,7 @@ public sealed partial class SalaryStructureMasterViewModel : ViewModelBase
             var summary = string.Join("   ", s.Lines.Select(FormatLine));
             History.Add(new SalaryStructureVersionRow
             {
-                EffectiveFrom = s.EffectiveFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                EffectiveFrom = ApexDate.Format(s.EffectiveFrom),
                 StartType = DescribeStartType(s.StartType),
                 Lines = summary,
             });
@@ -470,14 +470,9 @@ public sealed partial class SalaryStructureMasterViewModel : ViewModelBase
         _ => c.ToString(),
     };
 
-    private static bool TryParseDate(string? text, out DateOnly value)
-    {
-        var trimmed = (text ?? string.Empty).Trim();
-        if (DateOnly.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.None, out value))
-            return true;
-        return DateOnly.TryParseExact(trimmed, new[] { "dd-MMM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd" },
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
-    }
+    // WI-5: the ONE app-wide day-first parser. The old code tried a bare InvariantCulture parse FIRST, so
+    // "03/04/2024" was claimed by the MM/dd misread before the dd/MM format was ever reached.
+    private static bool TryParseDate(string? text, out DateOnly value) => ApexDate.TryParse(text, out value);
 
     private static bool TryParseDecimal(string? text, out decimal value)
         => decimal.TryParse(

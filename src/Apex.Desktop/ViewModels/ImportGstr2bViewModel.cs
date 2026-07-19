@@ -95,7 +95,7 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
             {
                 Statement = s.StatementType == GstStatementType.Gstr2b ? "GSTR-2B" : "GSTR-2A",
                 Period = s.ReturnPeriod,
-                ImportedAt = s.ImportedAt.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                ImportedAt = ApexDate.Format(s.ImportedAt),
                 Lines = s.Lines.Count.ToString(CultureInfo.InvariantCulture),
                 Tax = R(s.SummaryIgstPaisa + s.SummaryCgstPaisa + s.SummarySgstPaisa + s.SummaryCessPaisa),
             });

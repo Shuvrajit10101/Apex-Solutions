@@ -42,8 +42,19 @@ public sealed class JobWorkFillOption
 /// <para>MVVM boundary: references the engine + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable.</para>
 /// </summary>
-public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase
+public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the order date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => DateText;
+        set => DateText = value;
+    }
+
     private readonly Company _company;
     private readonly VoucherType _type;
     private readonly InventoryPostingService _service;
@@ -118,11 +129,16 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase
     /// <summary>The date as editable text (dd-MMM-yyyy) for the header TextBox.</summary>
     public string DateText
     {
-        get => Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        get => ApexDate.Format(Date);
         set
         {
-            if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            // WI-5: shared DAY-FIRST parse; reject-and-keep rather than silently discard.
+            if (ApexDate.TryParse(value, Date, out var parsed))
                 Date = parsed;
+            else
+                Message = ApexDate.ErrorFor(value);
+
+            OnPropertyChanged(nameof(DateText));
         }
     }
 
@@ -305,14 +321,26 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase
             return false;
         }
 
+        // WI-5: an unreadable typed due date is refused, not silently dropped to null.
+        if (Lines.FirstOrDefault(l => l.HasUnreadableDue) is { } badDue)
+        {
+            Message = ApexDate.ErrorFor(badDue.DueText);
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(FinishedGoodDueText)
+            && !ApexDate.TryParse(FinishedGoodDueText, Date, out _))
+        {
+            Message = ApexDate.ErrorFor(FinishedGoodDueText);
+            return false;
+        }
+
         JobWorkOrder order;
         InventoryVoucher voucher;
         try
         {
             var fgQty = ParsedFinishedGoodQty ?? 0m;
             Money? fgRate = ParseMoney(FinishedGoodRateText);
-            DateOnly? fgDue = DateOnly.TryParse((FinishedGoodDueText ?? string.Empty).Trim(),
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : (DateOnly?)null;
+            DateOnly? fgDue = ApexDate.TryParse(FinishedGoodDueText, Date, out var d) ? d : (DateOnly?)null;
 
             var componentLines = new List<JobWorkOrderLine>();
             if (TrackingComponents)

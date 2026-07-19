@@ -169,7 +169,16 @@ internal sealed class ImportPlan
                 continue;
             }
             var parent = g.ParentId is { } pid ? ResolveGroupId(pid, groupId, t) : (Guid?)null;
-            var domain = new Group(Guid.NewGuid(), g.Name, ParseEnum<GroupNature>(g.Nature), parent, g.Alias,
+            var declaredNature = ParseEnum<GroupNature>(g.Nature);
+            // WI-7: a group's nature MUST match the nature derived from its parent ancestry. The import previously
+            // accepted the caller-supplied nature VERBATIM, so a canonical file declaring Nature=Asset under Current
+            // Liabilities silently landed a payable on the ASSET side of the Balance Sheet — it still "balanced", so
+            // nothing failed loudly (a financial-misread corruption). Groups are added parents-before-children here,
+            // so the parent chain is already on `t` and PrimaryAncestorOf resolves. A contradiction throws → the
+            // whole batch rolls back all-or-nothing (Applied = false, target untouched). Shared with GroupService so
+            // the master screen and the import enforce the SAME invariant.
+            GroupService.ValidateNatureAgainstParent(declaredNature, parent, t);
+            var domain = new Group(Guid.NewGuid(), g.Name, declaredNature, parent, g.Alias,
                 isPredefined: false);
             t.AddGroup(domain);
             journal.RecordGroup(domain);
@@ -575,6 +584,9 @@ internal sealed class ImportPlan
             // A payable-ledger classification only appears on the auto-created TDS/TCS Payable ledgers (reused above);
             // an ordinary imported ledger never carries one, so this stays null here.
             domain.TdsTcsClassification = l.TdsTcsClassification is { } k ? ParseEnum<TdsTcsLedgerKind>(k) : null;
+            // WI-4 (v45): the party Mailing Details block. Null for every ledger that carried none, so a pre-v45
+            // document imports byte-for-byte to the ledger it always did (ER-13).
+            domain.Mailing = BuildPartyMailing(l.Mailing);
             // Phase 9: mirror the item-GST guard onto the sales/purchase LEDGER block (the recurring Io-bypass defect
             // class) — a malformed §17(5)/cess/RSP block (e.g. a BlockedCreditCategory with a non-blocked eligibility)
             // throws here in pre-flight, so the whole batch rejects all-or-nothing (Applied = false, target untouched)
@@ -871,7 +883,8 @@ internal sealed class ImportPlan
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId,
+                unitId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
@@ -1375,6 +1388,7 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> tcsNatureId,
         Dictionary<Guid, Guid> employeeId,
         Dictionary<Guid, Guid> payHeadId,
+        Dictionary<Guid, Guid> unitId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -1399,7 +1413,10 @@ internal sealed class ImportPlan
                 il.Quantity, MoneyCodec.FromPaisa(il.RatePaisa),
                 ParseEnum<StockDirection>(il.Direction), il.BatchLabel,
                 // Phase 6 slice 4: Billed defaults to Actual when null (feature off ⇒ byte-identical, ER-13).
-                billedQuantity: il.BilledQuantity)).ToList();
+                billedQuantity: il.BilledQuantity,
+                // WI-10 Gap 2: the line unit, re-mapped onto the TARGET company's unit (the same resolver the
+                // pure-stock allocations use). null ⇒ the item's base unit ⇒ byte-identical (ER-13).
+                unitId: il.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null)).ToList();
 
         // Phase 6 slice 7: POS payment tenders (empty for every non-POS voucher). The tender ledgers resolve by name.
         var posTenders = v.PosTenders.Count == 0
@@ -1569,6 +1586,22 @@ internal sealed class ImportPlan
                     ?? throw new InvalidOperationException($"Job Work order references unknown Bill of Materials {b}."))
                 : null,
             durationOfProcess: j.DurationOfProcess, natureOfProcessing: j.NatureOfProcessing);
+    }
+
+    /// <summary>Materialises the v45 party Mailing Details block; <c>null</c> stays <c>null</c>, so a document
+    /// exported before v45 (or from a company with no party addresses) imports to exactly the same ledger it did
+    /// before. Carries no State — the party State arrives on the partyGst block, the single place-of-supply
+    /// driver — and is validated fail-fast so a malformed PIN rejects the batch instead of persisting.</summary>
+    private static PartyMailingDetails? BuildPartyMailing(PartyMailingDto? m)
+    {
+        if (m is null) return null;
+        var block = new PartyMailingDetails
+        {
+            MailingName = m.MailingName, Address = m.Address, Country = m.Country, Pincode = m.Pincode,
+        };
+        block.Normalize();
+        block.EnsureValid();
+        return block.IsEmpty ? null : block;
     }
 
     private static PartyGstDetails? BuildPartyGst(PartyGstDto? p) => p is null ? null : new PartyGstDetails

@@ -183,16 +183,16 @@ public sealed partial class BankStatementImportViewModel : ViewModelBase
         foreach (var (tx, row) in result.Matched)
             Results.Add(new StatementResultRow(
                 StatementRowKind.Matched,
-                row.Date.ToString("dd-MMM-yyyy"),
+                ApexDate.Format(row.Date),
                 row.Description,
                 IndianFormat.AmountAlways(Math.Abs(row.Amount.Amount)) + (row.Signed >= 0 ? " Cr(in)" : " Dr(out)"),
                 string.IsNullOrWhiteSpace(row.InstrumentNumber) ? "—" : row.InstrumentNumber,
-                tx.BankDate?.ToString("dd-MMM-yyyy") ?? row.Date.ToString("dd-MMM-yyyy")));
+                tx.BankDate is { } bd ? ApexDate.Format(bd) : ApexDate.Format(row.Date)));
 
         foreach (var row in result.UnmatchedStatementRows)
             Results.Add(new StatementResultRow(
                 StatementRowKind.UnmatchedStatement,
-                row.Date.ToString("dd-MMM-yyyy"),
+                ApexDate.Format(row.Date),
                 row.Description,
                 IndianFormat.AmountAlways(Math.Abs(row.Amount.Amount)) + (row.Signed >= 0 ? " Cr(in)" : " Dr(out)"),
                 string.IsNullOrWhiteSpace(row.InstrumentNumber) ? "—" : row.InstrumentNumber,
@@ -201,7 +201,7 @@ public sealed partial class BankStatementImportViewModel : ViewModelBase
         foreach (var tx in result.UnmatchedBookTransactions)
             Results.Add(new StatementResultRow(
                 StatementRowKind.UnmatchedBook,
-                tx.Date.ToString("dd-MMM-yyyy"),
+                ApexDate.Format(tx.Date),
                 $"Voucher No. {tx.VoucherNumber} ({tx.TransactionType})",
                 IndianFormat.AmountAlways(Math.Abs(tx.Amount.Amount)) + (tx.Side == DrCr.Debit ? " Dr(in)" : " Cr(out)"),
                 string.IsNullOrWhiteSpace(tx.InstrumentNumber) ? "—" : tx.InstrumentNumber,

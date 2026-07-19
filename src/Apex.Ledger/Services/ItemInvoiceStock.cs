@@ -23,8 +23,15 @@ internal static class ItemInvoiceStock
     /// </summary>
     /// <param name="LandedUnitRate">The <b>landed</b> (effective) inward unit rate when this movement is an item
     /// line on a Purchase whose voucher type tracks additional costs AND additional cost actually loaded it
-    /// (Phase 6 slice 3 RQ-16..RQ-19); <c>null</c> otherwise, so an untracked/zero-load movement takes the
-    /// identical old valuation path (<c>LandedUnitRate ?? Allocation.Rate</c> — ER-13).</param>
+    /// (Phase 6 slice 3 RQ-16..RQ-19), or when the Actual/Billed split makes billed value ÷ Actual diverge from
+    /// the bare rate; <c>null</c> otherwise, so an untracked/zero-load movement takes the identical old valuation
+    /// path (<c>LandedUnitRate ?? Allocation.Rate</c> — ER-13).
+    /// <para><b>Unit contract (WI-10 Gap 2).</b> This rate is ALWAYS per the stock item's <b>base</b> unit — it is
+    /// normalised here, at the seam, because the two sources disagree: the apportionment engine already yields a
+    /// per-base rate, while <c>VoucherInventoryLine.StockValuationUnitRate</c> is per the LINE unit. A consumer
+    /// therefore pairs it with a base-normalised quantity and must NOT convert it again (converting twice is the
+    /// 12× understatement). <see cref="Movement.Allocation"/>, by contrast, keeps the raw line values and carries
+    /// <see cref="InventoryAllocation.UnitId"/> so the usual consumer-side conversion applies to it.</para></param>
     internal readonly record struct Movement(
         DateOnly Date, int Number, Guid VoucherId, InventoryAllocation Allocation, decimal? LandedUnitRate = null);
 
@@ -71,10 +78,13 @@ internal static class ItemInvoiceStock
             {
                 var line = v.InventoryLines[i];
                 // The synthetic allocation moves stock by the ACTUAL quantity (line.Quantity) — on-hand is driven by
-                // Actual, correctly and unchanged (Phase 6 slice 4 RQ-22/RQ-23).
+                // Actual, correctly and unchanged (Phase 6 slice 4 RQ-22/RQ-23). WI-10 Gap 2: the line's unit rides
+                // along, so every engine that already normalises an InventoryAllocation (on-hand, valuation, batch
+                // costing, the movement registers) treats an item-invoice line exactly like a pure-stock line —
+                // "2 Doz" moves 24 Nos — with no new conversion site to get wrong.
                 var alloc = new InventoryAllocation(
                     line.StockItemId, line.GodownId, line.Quantity, line.Direction,
-                    rate: line.Rate, batchLabel: line.BatchLabel);
+                    rate: line.Rate, batchLabel: line.BatchLabel, unitId: line.UnitId);
                 // The effective inward unit cost for VALUATION (the LandedUnitRate override channel):
                 //   • additional-cost load (slice 3, incl. composition with A/B): (billed value + apportioned
                 //     share) ÷ Actual — LandedLine already computes this over the item's Actual quantity;
@@ -84,11 +94,33 @@ internal static class ItemInvoiceStock
                 //   • else (feature off / Billed ≡ Actual, no load): null ⇒ keeps the bare rate ⇒ byte-identical (ER-13).
                 decimal? landedRate = null;
                 if (landed is { } ll && ll[i].HasLoad)
+                {
+                    // Already per BASE unit: AdditionalCostApportionment.ForPurchase weights and divides by the
+                    // line's base-unit quantity (mirroring ForTransfer). Converting here would convert twice.
                     landedRate = ll[i].LandedUnitRate;
+                }
                 else if (line.BilledQuantity != line.Quantity)
-                    landedRate = line.StockValuationUnitRate;
+                {
+                    // StockValuationUnitRate is billed value ÷ Actual, both in the LINE unit — so it is per the
+                    // line unit. The valuation pairs it with a base-normalised quantity, so it must be divided by
+                    // exactly the factor that quantity was multiplied by; otherwise "2 Doz, billed 1, @ ₹10" would
+                    // value 24 Nos at ₹5 each (₹120) instead of ₹10 total.
+                    landedRate = RateInBase(company, line, line.StockValuationUnitRate);
+                }
                 yield return new Movement(v.Date, v.Number, v.Id, alloc, landedRate);
             }
         }
+    }
+
+    /// <summary>
+    /// A rate stated per an item line's own unit, re-expressed per the stock item's BASE unit (WI-10 Gap 2; see
+    /// <see cref="Unit.RateInBaseMeasure"/>). A line with no unit is already per-base and is returned untouched,
+    /// so every pre-v46 line takes the identical old path (ER-13).
+    /// </summary>
+    private static decimal RateInBase(Company company, VoucherInventoryLine line, decimal rate)
+    {
+        if (line.UnitId is not { } unitId) return rate;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? rate : unit.RateInBaseMeasure(rate);
     }
 }

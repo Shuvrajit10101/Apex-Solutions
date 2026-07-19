@@ -139,9 +139,23 @@ public sealed class SalaryTdsUiViewModelTests : IDisposable
         Assert.True(vm.Company.SalaryTdsEnabled);
         Assert.True(Reload(companyName).SalaryTdsEnabled);
 
-        // The AY label is the FY + 1 (surfaced on the config block).
-        Assert.Equal($"{vm.Company.FinancialYearStart.Year + 1}-{(vm.Company.FinancialYearStart.Year + 2) % 100:00}",
-            page.SalaryTdsAssessmentYearLabel);
+        // The period label surfaced on the config block is FY-GATED (CA S9). Under the 1961 Act it is the assessment
+        // year (FY + 1); from FY 2026-27 the Income-tax Act 2025 replaces it with the TAX YEAR, which IS the financial
+        // year — so this is a value change, not just a caption change. Asserting "FY + 1" unconditionally (as this
+        // test previously did) encodes a rule the 2025 Act retires, and is also clock-dependent, because the company
+        // FY here comes from DateTime.Today. Both sides of the gate are pinned explicitly below.
+        var fyStartYear = vm.Company.FinancialYearStart.Year;
+        var expectedPeriod = StatuteVocabulary.IsAct2025(fyStartYear)
+            ? $"{fyStartYear}-{(fyStartYear + 1) % 100:00}"
+            : $"{fyStartYear + 1}-{(fyStartYear + 2) % 100:00}";
+        Assert.Equal(expectedPeriod, page.SalaryTdsAssessmentYearLabel);
+        Assert.Equal(StatuteVocabulary.PeriodCaption(fyStartYear), page.SalaryTdsPeriodCaption);
+
+        // …and the gate itself, independent of whatever year the clock produced:
+        Assert.Equal("Assessment Year", StatuteVocabulary.PeriodCaption(2025));
+        Assert.Equal("2026-27", StatuteVocabulary.PeriodLabel(2025));
+        Assert.Equal("Tax Year", StatuteVocabulary.PeriodCaption(2026));
+        Assert.Equal("2026-27", StatuteVocabulary.PeriodLabel(2026));
     }
 
     [Fact]
@@ -352,6 +366,67 @@ public sealed class SalaryTdsUiViewModelTests : IDisposable
         page.SelectedQuarter = page.Quarters.First(q => q.Quarter == 1);
         var row = Assert.Single(page.Deductees);
         Assert.Equal("8,125.00", row.Tds);
+    }
+
+    // ---------------------------------------------------------------- (5b) WI-6 — the §192 TDS pay-head option is
+    // reachable from the Pay Head master PICKER, and a payroll run through the SAME path the UI uses computes a
+    // NON-ZERO salary TDS that matches the SalaryIncomeTax §192 engine. This is the regression lock for WI-6: the
+    // picker used to omit IncomeTaxComponent.TaxDeductedAtSource, so PayrollComputationService's §192 gate could
+    // never be satisfied by a UI-created head and salary TDS was unconditionally ₹0 on every payslip.
+
+    [Fact]
+    public void Pay_head_master_picker_offers_the_salary_tds_marker_and_a_run_computes_non_zero_tds()
+    {
+        var vm = NewSalaryTdsCompany("PayHead TDS Picker Co");
+        var c = vm.Company!;
+
+        // (a) A Basic earnings head, created through the master screen (₹1.25L/mo flat → ₹15L/yr, the NEW-regime
+        //     golden). NEGATIVE GATE: the §192 TDS marker is NOT offered on an Earnings head.
+        vm.ShowPayHeadMaster();
+        var m = vm.PayHeadMaster!;
+        m.Name = "Basic";
+        m.SelectedType = m.Types.Single(t => t.Value == PayHeadType.Earnings);
+        m.SelectedCalcType = m.CalcTypes.Single(cc => cc.Value == PayHeadCalculationType.FlatRate);
+        m.SelectedGroup = m.GroupOptions.Single(o => o.Group is { } g && g.Name == "Indirect Expenses");
+        Assert.DoesNotContain(m.IncomeTaxComponents, i => i.Value == IncomeTaxComponent.TaxDeductedAtSource);
+        m.SelectedIncomeTaxComponent = m.IncomeTaxComponents.Single(i => i.Value == IncomeTaxComponent.BasicSalary);
+        Assert.True(m.Create(), m.Message);
+
+        // (b) The salary-TDS head, created through the master screen. The picker MUST now offer the §192 marker on an
+        //     Employees' Statutory Deductions head — the WI-6 fix. (Before the fix this option did not exist, so the
+        //     head below could not be tagged and salary TDS stayed ₹0.)
+        vm.ShowPayHeadMaster();
+        m = vm.PayHeadMaster!;
+        m.Name = "TDS on Salary";
+        m.SelectedType = m.Types.Single(t => t.Value == PayHeadType.EmployeesStatutoryDeductions);
+        m.SelectedCalcType = m.CalcTypes.Single(cc => cc.Value == PayHeadCalculationType.AsUserDefinedValue);
+        m.SelectedGroup = m.GroupOptions.Single(o => o.Group is { } g && g.Name == "Current Liabilities");
+        var tdsOption = m.IncomeTaxComponents.SingleOrDefault(i => i.Value == IncomeTaxComponent.TaxDeductedAtSource);
+        Assert.NotNull(tdsOption); // WI-6: reachable from the UI picker
+        m.SelectedIncomeTaxComponent = tdsOption;
+        Assert.True(m.Create(), m.Message);
+
+        var tdsHead = c.FindPayHeadByName("TDS on Salary")!;
+        Assert.Equal(IncomeTaxComponent.TaxDeductedAtSource, tdsHead.IncomeTaxComponent);
+
+        // (c) Wire an employee + structure and run payroll through the real §192 engine.
+        var basic = c.FindPayHeadByName("Basic")!;
+        var groupId = new PayrollService(c).CreateEmployeeGroup("Staff").Id;
+        var empId = AddEmployee(c, new Heads(basic.Id, tdsHead.Id), groupId, "Anita Rao", 125_000m);
+
+        var from = c.FinancialYearStart;
+        var to = new DateOnly(from.Year, from.Month, DateTime.DaysInMonth(from.Year, from.Month));
+        var result = new PayrollComputationService(c).Compute(empId, from, to);
+
+        // HEADLINE: salary TDS is NON-ZERO (the bug made it unconditionally ₹0) …
+        Assert.NotEqual(Money.Zero, result.SalaryTdsDeducted);
+
+        // … and equals the SalaryIncomeTax §192 average-rate monthly figure (golden ₹8,125/mo on ₹15L NEW).
+        var annualTax = SalaryIncomeTax.ComputeAnnual(
+            SalaryIncomeTax.TaxableIncome(15_00_000m, 0m, TaxRegime.New), TaxRegime.New).AnnualTax;
+        var expectedMonthly = SalaryIncomeTax.MonthlyTds(annualTax, Money.Zero, SalaryIncomeTax.MonthsRemainingInFy(to));
+        Assert.Equal(expectedMonthly, result.SalaryTdsDeducted);
+        Assert.Equal(new Money(8_125m), result.SalaryTdsDeducted);
     }
 
     // ---------------------------------------------------------------- (6) gating

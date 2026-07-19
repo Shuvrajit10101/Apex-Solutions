@@ -66,6 +66,58 @@ public sealed partial class MenuItemViewModel : ViewModelBase
     /// <summary>True to indent this item one level under its section header.</summary>
     public bool IsSubItem { get; }
 
+    /// <summary>
+    /// WI-1 — true for a picker's own pinned <b>Create …</b> row (the corpus's second entry point: a Create
+    /// option "under List of Ledger Accounts"). The row is an AFFORDANCE, not company data, so
+    /// <see cref="GatewayColumn"/>'s type-ahead must never match it — a bare letter belongs to the real masters,
+    /// and landing the highlight on "Create Ledger" when the operator typed "c" for "Cash" is exactly the
+    /// wrong-selection failure the picker work exists to remove. It stays <see cref="IsSelectable"/>, so the
+    /// arrow keys still reach it and Enter still activates it.
+    /// </summary>
+    public bool IsCreateRow { get; init; }
+
+    // =========================================================== WI-9: the bare-letter hotkey
+
+    /// <summary>
+    /// The index within <see cref="Label"/> of this row's bare-letter hotkey, or −1 when the row has none
+    /// (a header, or a row in a data-driven picker column where a bare letter filters instead of activating).
+    /// <para>
+    /// Assigned per column by <see cref="GatewayColumn.AssignHotKeys"/>. It is deliberately stored as an INDEX
+    /// beside the label rather than baked into the label text (e.g. "&amp;Create" or "[C]reate"): dispatch
+    /// elsewhere in the shell matches rows by their <see cref="Label"/> string, so mutating the label to carry
+    /// the marker would silently break every one of those lookups.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private int _hotKeyIndex = -1;
+
+    /// <summary>The hotkey letter itself, or <c>null</c> when this row has none.</summary>
+    public char? HotKey =>
+        HotKeyIndex >= 0 && HotKeyIndex < Label.Length ? Label[HotKeyIndex] : null;
+
+    /// <summary>The label text BEFORE the hotkey letter (first of the three Runs the view paints).</summary>
+    public string HotKeyBefore =>
+        HotKeyIndex > 0 ? Label[..HotKeyIndex] : string.Empty;
+
+    /// <summary>The hotkey letter as a string — the middle Run, the one painted red.</summary>
+    public string HotKeyText =>
+        HotKeyIndex >= 0 && HotKeyIndex < Label.Length ? Label[HotKeyIndex].ToString() : string.Empty;
+
+    /// <summary>The label text AFTER the hotkey letter (last of the three Runs).</summary>
+    public string HotKeyAfter =>
+        HotKeyIndex >= 0 && HotKeyIndex + 1 <= Label.Length ? Label[(HotKeyIndex + 1)..] : Label;
+
+    /// <summary>True when this row has a bare-letter hotkey to paint.</summary>
+    public bool HasHotKey => HotKeyIndex >= 0;
+
+    partial void OnHotKeyIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(HotKey));
+        OnPropertyChanged(nameof(HotKeyBefore));
+        OnPropertyChanged(nameof(HotKeyText));
+        OnPropertyChanged(nameof(HotKeyAfter));
+        OnPropertyChanged(nameof(HasHotKey));
+    }
+
     public MenuItemViewModel(
         string label,
         Action activate,

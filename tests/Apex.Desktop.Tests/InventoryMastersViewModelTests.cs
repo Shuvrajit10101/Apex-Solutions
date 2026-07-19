@@ -176,26 +176,36 @@ public sealed class InventoryMastersViewModelTests : IDisposable
         const string companyName = "Unit Compound Co";
         var vm = NewSeededCompany(companyName);
 
-        var nos = CreateSimpleUnit(vm, "Nos", "Numbers");
-        CreateSimpleUnit(vm, "Pcs", "Pieces");           // a second simple unit so compound is buildable
+        // Corpus shape (Study Guide, First/Factor/Second table: "Dozen 12 Pcs"): the FIRST unit is the
+        // LARGER unit and the SECOND/tail the smaller one, so 1 Doz = 12 Pcs and a quantity in Doz scales
+        // UP into Pcs. Building it the other way round ("first = Nos") would mean "1 Nos = 12 Pcs".
+        var doz = CreateSimpleUnit(vm, "Doz", "Dozens");
+        var pcs = CreateSimpleUnit(vm, "Pcs", "Pieces");
 
         vm.ShowUnitMaster();
         var m = vm.UnitMaster!;
         Assert.True(m.CanBuildCompound);
         m.IsCompound = true;
-        m.Symbol = "Dozen";
-        m.FormalName = "Dozens";
-        m.FirstUnit = m.SimpleUnits.Single(u => u.Id == nos.Id);
-        m.TailUnit = m.SimpleUnits.Single(u => u.Symbol == "Pcs");
+        m.Symbol = "Doz-Pcs";
+        m.FormalName = "Dozen of 12 Pieces";
+        m.FirstUnit = m.SimpleUnits.Single(u => u.Id == doz.Id);
+        m.TailUnit = m.SimpleUnits.Single(u => u.Id == pcs.Id);
         m.ConversionFactorText = "12";
         Assert.True(m.Create());
 
-        var dozen = vm.Company!.FindUnitByName("Dozen")!;
+        var dozen = vm.Company!.FindUnitByName("Doz-Pcs")!;
         Assert.True(dozen.IsCompound);
         Assert.Equal(12, dozen.ConversionNumerator);
+        Assert.Equal(doz.Id, dozen.FirstUnitId);
+        Assert.Equal(pcs.Id, dozen.TailUnitId);
+        // 1 Doz normalises to 12 Pcs, and the unit's base measure is the TAIL (Pcs) — not the first unit.
+        Assert.Equal(12m, dozen.QuantityInBaseMeasure(1m));
+        Assert.Equal(pcs.Id, dozen.BaseMeasureUnitId);
 
         var reloaded = Reload(companyName);
-        Assert.True(reloaded.FindUnitByName("Dozen")!.IsCompound);
+        var round = reloaded.FindUnitByName("Doz-Pcs")!;
+        Assert.True(round.IsCompound);
+        Assert.Equal(pcs.Id, round.BaseMeasureUnitId);   // direction survives persistence
     }
 
     [Fact]

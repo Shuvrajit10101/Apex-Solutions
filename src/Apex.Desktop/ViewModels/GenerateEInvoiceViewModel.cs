@@ -117,7 +117,8 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
         _writeBytes = writeBytes;
         _today = today;
         _folder = folder ?? string.Empty;
-        _ackDateText = today.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
+        // WI-5: seed in the ONE canonical UI spelling, so the field the user sees matches every other date field.
+        _ackDateText = ApexDate.Format(today);
         Rebuild();
     }
 
@@ -144,7 +145,7 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
             {
                 VoucherId = v.Id,
                 DocNo = docNo,
-                Date = v.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(v.Date),
                 Value = IndianFormat.AmountAlways(v.Lines.Where(l => l.Side == DrCr.Debit)
                     .Aggregate(Money.Zero, (a, l) => new Money(a.Amount + l.Amount.Amount))),
                 Coverage = CoverageLabel(coverage),
@@ -259,7 +260,7 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
         if (!TryRecord(out var record, out var error)) return Fail(error!);
         if (string.IsNullOrWhiteSpace(Irn)) return Fail("Enter the IRN the portal returned.");
         if (!TryParseDate(AckDateText, out var ackDate))
-            return Fail($"'{AckDateText}' is not a valid acknowledgement date (dd-MM-yyyy).");
+            return Fail($"Acknowledgement date: {ApexDate.ErrorFor(AckDateText)}");
 
         try
         {
@@ -375,9 +376,10 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
     private static string Shorten(string? irn) =>
         string.IsNullOrWhiteSpace(irn) ? "—" : irn.Length <= 16 ? irn : irn[..8] + "…" + irn[^4..];
 
-    private static bool TryParseDate(string text, out DateOnly date) =>
-        DateOnly.TryParseExact((text ?? string.Empty).Trim(), "dd-MM-yyyy", CultureInfo.InvariantCulture,
-            DateTimeStyles.None, out date);
+    // WI-5: the Ack Date is a TYPED UI field, so it follows the app-wide canonical contract like every other
+    // UI date. (Its Io-side counterpart — the GSTN portal wire format — is deliberately NOT touched: that
+    // dd-MM-yyyy is dictated externally, not a UI inconsistency.)
+    private static bool TryParseDate(string text, out DateOnly date) => ApexDate.TryParse(text, out date);
 
     private static string Safe(string name) =>
         string.Concat(name.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));

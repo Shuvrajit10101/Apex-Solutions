@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using Apex.Ledger.Domain;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -53,7 +54,7 @@ public sealed class Gstr2bSnapshotOption
 
     public string Label =>
         $"{(Snapshot.StatementType == GstStatementType.Gstr2b ? "GSTR-2B" : "GSTR-2A")}  ·  {Snapshot.ReturnPeriod}" +
-        $"  ·  imported {Snapshot.ImportedAt.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}";
+        $"  ·  imported {ApexDate.Format(Snapshot.ImportedAt)}";
 
     public override string ToString() => Label;
 }

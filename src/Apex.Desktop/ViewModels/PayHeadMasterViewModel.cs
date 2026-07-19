@@ -227,16 +227,10 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
         CalcTypes.Add(new PayHeadCalcTypeOption { Value = PayHeadCalculationType.OnProduction, Display = "On Production" });
         CalcTypes.Add(new PayHeadCalcTypeOption { Value = PayHeadCalculationType.AsUserDefinedValue, Display = "As User-Defined Value" });
 
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.NotApplicable, Display = "◦ None" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.BasicSalary, Display = "Basic Salary" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.DearnessAllowance, Display = "Dearness Allowance" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.HouseRentAllowance, Display = "House Rent Allowance" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.ConveyanceAllowance, Display = "Conveyance / Transport Allowance" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.SpecialAllowance, Display = "Special / Other Allowance" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.MedicalReimbursement, Display = "Medical Reimbursement" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.Bonus, Display = "Bonus" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.Gratuity, Display = "Gratuity" });
-        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.FullyExempt, Display = "Fully Exempt" });
+        // The income-tax-component picker is built by RefreshIncomeTaxComponents() so the §192 salary-TDS marker can
+        // be gated to the one pay-head type it is valid on (see that method). It is populated when SelectedType is
+        // first assigned below (OnSelectedTypeChanged → RefreshIncomeTaxComponents), before SelectedIncomeTaxComponent
+        // reads IncomeTaxComponents.First().
 
         RoundingMethods.Add(new PayHeadRoundingOption { Value = PayHeadRoundingMethod.NotApplicable, Display = "Not Applicable" });
         RoundingMethods.Add(new PayHeadRoundingOption { Value = PayHeadRoundingMethod.Normal, Display = "Normal Rounding" });
@@ -278,6 +272,9 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
     {
         // Default the "affect net salary" side from the chosen type (the user may still override).
         if (value is not null) AffectsNetSalary = PayHead.DefaultAffectsNetSalary(value.Value);
+        // Rebuild the income-tax picker: the §192 salary-TDS marker is offered only on an Employees' Statutory
+        // Deductions head (the type it must post as), so it appears/disappears as the pay-head type changes.
+        RefreshIncomeTaxComponents();
         Message = null;
     }
 
@@ -526,6 +523,39 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
     }
 
     // ---- refreshers ----
+
+    /// <summary>
+    /// Rebuilds the income-tax-component picker for the currently-selected pay-head type. The ten earning/exempt
+    /// classifications are always offered; the <see cref="IncomeTaxComponent.TaxDeductedAtSource"/> §192 salary-TDS
+    /// marker — the tag that makes a head <b>the</b> salary-TDS withholding head the <c>SalaryIncomeTax</c> engine
+    /// computes (WI-6) — is offered <b>only</b> on an <see cref="PayHeadType.EmployeesStatutoryDeductions"/> head,
+    /// the accounting side it must post on (the <c>PayHeadService</c> role guard rejects it on any other type). A
+    /// still-valid prior selection is preserved; otherwise the picker falls back to "None".
+    /// </summary>
+    private void RefreshIncomeTaxComponents()
+    {
+        var previous = SelectedIncomeTaxComponent?.Value;
+        IncomeTaxComponents.Clear();
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.NotApplicable, Display = "◦ None" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.BasicSalary, Display = "Basic Salary" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.DearnessAllowance, Display = "Dearness Allowance" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.HouseRentAllowance, Display = "House Rent Allowance" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.ConveyanceAllowance, Display = "Conveyance / Transport Allowance" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.SpecialAllowance, Display = "Special / Other Allowance" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.MedicalReimbursement, Display = "Medical Reimbursement" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.Bonus, Display = "Bonus" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.Gratuity, Display = "Gratuity" });
+        IncomeTaxComponents.Add(new IncomeTaxComponentOption { Value = IncomeTaxComponent.FullyExempt, Display = "Fully Exempt" });
+        if (SelectedType?.Value == PayHeadType.EmployeesStatutoryDeductions)
+            IncomeTaxComponents.Add(new IncomeTaxComponentOption
+            {
+                Value = IncomeTaxComponent.TaxDeductedAtSource,
+                Display = "Income Tax (TDS on Salary)",
+            });
+
+        SelectedIncomeTaxComponent = IncomeTaxComponents.FirstOrDefault(o => o.Value == previous)
+                                     ?? IncomeTaxComponents.First();
+    }
 
     private void RefreshGroups()
     {

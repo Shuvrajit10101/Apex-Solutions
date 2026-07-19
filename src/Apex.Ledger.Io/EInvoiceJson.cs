@@ -251,13 +251,24 @@ public static class EInvoiceJson
             var item = company.FindStockItem(il.StockItemId);
             var (c, s, ig) = tax.TryGetValue(il, out var t) ? t : (0L, 0L, 0L);
             var valuePaisa = MoneyCodec.ToPaisa(il.Value);
+            // WI-10 Gap 2 follow-on: Qty and Unit must describe the SAME physical quantity the printed invoice,
+            // the e-way bill and GSTR-1 state. Emitting the line quantity beside the item's BASE UQC declared
+            // "2 NOS" for a line on which 24 Nos move. Declare the line's own unit when it maps to a valid UQC;
+            // otherwise the resolver converts the quantity to base AND the rate with it — never one alone, which
+            // is precisely the 12× money defect the unit contract warns about, here inside the NIC payload.
+            var decl = UqcResolver.Declare(company, il, il.BilledQuantity);
             items.Add(new ItemDto
             {
                 SlNo = sl++,
                 HsnCd = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "",
-                QtyMillis = (long)Math.Round(il.BilledQuantity * 1000m, MidpointRounding.AwayFromZero),
-                Unit = company.FindUnit(item?.BaseUnitId ?? Guid.Empty)?.UnitQuantityCode ?? "OTH",
-                UnitPricePaisa = MoneyCodec.ToPaisa(il.Rate),
+                QtyMillis = (long)Math.Round(decl.Quantity * 1000m, MidpointRounding.AwayFromZero),
+                Unit = decl.Code ?? "OTH",
+                // The resolver only ever converts a rate into the base unit when the result lands paisa-exact —
+                // where it would not (₹10/Crate of 12 = ₹0.8333…/Nos) it declares the line's own unit under "OTH"
+                // with the entered rate instead. So decl.Rate is paisa-exact on EVERY path, and MoneyCodec's
+                // throw-on-inexact guard is the right boundary: no rounding happens here, and the footing identity
+                // qty x unit_price == ass_amt holds exactly rather than within a tolerance.
+                UnitPricePaisa = MoneyCodec.ToPaisa(new Money(decl.Rate)),
                 TotAmtPaisa = valuePaisa,
                 AssAmtPaisa = valuePaisa,
                 GstRt = singleRate ?? LineIntegratedRate(company, il),

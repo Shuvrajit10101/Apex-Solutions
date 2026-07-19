@@ -119,7 +119,7 @@ public sealed partial class Gstr2bReconReportViewModel : ViewModelBase
         InBooksOnlyCount = report.InBooksOnlyCount;
 
         Subtitle = $"{_company.Name}  —  GSTR-2B {snap.ReturnPeriod} " +
-                   $"({from.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {to.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})  —  advisory only";
+                   $"({ApexDate.Format(from)} to {ApexDate.Format(to)})  —  advisory only";
         StatusText = $"Matched {MatchedCount}  ·  partial mismatch {PartialCount}  ·  in portal only {InPortalOnlyCount}  ·  " +
                      $"in books only {InBooksOnlyCount} (§16(2)(aa) reversal candidates).";
         HighlightedIndex = Rows.Count > 0 ? 0 : -1;
@@ -145,7 +145,7 @@ public sealed partial class Gstr2bReconReportViewModel : ViewModelBase
         Bucket = bucket,
         Supplier = m.Line.SupplierGstin,
         DocNo = m.Line.DocNumber,
-        Date = m.Line.DocDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+        Date = ApexDate.Format(m.Line.DocDate),
         TaxableValue = R(m.Line.TaxableValuePaisa),
         Tax = R(m.Line.TotalTaxPaisa),
         Note = clean
@@ -159,7 +159,7 @@ public sealed partial class Gstr2bReconReportViewModel : ViewModelBase
         Bucket = "In portal only",
         Supplier = line.SupplierGstin,
         DocNo = line.DocNumber,
-        Date = line.DocDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+        Date = ApexDate.Format(line.DocDate),
         TaxableValue = R(line.TaxableValuePaisa),
         Tax = R(line.TotalTaxPaisa),
         Note = "Supplier filed, not booked — verify / record the purchase.",
@@ -171,7 +171,7 @@ public sealed partial class Gstr2bReconReportViewModel : ViewModelBase
         Bucket = "In books only",
         Supplier = b.SupplierGstin,
         DocNo = b.SupplierDocNumber ?? "—",
-        Date = b.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+        Date = ApexDate.Format(b.Date),
         TaxableValue = R(b.TaxableValuePaisa),
         Tax = R(b.TotalTaxPaisa),
         Note = "Booked, supplier not filed — §16(2)(aa) ITC ineligible this period.",

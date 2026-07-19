@@ -59,8 +59,19 @@ public sealed class PayrollBreakdownRow
 /// headlessly unit-testable. Every engine guard (no structure in force, a formula cycle, a missing value, a
 /// negative net) surfaces to <see cref="Message"/> without crashing the UI.</para>
 /// </summary>
-public sealed partial class PayrollVoucherEntryViewModel : ViewModelBase
+public sealed partial class PayrollVoucherEntryViewModel : ViewModelBase, ISetsWorkingDate
 {
+
+    /// <summary>
+    /// WI-5 (4c): the working-date field <b>F2</b> targets on this screen — the payroll voucher date. Assigning routes
+    /// through the one shared day-first parser and echoes the canonical spelling.
+    /// </summary>
+    public string WorkingDateText
+    {
+        get => VoucherDateText;
+        set => VoucherDateText = value;
+    }
+
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
@@ -95,9 +106,9 @@ public sealed partial class PayrollVoucherEntryViewModel : ViewModelBase
         _onChanged = onChanged ?? (() => { });
 
         var (from, to) = DefaultPeriod(company);
-        _periodFromText = from.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
-        _periodToText = to.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
-        _voucherDateText = to.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
+        _periodFromText = ApexDate.Format(from);
+        _periodToText = ApexDate.Format(to);
+        _voucherDateText = ApexDate.Format(to);
 
         foreach (var e in _company.Employees.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase))
             EmployeeSelections.Add(new PayrollEmployeeSelection(e, InvalidatePreview));
@@ -334,12 +345,10 @@ public sealed partial class PayrollVoucherEntryViewModel : ViewModelBase
         return (from, to);
     }
 
-    private static bool TryParseDate(string? text, out DateOnly date)
-    {
-        date = default;
-        var t = (text ?? string.Empty).Trim();
-        return DateOnly.TryParseExact(t, new[] { "dd-MM-yyyy", "dd-MMM-yyyy", "yyyy-MM-dd" },
-                   CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
-               || DateOnly.TryParse(t, CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
-    }
+    /// <summary>
+    /// WI-5: delegates to the ONE app-wide day-first parser. This used to be a per-screen ladder that fell
+    /// through to a bare InvariantCulture parse — i.e. the MM/dd misread — so "03/04/2024" silently read as
+    /// 4-Mar instead of 3-Apr. The shared helper accepts the same day-first spellings on every screen.
+    /// </summary>
+    private static bool TryParseDate(string? text, out DateOnly date) => ApexDate.TryParse(text, out date);
 }

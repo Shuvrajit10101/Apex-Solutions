@@ -171,7 +171,34 @@ public sealed record Gstr9(
             foreach (var h in Gstr1.Build(company, from, to).HsnSummary)
             {
                 if (!hsn.TryGetValue(h.HsnSac, out var acc))
-                    hsn[h.HsnSac] = acc = new HsnAcc { HsnSac = h.HsnSac, Description = h.Description, Uqc = h.Uqc };
+                    hsn[h.HsnSac] = acc = new HsnAcc
+                    {
+                        HsnSac = h.HsnSac, Description = h.Description, Uqc = h.Uqc, BaseUqc = h.BaseCode,
+                        DeclaredUnitId = h.DeclaredUnitId, BaseUnitId = h.BaseUnitId, MixedBases = h.MixedBases,
+                    };
+
+                // Table 17 sums the PERIOD rows, and a period row states its quantity in its OWN Uqc — which now
+                // varies period to period (April billed in DOZ, May in NOS). Adding those as-is declared "7 DOZ"
+                // = 84 Nos for a year in which 29 Nos moved: money right, quantity 2.9x overstated, on a MANDATORY
+                // filed field. This is exactly the rule Gstr1 applies WITHIN a period — degrade to the base unit
+                // whenever two rows are not commensurable — so the annual figure cannot contradict the monthlies
+                // it is built from.
+                //
+                // Commensurability is decided on the rows' UNIT IDENTITY, never on the Uqc LABEL. "OTH" is the
+                // department's CATCH-ALL for a unit absent from its master list, so an April row of Crates and a
+                // May row of Pallets both carry "OTH": comparing labels finds them equal and files "8" for a year
+                // in which 81 Nos moved. (The superseded comparison also treated null == null as agreement — two
+                // unknown labels are not known to be the same unit.)
+                //
+                // As in Gstr1, this runs on the SEEDING iteration and therefore compares a row against ITSELF.
+                // Load-bearing, not an oversight: AreCommensurable is deliberately NOT reflexive on a wholly
+                // unknown pair, so a single period row carrying neither a DeclaredUnitId nor a Uqc flags itself and
+                // degrades to the base declaration — where the degrade is the identity, so the figure is unmoved.
+                if (!UqcResolver.AreCommensurable(acc.DeclaredUnitId, acc.Uqc, h.DeclaredUnitId, h.Uqc))
+                    acc.MixedUnits = true;
+                // Re-tested across periods AND carried forward; see Gstr1HsnRow.MixedBases.
+                if (acc.BaseUnitId != h.BaseUnitId || h.MixedBases) acc.MixedBases = true;
+                acc.BaseQuantity += h.BaseQuantity;
                 acc.Quantity += h.Quantity;
                 acc.Taxable += h.TaxableValue.Amount;
                 acc.Cgst += h.Cgst.Amount; acc.Sgst += h.Sgst.Amount; acc.Igst += h.Igst.Amount;
@@ -184,8 +211,12 @@ public sealed record Gstr9(
 
         var hsnRows = hsn.Values
             .OrderBy(h => h.HsnSac, StringComparer.Ordinal)
-            .Select(h => new Gstr1HsnRow(h.HsnSac, h.Description, h.Uqc, h.Quantity,
-                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst)))
+            .Select(h => new Gstr1HsnRow(h.HsnSac, h.Description,
+                h.MixedUnits ? h.BaseUqc : h.Uqc,
+                h.MixedUnits ? h.BaseQuantity : h.Quantity,
+                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst),
+                h.BaseQuantity, h.BaseUqc,
+                h.MixedUnits ? h.BaseUnitId : h.DeclaredUnitId, h.BaseUnitId, h.MixedBases))
             .ToList();
 
         return new Gstr9(fyFrom, fyTo, true, company.Gst?.Gstin, company.Name)
@@ -327,6 +358,19 @@ public sealed record Gstr9(
         public string HsnSac = "";
         public string Description = "";
         public string? Uqc;
+        /// <summary>The item's base-unit UQC — the label <see cref="BaseQuantity"/> carries.</summary>
+        public string? BaseUqc;
+        /// <summary>Σ of every period row's base-unit quantity; the commensurable fallback when
+        /// <see cref="MixedUnits"/> makes <see cref="Quantity"/> unsummable. Accumulated unconditionally.</summary>
+        public decimal BaseQuantity;
+        /// <summary>The identity of the unit <see cref="Quantity"/> counts — what commensurability is decided on.</summary>
+        public Guid? DeclaredUnitId;
+        /// <summary>The identity of the unit <see cref="BaseQuantity"/> counts.</summary>
+        public Guid? BaseUnitId;
+        /// <summary>Set when two period rows of this HSN were not commensurable.</summary>
+        public bool MixedUnits;
+        /// <summary>Set when the folded period rows span unrelated BASE units; see <see cref="Gstr1HsnRow.MixedBases"/>.</summary>
+        public bool MixedBases;
         public decimal Quantity;
         public decimal Taxable;
         public decimal Cgst;

@@ -51,7 +51,8 @@ public sealed class PendingBudgetLineRow
 /// </summary>
 public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListExportSource
 {
-    private const string DateFormat = "dd-MMM-yyyy";
+    // WI-5: rendering goes through the shared canonical formatter; this alias keeps the display call sites terse.
+    private const string DateFormat = ApexDate.Canonical;
 
     private readonly Company _company;
     private readonly CompanyStorage _storage;
@@ -233,7 +234,6 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         return decimal.TryParse(t, NumberStyles.Number, CultureInfo.InvariantCulture, out amount) && amount >= 0m;
     }
 
-    private static bool TryParseDate(string? text, out DateOnly date) =>
-        DateOnly.TryParseExact((text ?? string.Empty).Trim(), DateFormat,
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    // WI-5: the ONE app-wide day-first parser (was a strict dd-MMM-yyyy-only parse on this screen).
+    private static bool TryParseDate(string? text, out DateOnly date) => ApexDate.TryParse(text, out date);
 }

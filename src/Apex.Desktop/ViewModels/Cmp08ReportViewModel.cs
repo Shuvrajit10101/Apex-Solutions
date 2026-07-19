@@ -157,7 +157,7 @@ public sealed partial class Cmp08ReportViewModel : ViewModelBase
         }
 
         Statement = stmt;
-        var periodText = $"{from.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {to.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}";
+        var periodText = $"{ApexDate.Format(from)} to {ApexDate.Format(to)}";
         Subtitle = $"{_company.Name}  —  {periodText}";
 
         if (!stmt.Applicable)

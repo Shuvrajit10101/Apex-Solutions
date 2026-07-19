@@ -1,5 +1,6 @@
 using System.Globalization;
 using Apex.Ledger;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using static Apex.Ledger.Io.CertificatePdfSupport;
 
@@ -15,9 +16,25 @@ namespace Apex.Ledger.Io;
 /// </summary>
 public static class Form27DPdf
 {
-    private const string Title = "FORM 27D";
-    private const string Subtitle =
-        "Certificate under section 206C of the Income-tax Act, 1961 for tax collected at source";
+    /// <summary>
+    /// The centred title band — <b>gated on the certificate's own financial year</b>, the exact mirror of
+    /// <see cref="Form16APdf"/>. FY 2025-26 and earlier render "FORM 27D" exactly as before; FY 2026-27 onward renders
+    /// "FORM 133", because the 1961 Act (and with it Form 27D) stands repealed on 01.04.2026.
+    /// </summary>
+    private static string TitleFor(Form27D cert) =>
+        "FORM " + StatuteVocabulary.FormLabel("27D", cert.FinancialYearStartYear);
+
+    /// <summary>
+    /// The subtitle citing the collection provision — likewise gated on the certificate's own financial year.
+    /// <para>Note the asymmetry with <see cref="Form16APdf"/>: this certificate cites <b>§206C</b>, the TCS
+    /// <i>charging</i> section (not a certificate provision), which is renumbered to <b>§394</b> under the 2025 Act.
+    /// Both are confirmed entries in <see cref="StatuteVocabulary"/>; no section is invented here.</para>
+    /// Gating on <see cref="Form27D.FinancialYearStartYear"/> preserves ER-13 by construction, exactly as for the
+    /// TDS certificate.
+    /// </summary>
+    private static string SubtitleFor(Form27D cert) =>
+        $"Certificate under section {StatuteVocabulary.SectionLabel("206C", cert.FinancialYearStartYear)} of the "
+      + $"{StatuteVocabulary.ActName(cert.FinancialYearStartYear)} for tax collected at source";
 
     /// <summary>Renders the TCS certificate to PDF bytes.</summary>
     public static byte[] Render(Form27D cert, PageConfig page)
@@ -25,18 +42,21 @@ public static class Form27DPdf
         ArgumentNullException.ThrowIfNull(cert);
         ArgumentNullException.ThrowIfNull(page);
 
+        string title = TitleFor(cert);
+        string subtitle = SubtitleFor(cert);
+
         double left = page.MarginLeft;
         double right = page.PageWidth - page.MarginRight;
         double mid = left + page.ContentWidth / 2.0;
 
-        var writer = new PdfWriter { DocumentTitle = SafeTitle(Title) };
+        var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
         writer.BeginPage(page.PageWidth, page.PageHeight);
         double y = page.PageHeight - page.MarginTop;
 
         y -= page.TitleFontSize;
-        Center(writer, Title, left, right, y, page.TitleFontSize, bold: true);
+        Center(writer, title, left, right, y, page.TitleFontSize, bold: true);
         y -= page.SubtitleFontSize + 2;
-        Center(writer, Subtitle, left, right, y, page.SubtitleFontSize, bold: false);
+        Center(writer, subtitle, left, right, y, page.SubtitleFontSize, bold: false);
         y -= 6;
         writer.Line(left, y, right, y, 0.8);
         y -= page.BodyFontSize + 4;

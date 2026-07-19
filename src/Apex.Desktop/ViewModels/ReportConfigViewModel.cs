@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -23,7 +24,6 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class ReportConfigViewModel : ViewModelBase
 {
-    private const string DateFormat = "dd-MMM-yyyy";
 
     private readonly ReportsViewModel _report;
 
@@ -126,9 +126,14 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         // before mutating anything and surface a clear error, leaving the report's period untouched.
         if (UsePeriod)
         {
-            if (!TryParse(PeriodFromText, out var from) || !TryParse(PeriodToText, out var to))
+            if (!TryParse(PeriodFromText, out var from))
             {
-                Status = "Unrecognized date. Use the dd-MMM-yyyy format (e.g. 01-Apr-2020).";
+                Status = ApexDate.ErrorFor(PeriodFromText);
+                return;
+            }
+            if (!TryParse(PeriodToText, out var to))
+            {
+                Status = ApexDate.ErrorFor(PeriodToText);
                 return;
             }
             if (from > to)
@@ -142,7 +147,7 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         {
             if (!TryParse(AsOfText, out var asOf))
             {
-                Status = "Unrecognized date. Use the dd-MMM-yyyy format (e.g. 01-Apr-2020).";
+                Status = ApexDate.ErrorFor(AsOfText);
                 return;
             }
             _report.SetAsOf(asOf);
@@ -159,11 +164,10 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         Status = "Applied — report recomputed.";
     }
 
-    private static string Fmt(DateOnly d) => d.ToString(DateFormat, CultureInfo.InvariantCulture);
+    // WI-5: the ONE app-wide date contract (was a private format const + a strict dd-MMM-yyyy-only parse).
+    private static string Fmt(DateOnly d) => ApexDate.Format(d);
 
-    private static bool TryParse(string? text, out DateOnly date) =>
-        DateOnly.TryParseExact((text ?? string.Empty).Trim(), DateFormat,
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+    private static bool TryParse(string? text, out DateOnly date) => ApexDate.TryParse(text, out date);
 }
 
 /// <summary>One closing-stock valuation-basis option for the F12 config combo (label + engine mode).</summary>

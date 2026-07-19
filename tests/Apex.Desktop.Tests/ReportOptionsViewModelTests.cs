@@ -359,7 +359,10 @@ public sealed class ReportOptionsViewModelTests : IDisposable
 
         Assert.Null(report.Period);
         Assert.DoesNotContain("recomputed", cfg.Status);
-        Assert.Contains("Unrecognized date", cfg.Status);
+        // WI-5: the rejection is unchanged; the message now comes from the ONE shared date contract and
+        // names both the offending input and the canonical format the whole app agrees on.
+        Assert.Contains("not-a-date", cfg.Status);
+        Assert.Contains(ApexDate.Canonical, cfg.Status);
     }
 
     [Fact]

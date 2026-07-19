@@ -123,7 +123,7 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase
             {
                 Party = r.OriginalPartyGstin ?? "—",
                 DocNo = r.OriginalDocNumber.ToString(CultureInfo.InvariantCulture),
-                OriginalDate = r.OriginalDocDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                OriginalDate = ApexDate.Format(r.OriginalDocDate),
                 OriginalTaxable = A(r.OriginalTaxableValue),
                 RevisedTaxable = A(r.RevisedTaxableValue),
                 DifferentialTaxable = A(r.DifferentialTaxableValue),
@@ -135,8 +135,8 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase
             {
                 NoteType = r.NoteType.ToString(),
                 OriginalInvoice = r.OriginalInvoiceNumber ?? "—",
-                OriginalDate = r.OriginalInvoiceDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
-                NoteDate = r.NoteDate.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                OriginalDate = ApexDate.Format(r.OriginalInvoiceDate),
+                NoteDate = ApexDate.Format(r.NoteDate),
                 RevisedTaxable = A(r.RevisedTaxableValue),
                 RevisedTax = A(r.RevisedTax),
             });

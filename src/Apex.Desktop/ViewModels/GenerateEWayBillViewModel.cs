@@ -152,7 +152,7 @@ public sealed partial class GenerateEWayBillViewModel : ViewModelBase
             {
                 VoucherId = v.Id,
                 DocNo = EInvoiceService.DocumentNumberOf(v),
-                Date = v.Date.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture),
+                Date = ApexDate.Format(v.Date),
                 ConsignmentValue = IndianFormat.AmountAlways(_service.ConsignmentValue(v)),
                 Coverage = CoverageLabel(coverage),
                 Status = record?.Status.ToString() ?? "—",

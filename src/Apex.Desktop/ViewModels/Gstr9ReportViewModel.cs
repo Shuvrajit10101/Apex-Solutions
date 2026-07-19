@@ -144,7 +144,7 @@ public sealed partial class Gstr9ReportViewModel : ViewModelBase
 
         Return = ret;
         Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}  " +
-                   $"({fyFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {fyTo.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})";
+                   $"({ApexDate.Format(fyFrom)} to {ApexDate.Format(fyTo)})";
         GstinText = string.IsNullOrWhiteSpace(ret.Gstin) ? "GSTIN —" : $"GSTIN {ret.Gstin}";
 
         if (!ret.Applicable)

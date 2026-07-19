@@ -67,6 +67,13 @@ public sealed partial class Form16ViewModel : ViewModelBase
     [ObservableProperty] private string _deductorTan = string.Empty;
     [ObservableProperty] private string _responsiblePerson = string.Empty;
     [ObservableProperty] private string _assessmentYear = string.Empty;
+    /// <summary>The abbreviated caption ("AY" / "Tax Year") for the compact header cell on the Form 16 screen.
+    /// <para>This is the <b>only</b> period caption this view model exposes. A long-form <c>PeriodCaption</c> once sat
+    /// beside it, documented as "bound in the view" but in fact bound nowhere and asserted by no test — a public
+    /// surface that looked wired and was not. It was removed in the CA S9 closeout rather than left to mislead. The
+    /// long-form caption is still available where it is genuinely used: on the <see cref="Form16"/> record itself
+    /// (printed certificate) and via <see cref="StatuteVocabulary.PeriodCaption"/>.</para></summary>
+    [ObservableProperty] private string _periodCaptionShort = "AY";
 
     // Employee (recipient) block + Part B computation for the selected certificate.
     [ObservableProperty] private string _employeeName = string.Empty;
@@ -157,14 +164,23 @@ public sealed partial class Form16ViewModel : ViewModelBase
     /// <summary>The certificate currently displayed (rebuilt on selection change). Null until an employee is picked.</summary>
     public Form16? Certificate { get; private set; }
 
-    /// <summary>The PDF file name the export will write (FY + employee PAN), no extension.</summary>
+    /// <summary>
+    /// The PDF file name the export will write (form number + FY + employee PAN), no extension.
+    /// <para><b>The form number is FY-gated (CA S9 closeout)</b>, so an FY 2026-27 certificate is saved as
+    /// <c>Form130_2026_27_&lt;PAN&gt;.pdf</c>. The gate keys off the selected financial year alone, so
+    /// <b>FY 2025-26 and earlier keep the byte-identical <c>Form16_…</c> name they have always had</b> (ER-13) — the
+    /// name changes only for years the 1961 Act no longer governs. Leaving it ungated would reproduce, on disk, the
+    /// very contradiction this slice removes from the page: a certificate headed "Form 130" filed under a name
+    /// asserting "Form 16". The FY segment already discriminates years, so no collision is introduced.</para>
+    /// </summary>
     public string ExportFileName
     {
         get
         {
+            var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
             var fy = (SelectedYear?.Label ?? "FY").Replace('-', '_');
             var pan = string.IsNullOrWhiteSpace(SelectedEmployee?.Pan) ? "NOPAN" : SelectedEmployee!.Pan;
-            return $"Form16_{fy}_{pan}";
+            return $"Form{StatuteVocabulary.FormLabel("16", fyStart)}_{fy}_{pan}";
         }
     }
 
@@ -178,8 +194,17 @@ public sealed partial class Form16ViewModel : ViewModelBase
     public void Rebuild()
     {
         var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
-        AssessmentYear = $"{fyStart + 1}-{(fyStart + 2) % 100:00}";
-        Subtitle = $"{_company.Name}  —  FY {fyStart}-{(fyStart + 1) % 100:00}  (AY {AssessmentYear})  ·  section {SectionCode}";
+        // CA S9: the period is FY-gated — "AY 2026-27" (1961 Act) vs "Tax Year 2026-27" (2025 Act) are different
+        // years that collide numerically, so the caption always travels with the value.
+        AssessmentYear = StatuteVocabulary.PeriodLabel(fyStart);
+        PeriodCaptionShort = StatuteVocabulary.PeriodCaptionShort(fyStart);
+        // CA S9 closeout: the page heading is FY-gated too. It is the largest text on the screen, and the Miller
+        // cascade keeps the parent menu row ("Form 130") visible beside it — an ungated heading reading "Form 16"
+        // therefore contradicts the menu that opened it, in a single glance. Same gate as Form24QViewModel.
+        Title = $"Form {StatuteVocabulary.FormLabel("16", fyStart)} — Salary-TDS Certificate "
+              + $"(§{StatuteVocabulary.SectionLabel("192", fyStart)})";
+        Subtitle = $"{_company.Name}  —  FY {fyStart}-{(fyStart + 1) % 100:00}  "
+                 + $"({StatuteVocabulary.PeriodCaptionShort(fyStart)} {AssessmentYear})  ·  section {SectionCode}";
 
         // The employees who have a certificate this FY = the Annexure II set (paid / withheld this year).
         var rows = Form24Q.BuildAnnexureII(_company, fyStart);
@@ -329,7 +354,7 @@ public sealed partial class Form16ViewModel : ViewModelBase
             PrintRow.Header("Deductor (TAN)", cert.Deductor.Tan ?? "—"),
             new PrintRow("Employee", cert.EmployeeName),
             new PrintRow("PAN", string.IsNullOrWhiteSpace(cert.EmployeePan) ? "PANNOTAVBL" : cert.EmployeePan!),
-            new PrintRow("Assessment Year", cert.AssessmentYearLabel),
+            new PrintRow(cert.PeriodCaption, cert.PeriodLabel),
             PrintRow.Header("Part A — Quarter-wise TDS", string.Empty),
         };
         foreach (var qr in cert.PartA)
@@ -352,8 +377,14 @@ public sealed partial class Form16ViewModel : ViewModelBase
 
         return new PrintReport
         {
-            Title = "Form 16 — Salary-TDS Certificate (Section 192)",
-            Subtitle = $"{_company.Name}  —  FY {cert.FinancialYearLabel}  ·  AY {cert.AssessmentYearLabel}",
+            // CA S9 closeout — the PRINTED statutory header is gated on the certificate's own financial year, never
+            // renamed. The period row on this same page already reads "Tax Year 2026-27" for a 2025-Act year, so an
+            // ungated header citing Form 16 and Section 192 (both repealed 01.04.2026) made the printed certificate
+            // internally contradictory. For FY 2025-26 and earlier the gate returns the legacy words unchanged, so
+            // prior-year certificates reprint byte-identically (ER-13).
+            Title = $"Form {StatuteVocabulary.FormLabel("16", cert.FinancialYearStartYear)} — Salary-TDS Certificate "
+                  + $"(Section {StatuteVocabulary.SectionLabel("192", cert.FinancialYearStartYear)})",
+            Subtitle = $"{_company.Name}  —  FY {cert.FinancialYearLabel}  ·  {cert.PeriodCaptionShort} {cert.PeriodLabel}",
             Columns = new[]
             {
                 new PrintColumn("Particular", 3.0, CellAlign.Left),

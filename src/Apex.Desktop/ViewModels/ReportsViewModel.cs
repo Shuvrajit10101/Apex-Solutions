@@ -1902,8 +1902,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             var firstVersion = true;
             foreach (var version in item.Versions)
             {
-                var applicable = version.ApplicableFrom.ToString("dd-MMM-yyyy",
-                    System.Globalization.CultureInfo.InvariantCulture);
+                var applicable = ApexDate.Format(version.ApplicableFrom);
                 var firstSlab = true;
                 foreach (var slab in version.Slabs)
                 {
@@ -3085,7 +3084,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         return last ?? company.FinancialYearStart.AddYears(1).AddDays(-1);
     }
 
-    private static string FormatDate(DateOnly d) => d.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+    private static string FormatDate(DateOnly d) => ApexDate.Format(d);
 }
 
 /// <summary>

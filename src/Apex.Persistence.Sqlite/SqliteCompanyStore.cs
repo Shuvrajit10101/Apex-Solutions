@@ -1074,6 +1074,55 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 44;
         }
 
+        // v44 → v45: add the WI-4 party Mailing Details columns on ledgers (mailing_name / mailing_address /
+        // mailing_country / mailing_pincode), then bump the marker. Purely additive nullable TEXT — existing v44
+        // rows survive untouched and read NULL, so a company whose parties carry no mailing details is
+        // byte-identical to a v44 company (ER-13). No mailing_state column: the party's State stays the single
+        // party_gst_state value that drives GST place of supply (see Schema.MigrateV44ToV45).
+        if (version == 44)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV44ToV45;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 45);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 45;
+        }
+
+        // v45 → v46: add the WI-10 Gap-2 item-invoice line unit column on voucher_inventory_lines (unit_id), then
+        // bump the marker. Purely additive nullable TEXT — existing v45 rows survive untouched and read NULL, which
+        // means "the quantity is already in the stock item's base unit": exactly how v45 read every row, so a
+        // company with no unit-carrying item line is byte-identical to a v45 company (ER-13).
+        if (version == 45)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV45ToV46;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 46);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 46;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1794,7 +1843,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
                    sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
                    party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
-                   itc_eligibility, blocked_credit_category
+                   itc_eligibility, blocked_credit_category,
+                   mailing_name, mailing_address, mailing_country, mailing_pincode
             FROM ledgers WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1836,9 +1886,27 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 TcsNatureOfGoodsId = r.IsDBNull(39) ? (Guid?)null : Guid.Parse(r.GetString(39)),
                 CollecteeType = r.IsDBNull(40) ? (CollecteeType?)null : (CollecteeType)(int)r.GetInt64(40),
                 TdsTcsClassification = r.IsDBNull(41) ? (TdsTcsLedgerKind?)null : (TdsTcsLedgerKind)(int)r.GetInt64(41),
+                // v45 (WI-4): the party Mailing Details block (columns 57–60); NULL on every pre-v45 ledger.
+                Mailing = ReadPartyMailing(r),
             });
         }
         return list;
+    }
+
+    /// <summary>Reads the v45 party Mailing Details block (columns 57–60), or <c>null</c> when every one of them is
+    /// NULL — so a ledger that never captured mailing details materialises exactly as it did before v45 (ER-13).
+    /// The party's State is NOT read here: it is <c>party_gst_state</c>, surfaced via
+    /// <c>Ledger.MailingStateCode</c>, so there is only one stored State and it cannot diverge.</summary>
+    private static PartyMailingDetails? ReadPartyMailing(SqliteDataReader r)
+    {
+        if (r.IsDBNull(57) && r.IsDBNull(58) && r.IsDBNull(59) && r.IsDBNull(60)) return null;
+        return new PartyMailingDetails
+        {
+            MailingName = r.IsDBNull(57) ? null : r.GetString(57),
+            Address = r.IsDBNull(58) ? null : r.GetString(58),
+            Country = r.IsDBNull(59) ? null : r.GetString(59),
+            Pincode = r.IsDBNull(60) ? null : r.GetString(60),
+        };
     }
 
     /// <summary>Reads the party GST block (columns 22–24 + v39 RCM qualifiers 52–53), or <c>null</c> when the ledger has
@@ -3773,7 +3841,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label,
-                   billed_qty_micro
+                   billed_qty_micro, unit_id
             FROM voucher_inventory_lines WHERE voucher_id = $vid ORDER BY line_order, id;
             """;
         cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -3792,7 +3860,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 Paisa.ToMoney(r.GetInt64(4)),
                 (StockDirection)(int)r.GetInt64(3),
                 batchLabel: r.IsDBNull(5) ? null : r.GetString(5),
-                billedQuantity: billed));
+                billedQuantity: billed,
+                // v46 (WI-10 Gap 2): the unit BOTH quantities and the rate are stated in; NULL ⇒ the item's own
+                // base unit (every pre-v46 line), so the line reads exactly as it did before (ER-13).
+                unitId: r.IsDBNull(7) ? null : Guid.Parse(r.GetString(7))));
         }
         return list;
     }
@@ -4688,14 +4759,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      sp_cess_per_unit_paisa, sp_cess_rsp_factor_millis, sp_rsp_paisa,
                      sp_reverse_charge_applicable, sp_gta_forward_charge, sp_rcm_category_id,
                      party_is_promoter, party_is_body_corporate, gst_class_reverse_charge,
-                     itc_eligibility, blocked_credit_category)
+                     itc_eligibility, blocked_credit_category,
+                     mailing_name, mailing_address, mailing_country, mailing_pincode)
                 VALUES ($id, $cid, $name, $gid, $ob, $od, $alias, $pre, $bbb, $dcp, $cca, $ecp, $cbn,
                         $ien, $irate, $iper, $ion, $iapp, $icf, $istyle, $irm, $ird, $curid,
                         $pgreg, $pgstin, $pgstate, $sphsn, $sptax, $sprate, $spsup, $gthead, $gtdir, $moa, $dpl,
                         $tdsap, $tdsnat, $dedtype, $ppan, $dsv, $tcsap, $tcsnat, $coltype, $classkind,
                         $spvb, $spca, $spcvm, $spcrate, $spcpu, $spcrsp, $sprsp,
                         $sprca, $spgtafc, $sprcmcat, $ppromo, $pbodycorp, $gcrc,
-                        $spitcelig, $spblkcat);
+                        $spitcelig, $spblkcat,
+                        $mailname, $mailaddr, $mailcountry, $mailpin);
                 """;
             cmd.Parameters.AddWithValue("$id", l.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4782,6 +4855,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$tcsnat", (object?)l.TcsNatureOfGoodsId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$coltype", l.CollecteeType is { } ct ? (int)ct : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$classkind", l.TdsTcsClassification is { } k ? (int)k : (object)DBNull.Value);
+
+            // v45 (WI-4): the party Mailing Details block. All NULL when the ledger has none, so a ledger that never
+            // captured mailing details writes exactly the bytes it wrote at v44 (ER-13). The State is NOT written
+            // here — it is party_gst_state above, the single stored State that drives GST place of supply.
+            var ml = l.Mailing;
+            cmd.Parameters.AddWithValue("$mailname", (object?)ml?.MailingName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mailaddr", (object?)ml?.Address ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mailcountry", (object?)ml?.Country ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$mailpin", (object?)ml?.Pincode ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -6552,8 +6634,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO voucher_inventory_lines
                     (voucher_id, line_order, stock_item_id, godown_id, quantity_micro, direction, rate_paisa, batch_label,
-                     actual_qty_micro, billed_qty_micro)
-                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch, $aqty, $bqty);
+                     actual_qty_micro, billed_qty_micro, unit_id)
+                VALUES ($vid, $ord, $item, $godown, $qty, $dir, $rate, $batch, $aqty, $bqty, $unit);
                 """;
             cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$ord", order++);
@@ -6568,6 +6650,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             var split = line.BilledQuantity != line.Quantity;
             cmd.Parameters.AddWithValue("$aqty", split ? QtyMicroFromDecimal(line.Quantity) : (object)DBNull.Value);
             cmd.Parameters.AddWithValue("$bqty", split ? QtyMicroFromDecimal(line.BilledQuantity) : (object)DBNull.Value);
+            // v46 (WI-10 Gap 2): the line unit, written only when the line actually carries one. A base-unit line
+            // stays NULL so it is byte-identical to a v45 row (ER-13).
+            cmd.Parameters.AddWithValue("$unit", (object?)line.UnitId?.ToString("D") ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }

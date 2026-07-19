@@ -82,12 +82,25 @@ namespace Apex.Persistence.Sqlite;
 /// <c>gstr2b_lines</c>, <c>ims_status</c>, <c>gstr2b_recon</c>) + their indexes, two §17(5) ITC-eligibility columns each
 /// on <c>stock_items</c> and <c>ledgers</c>, and the two GSTR-2B reconciliation-tolerance columns on companies
 /// (<c>recon_value_tolerance_paisa</c> + <c>recon_date_window_days</c>, both DEFAULT 0 = exact-match).
-/// <b><see cref="CurrentVersion"/> = 44</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v45</b> adds the Phase-10.5 WI-4 party <b>Mailing Details</b> block: four nullable TEXT columns on
+/// <c>ledgers</c> (<c>mailing_name</c>, <c>mailing_address</c>, <c>mailing_country</c>, <c>mailing_pincode</c>).
+/// There is deliberately <b>no</b> <c>mailing_state</c> column — the party's State/UT is already
+/// <c>party_gst_state</c>, which drives GST place of supply, and a second stored State could contradict it and
+/// silently mis-compute tax; the mailing screen's State field reads/writes that one column via
+/// <c>Ledger.MailingStateCode</c>.
+/// <b>v46</b> adds the Phase-10.5 WI-10 Gap-2 <b>item-invoice line unit</b>: one nullable TEXT column on
+/// <c>voucher_inventory_lines</c> (<c>unit_id</c> → <c>units(id)</c>), so an invoice line can be entered in a
+/// compound unit ("2 Dozen @ ₹10" ⇒ ₹20 billed, 24 Nos moved). NULL ⇒ the item's base unit, i.e. every pre-v46
+/// line, so a company with no unit-carrying line serialises byte-identically to a v45 company (ER-13).
+/// <b><see cref="CurrentVersion"/> = 46</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v44</b> is the latest bump (Phase 9
+    /// <summary>The current schema version this adapter reads and writes. <b>v46</b> is the latest bump (Phase 10.5
+    /// WI-10 Gap 2 — the item-invoice line unit: one nullable <c>unit_id</c> column on
+    /// <c>voucher_inventory_lines</c>). v45 was Phase 10.5
+    /// slice 7 — WI-4 party Mailing Details: four nullable TEXT columns on <c>ledgers</c>. v44 was the Phase 9
     /// slice 7a — Rule-88A set-off + electronic ledgers + PMT-06/DRC-03: the <c>gst_setoff_lines</c> +
     /// <c>itc_reversals</c> + <c>gst_challans</c> + <c>gst_drc03</c> tables + their indexes, and the adjustment
     /// columns on <c>entry_lines</c>/<c>voucher_types</c>; v43 = Phase 9 slice 6 GSTR-2A/2B inbound core with the
@@ -96,7 +109,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 44;
+    public const int CurrentVersion = 46;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -749,7 +762,17 @@ public static class Schema
             -- v43 (Phase 9 slice 6): §17(5) ITC-eligibility on the sales/purchase-ledger GST block. DEFAULT 0/0
             -- (Eligible/None) ⇒ byte-identical to a v42 ledger (ER-13). Used by the S6b ITC-gate; the columns land now.
             itc_eligibility              INTEGER NOT NULL DEFAULT 0,  -- ItcEligibility ordinal (Eligible=0)
-            blocked_credit_category      INTEGER NOT NULL DEFAULT 0   -- BlockedCreditCategory ordinal (None=0)
+            blocked_credit_category      INTEGER NOT NULL DEFAULT 0,  -- BlockedCreditCategory ordinal (None=0)
+            -- v45 (Phase 10.5 slice 7; WI-4): the party Mailing Details block on a Sundry Debtor/Creditor ledger.
+            -- All nullable TEXT with no default ⇒ an existing ledger is byte-identical to a v44 ledger (ER-13).
+            -- NOTE: there is deliberately NO mailing_state column. The party's State/UT is party_gst_state above,
+            -- which drives GST place of supply (CGST+SGST vs IGST); a second stored State could contradict it and
+            -- silently produce the wrong tax head, so the mailing screen's State field reads/writes that one
+            -- column through Ledger.MailingStateCode. Do not add mailing_state.
+            mailing_name                 TEXT        NULL,            -- "Mailing Name" (blank ⇒ print the ledger Name)
+            mailing_address              TEXT        NULL,            -- free text, newline-separated lines
+            mailing_country              TEXT        NULL,
+            mailing_pincode              TEXT        NULL             -- 6-digit Indian PIN, or NULL
         );
 
         CREATE TABLE currencies (
@@ -1194,7 +1217,11 @@ public static class Schema
             -- the split is active, else NULL) and billed_qty_micro carries Billed only when it differs from Actual
             -- (else NULL). NULL ⇒ Billed ≡ Actual, so a feature-off line round-trips byte-identically (ER-13).
             actual_qty_micro  INTEGER     NULL,               -- Actual qty × 1,000,000, or NULL = quantity_micro
-            billed_qty_micro  INTEGER     NULL                -- Billed qty × 1,000,000, or NULL = actual
+            billed_qty_micro  INTEGER     NULL,               -- Billed qty × 1,000,000, or NULL = actual
+            -- v46 (WI-10 Gap 2): the unit BOTH quantities and the rate are stated in. NULL ⇒ the item's own base
+            -- unit, which is every pre-v46 line, so an unchanged line round-trips byte-identically (ER-13). The
+            -- rate is per THIS unit — "2 Doz @ ₹10" stores qty 2 / rate 1000 / unit Doz and is worth ₹20.
+            unit_id           TEXT        NULL REFERENCES units(id)
         );
 
         -- v19 (Phase 6 slice 3; RQ-20): additional-cost lines on a Stock-Journal TRANSFER inventory voucher. Each
@@ -3453,4 +3480,62 @@ public static class Schema
         ALTER TABLE entry_lines   ADD COLUMN gst_adjustment_kind    INTEGER     NULL;
         ALTER TABLE voucher_types ADD COLUMN is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0;
         """;
+
+    /// <summary>
+    /// v44 → v45 (Phase 10.5 slice 7; WI-4 party <b>Mailing Details</b>): additive — four nullable TEXT columns on
+    /// <c>ledgers</c> (<c>mailing_name</c>, <c>mailing_address</c>, <c>mailing_country</c>, <c>mailing_pincode</c>),
+    /// run inside a transaction that bumps <c>schema_version</c> to 45. <b>No row rewrites, no data backfill</b>:
+    /// every existing v44 ledger keeps its rows untouched and the new columns read NULL, so a company whose parties
+    /// carry no mailing details persists and serialises byte-identically to a v44 company (ER-13).
+    ///
+    /// <para><b>There is deliberately no <c>mailing_state</c> column.</b> A party's State/UT already exists exactly
+    /// once, as <c>party_gst_state</c>, and it is the GST place-of-supply driver (CGST+SGST vs IGST). A second,
+    /// independently-stored mailing State could contradict it and silently produce the wrong tax head, so the
+    /// mailing screen's State field reads and writes that same column via <c>Ledger.MailingStateCode</c>. Adding a
+    /// <c>mailing_state</c> column here would reintroduce exactly the divergence this design removes.</para>
+    ///
+    /// <para>Each added column is byte-identical to its counterpart in <see cref="CreateV1"/> — the
+    /// migration-equivalence test enforces that. A fresh DB is stamped straight to v45 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV44ToV45 = """
+        ALTER TABLE ledgers ADD COLUMN mailing_name    TEXT NULL;
+        ALTER TABLE ledgers ADD COLUMN mailing_address TEXT NULL;
+        ALTER TABLE ledgers ADD COLUMN mailing_country TEXT NULL;
+        ALTER TABLE ledgers ADD COLUMN mailing_pincode TEXT NULL;
+        """;
+
+    /// <summary>The four <c>ledgers</c> columns v45 adds — the exact set <see cref="MigrateV44ToV45"/> creates and
+    /// <see cref="DowngradeV45ToV44"/> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V45MailingColumns =
+        new[] { "mailing_name", "mailing_address", "mailing_country", "mailing_pincode" };
+
+    /// <summary>
+    /// v45 → v46 (Phase 10.5; WI-10 <b>Gap 2</b> — the <b>item-invoice line unit</b>): additive — one nullable TEXT
+    /// column on <c>voucher_inventory_lines</c> (<c>unit_id</c>, referencing <c>units(id)</c>), run inside a
+    /// transaction that bumps <c>schema_version</c> to 46. <b>No row rewrites, no data backfill</b>: every existing
+    /// v45 item line keeps its row untouched and reads <c>unit_id</c> NULL, which means "already in the stock item's
+    /// own base unit" — precisely how every pre-v46 line was interpreted — so a company with no unit-carrying line
+    /// persists and serialises byte-identically to a v45 company (ER-13).
+    ///
+    /// <para><b>Why a new column and not <c>inventory_allocations.unit_id</c>.</b> That column exists (since v10) and
+    /// carries the unit for a PURE-STOCK line, but an item-invoice line lives in a different table —
+    /// <c>voucher_inventory_lines</c>, hung off the accounting <c>vouchers</c> row — and has no spare column to
+    /// repurpose. This is the whole reason the slice needs a version bump at all.</para>
+    ///
+    /// <para><b>What the column means for money.</b> The quantity columns AND <c>rate_paisa</c> are all stated per
+    /// this unit, so <c>quantity × rate</c> remains the line's value with no conversion ("2 Doz @ ₹10" = ₹20). Only a
+    /// reader that normalises the quantity to the item's base unit (24 Nos) must divide the rate by the same factor.
+    /// See <c>VoucherInventoryLine.UnitId</c> for the stated risk class.</para>
+    ///
+    /// <para>The added column is byte-identical to its counterpart in <see cref="CreateV1"/> — the
+    /// migration-equivalence test enforces that. A fresh DB is stamped straight to v46 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV45ToV46 = """
+        ALTER TABLE voucher_inventory_lines ADD COLUMN unit_id TEXT NULL REFERENCES units(id);
+        """;
+
+    /// <summary>The single <c>voucher_inventory_lines</c> column v46 adds — the exact set
+    /// <see cref="MigrateV45ToV46"/> creates and <c>SchemaDowngrade.V46ToV45</c> removes. Named once so the two can
+    /// never disagree.</summary>
+    public static readonly IReadOnlyList<string> V46ItemLineUnitColumns = new[] { "unit_id" };
 }

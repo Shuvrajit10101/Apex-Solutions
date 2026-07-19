@@ -159,6 +159,49 @@ public sealed class Ledger
     /// </summary>
     public TdsTcsLedgerKind? TdsTcsClassification { get; set; }
 
+    // ---- Phase 10.5 slice 7 (WI-4): party Mailing Details. A plain post-construction property (like
+    //      TdsApplicable above), so the 20-arg ctor and its every call site are untouched. Default null ⇒ every
+    //      existing ledger is byte-identical in the DB and in a canonical export (ER-13). ----
+
+    /// <summary>
+    /// The optional <b>Mailing Details</b> block on a <b>party</b> (Sundry Debtor/Creditor) ledger — Mailing Name,
+    /// Address, Country and PIN code (WI-4; catalog §3 "Party mailing block"). <c>null</c> (the default for every
+    /// existing ledger) ⇒ no mailing details, and invoice printing emits a blank recipient address exactly as it
+    /// did before v45. The party's <b>State/UT is NOT here</b> — see <see cref="MailingStateCode"/>.
+    /// </summary>
+    public PartyMailingDetails? Mailing { get; set; }
+
+    /// <summary>
+    /// The party's <b>State/UT GST code</b> as shown in the Mailing Details block — <b>the single source of truth
+    /// for the party's State</b>. This is a pure delegating accessor over <see cref="PartyGstDetails.StateCode"/>
+    /// on <see cref="PartyGst"/>: reading returns that value, writing stores into that value (materialising a
+    /// <see cref="PartyGstDetails"/> block on first non-null write, since a party that has a State necessarily has
+    /// GST party details worth persisting).
+    ///
+    /// <para><b>Why it lives here and not on <see cref="PartyMailingDetails"/>.</b> The party State drives GST
+    /// place of supply (CGST+SGST vs IGST). A second, independently-stored mailing State could contradict it and
+    /// silently produce the wrong tax head. Routing the mailing screen's State field through this property means
+    /// there is exactly ONE stored value, so the mailing State and the place-of-supply State <b>cannot</b>
+    /// diverge — a structural guarantee, not a synchronisation rule someone must remember to run.</para>
+    /// </summary>
+    public string? MailingStateCode
+    {
+        get => PartyGst?.StateCode;
+        set
+        {
+            var normalised = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (normalised is null)
+            {
+                // Clearing the State never fabricates a block; it only clears an existing one.
+                if (PartyGst is not null) PartyGst.StateCode = null;
+                return;
+            }
+
+            PartyGst ??= new PartyGstDetails();
+            PartyGst.StateCode = normalised;
+        }
+    }
+
     public Ledger(
         Guid id,
         string name,

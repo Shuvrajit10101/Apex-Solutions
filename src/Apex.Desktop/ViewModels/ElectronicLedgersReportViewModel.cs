@@ -123,7 +123,7 @@ public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase
 
         View = view;
         Subtitle = $"{_company.Name}  —  FY {startYear}-{(startYear + 1) % 100:00}  " +
-                   $"({fyFrom.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} to {fyTo.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)})";
+                   $"({ApexDate.Format(fyFrom)} to {ApexDate.Format(fyTo)})";
 
         CreditRows.Add(Credit("CGST", view.CreditAdditionsCgst, view.CreditUtilisedCgst, view.CreditReversedCgst, view.CreditCgst));
         CreditRows.Add(Credit("SGST/UTGST", view.CreditAdditionsSgst, view.CreditUtilisedSgst, view.CreditReversedSgst, view.CreditSgst));

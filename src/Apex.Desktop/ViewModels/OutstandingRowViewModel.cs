@@ -26,8 +26,8 @@ public sealed partial class OutstandingRowViewModel : ViewModelBase
         Bill = bill;
         Party = bill.LedgerName;
         Reference = bill.Reference;
-        Date = bill.Date.ToString("dd-MMM-yyyy");
-        DueDate = bill.DueDate.ToString("dd-MMM-yyyy");
+        Date = ApexDate.Format(bill.Date);
+        DueDate = ApexDate.Format(bill.DueDate);
         Pending = IndianFormat.Amount(bill.Pending);
     }
 

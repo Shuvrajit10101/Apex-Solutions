@@ -30,14 +30,14 @@ public sealed partial class BankReconRowViewModel : ViewModelBase
     public BankReconRowViewModel(BankTransactionRow tx)
     {
         Transaction = tx;
-        Date = tx.Date.ToString("dd-MMM-yyyy");
+        Date = ApexDate.Format(tx.Date);
         VoucherNo = tx.VoucherNumber.ToString(CultureInfo.InvariantCulture);
         Instrument = string.IsNullOrWhiteSpace(tx.InstrumentNumber) ? "—" : tx.InstrumentNumber;
         Kind = tx.TransactionType.ToString();
         // Signed movement: a debit (+) is money into the bank, a credit (−) is money out.
         Amount = IndianFormat.AmountAlways(Math.Abs(tx.Amount.Amount));
         Direction = tx.Side == DrCr.Debit ? "Dr" : "Cr";
-        BankDateText = tx.BankDate?.ToString("dd-MMM-yyyy") ?? string.Empty;
+        BankDateText = tx.BankDate is { } bd ? ApexDate.Format(bd) : string.Empty;
     }
 
     public string Date { get; }
@@ -47,11 +47,16 @@ public sealed partial class BankReconRowViewModel : ViewModelBase
     public string Amount { get; }
     public string Direction { get; }
 
-    /// <summary>The parsed Bank Date, or null when blank/unparsable (un-reconciled).</summary>
+    /// <summary>The parsed Bank Date (WI-5 shared day-first parser), or null when blank/unparsable (un-reconciled).</summary>
     public DateOnly? ParsedBankDate =>
-        DateOnly.TryParse(BankDateText, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
-            ? d
-            : (DateOnly?)null;
+        ApexDate.TryParse(BankDateText, out var d) ? d : (DateOnly?)null;
+
+    /// <summary>
+    /// True when a bank date was TYPED but cannot be read (WI-5). Blank means "not reconciled"; unreadable
+    /// text must not silently mean the same, so Reconcile refuses on it.
+    /// </summary>
+    public bool HasUnreadableBankDate =>
+        !string.IsNullOrWhiteSpace(BankDateText) && ParsedBankDate is null;
 }
 
 /// <summary>
@@ -141,6 +146,15 @@ public sealed partial class BankReconciliationViewModel : ViewModelBase
     {
         Message = null;
         if (SelectedBank is null) return 0;
+
+        // WI-5: refuse on an unreadable Bank Date rather than treating it as "blank". A blank date
+        // legitimately UN-RECONCILES a row, so silently swallowing a typo would have quietly wiped an
+        // existing reconciliation instead of reporting the bad input.
+        if (Rows.FirstOrDefault(r => r.HasUnreadableBankDate) is { } bad)
+        {
+            Message = ApexDate.ErrorFor(bad.BankDateText);
+            return 0;
+        }
 
         var changed = 0;
         foreach (var row in Rows)

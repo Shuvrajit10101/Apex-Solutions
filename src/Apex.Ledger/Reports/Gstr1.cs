@@ -43,6 +43,54 @@ public sealed record Gstr1RateRow(int RateBasisPoints, Money TaxableValue, Money
 /// unit-quantity code (UQC), total quantity, taxable value, and CGST/SGST/IGST. Built from the outward
 /// item-invoice stock lines, with each invoice's posted tax apportioned to its lines by value share.
 /// </summary>
+/// <param name="Quantity">
+/// The total quantity, stated in <paramref name="Uqc"/>'s unit. <b>Commensurable ONLY within one HSN and only
+/// against a row carrying the SAME <paramref name="Uqc"/>.</b> Two rows of one HSN from different periods may
+/// legitimately carry different UQCs (April billed in DOZ, May in NOS), so summing this field across them adds
+/// quantities in different units — "2 DOZ + 5 NOS = 7" is nonsense under either label. An aggregator that spans
+/// rows must compare <paramref name="Uqc"/> and, on any mismatch, fall back to <paramref name="BaseQuantity"/>
+/// under <paramref name="BaseCode"/>, which every row states in the item's own base unit and is therefore always
+/// addable. <c>Gstr9.Build</c> is the worked example.
+/// </param>
+/// <param name="BaseQuantity">
+/// The SAME physical quantity re-expressed in the item's base unit (24, where <paramref name="Quantity"/> is
+/// 2 DOZ) — the commensurable measure an aggregator degrades to. Always populated, never collapsed: a row that is
+/// ITSELF already degraded still carries the raw base accumulator, so a further aggregation can degrade again.
+/// </param>
+/// <param name="BaseCode">The item's base-unit UQC — the label <paramref name="BaseQuantity"/> is stated in.</param>
+/// <param name="DeclaredUnitId">
+/// The identity of the simple unit <paramref name="Quantity"/> counts. <b>An aggregator spanning rows must decide
+/// commensurability with <see cref="UqcResolver.AreCommensurable"/>, never by comparing <paramref name="Uqc"/>
+/// alone</b> — <c>"OTH"</c> is the department's catch-all for a unit absent from the master list, so two rows
+/// stated in DIFFERENT unmapped units carry the SAME label and a label comparison sums 5 Crates and 3 Pallets into
+/// "8 OTH". On a degrade this equals <paramref name="BaseUnitId"/>, so an already-degraded row is self-consistent
+/// and degrading it again is the identity.
+/// </param>
+/// <param name="BaseUnitId">
+/// The identity of the item's base unit — what <paramref name="BaseQuantity"/> counts and <paramref name="BaseCode"/>
+/// names. Lets a further aggregation see whether even the degrade target is commensurable.
+/// </param>
+/// <param name="MixedBases">
+/// <b>KNOWN LIMITATION, RECORDED — and, as of this slice, NOT YET SURFACED TO ANY READER.</b> True when this row
+/// folded lines (or period rows) whose
+/// items are measured in UNRELATED base units — 5 Nos of eggs and 3 Kgs of rice under one HSN. The degrade target
+/// is then itself incommensurable and <paramref name="Quantity"/>/<paramref name="BaseQuantity"/> cannot be a
+/// meaningful single figure under any label. This is pre-existing and is NOT resolved here: there is no correct
+/// number to emit while the table is keyed on HSN alone, and inventing one (0, or the first-seen label) would
+/// merely hide it. Real Table 12 rows appear to be keyed on (HSN, UQC, rate), which would remove the need to
+/// degrade at all — recorded as a HYPOTHESIS, not a particular: under R7 that row-keying must be verified against
+/// an official primary source before the shape of a FILED output is changed.
+///
+/// <para><b>THE FLAG HAS NO PRODUCTION CONSUMER TODAY — state that plainly rather than implying a warning reaches
+/// anyone.</b> (Tests do read it, to pin the limitation; nothing a user can see does.)
+/// <c>ReportsViewModel</c> and <c>Gstr9ReportViewModel</c> both project the HSN row WITHOUT it, and
+/// <c>GstReturnJson</c> has no field for it, so a reader of the GSTR-1 Table-12 / GSTR-9 Table-17 grid sees the
+/// folded number with NO indication it is unsound: 5 Nos of eggs and 3 Kgs of rice under one HSN display as
+/// "8 NOS", and that number is FILED. The flag is recorded here for a future consumer — the report grids carry
+/// eight fixed columns, all occupied on this row, so surfacing it is a grid change and not a one-liner, and it is
+/// deliberately out of scope for this slice. <b>Anyone adding that consumer:</b> the value is already computed and
+/// carried correctly across both the line fold and the cross-period fold; only the presentation is missing.</para>
+/// </param>
 public sealed record Gstr1HsnRow(
     string HsnSac,
     string Description,
@@ -51,7 +99,12 @@ public sealed record Gstr1HsnRow(
     Money TaxableValue,
     Money Cgst,
     Money Sgst,
-    Money Igst)
+    Money Igst,
+    decimal BaseQuantity,
+    string? BaseCode,
+    Guid? DeclaredUnitId,
+    Guid? BaseUnitId,
+    bool MixedBases)
 {
     /// <summary>Σ tax on this HSN row (CGST + SGST + IGST).</summary>
     public Money TotalTax => new(Cgst.Amount + Sgst.Amount + Igst.Amount);
@@ -250,8 +303,18 @@ public sealed record Gstr1(
 
         var hsnRows = hsnAcc.Values
             .OrderBy(h => h.HsnSac, StringComparer.Ordinal)
-            .Select(h => new Gstr1HsnRow(h.HsnSac, h.Description, h.Uqc, h.Quantity,
-                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst)))
+            .Select(h => new Gstr1HsnRow(
+                h.HsnSac, h.Description,
+                h.MixedUnits ? h.BaseUqc : h.Uqc,
+                h.MixedUnits ? h.BaseQuantity : h.Quantity,
+                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst),
+                // The RAW accumulators, deliberately NOT collapsed through MixedUnits: a downstream aggregator
+                // must be able to degrade an ALREADY-degraded row further, which it can only do if the base
+                // measure survives the projection intact.
+                h.BaseQuantity, h.BaseUqc,
+                // A degraded row declares the BASE unit, so its declared identity IS the base identity — which
+                // keeps the row self-consistent and makes a second degrade the identity operation.
+                h.MixedUnits ? h.BaseUnitId : h.DeclaredUnitId, h.BaseUnitId, h.MixedBases))
             .ToList();
 
         // Phase 9 slice 2b: Table 9B (§34 CDN) — signed by note type — is folded into the output totals; 11A/11B are
@@ -581,14 +644,46 @@ public sealed record Gstr1(
     {
         var item = company.FindStockItem(il.StockItemId);
         var hsn = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "(none)";
-        var uqc = company.FindUnit(item?.BaseUnitId ?? Guid.Empty)?.UnitQuantityCode;
+        // WI-10 Gap 2 follow-on: declare the quantity in the unit the LINE is stated in when that unit maps to a
+        // valid UQC ("2 DOZ"), exactly as the printed invoice already does — NOT the line quantity beside the
+        // item's BASE UQC, which would file "2 NOS" for a Table-12 row in which 24 Nos were actually supplied.
+        var decl = UqcResolver.Declare(company, il, il.Quantity);
 
         if (!hsnAcc.TryGetValue(hsn, out var acc))
         {
-            acc = new HsnAcc { HsnSac = hsn, Description = item?.Name ?? "(unknown)", Uqc = uqc };
+            acc = new HsnAcc
+            {
+                HsnSac = hsn, Description = item?.Name ?? "(unknown)",
+                Uqc = decl.Code, BaseUqc = decl.BaseCode,
+                DeclaredUnitId = decl.DeclaredUnitId, BaseUnitId = decl.BaseUnitId,
+            };
             hsnAcc[hsn] = acc;
         }
-        acc.Quantity += il.Quantity;
+
+        // One row per HSN means one UQC per row, so lines of the same HSN declared in DIFFERENT units cannot be
+        // summed as-is — "2 DOZ + 5 NOS = 7" is nonsense under either label. On a mismatch the whole row degrades
+        // to the base-unit declaration, in which every line IS commensurable.
+        //
+        // Commensurability is decided on the lines' UNIT IDENTITY, not on the UQC label. Comparing labels is
+        // unsound the moment one label is a CATCH-ALL: "OTH" marks a unit absent from the department's master
+        // list, so 5 Crate-Nos and 3 Pallet-Nos both declare "OTH", the labels match, and the row files "8" for a
+        // supply of 81 Nos — money right, quantity 10x understated, on a mandatory filed field. (This table has no
+        // unit-price field and therefore no footing constraint, which is why it can and must degrade where the NIC
+        // payload — which foots per line and aggregates nothing — deliberately does not.)
+        //
+        // NOTE — this runs on the SEEDING iteration too (acc was just built from this same line), so it compares a
+        // line against ITSELF. That is intentional and LOAD-BEARING: AreCommensurable is deliberately NOT reflexive
+        // on a wholly unknown pair, so a line with a null DeclaredUnitId AND a null/blank Uqc sets MixedUnits on a
+        // single-line row and degrades it to the base declaration. That is the RIGHT outcome — a quantity we cannot
+        // name is safer stated in the base unit — and on that path the degrade is the IDENTITY anyway
+        // (Quantity == BaseQuantity, Uqc == BaseUqc), so nothing moves. Do not "optimise" the seed iteration away
+        // and do not make the predicate reflexive to make this look tidier.
+        if (!UqcResolver.AreCommensurable(acc.DeclaredUnitId, acc.Uqc, decl.DeclaredUnitId, decl.Code))
+            acc.MixedUnits = true;
+        // The degrade TARGET is only commensurable when the items share a base unit; see Gstr1HsnRow.MixedBases.
+        if (acc.BaseUnitId != decl.BaseUnitId) acc.MixedBases = true;
+        acc.Quantity += decl.Quantity;
+        acc.BaseQuantity += decl.BaseQuantity;
         acc.Taxable += value;
         acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst;
     }
@@ -606,6 +701,22 @@ public sealed record Gstr1(
         public string HsnSac = "";
         public string Description = "";
         public string? Uqc;
+        /// <summary>The item's base-unit UQC — the label <see cref="BaseQuantity"/> carries.</summary>
+        public string? BaseUqc;
+        /// <summary>Σ of every line's quantity re-expressed in the item's base unit; the commensurable
+        /// fallback when <see cref="MixedUnits"/> makes <see cref="Quantity"/> unsummable.</summary>
+        public decimal BaseQuantity;
+        /// <summary>The identity of the unit <see cref="Quantity"/> counts — what commensurability is decided on.</summary>
+        public Guid? DeclaredUnitId;
+        /// <summary>The identity of the unit <see cref="BaseQuantity"/> counts.</summary>
+        public Guid? BaseUnitId;
+        /// <summary>Set when two lines of this HSN were not commensurable (different units, whatever their labels).</summary>
+        public bool MixedUnits;
+        /// <summary>Set when two lines of this HSN are measured in unrelated BASE units, so even the degrade
+        /// target is incommensurable. Carried onto <see cref="Gstr1HsnRow.MixedBases"/>, which no view model or
+        /// payload writer reads today — see that member for why, and do not read this as a warning that reaches
+        /// a filer.</summary>
+        public bool MixedBases;
         public decimal Quantity;
         public decimal Taxable;
         public decimal Cgst;

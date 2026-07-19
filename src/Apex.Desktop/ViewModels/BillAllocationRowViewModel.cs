@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Apex.Ledger.Domain;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Apex.Desktop.Services;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -47,11 +48,19 @@ public sealed partial class BillAllocationRowViewModel : ViewModelBase
     /// <summary>The parsed amount magnitude (0 when unparsable/blank).</summary>
     public decimal ParsedAmount => TryParseAmount(out var amt) ? amt : 0m;
 
-    /// <summary>The parsed explicit due date, or null when blank/unparsable (derive from credit period).</summary>
+    /// <summary>
+    /// The parsed explicit due date (WI-5 shared day-first parser), or null when blank/unparsable
+    /// (blank legitimately means "derive from the credit period").
+    /// </summary>
     public DateOnly? ParsedDueDate =>
-        DateOnly.TryParse(DueDateText, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)
-            ? d
-            : (DateOnly?)null;
+        ApexDate.TryParse(DueDateText, out var d) ? d : (DateOnly?)null;
+
+    /// <summary>
+    /// True when a due date was TYPED but cannot be read (WI-5). Blank derives from the credit period;
+    /// unreadable text must NOT silently do the same, so the parent refuses on it.
+    /// </summary>
+    public bool HasUnreadableDueDate =>
+        !string.IsNullOrWhiteSpace(DueDateText) && ParsedDueDate is null;
 
     /// <summary>True once this row is touched at all (a name or an amount) — a fully-blank row is ignored.</summary>
     public bool IsBlank => string.IsNullOrWhiteSpace(Name) && string.IsNullOrWhiteSpace(AmountText);

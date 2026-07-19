@@ -17,6 +17,12 @@ public enum Screen
     CreateCompany,
     Gateway,
     Report,
+
+    // WI-12 — the Day-Book "Add Voucher" (Alt+A) voucher-type picker: a menu column of every ACTIVE voucher
+    // type appended to the RIGHT of the live Day Book (the report stays bound beneath it, mirroring the F12
+    // report-config column), so picking a type opens that entry over the Day Book and Esc pops back to it.
+    AddVoucherPicker,
+
     ReportConfig,
     ReportSortFilter,
     AddComparisonColumn,
@@ -33,6 +39,7 @@ public enum Screen
     VoucherEntry,
     InventoryVoucherEntry,
     LedgerMaster,
+    AccountGroupMaster,
     ChartOfAccounts,
     Outstandings,
     CostCategoryMaster,
@@ -256,6 +263,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The ledger-master view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private LedgerMasterViewModel? _ledgerMaster;
+
+    /// <summary>The accounting-Group master view model, non-null only while that page column is open (WI-7).</summary>
+    [ObservableProperty] private AccountGroupMasterViewModel? _accountGroupMaster;
 
     /// <summary>The chart-of-accounts tree view model, non-null only while that page column is open.</summary>
     [ObservableProperty] private ChartOfAccountsViewModel? _chartOfAccounts;
@@ -547,6 +557,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public bool IsMenuScreen => !IsGatewayCascade
         && Reports is null && VoucherEntry is null && InventoryVoucherEntry is null && LedgerMaster is null
+        && AccountGroupMaster is null
         && ChartOfAccounts is null
         && Outstandings is null && CostCategoryMaster is null && CostCentreMaster is null
         && CostReports is null && BudgetMaster is null && BudgetVariance is null
@@ -586,6 +597,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnVoucherEntryChanged(VoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnInventoryVoucherEntryChanged(InventoryVoucherEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerMasterChanged(LedgerMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnAccountGroupMasterChanged(AccountGroupMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnChartOfAccountsChanged(ChartOfAccountsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnOutstandingsChanged(OutstandingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCostCategoryMasterChanged(CostCategoryMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -691,14 +703,59 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Index of the highlighted item in the centred pre-company menu.</summary>
     private int _menuSelectedIndex;
 
-    /// <summary>Index of the focused (active) column in the cascade.</summary>
-    public int ActiveColumnIndex { get; private set; }
+    private int _activeColumnIndex;
+
+    /// <summary>
+    /// Index of the focused (active) column in the cascade.
+    /// <para>
+    /// WI-2 — this setter is also the single reset point for picker type-ahead. Focus moving to a different
+    /// column is exactly "Esc / a completed selection / entering or leaving a column", so clearing the prefix
+    /// on BOTH the column being left and the one being entered covers every reset the feature needs, with no
+    /// per-call-site resets to forget at the ~125 places a column is pushed. Type-ahead itself never touches
+    /// this index (it only moves the highlight), so a prefix being typed is never cleared underneath it.
+    /// </para>
+    /// </summary>
+    public int ActiveColumnIndex
+    {
+        get => _activeColumnIndex;
+        private set
+        {
+            if (_activeColumnIndex == value) return;
+
+            ColumnAtOrNull(_activeColumnIndex)?.ResetTypeAhead();
+            _activeColumnIndex = value;
+            ColumnAtOrNull(value)?.ResetTypeAhead();
+        }
+    }
+
+    /// <summary>The cascade column at <paramref name="index"/>, or null when out of range.</summary>
+    private GatewayColumn? ColumnAtOrNull(int index) =>
+        index >= 0 && index < Columns.Count ? Columns[index] : null;
 
     public MainWindowViewModel() : this(new CompanyStorage()) { }
 
     public MainWindowViewModel(CompanyStorage storage)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+
+        // WI-9: the SHARED choke point for bare-letter hotkeys. Columns are pushed from ~125 call sites, so
+        // assigning here — as a column enters the cascade — is what makes the accelerators reach EVERY menu
+        // column (root, submenu, picker) instead of only the ones a builder remembered to call. Page columns
+        // hold no rows, so it is a no-op for them.
+        Columns.CollectionChanged += (_, e) =>
+        {
+            // WI-2: a column POPPED off the cascade (Esc / Back / a page replacing it) is left with whatever
+            // type-ahead prefix was mid-flight. It is removed BEFORE ActiveColumnIndex moves, so the focus-change
+            // reset cannot see it — clear it here, where every removal passes.
+            if (e.OldItems is not null)
+                foreach (GatewayColumn column in e.OldItems)
+                    column.ResetTypeAhead();
+
+            if (e.NewItems is null) return;
+            foreach (GatewayColumn column in e.NewItems)
+                column.AssignHotKeys();
+        };
+
         ShowCompanySelect();
     }
 
@@ -793,7 +850,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         Company = company;
         StatusCompany = company.Name;
-        StatusDate = company.FinancialYearStart.ToString("dd-MMM-yyyy");
+        StatusDate = ApexDate.Format(company.FinancialYearStart);
         ShowGateway();
     }
 
@@ -814,6 +871,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         EnterCascade();
 
         Columns.Clear();
+        // WI-1 (DEFECT 2) — the cascade was rebuilt from scratch, so any armed Alt+C request lost its column.
+        AbandonCreateOnTheFlyIfColumnGone();
         Columns.Add(BuildRootColumn());
         ActiveColumnIndex = 0;
         Columns[0].SelectFirstSelectable();
@@ -831,9 +890,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
-        // ---- STATUTORY (GST) ----
+        // ---- STATUTORY (F11 Company Features → Statutory Configuration) ----
+        // This one F11 page hosts GST *and* TDS/TCS, Payroll Statutory (PF/ESI/PT) and §192 salary-TDS, gratuity and
+        // bonus (its own title is "Statutory Configuration (F11)"). Labelling the entry "GST" hid the salary-TDS
+        // enable toggle from anyone not looking under GST (WI-8); "GST & Taxation" signals the tax config lives here.
         col.Add(MenuItemViewModel.Header("Statutory"));
-        col.Add(new MenuItemViewModel("GST", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("GST & Taxation", () => { }, "F11", isSubItem: true, kind: MenuItemKind.Page));
         // GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — only once GST is enabled.
         if (Company is { GstEnabled: true })
             col.Add(new MenuItemViewModel("GST Rate Setup", () => { }, "Ctrl+R", isSubItem: true, kind: MenuItemKind.Page));
@@ -1285,6 +1347,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// is a page item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>. Shown whether
     /// or not GST is enabled; a GST-off company opens the report to a friendly empty state (never crashes).
     /// </summary>
+    /// <summary>
+    /// The FY-gated <b>"Form NNN"</b> menu label (CA S9) — the 1961-Act number for FY 2025-26 and earlier, the
+    /// confirmed 2025-Act number from FY 2026-27 onward. A form with <b>no confirmed renumbering</b> (e.g. 27A) falls
+    /// through unchanged, which is what keeps unverified artifacts from being silently re-cited.
+    /// <para>When <b>no company — and therefore no financial year — is in scope</b> the <b>dual</b> form
+    /// ("Form 24Q / 138") is shown rather than guessing a vocabulary. Every current caller is company-gated, so the
+    /// dual branch is a safety net rather than the normal path.</para>
+    /// <para><b>Keep <see cref="ActivateMenuItem"/> in step:</b> menu activation dispatches on this label string, so
+    /// each renumbered label needs its own case there or the item becomes unreachable.</para>
+    /// </summary>
+    private string FormMenuLabel(string legacyForm) => Company is { } company
+        ? $"Form {StatuteVocabulary.FormLabel(legacyForm, company.FinancialYearStart.Year)}"
+        : $"Form {StatuteVocabulary.FormLabelDual(legacyForm)}";
+
     private GatewayColumn BuildGstReportsColumn()
     {
         var col = new GatewayColumn("GST Reports");
@@ -1299,8 +1375,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 26Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 16A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("26Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("16A"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Form 27A carries NO confirmed 2025-Act renumbering, so FormMenuLabel deliberately leaves it alone.
             col.Add(new MenuItemViewModel("Form 27A (TDS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
 
@@ -1311,8 +1388,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(MenuItemViewModel.Header("TCS"));
             col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 27EQ", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 27D", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("27EQ"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("27D"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Form 27A (TCS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
@@ -1389,7 +1466,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private GatewayColumn BuildLedgerBookPickerColumn(string title, Func<Apex.Ledger.Domain.Ledger, bool> include)
     {
-        var col = new GatewayColumn(title);
+        // WI-2/WI-9 conflict rule: this column's rows are the COMPANY'S ledgers, not authored menu options, so a
+        // bare letter must FILTER it (type-ahead) rather than activate a computed hotkey. Marking the kind is
+        // what routes the keystroke; see GatewayColumnKind.
+        var col = new GatewayColumn(title) { Kind = GatewayColumnKind.DataDriven };
         col.Add(MenuItemViewModel.Header(title));
 
         var ledgers = Company is null
@@ -1403,6 +1483,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         else
             foreach (var ledger in ledgers)
                 col.Add(new MenuItemViewModel(ledger.Name, () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // WI-1 — THE CORPUS'S SECOND ENTRY POINT: "Alt+C … in place of the Ledger field OR select Create option
+        // under List of Ledger Accounts" (Study Guide ~2046–47). Only the key half shipped; this is the list
+        // half. The row is PINNED at the end of the real ledgers, arrow-reachable and Enter-activated, and runs
+        // the SAME CreateLedgerShortcut dispatch as the key — one mechanism, two entry points, rather than a
+        // parallel path that could drift. It is flagged IsCreateRow so type-ahead SKIPS it: a bare "c" must
+        // filter to the ledger named "Cash", never land the highlight on "Create Ledger".
+        col.Add(new MenuItemViewModel("Create Ledger",
+            () => CreateLedgerShortcut(MasterCreateFields.Ledger, caller: null),
+            "Alt+C", isSubItem: true, kind: MenuItemKind.Action)
+        { IsCreateRow = true });
 
         return col;
     }
@@ -1592,8 +1683,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
         if (Company is { SalaryTdsEnabled: true })
         {
-            col.Add(new MenuItemViewModel("Form 24Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 16", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("24Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("16"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -2060,6 +2151,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsReportContext => Reports is not null
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
+    /// <summary>
+    /// True while the LIVE report is the Day Book (WI-12) — the single context the Alt+A "Add Voucher" picker is
+    /// offered in. Stays true while its own picker column is open (<see cref="Reports"/> is left bound beneath the
+    /// picker), so Esc/Back returns to the same live Day Book.
+    /// </summary>
+    public bool IsDayBookReport => Reports is { Kind: ReportKind.DayBook }
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+
     /// <summary>True on a page that Print (P/Ctrl+P) can render (RQ-9/10/11): an open report, or a drilled
     /// voucher-detail (which prints the voucher / tax invoice). Used to gate the Print shortcut.</summary>
     public bool IsPrintablePage =>
@@ -2091,6 +2190,68 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Alt+F1 on a report — toggles detailed↔summary in place (RQ-2). A no-op on reports that do not roll up.</summary>
     public void ReportToggleDetailed() => Reports?.ToggleDetailed();
+
+    // =============================================================== F2 — set the date, in whatever window (WI-5 4c)
+
+    /// <summary>
+    /// The open ENTRY page's working-date field, or <c>null</c> when the current screen has none. This is what
+    /// makes <b>F2 — Date</b> work beyond reports: previously F2 was a stub on every non-report screen that
+    /// merely printed the financial-year start to the status line, so on a voucher-entry screen — precisely the
+    /// case the corpus documents ("Date — Type date of Purchase/Sale transactions by pressing F2") — it did
+    /// nothing useful.
+    /// </summary>
+    public ISetsWorkingDate? ActiveWorkingDateTarget => CurrentScreen switch
+    {
+        Screen.VoucherEntry => VoucherEntry,
+        Screen.InventoryVoucherEntry => InventoryVoucherEntry,
+        Screen.ManufacturingJournalEntry => ManufacturingJournalEntry,
+        Screen.JobWorkOrderEntry => JobWorkOrderEntry,
+        Screen.MaterialMovementEntry => MaterialMovementEntry,
+        Screen.PosBilling => PosBilling,
+        Screen.AttendanceVoucherEntry => AttendanceVoucher,
+        Screen.PayrollVoucherEntry => PayrollVoucher,
+        _ => null,
+    };
+
+    /// <summary>True while the open screen owns a working date that F2 can set.</summary>
+    public bool IsWorkingDateContext => ActiveWorkingDateTarget is not null;
+
+    /// <summary>
+    /// Raised when F2 asks to set the working date on an entry screen. The shell (view) responds by moving the
+    /// caret into that screen's working-date box — the keyboard-first equivalent of Tally's F2 date prompt.
+    /// <b>It deliberately does NOT open a calendar/DatePicker</b>: the app has zero DatePicker controls by
+    /// design, and F2 must stay a keyboard action.
+    /// </summary>
+    public event EventHandler? WorkingDateEditRequested;
+
+    /// <summary>
+    /// <b>F2 — Date.</b> On an entry screen this puts the caret in the working-date field so the operator types
+    /// the date (read by the one shared day-first parser, echoed canonically). Everywhere else it reports the
+    /// current working date. Reports never reach here — their bare F2 is intercepted earlier and sets the
+    /// report as-of instead (the Tally F2 / Alt+F2 split, left untouched).
+    /// </summary>
+    public void SetWorkingDate()
+    {
+        if (ActiveWorkingDateTarget is { } target)
+        {
+            StatusDate = target.WorkingDateText;
+            WorkingDateEditRequested?.Invoke(this, EventArgs.Empty);
+            Message = $"F2 — set the date (type {ApexDate.Canonical}, e.g. 01-Apr-2020).";
+            return;
+        }
+
+        Message = StatusDate;
+    }
+
+    /// <summary>
+    /// Keeps the status bar's "Current Date" showing the WORKING date of the open entry screen. Previously
+    /// <see cref="StatusDate"/> was written once, at company open, with the financial-year start and never
+    /// updated again — so it disagreed with the voucher being entered.
+    /// </summary>
+    public void RefreshStatusDate()
+    {
+        if (ActiveWorkingDateTarget is { } target) StatusDate = target.WorkingDateText;
+    }
 
     /// <summary>True while the open report is the Reorder Status report (drives its F8 / Ctrl+F9 shortcuts).</summary>
     public bool IsReorderStatusReport => IsReportContext && Reports is { IsReorderStatus: true };
@@ -2575,8 +2736,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens the reusable voucher-entry screen for the given base type as a page column on the right of
     /// the cascade, resolving the seeded voucher type on the current company.
+    /// <para>WI-12: the optional <paramref name="date"/> seeds the new voucher's date (used by the Day-Book
+    /// Alt+A "Add Voucher" flow so the entry lands on the highlighted row's date); when null the entry keeps its
+    /// own default (last voucher date, else books-begin). The optional <paramref name="onSaved"/> overrides the
+    /// post-save action — defaulting to <see cref="ShowGateway"/> so every existing single-argument call site is
+    /// byte-identical — letting the Day-Book flow return to a REFRESHED Day Book instead of the Gateway.</para>
     /// </summary>
-    public void OpenVoucher(VoucherBaseType baseType)
+    public void OpenVoucher(VoucherBaseType baseType, DateOnly? date = null, Action? onSaved = null)
     {
         if (Company is null) return;
 
@@ -2590,8 +2756,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var entry = new VoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: ShowGateway,
-            onCancelled: BackFromPage);
+            onSaved: onSaved ?? ShowGateway,
+            onCancelled: BackFromPage,
+            date: date);
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
@@ -2606,7 +2773,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// screen posts to the separate <see cref="InventoryVoucher"/> aggregate via
     /// <see cref="InventoryPostingService"/> — no Dr/Cr balancing.
     /// </summary>
-    public void OpenInventoryVoucher(VoucherBaseType baseType)
+    public void OpenInventoryVoucher(VoucherBaseType baseType, DateOnly? date = null, Action? onSaved = null)
     {
         if (Company is null) return;
 
@@ -2626,14 +2793,108 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var entry = new InventoryVoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: ShowGateway,
-            onCancelled: BackFromPage);
+            onSaved: onSaved ?? ShowGateway,
+            onCancelled: BackFromPage,
+            date: date);
         // RQ-3: a batch-tracked line opens the batch-allocation sub-screen as a cascade column to the right.
         entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
             ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
         var title = $"Inventory Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.InventoryVoucherEntry, title,
             () => InventoryVoucherEntry = entry);
+    }
+
+    // =============================================================== screen: WI-12 Day-Book "Add Voucher" picker
+
+    /// <summary>
+    /// WI-12 — Alt+A on the Day Book: opens a voucher-type PICKER listing EVERY active voucher type ("Entering any
+    /// type of voucher … from the day book"; Book p.431 "Alt+A → Add a voucher in a report"). The picker is a menu
+    /// column appended to the RIGHT of the live Day Book, mirroring <see cref="OpenReportConfig"/>: it does NOT
+    /// <see cref="ClearSubScreens"/>, so <see cref="Reports"/> stays bound beneath it (the report is NOT destroyed)
+    /// and Esc/Back pops the picker straight back to the same live Day Book. Picking a type opens that voucher over
+    /// the Day Book and, on save, returns to a REFRESHED Day Book so the new entry is visible. A no-op unless the
+    /// live report is the Day Book. Reusing the cascade's own menu column (not a bespoke page/DataTemplate) keeps
+    /// the arrow/Enter navigation and rendering identical to every other submenu — and adds no new layout surface.
+    /// </summary>
+    public void OpenAddVoucherFromReport()
+    {
+        if (Company is null || !IsDayBookReport) return;
+        if (CurrentScreen == Screen.AddVoucherPicker) return; // already open — don't stack a second picker
+
+        // Seed the new voucher's date from the highlighted Day-Book row (its own voucher's date); resolve it NOW
+        // while the report is still bound, before the picker column takes focus.
+        var seedDate = ResolveAddVoucherSeedDate();
+
+        // WI-2/WI-9 conflict rule: these rows are the COMPANY'S voucher types (Company.VoucherTypes), including
+        // any the user created — not an authored menu. A computed hotkey over user data would paint an arbitrary
+        // mid-word red letter on a name nobody at build time has seen, so a bare letter FILTERS here instead.
+        var picker = new GatewayColumn("Add Voucher") { Kind = GatewayColumnKind.DataDriven };
+        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
+        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive))
+        {
+            var baseType = type.BaseType;
+            picker.Add(new MenuItemViewModel(
+                type.Name,
+                () => PickAddVoucherType(baseType, seedDate),
+                type.DefaultShortcut ?? string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        // Append WITHOUT ClearSubScreens/OpenPageColumn — the Day Book page column survives beneath (Reports stays
+        // bound), exactly like the F12 config column sits beside its live report.
+        Columns.Add(picker);
+        picker.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AddVoucherPicker;
+        ScreenTitle = "Add Voucher";
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
+    /// the Day Book's place — one page column, honouring the cascade invariant) and opens that type's entry seeded
+    /// with <paramref name="seedDate"/>, wiring the post-save action to re-run the Day Book so the new voucher
+    /// appears. Routes inventory/order kinds to the inventory entry and the Job-Work / Material kinds to their own
+    /// dedicated screens (they carry no date/refresh override, matching their existing menu route).
+    /// </summary>
+    private void PickAddVoucherType(VoucherBaseType baseType, DateOnly? seedDate)
+    {
+        // Drop the picker menu column so OpenPageColumn's trim leaves exactly one page column (the new voucher,
+        // in the Day Book's place). Without this the picker (a menu column) would survive the trim.
+        if (CurrentScreen == Screen.AddVoucherPicker && Columns.Count > 0)
+            Columns.RemoveAt(Columns.Count - 1);
+
+        // On save, return to a freshly-built Day Book (its projection now includes the just-posted voucher).
+        Action refreshDayBook = () => OpenReport(ReportKind.DayBook);
+
+        switch (baseType)
+        {
+            case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In); break;
+            case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out); break;
+            case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
+            case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            default:
+                if (VoucherEffects.IsInventoryBaseType(baseType))
+                    OpenInventoryVoucher(baseType, seedDate, refreshDayBook);
+                else
+                    OpenVoucher(baseType, seedDate, refreshDayBook);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// WI-12 — the date the Day-Book Alt+A entry defaults to: the highlighted Day-Book row's own voucher date (so an
+    /// added voucher lands in the visible period, beside the row the user was on). Falls back to null when no
+    /// drillable row is highlighted — the entry VM then keeps its default (last voucher date, else books-begin).
+    /// </summary>
+    private DateOnly? ResolveAddVoucherSeedDate()
+    {
+        var row = Reports?.SelectedRow;
+        if (row is not null && row.DrillVoucherId != Guid.Empty)
+            return Company?.FindVoucher(row.DrillVoucherId)?.Date;
+        return null;
     }
 
     // =============================================================== screen: ledger master
@@ -2648,11 +2909,81 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Ledger Creation", () => LedgerMaster = master);
     }
 
+    /// <summary>
+    /// Opens the accounting-Group creation master (Masters → Create → Group; WI-7) as a page column: create a
+    /// custom group (e.g. "Salary Payable") under a chosen parent, with the nature derived read-only from that
+    /// parent. This is what "Create → Group" opens — it previously mis-routed to Ledger Creation.
+    /// </summary>
+    public void ShowAccountGroupMaster()
+    {
+        if (Company is null) return;
+
+        var master = new AccountGroupMasterViewModel(Company, _storage, onChanged: () => { });
+        OpenPageColumn(new GatewayColumn("Group Creation", master), Screen.AccountGroupMaster,
+            "Group Creation", () => AccountGroupMaster = master);
+    }
+
     // =============================================================== screen: chart of accounts
 
     /// <summary>
-    /// Opens the read-only Chart of Accounts (Masters → Chart of Accounts) as a page column: the group
-    /// hierarchy with sub-groups nested/indented under their primary parent and ledgers under their group.
+    /// Opens the Ledger master in <b>Alter</b> mode over an existing ledger (WI-3) — the same form as Create,
+    /// pre-filled, saving against the ledger's stable Guid so a rename applies retroactively to all history.
+    /// Reached by Enter on a ledger row of the Chart of Accounts. A no-op if the id does not resolve.
+    /// </summary>
+    /// <summary>
+    /// WI-3 — Enter on the Chart of Accounts: opens the highlighted row's master for <b>alteration</b>. A ledger
+    /// row opens Ledger Alteration; a group row opens Group Alteration. A no-op when nothing is highlighted, so
+    /// Enter on an untouched tree does nothing rather than opening an arbitrary account.
+    /// </summary>
+    public void AlterHighlightedChartRow()
+    {
+        if (ChartOfAccounts?.HighlightedRow is not { } row) return;
+
+        if (row.LedgerId is { } ledgerId) ShowLedgerAlter(ledgerId);
+        else if (row.GroupId is { } groupId) ShowAccountGroupAlter(groupId);
+    }
+
+    public void ShowLedgerAlter(Guid ledgerId)
+    {
+        if (Company is null) return;
+
+        // Capture the tree INSTANCE, not the property: OpenPageColumn below runs ClearSubScreens, which nulls
+        // ChartOfAccounts, so a `() => ChartOfAccounts?.Refresh()` closure would silently never fire and the tree
+        // would keep showing the OLD name — which reads as a failed save.
+        var tree = ChartOfAccounts;
+        var master = LedgerMasterViewModel.ForAlter(
+            Company, _storage, ledgerId, onChanged: () => tree?.Refresh());
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Ledger Alteration", master), Screen.LedgerMaster,
+            "Ledger Alteration", () => LedgerMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the accounting-Group master in <b>Alter</b> mode over an existing group (WI-3): rename, re-alias or
+    /// re-parent, with the nature re-derived and cascaded to every descendant. Reached by Enter on a group row of
+    /// the Chart of Accounts. A no-op if the id does not resolve.
+    /// </summary>
+    public void ShowAccountGroupAlter(Guid groupId)
+    {
+        if (Company is null) return;
+
+        var tree = ChartOfAccounts;   // captured for the same reason as ShowLedgerAlter — see the note there.
+        var master = AccountGroupMasterViewModel.ForAlter(
+            Company, _storage, groupId, onChanged: () => tree?.Refresh());
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Group Alteration", master), Screen.AccountGroupMaster,
+            "Group Alteration", () => AccountGroupMaster = master);
+    }
+
+    /// <summary>
+    /// Opens the Chart of Accounts (Masters → Chart of Accounts) as a page column: the group hierarchy with
+    /// sub-groups nested/indented under their primary parent and ledgers under their group.
+    /// <para>WI-3: the tree is no longer read-only. Up/Down move a row highlight and Enter drills into the
+    /// highlighted master's <b>Alteration</b> screen — a ledger row opens Ledger Alteration, a group row opens
+    /// Group Alteration. This is the entry point CA audit point 5 asked for ("Editing in Ledger should be allowed
+    /// in the chart of accounts after the creation of Ledger … keyboard logic for the chart of accounts").</para>
     /// </summary>
     public void ShowChartOfAccounts()
     {
@@ -2762,6 +3093,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>Opens the Stock-Item creation master (Masters → Create → Inventory Masters → Stock Item).</summary>
+    /// <summary>
+    /// WI-3 — Ctrl+Enter on the Stock Item master's <b>existing-items</b> list: opens the highlighted item for
+    /// <b>alteration</b>. Returns false (and does nothing) on any other screen, or when no row is highlighted, so
+    /// the key stays free everywhere else.
+    ///
+    /// <para>This is the ENTRY POINT <see cref="StockItemMasterViewModel.ForAlter"/> was missing. The Chart of
+    /// Accounts is an accounts surface — its rows carry a LedgerId or a GroupId and nothing else — so the natural
+    /// home for altering an inventory master is the inventory master's own list of what already exists, which is
+    /// the surface the operator is already looking at after creating an item.</para>
+    /// </summary>
+    public bool AlterHighlightedStockItemRow()
+    {
+        if (!IsStockItemMasterScreen) return false;
+        if (StockItemMaster!.HighlightedRow is not { } row) return false;
+
+        ShowStockItemAlter(row.StockItemId);
+        return true;
+    }
+
+    /// <summary>
+    /// Opens the Stock Item master in <b>Alter</b> mode over an existing item (WI-3): the same form pre-filled,
+    /// saving against the item's stable Guid so a rename follows every historical inventory entry. A no-op if the
+    /// id does not resolve.
+    /// </summary>
+    public void ShowStockItemAlter(Guid itemId)
+    {
+        if (Company is null) return;
+
+        var master = StockItemMasterViewModel.ForAlter(Company, _storage, itemId, onChanged: () => { });
+        if (master is null) return;
+
+        OpenPageColumn(new GatewayColumn("Stock Item Alteration", master), Screen.StockItemMaster,
+            "Stock Item Alteration", () => StockItemMaster = master);
+    }
+
     public void ShowStockItemMaster()
     {
         if (Company is null) return;
@@ -3506,8 +3872,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TdsEnabled: true }) return;
 
         var page = new Form26QViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 26Q", page), Screen.Form26Q,
-            "Form 26Q (Quarterly TDS Return)", () => Form26Q = page);
+        var form26Q = FormMenuLabel("26Q");
+        OpenPageColumn(new GatewayColumn(form26Q, page), Screen.Form26Q,
+            $"{form26Q} (Quarterly TDS Return)", () => Form26Q = page);
     }
 
     /// <summary>True while the Form 26Q return report page is the active screen (drives its arrow-key nav).</summary>
@@ -3680,7 +4047,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var master = new TaxDeclarationViewModel(Company, _storage, onChanged: () => { });
         OpenPageColumn(new GatewayColumn("Income Tax Declaration", master), Screen.TaxDeclarationMaster,
-            "Income Tax Declaration (Form 12BB)", () => TaxDeclarationMaster = master);
+            $"Income Tax Declaration ({FormMenuLabel("12BB")})", () => TaxDeclarationMaster = master);
     }
 
     /// <summary>True while the Income-Tax-Declaration master is the active screen (drives its arrow-key nav).</summary>
@@ -3697,8 +4064,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { SalaryTdsEnabled: true }) return;
 
         var page = new Form24QViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 24Q", page), Screen.Form24Q,
-            "Form 24Q (Quarterly Salary-TDS Return)", () => Form24Q = page);
+        var form24Q = FormMenuLabel("24Q");
+        OpenPageColumn(new GatewayColumn(form24Q, page), Screen.Form24Q,
+            $"{form24Q} (Quarterly Salary-TDS Return)", () => Form24Q = page);
     }
 
     /// <summary>True while the Form 24Q return report page is the active screen (drives its arrow-key nav).</summary>
@@ -3722,8 +4090,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { SalaryTdsEnabled: true }) return;
 
         var page = new Form16ViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 16", page), Screen.Form16,
-            "Form 16 (Salary-TDS Certificate)", () => Form16 = page);
+        var form16 = FormMenuLabel("16");
+        OpenPageColumn(new GatewayColumn(form16, page), Screen.Form16,
+            $"{form16} (Salary-TDS Certificate)", () => Form16 = page);
     }
 
     /// <summary>True while the Form 16 certificate page is the active screen (drives its arrow-key nav).</summary>
@@ -3782,8 +4151,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TcsEnabled: true }) return;
 
         var page = new Form27EQViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 27EQ", page), Screen.Form27EQ,
-            "Form 27EQ (Quarterly TCS Return)", () => Form27EQ = page);
+        var form27EQ = FormMenuLabel("27EQ");
+        OpenPageColumn(new GatewayColumn(form27EQ, page), Screen.Form27EQ,
+            $"{form27EQ} (Quarterly TCS Return)", () => Form27EQ = page);
     }
 
     /// <summary>True while the Form 27EQ return report page is the active screen (drives its arrow-key nav).</summary>
@@ -3813,8 +4183,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TdsEnabled: true }) return;
 
         var page = new Form16AViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 16A", page), Screen.Form16A,
-            "Form 16A (TDS Certificate)", () => Form16A = page);
+        var form16A = FormMenuLabel("16A");
+        OpenPageColumn(new GatewayColumn(form16A, page), Screen.Form16A,
+            $"{form16A} (TDS Certificate)", () => Form16A = page);
     }
 
     /// <summary>True while the Form 16A certificate page is the active screen (drives its arrow-key nav).</summary>
@@ -3838,8 +4209,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TcsEnabled: true }) return;
 
         var page = new Form27DViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 27D", page), Screen.Form27D,
-            "Form 27D (TCS Certificate)", () => Form27D = page);
+        var form27D = FormMenuLabel("27D");
+        OpenPageColumn(new GatewayColumn(form27D, page), Screen.Form27D,
+            $"{form27D} (TCS Certificate)", () => Form27D = page);
     }
 
     /// <summary>True while the Form 27D certificate page is the active screen (drives its arrow-key nav).</summary>
@@ -4108,20 +4480,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return -1;
     }
 
-    /// <summary>Removes every column after <paramref name="index"/> (keeps [0..index]).</summary>
+    /// <summary>
+    /// Removes every column after <paramref name="index"/> (keeps [0..index]).
+    /// <para>WI-1 (DEFECT 2) — this is the single choke point every page-REPLACING route funnels through, so an
+    /// armed Alt+C create-on-the-fly is disarmed HERE the moment its column is trimmed away. Clearing it only in
+    /// <see cref="BackFromPage"/> left the request armed after any navigation and soft-locked Alt+C for the rest
+    /// of the session.</para>
+    /// </summary>
     private void TrimColumnsAfter(int index)
     {
         for (var i = Columns.Count - 1; i > index; i--)
             Columns.RemoveAt(i);
+
+        AbandonCreateOnTheFlyIfColumnGone();
     }
 
     /// <summary>Nulls every page view model (they are mutually exclusive — at most one page column open).</summary>
     private void ClearSubScreens()
     {
+        // WI-11: the open master is going away with its page view model — the Accept confirmation goes with it.
+        ResetMasterAcceptPrompt();
+
         Reports = null;
         VoucherEntry = null;
         InventoryVoucherEntry = null;
         LedgerMaster = null;
+        AccountGroupMaster = null;
         ChartOfAccounts = null;
         Outstandings = null;
         CostCategoryMaster = null;
@@ -4226,6 +4610,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void LeaveCascade()
     {
         Columns.Clear();
+        // WI-1 (DEFECT 2) — leaving the cascade takes any create column with it; disarm so Alt+C is not soft-locked.
+        AbandonCreateOnTheFlyIfColumnGone();
         IsGatewayCascade = false;
     }
 
@@ -4249,7 +4635,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             MaterialMovementEntry?.Cancel();
         else if (CurrentScreen == Screen.PosBilling)
             PosBilling?.Cancel();
-        else if (CurrentScreen is Screen.LedgerMaster or Screen.CostCategoryMaster
+        else if (CurrentScreen is Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
                  or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
                  or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
                  or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
@@ -4263,6 +4649,134 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.PayHeadMaster or Screen.SalaryStructureMaster)
             BackFromPage();
     }
+
+    // =============================================================== WI-11: the Accept? (Y/N) confirmation
+
+    /// <summary>
+    /// WI-11 — true while the terminal "Accept? (Y/N)" confirmation is up over a master screen. Every Y/N key
+    /// arm in the window's tunnel handler is SCOPED to this flag, which is what stops the confirmation from
+    /// hijacking Y (Gateway → Export Data) or Alt+N (Auto Columns) anywhere else in the app.
+    /// </summary>
+    [ObservableProperty] private bool _isAcceptPromptOpen;
+
+    /// <summary>The prompt text shown while <see cref="IsAcceptPromptOpen"/> — e.g. "Accept Ledger? (Y/N)".</summary>
+    [ObservableProperty] private string _acceptPromptText = string.Empty;
+
+    /// <summary>True on the master screens that carry an Accept confirmation (the WI-11 scope).</summary>
+    public bool IsMasterAcceptScreen =>
+        CurrentScreen is Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
+            or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
+            or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
+            or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
+            or Screen.BatchMaster or Screen.BomMaster or Screen.ReorderLevelsMaster
+            or Screen.NatureOfPaymentMaster or Screen.NatureOfGoodsMaster
+            or Screen.EmployeeCategoryMaster or Screen.EmployeeGroupMaster or Screen.EmployeeMaster
+            or Screen.PayrollUnitMaster or Screen.AttendanceTypeMaster
+            or Screen.PayHeadMaster or Screen.SalaryStructureMaster;
+
+    /// <summary>
+    /// WI-11 — raises the "Accept? (Y/N)" confirmation over the open master screen. This is the route the
+    /// on-screen Accept affordance and the Enter key take.
+    /// <para>
+    /// <b>Ctrl+A does NOT come through here.</b> The accept-as-is shortcut keeps its existing direct path
+    /// (<see cref="ActivateSelected"/>), so it saves without ever raising the prompt — matching the reference
+    /// product, where the operator may answer Yes under Accept OR press Ctrl+A, and keeping the ~40 screens
+    /// already regression-locked on Ctrl+A untouched.
+    /// </para>
+    /// <returns><c>true</c> when the prompt was raised; <c>false</c> off a master screen (a safe no-op).</returns>
+    /// </summary>
+    public bool RequestMasterAccept()
+    {
+        if (!IsMasterAcceptScreen || IsAcceptPromptOpen) return false;
+
+        AcceptPromptText = $"Accept {MasterAcceptNoun()}? (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>WI-11 — "Y": dismiss the prompt and perform the SAME save Ctrl+A performs.</summary>
+    public bool ConfirmMasterAccept()
+    {
+        if (!IsAcceptPromptOpen) return false;
+
+        IsAcceptPromptOpen = false;
+        AcceptPromptText = string.Empty;
+        // Deliberately the identical code path as Ctrl+A, so the confirmation can never drift from the
+        // accept-as-is shortcut into saving something different.
+        ActivateSelected();
+        return true;
+    }
+
+    /// <summary>WI-11 — "N" / Esc: dismiss the prompt and return to editing WITHOUT saving.</summary>
+    public bool DismissMasterAccept()
+    {
+        if (!IsAcceptPromptOpen) return false;
+
+        IsAcceptPromptOpen = false;
+        AcceptPromptText = string.Empty;
+        return true;
+    }
+
+    /// <summary>
+    /// WI-11 — THE TEARDOWN CHOKE POINT for the Accept confirmation. Answering Y/N is only ONE way to leave a
+    /// master screen; Ctrl+A (accept-as-is, which bypasses the prompt by design), Alt+X (cancel), Esc and any
+    /// navigation away all leave it too. Before this existed the flag stayed TRUE after those exits and the
+    /// still-live Y/N arm — which sits EARLIER in the window's first-match-wins chain — then swallowed the next
+    /// bare <c>Y</c> on the Gateway, drilling the highlighted row instead of opening Export Data (and leaving a
+    /// stale confirmation bar until that stray keystroke). That is a shipped accelerator being SHADOWED, the
+    /// exact invariant WI-11 promised not to break.
+    /// <para>
+    /// Rather than scatter a reset down every exit, this is called from the three places a master screen can be
+    /// torn down or superseded: <see cref="OnCurrentScreenChanged"/> (navigating away — Alt+X, Esc, Back, any
+    /// jump), <see cref="ClearSubScreens"/> (the page view models being nulled, the campaign convention for new
+    /// screen state) and the top of <see cref="ActivateSelected"/> (Ctrl+A, which SAVES WITHOUT changing the
+    /// screen and so is invisible to the other two).
+    /// </para>
+    /// </summary>
+    private void ResetMasterAcceptPrompt()
+    {
+        if (!IsAcceptPromptOpen && AcceptPromptText.Length == 0) return;
+
+        IsAcceptPromptOpen = false;
+        AcceptPromptText = string.Empty;
+    }
+
+    /// <summary>
+    /// Any change of screen tears down whatever master was open, so the Accept confirmation can never survive
+    /// into the next screen (see <see cref="ResetMasterAcceptPrompt"/>). Raising the prompt does not change the
+    /// screen, so this never cancels a confirmation the operator is looking at.
+    /// </summary>
+    partial void OnCurrentScreenChanged(Screen value) => ResetMasterAcceptPrompt();
+
+    /// <summary>The human noun for the open master screen, used in the prompt text.</summary>
+    private string MasterAcceptNoun() => CurrentScreen switch
+    {
+        Screen.LedgerMaster => "Ledger",
+        Screen.AccountGroupMaster => "Group",
+        Screen.CostCategoryMaster => "Cost Category",
+        Screen.CostCentreMaster => "Cost Centre",
+        Screen.BudgetMaster => "Budget",
+        Screen.ScenarioMaster => "Scenario",
+        Screen.CurrencyMaster => "Currency",
+        Screen.StockGroupMaster => "Stock Group",
+        Screen.StockCategoryMaster => "Stock Category",
+        Screen.UnitMaster => "Unit",
+        Screen.GodownMaster => "Godown",
+        Screen.StockItemMaster => "Stock Item",
+        Screen.BatchMaster => "Batch",
+        Screen.BomMaster => "Bill of Materials",
+        Screen.ReorderLevelsMaster => "Reorder Level",
+        Screen.NatureOfPaymentMaster => "Nature of Payment",
+        Screen.NatureOfGoodsMaster => "Nature of Goods",
+        Screen.EmployeeCategoryMaster => "Employee Category",
+        Screen.EmployeeGroupMaster => "Employee Group",
+        Screen.EmployeeMaster => "Employee",
+        Screen.PayrollUnitMaster => "Payroll Unit",
+        Screen.AttendanceTypeMaster => "Attendance Type",
+        Screen.PayHeadMaster => "Pay Head",
+        Screen.SalaryStructureMaster => "Salary Structure",
+        _ => "",
+    };
 
     /// <summary>Ctrl+A on the Currency master: create the currency form's entry (its main create action).</summary>
     public bool CreateCurrency() => CurrencyMaster?.CreateCurrency() ?? false;
@@ -4346,17 +4860,442 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Alt+C: create the master appropriate to the active screen. On the stock-only Manufacturing Journal and
     /// BOM screens it inline-creates a COMPONENT stock item (RQ-53) — opening the accounting Ledger master there
     /// is nonsensical. Everywhere else (with a company open) it opens the Ledger-creation master.
+    /// <para>WI-1: <paramref name="fieldId"/>/<paramref name="caller"/> carry the FOCUSED voucher field (the view
+    /// resolves them from the key source; see <c>Views.CreateField</c>). When they name a master-backed field the
+    /// shortcut becomes context-aware "create on the fly": the matching creation screen opens NON-DESTRUCTIVELY
+    /// beside the live voucher and the new master is selected back into that very field. Both are null off a
+    /// voucher (or on an untagged enum/voucher-reference field), where the historic behaviour above applies.</para>
     /// </summary>
-    public void CreateLedgerShortcut()
+    public void CreateLedgerShortcut(string? fieldId = null, object? caller = null)
     {
         if (Company is null) return;
-        if (CurrentScreen is Screen.ManufacturingJournalEntry or Screen.BomMaster)
+
+        // WI-1 — the context-aware arm. Only a TAGGED field dispatches — from a voucher-entry screen, OR from a
+        // create column already open over one. That second case is DEPTH 2 and it is the corpus's own example:
+        // Alt+C on the Stock Item master's "Under" / "Base unit" picker. Without it the Stock Item creation
+        // screen is a DEAD END on a company with no stock group or unit (CanCreate is false and the only offered
+        // escape — create the missing master — is unreachable).
+        var kind = MasterCreateFields.KindFor(fieldId);
+        if (kind != MasterCreateKind.None && (IsCreateOnTheFlyCaller() || IsCreateOnTheFlyOpen))
+        {
+            CreateMasterOnTheFly(kind, fieldId!, caller);
+            return;
+        }
+
+        // WI-1 / DEFECT 1 — THE SECOND DATA-LOSS GATE. A create column is open OVER a live entry screen, so
+        // CurrentScreen is the MASTER screen and IsCreateOnTheFlyCaller() below is false. Every route past this
+        // line replaces the page (OpenPageColumn → TrimColumnsAfter + ClearSubScreens), which would null the
+        // entry view model still living underneath and destroy the in-progress voucher — the very loss WI-1
+        // exists to remove, reintroduced one screen deeper. Alt+C on an UNTAGGED field of a create column is
+        // therefore INERT. (Before this guard a nested Alt+C over a non-Ledger create column fell through to
+        // ShowLedgerMaster; over a Ledger create column it was safe only by the != Screen.LedgerMaster accident.)
+        if (IsCreateOnTheFlyOpen) return;
+
+        // RQ-53 — the stock-only Manufacturing Journal / BOM screens inline-create a COMPONENT stock item;
+        // opening the accounting Ledger master there is nonsensical. On the Manufacturing Journal (a live ENTRY
+        // screen) this now goes through the non-destructive open too, so the shipped shortcut can no longer
+        // discard a half-built manufacturing entry either. The BOM master is not an entry screen, so it keeps
+        // the ordinary page-replacing route.
+        if (CurrentScreen == Screen.ManufacturingJournalEntry)
+        {
+            CreateMasterOnTheFly(MasterCreateKind.StockItem, MasterCreateFields.StockItem, caller: null);
+            return;
+        }
+        if (CurrentScreen == Screen.BomMaster)
         {
             ShowStockItemMaster();
             return;
         }
+
+        // WI-1 — INERT on an entry screen whose focused field has no creatable master behind it (a Dr/Cr side,
+        // a bill Ref-Type, a reference to an existing voucher). Falling through to the Ledger master here would
+        // be BOTH a wrong-screen open AND — because that route replaces the page — the very data loss this work
+        // item exists to remove.
+        if (IsCreateOnTheFlyCaller()) return;
+
         if (CurrentScreen != Screen.LedgerMaster)
             ShowLedgerMaster();
+    }
+
+    /// <summary>
+    /// WI-1 — the master kind the Alt+C BUTTON creates on the active screen. The button carries no focused
+    /// field, so it cannot use the key's field dispatch; it uses the screen's own default instead. On the
+    /// stock-only Manufacturing-Journal / BOM screens that is a Stock Item, everywhere else a Ledger.
+    /// </summary>
+    private MasterCreateKind CreateMasterButtonKind() => CurrentScreen
+        is Screen.ManufacturingJournalEntry or Screen.BomMaster
+        ? MasterCreateKind.StockItem
+        : MasterCreateKind.Ledger;
+
+    /// <summary>
+    /// WI-1 — the Alt+C button label for the active screen. On the stock-only Manufacturing-Journal / BOM
+    /// screens the shortcut creates a Stock Item, so the button must say so rather than promise a Ledger.
+    /// </summary>
+    private string CreateMasterButtonLabel()
+        => "Create " + MasterCreateFields.NounFor(CreateMasterButtonKind());
+
+    /// <summary>
+    /// WI-1 / DEFECT 3 — what the Alt+C BUTTON-BAR item runs. Binding it straight to
+    /// <see cref="CreateLedgerShortcut()"/> made it a DEAD control on every voucher-entry screen: with no field
+    /// context it hit the inert guard and did nothing while still rendering enabled and captioned "Create
+    /// Ledger" (before WI-1 the button bound <c>ShowLedgerMaster</c> and worked, so that was a regression of
+    /// shipped behaviour). The button now takes the SAME non-destructive dispatch the key takes — the screen's
+    /// default master opens beside the live voucher instead of replacing it — and simply has no field to return
+    /// the new master into. Off an entry screen it keeps the historic page-replacing route.
+    /// </summary>
+    private void CreateMasterFromButton()
+    {
+        if (Company is null) return;
+
+        if (IsCreateOnTheFlyCaller())
+        {
+            var kind = CreateMasterButtonKind();
+            CreateMasterOnTheFly(kind, MasterCreateFields.FieldIdFor(kind), caller: null);
+            return;
+        }
+
+        CreateLedgerShortcut();
+    }
+
+    // =============================================================== WI-1: Alt+C create-on-the-fly
+
+    /// <summary>
+    /// WI-1 — the in-flight "create on the fly" round-trip: which master screen was opened, from which field of
+    /// which caller view model, the exact column it was appended as, and the master ids that existed BEFORE it
+    /// opened (so the newly-created one can be identified by set difference — no reliance on "the last row",
+    /// which a name-sorted master list does not guarantee).
+    /// </summary>
+    private sealed record CreateOnTheFlyRequest(
+        MasterCreateKind Kind,
+        string FieldId,
+        object? Caller,
+        GatewayColumn Column,
+        System.Collections.Generic.HashSet<Guid> ExistingIds);
+
+    /// <summary>
+    /// WI-1 — the in-flight requests, innermost LAST (a stack). It is a stack rather than a single slot because
+    /// the corpus's own case nests: Alt+C on a voucher's item field opens Stock Item Creation, and Alt+C on THAT
+    /// screen's "Under" / "Base unit" picker must open Stock Group / Unit Creation over it, then unwind — each
+    /// pop returning to the screen beneath with the new master selected. There is deliberately no depth cap.
+    /// </summary>
+    private readonly System.Collections.Generic.List<CreateOnTheFlyRequest> _createOnTheFly = new();
+
+    /// <summary>True while an Alt+C create screen is open OVER a live entry screen (WI-1).</summary>
+    public bool IsCreateOnTheFlyOpen => _createOnTheFly.Count > 0;
+
+    /// <summary>How many create-on-the-fly columns are stacked (0 when none is open). 2 = the nested case.</summary>
+    public int CreateOnTheFlyDepth => _createOnTheFly.Count;
+
+    /// <summary>The screens a create-on-the-fly may be launched FROM — the voucher-entry family.</summary>
+    private bool IsCreateOnTheFlyCaller() => CurrentScreen
+        is Screen.VoucherEntry or Screen.InventoryVoucherEntry or Screen.ManufacturingJournalEntry
+        or Screen.JobWorkOrderEntry or Screen.MaterialMovementEntry or Screen.PosBilling;
+
+    /// <summary>
+    /// WI-1 — opens <paramref name="kind"/>'s creation screen NON-DESTRUCTIVELY over the live voucher and arms
+    /// the return-to-caller. Returns false when the kind has no master screen, or when the shell is not on a
+    /// screen a create may be launched from — an entry screen, or a create column already open over one (the
+    /// nested Stock Item → Stock Group / Unit case). Anywhere else the ordinary page-replacing route applies.
+    /// </summary>
+    public bool CreateMasterOnTheFly(MasterCreateKind kind, string fieldId, object? caller)
+    {
+        if (Company is null || kind == MasterCreateKind.None) return false;
+        if (!IsCreateOnTheFlyCaller() && !IsCreateOnTheFlyOpen) return false;
+
+        var existing = SnapshotMasterIds(kind);
+
+        // Build the master with its onChanged wired to the round-trip completion — this is the ONLY difference
+        // from the ordinary Show*Master route, which passes an empty callback.
+        Action onCreated = CompleteCreateOnTheFly;
+        GatewayColumn column;
+        Screen screen;
+        string title;
+        Action setPage;
+
+        switch (kind)
+        {
+            case MasterCreateKind.Ledger:
+            {
+                var m = new LedgerMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Ledger Creation", m), Screen.LedgerMaster, "Ledger Creation",
+                     () => LedgerMaster = m);
+                break;
+            }
+            case MasterCreateKind.AccountGroup:
+            {
+                // WI-7 (S2) shipped this master; Alt+C REUSES it rather than introducing a second Group screen.
+                var m = new AccountGroupMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Group Creation", m), Screen.AccountGroupMaster, "Group Creation",
+                     () => AccountGroupMaster = m);
+                break;
+            }
+            case MasterCreateKind.CostCategory:
+            {
+                var m = new CostCategoryMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Cost Category Creation", m), Screen.CostCategoryMaster,
+                     "Cost Category Creation", () => CostCategoryMaster = m);
+                break;
+            }
+            case MasterCreateKind.CostCentre:
+            {
+                var m = new CostCentreMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Cost Centre Creation", m), Screen.CostCentreMaster,
+                     "Cost Centre Creation", () => CostCentreMaster = m);
+                break;
+            }
+            case MasterCreateKind.StockItem:
+            {
+                var m = new StockItemMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Stock Item Creation", m), Screen.StockItemMaster,
+                     "Stock Item Creation", () => StockItemMaster = m);
+                break;
+            }
+            case MasterCreateKind.StockGroup:
+            {
+                var m = new StockGroupMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Stock Group Creation", m), Screen.StockGroupMaster,
+                     "Stock Group Creation", () => StockGroupMaster = m);
+                break;
+            }
+            case MasterCreateKind.StockCategory:
+            {
+                var m = new StockCategoryMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Stock Category Creation", m), Screen.StockCategoryMaster,
+                     "Stock Category Creation", () => StockCategoryMaster = m);
+                break;
+            }
+            case MasterCreateKind.Unit:
+            {
+                var m = new UnitMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Unit Creation", m), Screen.UnitMaster,
+                     "Unit Creation", () => UnitMaster = m);
+                break;
+            }
+            case MasterCreateKind.Godown:
+            {
+                var m = new GodownMasterViewModel(Company, _storage, onCreated);
+                (column, screen, title, setPage) =
+                    (new GatewayColumn("Godown Creation", m), Screen.GodownMaster,
+                     "Godown Creation", () => GodownMaster = m);
+                break;
+            }
+            default:
+                return false;
+        }
+
+        _createOnTheFly.Add(new CreateOnTheFlyRequest(kind, fieldId, caller, column, existing));
+        OpenCreateMasterColumn(column, screen, title, setPage);
+        return true;
+    }
+
+    /// <summary>
+    /// WI-1 — THE DATA-LOSS FIX. Appends a create-master page column to the right of the LIVE entry screen
+    /// WITHOUT <see cref="TrimColumnsAfter"/>/<see cref="ClearSubScreens"/> — the same non-destructive append the
+    /// WI-12 Day-Book Alt+A picker uses (<see cref="OpenAddVoucherFromReport"/>) and the F12 config column uses
+    /// over its live report.
+    /// <para>Going through <see cref="OpenPageColumn"/> instead would trim back to the last MENU column and null
+    /// <see cref="VoucherEntry"/>, SILENTLY DESTROYING the half-typed voucher: the operator who pressed Alt+C to
+    /// add one missing ledger would lose every line already keyed. The entry view model instance therefore
+    /// survives beneath this column, and popping the column (Esc / Alt+X / a completed create) re-binds that SAME
+    /// instance through <see cref="RehydratePageFromRightmostColumn"/> with its state intact.</para>
+    /// </summary>
+    private void OpenCreateMasterColumn(GatewayColumn pageColumn, Screen screen, string title, Action setPage)
+    {
+        setPage();
+        Columns.Add(pageColumn);
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>The ids of every master of <paramref name="kind"/> currently on the company.</summary>
+    private System.Collections.Generic.HashSet<Guid> SnapshotMasterIds(MasterCreateKind kind)
+        => new(EnumerateMasterIds(kind));
+
+    private System.Collections.Generic.IEnumerable<Guid> EnumerateMasterIds(MasterCreateKind kind)
+    {
+        if (Company is null) return Array.Empty<Guid>();
+        return kind switch
+        {
+            MasterCreateKind.Ledger => Company.Ledgers.Select(x => x.Id),
+            MasterCreateKind.AccountGroup => Company.Groups.Select(x => x.Id),
+            MasterCreateKind.CostCategory => Company.CostCategories.Select(x => x.Id),
+            MasterCreateKind.CostCentre => Company.CostCentres.Select(x => x.Id),
+            MasterCreateKind.StockItem => Company.StockItems.Select(x => x.Id),
+            MasterCreateKind.StockGroup => Company.StockGroups.Select(x => x.Id),
+            MasterCreateKind.StockCategory => Company.StockCategories.Select(x => x.Id),
+            MasterCreateKind.Unit => Company.Units.Select(x => x.Id),
+            MasterCreateKind.Godown => Company.Godowns.Select(x => x.Id),
+            _ => Array.Empty<Guid>(),
+        };
+    }
+
+    /// <summary>
+    /// WI-1 — the master was created: pop the create column (returning to the SAME live voucher) and SELECT the
+    /// new master in the very field Alt+C was pressed in. Identifying the new master by set difference against
+    /// the pre-open snapshot is deliberate — master lists are name-sorted, so "the last one" would frequently be
+    /// the wrong record.
+    /// </summary>
+    private void CompleteCreateOnTheFly()
+    {
+        if (_createOnTheFly.Count == 0) return;
+
+        // The INNERMOST request is the one whose screen just created something (the create columns unwind in
+        // stack order), so pop from the top.
+        var req = _createOnTheFly[^1];
+        var created = EnumerateMasterIds(req.Kind).FirstOrDefault(id => !req.ExistingIds.Contains(id));
+        _createOnTheFly.RemoveAt(_createOnTheFly.Count - 1);
+
+        // Pop the create column — the entry view model beneath is re-bound by BackFromPage's rehydrate.
+        if (Columns.Count > 0 && ReferenceEquals(Columns[^1], req.Column))
+            BackFromPage();
+
+        if (created != Guid.Empty)
+            ApplyCreatedMaster(req.Kind, req.FieldId, req.Caller, created);
+    }
+
+    /// <summary>
+    /// WI-1 — drops every armed create-on-the-fly whose column is no longer in the cascade, i.e. one popped
+    /// WITHOUT a create (Esc / Alt+X) or TRIMMED AWAY by a page-replacing navigation. Without this the request
+    /// would stay armed and a later, unrelated master create on the same screen would jump back into a stale
+    /// field.
+    /// <para><b>DEFECT 2 — the session soft-lock.</b> This used to be called from <see cref="BackFromPage"/>
+    /// ALONE, so any <see cref="OpenPageColumn"/> navigation trimmed the create column while leaving the request
+    /// armed — and <see cref="IsCreateOnTheFlyOpen"/> then made the new Alt+C guard (and, before it, the
+    /// "already open" check) reject EVERY subsequent Alt+C for the rest of the session, silently, because
+    /// <see cref="CreateLedgerShortcut"/> discards the false. It is now driven from
+    /// <see cref="TrimColumnsAfter"/> — the one place every page-replacing route funnels through — so the
+    /// request cannot outlive its column by any path.</para>
+    /// </summary>
+    private void AbandonCreateOnTheFlyIfColumnGone()
+    {
+        for (var i = _createOnTheFly.Count - 1; i >= 0; i--)
+            if (!Columns.Contains(_createOnTheFly[i].Column))
+                _createOnTheFly.RemoveAt(i);
+    }
+
+    /// <summary>
+    /// WI-1 — writes the newly-created master back into the field Alt+C was pressed in. The caller is the tagged
+    /// control's own DataContext (the specific line/row view model), so the value lands in THAT row.
+    /// </summary>
+    private void ApplyCreatedMaster(MasterCreateKind kind, string fieldId, object? caller, Guid createdId)
+    {
+        if (Company is null) return;
+
+        // The party/stock-leg pickers are wrapper lists owned by the entry view model; refresh them first so the
+        // new ledger is an option before it is selected (otherwise the selection would silently not stick).
+        (VoucherEntry as VoucherEntryViewModel)?.RefreshMasterPickers();
+
+        switch (caller)
+        {
+            case VoucherLineViewModel line when fieldId == MasterCreateFields.Ledger:
+                line.SelectedLedger = Company.Ledgers.FirstOrDefault(l => l.Id == createdId);
+                return;
+
+            case AdditionalCostRowViewModel row when fieldId == MasterCreateFields.Ledger:
+                row.SelectedLedger = Company.Ledgers.FirstOrDefault(l => l.Id == createdId);
+                return;
+
+            case CostAllocationRowViewModel row when fieldId == MasterCreateFields.CostCategory:
+                row.SelectedCategory = Company.CostCategories.FirstOrDefault(c => c.Id == createdId);
+                return;
+
+            case CostAllocationRowViewModel row when fieldId == MasterCreateFields.CostCentre:
+                row.SelectedCentre = Company.CostCentres.FirstOrDefault(c => c.Id == createdId);
+                return;
+
+            case InventoryVoucherLineViewModel line when fieldId == MasterCreateFields.StockItem:
+                line.SelectedItem = Company.StockItems.FirstOrDefault(i => i.Id == createdId);
+                return;
+
+            case InventoryVoucherLineViewModel line when fieldId == MasterCreateFields.Godown:
+                line.SelectedGodown = Company.Godowns.FirstOrDefault(g => g.Id == createdId);
+                return;
+
+            case JobWorkComponentLineViewModel line when fieldId == MasterCreateFields.StockItem:
+                line.SelectedItem = Company.StockItems.FirstOrDefault(i => i.Id == createdId);
+                return;
+
+            case JobWorkComponentLineViewModel line when fieldId == MasterCreateFields.Godown:
+                line.SelectedGodown = Company.Godowns.FirstOrDefault(g => g.Id == createdId);
+                return;
+
+            case VoucherEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case VoucherEntryViewModel entry when fieldId == MasterCreateFields.StockLedger:
+                entry.SelectedStockLedger = entry.StockLedgers.FirstOrDefault(l => l.Id == createdId)
+                                            ?? entry.SelectedStockLedger;
+                return;
+
+            case InventoryVoucherEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case JobWorkOrderEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case MaterialMovementEntryViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            case PosBillingViewModel entry when fieldId == MasterCreateFields.Party:
+                entry.SelectedParty = ResolvePartyOption(entry.Parties, createdId) ?? entry.SelectedParty;
+                return;
+
+            // ---- DEPTH 2: the CREATE SCREEN's own pickers (the corpus's Stock Item → Unit / Stock Group /
+            // Stock Category case, plus Ledger → Group). Refresh the master's picker list FIRST — the list was
+            // built before the new record existed, so selecting into a stale list silently would not stick.
+            case StockItemMasterViewModel m when fieldId == MasterCreateFields.StockGroup:
+                m.RefreshPickers();
+                m.SelectedGroup = m.Groups.FirstOrDefault(g => g.Id == createdId) ?? m.SelectedGroup;
+                return;
+
+            case StockItemMasterViewModel m when fieldId == MasterCreateFields.Unit:
+                m.RefreshPickers();
+                m.SelectedUnit = m.Units.FirstOrDefault(u => u.Id == createdId) ?? m.SelectedUnit;
+                return;
+
+            case StockItemMasterViewModel m when fieldId == MasterCreateFields.StockCategory:
+                m.RefreshPickers();
+                m.SelectedCategory = m.CategoryOptions.FirstOrDefault(o => o.Category?.Id == createdId)
+                                     ?? m.SelectedCategory;
+                return;
+
+            case LedgerMasterViewModel m when fieldId == MasterCreateFields.AccountGroup:
+                m.RefreshGroups();
+                m.SelectedGroup = m.Groups.FirstOrDefault(g => g.Id == createdId) ?? m.SelectedGroup;
+                return;
+        }
+    }
+
+    /// <summary>
+    /// WI-1 — the <see cref="PartyOption"/> for a just-created ledger, APPENDING one when the entry screen's
+    /// party list was built before the ledger existed. Without the append the round-trip would silently fail on
+    /// every entry screen whose party picker is a snapshot wrapper list: the ledger would be created, the
+    /// operator returned to the voucher, and the field left blank as though nothing had happened.
+    /// </summary>
+    private PartyOption? ResolvePartyOption(
+        System.Collections.ObjectModel.ObservableCollection<PartyOption> parties, Guid createdId)
+    {
+        if (parties.FirstOrDefault(p => p.Ledger?.Id == createdId) is { } existing) return existing;
+        if (Company?.Ledgers.FirstOrDefault(l => l.Id == createdId) is not { } ledger) return null;
+
+        var option = new PartyOption { Ledger = ledger, Display = ledger.Name };
+        parties.Add(option);
+        return option;
     }
 
     /// <summary>Adds a fresh blank particulars line to the current voucher (view "Add line" button).</summary>
@@ -4403,6 +5342,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>True while an Outstandings (Receivables/Payables) page column is the active screen.</summary>
     public bool IsOutstandingsScreen => CurrentScreen == Screen.Outstandings && Outstandings is not null;
+
+    /// <summary>True while the Chart of Accounts page is the active screen — WI-3 gives it arrow-key highlighting
+    /// and Enter-to-alter.</summary>
+    public bool IsChartOfAccountsScreen =>
+        CurrentScreen == Screen.ChartOfAccounts && ChartOfAccounts is not null;
+
+    /// <summary>True iff the Stock Item master is the live screen — the arrows then move its existing-items
+    /// highlight and Ctrl+Enter opens the highlighted item for alteration (WI-3).</summary>
+    public bool IsStockItemMasterScreen =>
+        CurrentScreen == Screen.StockItemMaster && StockItemMaster is not null;
 
     /// <summary>Spacebar on the Outstandings page: toggle the highlighted bill's multi-select flag.</summary>
     public void ToggleOutstandingSelection()
@@ -4521,6 +5470,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // WI-3: on the Chart of Accounts the arrows move the account-row highlight (the master Enter opens for
+        // alteration). This arm MUST sit before the IsGatewayCascade branch below — the CoA is a page column, so
+        // that branch would otherwise swallow the keystroke and the tree would never respond.
+        if (IsChartOfAccountsScreen)
+        {
+            ChartOfAccounts!.MoveHighlight(direction);
+            return;
+        }
+
+        // WI-3: on the Stock Item master the arrows move the EXISTING-ITEMS highlight (Ctrl+Enter then opens that
+        // item for alteration). Same placement rule as the Chart of Accounts arm above — the master is a page
+        // column, so the IsGatewayCascade branch below would swallow the keystroke and the list would never
+        // respond. Nothing regresses: a page column is not a menu, so that branch already returned without acting.
+        if (IsStockItemMasterScreen)
+        {
+            StockItemMaster!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -4555,6 +5523,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void ActivateSelected()
     {
+        // WI-11: the accept-as-is path. Ctrl+A saves WITHOUT changing the screen, so it is invisible to the
+        // screen-change reset — clear the confirmation here or it leaks and shadows the Gateway's bare Y.
+        ResetMasterAcceptPrompt();
+
         switch (CurrentScreen)
         {
             case Screen.CreateCompany:
@@ -4566,8 +5538,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.InventoryVoucherEntry:
                 InventoryVoucherEntry?.Accept();
                 return;
+            // WI-3: the SAME screen serves Create and Alter, so Ctrl+A runs whichever verb it was opened for.
+            // Branching on IsAltering (not on a separate screen id) is what lets the alteration form be literally
+            // the creation form pre-filled, exactly as Tally does it.
+            case Screen.ChartOfAccounts:
+                AlterHighlightedChartRow();
+                return;
             case Screen.LedgerMaster:
-                LedgerMaster?.Create();
+                if (LedgerMaster is { IsAltering: true }) LedgerMaster.Alter();
+                else LedgerMaster?.Create();
+                return;
+            case Screen.AccountGroupMaster:
+                if (AccountGroupMaster is { IsAltering: true }) AccountGroupMaster.Alter();
+                else AccountGroupMaster?.Create();
                 return;
             case Screen.CostCategoryMaster:
                 CostCategoryMaster?.Create();
@@ -4587,8 +5570,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.GodownMaster:
                 GodownMaster?.Create();
                 return;
+            // WI-3: the SAME screen serves Create and Alter here too, so Ctrl+A runs whichever verb it was opened
+            // for. Without this branch a Stock Item Alteration screen's Ctrl+A ran Create() — which then failed
+            // on the duplicate name, leaving the operator's edits unsaved with a confusing "already exists".
             case Screen.StockItemMaster:
-                StockItemMaster?.Create();
+                if (StockItemMaster is { IsAltering: true }) StockItemMaster.Alter();
+                else StockItemMaster?.Create();
                 return;
             case Screen.BatchMaster:
                 BatchMaster?.Create();
@@ -4894,7 +5881,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Profit & Loss A/c": OpenReport(ReportKind.ProfitAndLoss); break;
             case "Trial Balance": OpenReport(ReportKind.TrialBalance); break;
             case "Ledger": ShowLedgerMaster(); break;
-            case "Group": ShowLedgerMaster(); break;
+            case "Group": ShowAccountGroupMaster(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
             case "Stock Group": ShowStockGroupMaster(); break;
@@ -4915,7 +5902,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Budget": ShowBudgetMaster(); break;
             case "Scenario": ShowScenarioMaster(); break;
             case "Currency": ShowCurrencyMaster(); break;
-            case "GST": ShowGstConfig(); break;
+            case "GST & Taxation": ShowGstConfig(); break;
             case "GST Rate Setup": ShowGstRateSetup(); break;
             // Composition returns (Phase 9 slice 3) — under Reports → Statutory Reports → Composition Returns.
             case "CMP-08": OpenCmp08Report(); break;
@@ -4955,12 +5942,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Payroll": ShowPayrollVoucher(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
-            case "Form 26Q": OpenForm26Q(); break;
+            // CA S9 — each return/certificate answers to BOTH its 1961-Act and its confirmed 2025-Act number, because
+            // FormMenuLabel picks the label by financial year and this switch dispatches on that label. Omitting a
+            // renumbered case would leave the menu item present but DEAD from FY 2026-27 onward. The dual-form labels
+            // ("Form 26Q / 140") are matched too, for the no-company-in-scope fallback.
+            case "Form 26Q" or "Form 140" or "Form 26Q / 140": OpenForm26Q(); break;
             case "TCS Stat Payment": ShowTcsStatPayment(); break;
             case "TCS Challan Reconciliation": OpenTcsChallanReconciliation(); break;
-            case "Form 27EQ": OpenForm27EQ(); break;
-            case "Form 16A": OpenForm16A(); break;
-            case "Form 27D": OpenForm27D(); break;
+            case "Form 27EQ" or "Form 143" or "Form 27EQ / 143": OpenForm27EQ(); break;
+            case "Form 16A" or "Form 131" or "Form 16A / 131": OpenForm16A(); break;
+            case "Form 27D" or "Form 133" or "Form 27D / 133": OpenForm27D(); break;
             case "Form 27A (TDS)": OpenForm27A("26Q"); break;
             case "Form 27A (TCS)": OpenForm27A("27EQ"); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
@@ -5008,8 +5999,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
             case "Bonus Register": OpenBonusRegister(); break;
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
-            case "Form 24Q": OpenForm24Q(); break;
-            case "Form 16": OpenForm16(); break;
+            case "Form 24Q" or "Form 138" or "Form 24Q / 138": OpenForm24Q(); break;
+            case "Form 16" or "Form 130" or "Form 16 / 130": OpenForm16(); break;
             // Payroll presentation reports (Phase 8 slice 8) — under Reports → Payroll Reports.
             case "Payslip": OpenReport(ReportKind.Payslip); break;
             case "Pay Sheet": OpenReport(ReportKind.PaySheet); break;
@@ -5094,6 +6085,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         Columns.RemoveAt(Columns.Count - 1);
         ClearSubScreens();
+        // WI-1: an Alt+C create column that is popped WITHOUT creating (Esc / Alt+X) disarms the round-trip.
+        AbandonCreateOnTheFlyIfColumnGone();
         ActiveColumnIndex = Columns.Count - 1;
         // If a page column survives (e.g. the report under a just-closed F12 config column), re-bind its
         // page view model and screen so the surviving page stays live — otherwise fall to the Gateway.
@@ -5113,32 +6106,95 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void RehydratePageFromRightmostColumn()
     {
-        var col = Columns[ActiveColumnIndex];
+        CurrentScreen = BindPageColumn(Columns[ActiveColumnIndex]);
+
+        // WI-1 DEPTH 2 — while a create column is STILL open, the page columns BENEATH it must stay bound too.
+        // BackFromPage's ClearSubScreens nulls every page property, and binding only the rightmost would leave
+        // the in-progress voucher unreachable from the shell (VoucherEntry null) even though its column, and all
+        // its data, are still there — so the write-back that follows a nested create would silently skip it.
+        if (IsCreateOnTheFlyOpen)
+            for (var i = 0; i < ActiveColumnIndex; i++)
+                if (Columns[i].IsPage) BindPageColumn(Columns[i]);
+    }
+
+    /// <summary>
+    /// Re-binds ONE surviving column's page view model to its shell property and reports the screen it
+    /// represents (Gateway for a menu column or a page kind that never sits beneath another).
+    /// </summary>
+    private Screen BindPageColumn(GatewayColumn col)
+    {
         switch (col.Page)
         {
             case ReportsViewModel r:
                 Reports = r;
-                CurrentScreen = Screen.Report;
-                break;
+                return Screen.Report;
             // RQ-7 drill columns can sit beneath one another (report → ledger-vouchers → voucher-detail); when a
             // deeper drill column is popped the surviving one must be re-bound so it stays live. A report may also
             // survive beneath a just-popped ledger-vouchers/voucher-detail column.
             case LedgerVouchersViewModel lv:
                 LedgerVouchers = lv;
-                CurrentScreen = Screen.LedgerVouchers;
-                break;
+                return Screen.LedgerVouchers;
             case VoucherDetailViewModel vd:
                 VoucherDetail = vd;
-                CurrentScreen = Screen.VoucherDetail;
-                break;
+                return Screen.VoucherDetail;
             // A print-preview column survives beneath a just-popped F12 print-config panel (RQ-12), so re-bind it.
             case PrintPreviewViewModel pv:
                 PrintPreview = pv;
-                CurrentScreen = Screen.PrintPreview;
-                break;
+                return Screen.PrintPreview;
+            // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
+            // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
+            // come back with every line, party and amount intact instead of as a fresh blank entry.
+            case VoucherEntryViewModel ve:
+                VoucherEntry = ve;
+                return Screen.VoucherEntry;
+            case InventoryVoucherEntryViewModel ive:
+                InventoryVoucherEntry = ive;
+                return Screen.InventoryVoucherEntry;
+            case ManufacturingJournalEntryViewModel mje:
+                ManufacturingJournalEntry = mje;
+                return Screen.ManufacturingJournalEntry;
+            case JobWorkOrderEntryViewModel jwe:
+                JobWorkOrderEntry = jwe;
+                return Screen.JobWorkOrderEntry;
+            case MaterialMovementEntryViewModel mme:
+                MaterialMovementEntry = mme;
+                return Screen.MaterialMovementEntry;
+            case PosBillingViewModel pos:
+                PosBilling = pos;
+                return Screen.PosBilling;
+            // WI-1 DEPTH 2 — a MASTER-creation column can itself sit beneath a nested Alt+C create column (Stock
+            // Item Creation with Stock Group / Unit Creation over it). Re-binding the SAME instance is what
+            // brings the half-filled master back with its name, alias and opening balance intact — and what lets
+            // ApplyCreatedMaster then select the just-created record into the field it was launched from.
+            case LedgerMasterViewModel lm:
+                LedgerMaster = lm;
+                return Screen.LedgerMaster;
+            case AccountGroupMasterViewModel agm:
+                AccountGroupMaster = agm;
+                return Screen.AccountGroupMaster;
+            case StockItemMasterViewModel sim:
+                StockItemMaster = sim;
+                return Screen.StockItemMaster;
+            case StockGroupMasterViewModel sgm:
+                StockGroupMaster = sgm;
+                return Screen.StockGroupMaster;
+            case StockCategoryMasterViewModel scm:
+                StockCategoryMaster = scm;
+                return Screen.StockCategoryMaster;
+            case UnitMasterViewModel um:
+                UnitMaster = um;
+                return Screen.UnitMaster;
+            case GodownMasterViewModel gm:
+                GodownMaster = gm;
+                return Screen.GodownMaster;
+            case CostCategoryMasterViewModel ccatm:
+                CostCategoryMaster = ccatm;
+                return Screen.CostCategoryMaster;
+            case CostCentreMasterViewModel ccm:
+                CostCentreMaster = ccm;
+                return Screen.CostCentreMaster;
             default:
-                CurrentScreen = Screen.Gateway;
-                break;
+                return Screen.Gateway;
         }
     }
 
@@ -5185,6 +6241,62 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The currently focused column, or null.</summary>
     private GatewayColumn? ActiveColumn =>
         ActiveColumnIndex >= 0 && ActiveColumnIndex < Columns.Count ? Columns[ActiveColumnIndex] : null;
+
+    /// <summary>
+    /// The kind of the focused menu column, or null when the focused column is not a menu (a page column) or
+    /// there is no cascade. Exposed so a test can assert the WI-2/WI-9 routing rule directly.
+    /// </summary>
+    public GatewayColumnKind? ActiveColumnKind =>
+        IsGatewayCascade && ActiveColumn is { IsMenu: true } col ? col.Kind : null;
+
+    /// <summary>The bare-letter hotkey rows of the focused menu column — diagnostics and tests.</summary>
+    public System.Collections.Generic.IReadOnlyList<MenuItemViewModel> ActiveColumnHotKeyItems =>
+        ActiveColumn is { IsMenu: true } col
+            ? col.Items.Where(i => i.HasHotKey).ToList()
+            : System.Array.Empty<MenuItemViewModel>();
+
+    /// <summary>The type-ahead prefix accumulated in the focused data-driven picker column ("" when none).</summary>
+    public string ActiveTypeAheadPrefix => ActiveColumn?.TypeAheadPrefix ?? string.Empty;
+
+    /// <summary>
+    /// WI-2 / WI-9 — THE CONFLICT RESOLUTION, in one place. A bare letter arriving on the Gateway cascade means
+    /// one of two different things, decided by the KIND of the focused column (never case by case):
+    /// <list type="bullet">
+    /// <item><b>Authored</b> menu column (Gateway, Vouchers, Create, …) — the letter ACTIVATES the row that owns
+    /// it as its computed hotkey, exactly as if the operator had arrowed to that row and pressed Enter.</item>
+    /// <item><b>Data-driven</b> picker column (ledgers, parties, stock items) — the letter FILTERS: it extends
+    /// the type-ahead prefix and moves the highlight to the first matching row. Enter then selects it.</item>
+    /// </list>
+    /// <para>
+    /// Returns <c>true</c> only when the letter was actually consumed, so the caller (the window's tunnel
+    /// handler) can fall through to the existing bare-letter accelerators — the report quick-jumps (B/P/T/D)
+    /// and the Gateway-root E/O/Y panels — whenever no row claimed it. That "claimed or fall through" contract
+    /// is what keeps this arm from shadowing the accelerators that already shipped.
+    /// </para>
+    /// </summary>
+    public bool HandleMenuLetter(char letter)
+    {
+        if (!IsGatewayCascade) return false;
+        if (ActiveColumn is not { IsMenu: true } col) return false;
+
+        if (col.Kind == GatewayColumnKind.DataDriven)
+        {
+            if (!col.TypeAhead(letter)) return false;
+            SyncActiveColumn();
+            return true;
+        }
+
+        var target = col.FindByHotKey(letter);
+        if (target is null) return false;
+
+        var index = col.Items.IndexOf(target);
+        if (index < 0) return false;
+
+        col.SetSelected(index);
+        SyncActiveColumn();
+        DrillIn();
+        return true;
+    }
 
     /// <summary>
     /// Repaints the cascade after a focus/selection change: marks the active column active (bright
@@ -5244,7 +6356,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // The core accounting F-keys. Report/voucher shortcuts are wired where implemented.
         ButtonBar.Add(new ButtonBarItem("F1", "Help", () => Message = "Apex Solutions — accounting (Phase 1)."));
-        ButtonBar.Add(new ButtonBarItem("F2", "Date", () => Message = StatusDate));
+        // F2 — Date. On an entry screen this now SETS the working date (caret into the date field, keyboard-only);
+        // elsewhere it reports the current date. It used to unconditionally print the never-updated FY-start.
+        ButtonBar.Add(new ButtonBarItem("F2", "Date", SetWorkingDate));
         ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 
         var hasCompany = Company is not null;
@@ -5264,10 +6378,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
         ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
-        ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
+        // Alt+A is context-sensitive: on the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
+        // Only ONE Alt+A row is emitted — the shell's Fire()/hint lookup takes the first key match, so a second
+        // Alt+A would shadow this. The Day-Book "Add Voucher" wins whenever the live report is the Day Book.
+        if (IsDayBookReport)
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
+        else
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
 
         // Create master + report quick-jumps (enabled once a company is open).
-        ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));
+        // WI-1: the button runs the SAME dispatch as the Alt+C key (it previously bound ShowLedgerMaster
+        // directly, so on the Manufacturing-Journal / BOM screens the key created a Stock Item while the button
+        // created a Ledger — key and button advertised one shortcut and did two different things). The button
+        // carries no focused field, so it opens the SCREEN's default master (CreateMasterFromButton) — but
+        // still through the non-destructive route, so clicking it mid-voucher no longer discards the entry.
+        // DEFECT 3: it is DISABLED while a create column is already open, where Alt+C is inert by design — an
+        // enabled button captioned "Create Ledger" that does nothing is worse than an honestly dimmed one.
+        ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
+            hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
         // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
