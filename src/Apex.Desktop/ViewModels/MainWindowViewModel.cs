@@ -1347,6 +1347,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// is a page item reusing <see cref="Screen.Report"/> + <see cref="OpenReport(ReportKind)"/>. Shown whether
     /// or not GST is enabled; a GST-off company opens the report to a friendly empty state (never crashes).
     /// </summary>
+    /// <summary>
+    /// The FY-gated <b>"Form NNN"</b> menu label (CA S9) — the 1961-Act number for FY 2025-26 and earlier, the
+    /// confirmed 2025-Act number from FY 2026-27 onward. A form with <b>no confirmed renumbering</b> (e.g. 27A) falls
+    /// through unchanged, which is what keeps unverified artifacts from being silently re-cited.
+    /// <para>When <b>no company — and therefore no financial year — is in scope</b> the <b>dual</b> form
+    /// ("Form 24Q / 138") is shown rather than guessing a vocabulary. Every current caller is company-gated, so the
+    /// dual branch is a safety net rather than the normal path.</para>
+    /// <para><b>Keep <see cref="ActivateMenuItem"/> in step:</b> menu activation dispatches on this label string, so
+    /// each renumbered label needs its own case there or the item becomes unreachable.</para>
+    /// </summary>
+    private string FormMenuLabel(string legacyForm) => Company is { } company
+        ? $"Form {StatuteVocabulary.FormLabel(legacyForm, company.FinancialYearStart.Year)}"
+        : $"Form {StatuteVocabulary.FormLabelDual(legacyForm)}";
+
     private GatewayColumn BuildGstReportsColumn()
     {
         var col = new GatewayColumn("GST Reports");
@@ -1361,8 +1375,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(MenuItemViewModel.Header("TDS"));
             col.Add(new MenuItemViewModel("Challan Reconciliation", () => { }, "Alt+R", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 26Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 16A", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("26Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("16A"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            // Form 27A carries NO confirmed 2025-Act renumbering, so FormMenuLabel deliberately leaves it alone.
             col.Add(new MenuItemViewModel("Form 27A (TDS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
 
@@ -1373,8 +1388,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             col.Add(MenuItemViewModel.Header("TCS"));
             col.Add(new MenuItemViewModel("TCS Challan Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 27EQ", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 27D", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("27EQ"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("27D"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
             col.Add(new MenuItemViewModel("Form 27A (TCS)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
@@ -1668,8 +1683,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // "Enable Salary TDS" is on (ER-13), mirroring how the TDS/TCS returns gate on Enable TDS/TCS.
         if (Company is { SalaryTdsEnabled: true })
         {
-            col.Add(new MenuItemViewModel("Form 24Q", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
-            col.Add(new MenuItemViewModel("Form 16", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("24Q"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+            col.Add(new MenuItemViewModel(FormMenuLabel("16"), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         }
         return col;
     }
@@ -3857,8 +3872,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TdsEnabled: true }) return;
 
         var page = new Form26QViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 26Q", page), Screen.Form26Q,
-            "Form 26Q (Quarterly TDS Return)", () => Form26Q = page);
+        var form26Q = FormMenuLabel("26Q");
+        OpenPageColumn(new GatewayColumn(form26Q, page), Screen.Form26Q,
+            $"{form26Q} (Quarterly TDS Return)", () => Form26Q = page);
     }
 
     /// <summary>True while the Form 26Q return report page is the active screen (drives its arrow-key nav).</summary>
@@ -4031,7 +4047,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var master = new TaxDeclarationViewModel(Company, _storage, onChanged: () => { });
         OpenPageColumn(new GatewayColumn("Income Tax Declaration", master), Screen.TaxDeclarationMaster,
-            "Income Tax Declaration (Form 12BB)", () => TaxDeclarationMaster = master);
+            $"Income Tax Declaration ({FormMenuLabel("12BB")})", () => TaxDeclarationMaster = master);
     }
 
     /// <summary>True while the Income-Tax-Declaration master is the active screen (drives its arrow-key nav).</summary>
@@ -4048,8 +4064,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { SalaryTdsEnabled: true }) return;
 
         var page = new Form24QViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 24Q", page), Screen.Form24Q,
-            "Form 24Q (Quarterly Salary-TDS Return)", () => Form24Q = page);
+        var form24Q = FormMenuLabel("24Q");
+        OpenPageColumn(new GatewayColumn(form24Q, page), Screen.Form24Q,
+            $"{form24Q} (Quarterly Salary-TDS Return)", () => Form24Q = page);
     }
 
     /// <summary>True while the Form 24Q return report page is the active screen (drives its arrow-key nav).</summary>
@@ -4073,8 +4090,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { SalaryTdsEnabled: true }) return;
 
         var page = new Form16ViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 16", page), Screen.Form16,
-            "Form 16 (Salary-TDS Certificate)", () => Form16 = page);
+        var form16 = FormMenuLabel("16");
+        OpenPageColumn(new GatewayColumn(form16, page), Screen.Form16,
+            $"{form16} (Salary-TDS Certificate)", () => Form16 = page);
     }
 
     /// <summary>True while the Form 16 certificate page is the active screen (drives its arrow-key nav).</summary>
@@ -4133,8 +4151,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TcsEnabled: true }) return;
 
         var page = new Form27EQViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 27EQ", page), Screen.Form27EQ,
-            "Form 27EQ (Quarterly TCS Return)", () => Form27EQ = page);
+        var form27EQ = FormMenuLabel("27EQ");
+        OpenPageColumn(new GatewayColumn(form27EQ, page), Screen.Form27EQ,
+            $"{form27EQ} (Quarterly TCS Return)", () => Form27EQ = page);
     }
 
     /// <summary>True while the Form 27EQ return report page is the active screen (drives its arrow-key nav).</summary>
@@ -4164,8 +4183,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TdsEnabled: true }) return;
 
         var page = new Form16AViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 16A", page), Screen.Form16A,
-            "Form 16A (TDS Certificate)", () => Form16A = page);
+        var form16A = FormMenuLabel("16A");
+        OpenPageColumn(new GatewayColumn(form16A, page), Screen.Form16A,
+            $"{form16A} (TDS Certificate)", () => Form16A = page);
     }
 
     /// <summary>True while the Form 16A certificate page is the active screen (drives its arrow-key nav).</summary>
@@ -4189,8 +4209,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is not { TcsEnabled: true }) return;
 
         var page = new Form27DViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Form 27D", page), Screen.Form27D,
-            "Form 27D (TCS Certificate)", () => Form27D = page);
+        var form27D = FormMenuLabel("27D");
+        OpenPageColumn(new GatewayColumn(form27D, page), Screen.Form27D,
+            $"{form27D} (TCS Certificate)", () => Form27D = page);
     }
 
     /// <summary>True while the Form 27D certificate page is the active screen (drives its arrow-key nav).</summary>
@@ -5921,12 +5942,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Payroll": ShowPayrollVoucher(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
             case "Challan Reconciliation": OpenChallanReconciliation(); break;
-            case "Form 26Q": OpenForm26Q(); break;
+            // CA S9 — each return/certificate answers to BOTH its 1961-Act and its confirmed 2025-Act number, because
+            // FormMenuLabel picks the label by financial year and this switch dispatches on that label. Omitting a
+            // renumbered case would leave the menu item present but DEAD from FY 2026-27 onward. The dual-form labels
+            // ("Form 26Q / 140") are matched too, for the no-company-in-scope fallback.
+            case "Form 26Q" or "Form 140" or "Form 26Q / 140": OpenForm26Q(); break;
             case "TCS Stat Payment": ShowTcsStatPayment(); break;
             case "TCS Challan Reconciliation": OpenTcsChallanReconciliation(); break;
-            case "Form 27EQ": OpenForm27EQ(); break;
-            case "Form 16A": OpenForm16A(); break;
-            case "Form 27D": OpenForm27D(); break;
+            case "Form 27EQ" or "Form 143" or "Form 27EQ / 143": OpenForm27EQ(); break;
+            case "Form 16A" or "Form 131" or "Form 16A / 131": OpenForm16A(); break;
+            case "Form 27D" or "Form 133" or "Form 27D / 133": OpenForm27D(); break;
             case "Form 27A (TDS)": OpenForm27A("26Q"); break;
             case "Form 27A (TCS)": OpenForm27A("27EQ"); break;
             case "Receivables": OpenOutstandings(OutstandingsKind.Receivables); break;
@@ -5974,8 +5999,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Gratuity Provision": OpenGratuityProvisionRegister(); break;
             case "Bonus Register": OpenBonusRegister(); break;
             // §192 salary-TDS return + certificate (Phase 8 slice 7) — under Reports → Statutory Reports → Payroll.
-            case "Form 24Q": OpenForm24Q(); break;
-            case "Form 16": OpenForm16(); break;
+            case "Form 24Q" or "Form 138" or "Form 24Q / 138": OpenForm24Q(); break;
+            case "Form 16" or "Form 130" or "Form 16 / 130": OpenForm16(); break;
             // Payroll presentation reports (Phase 8 slice 8) — under Reports → Payroll Reports.
             case "Payslip": OpenReport(ReportKind.Payslip); break;
             case "Pay Sheet": OpenReport(ReportKind.PaySheet); break;

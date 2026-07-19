@@ -150,7 +150,10 @@ public sealed partial class Form26QViewModel : ViewModelBase
         set { if (SetProperty(ref _selectedQuarter, value)) Rebuild(); }
     }
 
-    /// <summary>The FVU file name the export will write (derived from the selected FY + quarter, no extension).</summary>
+    /// <summary>The FVU file name the export will write (derived from the selected FY + quarter, no extension).
+    /// <para><b>Deliberately NOT FY-gated</b> (CA S9 closeout) — a machine file whose name may be bound by the FVU/RPU
+    /// utility's conventions and whose wire format is pinned, never seen by the deductee. Contrast the per-recipient
+    /// PDF certificate names, which ARE gated. See <c>Form24QViewModel.ExportFileName</c> for the full rationale.</para></summary>
     public string ExportFileName =>
         $"Form26Q_{(SelectedYear?.Label ?? "FY").Replace('-', '_')}_{SelectedQuarter?.Quarter ?? 0}";
 
@@ -165,6 +168,11 @@ public sealed partial class Form26QViewModel : ViewModelBase
     {
         var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
         var quarter = SelectedQuarter?.Quarter ?? 1;
+
+        // CA S9 closeout: the page heading is FY-gated, like Form24QViewModel's. The Miller cascade keeps the
+        // parent menu row visible beside the page, so an ungated "Form 26Q" heading would sit on screen
+        // next to the renumbered menu label that opened it. Prior years are unchanged (ER-13).
+        Title = $"Form {StatuteVocabulary.FormLabel("26Q", fyStart)} — Quarterly TDS Return";
 
         var q = Form26Q.Build(_company, fyStart, quarter);
         Return = q;

@@ -46,11 +46,19 @@ public sealed class TcsStatPaymentViewModelTests : IDisposable
         catch { /* best-effort cleanup */ }
     }
 
+    /// <summary>The financial year this class's companies are pinned to. <c>CreateCompany()</c> derives the FY from
+    /// <c>DateTime.Today</c>, which made the menu-label assertions clock-dependent once the Income-tax Act 2025
+    /// vocabulary gate opens at FY 2026-27 (§206C→§394, Form 27EQ→143 — see StatuteVocabularyUiTests). Pinning keeps
+    /// this test about TCS gating.</summary>
+    private static readonly DateOnly PinnedFyStart = new(2025, 4, 1);
+
     private MainWindowViewModel NewCompany(string name)
     {
+        _storage.Save(Apex.Ledger.Services.CompanyFactory.CreateSeeded(name, PinnedFyStart, PinnedFyStart));
         var vm = new MainWindowViewModel(_storage);
-        vm.NewCompanyName = name;
-        vm.CreateCompany();
+        vm.ShowCompanySelect();
+        vm.Menu.Single(m => m.Label == name).Activate();
+        Assert.Equal(PinnedFyStart.Year, vm.Company!.FinancialYearStart.Year);
         return vm;
     }
 

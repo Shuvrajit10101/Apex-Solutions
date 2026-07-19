@@ -2918,7 +2918,8 @@
                                       BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
                                       Padding="10,8" Margin="0,0,0,2">
                                 <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto">
-                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="TCS — Nature of Goods (§206C)"
+                                  <!-- CA S9: FY-gated (§206C 1961 Act / §394 2025 Act) — never a literal. -->
+                                  <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding TcsNatureOfGoodsCaption}"
                                              FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"
                                              VerticalAlignment="Center" Margin="0,0,8,0"/>
                                   <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal" Spacing="18"
@@ -9311,7 +9312,8 @@
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <TextBlock Grid.Column="1" Text="{Binding SalaryTdsFinancialYearLabel}"
                                                VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"/>
-                                    <TextBlock Grid.Column="2" Text="Assessment Year" FontWeight="SemiBold"
+                                    <!-- CA S9: FY-gated caption ("Assessment Year" 1961 Act / "Tax Year" 2025 Act). -->
+                                    <TextBlock Grid.Column="2" Text="{Binding SalaryTdsPeriodCaption}" FontWeight="SemiBold"
                                                FontSize="12" VerticalAlignment="Center"
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <TextBlock Grid.Column="3" Text="{Binding SalaryTdsAssessmentYearLabel}"
@@ -12985,7 +12987,8 @@
 
                             <!-- Annexure I deductee grid (selectable) + Annexure II (Q4 only) -->
                             <Grid Grid.Row="5" RowDefinitions="Auto,Auto,*,Auto">
-                              <TextBlock Grid.Row="0" Text="Annexure I — deductee-wise §192 TDS" FontWeight="Bold"
+                              <!-- CA S9: FY-gated (§192 1961 Act / §392 2025 Act) — never a literal. -->
+                              <TextBlock Grid.Row="0" Text="{Binding AnnexureIHeading}" FontWeight="Bold"
                                          FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                               <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
                                 <Grid ColumnDefinitions="120,*,70,110,110">
@@ -13180,7 +13183,9 @@
                                                  FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
                                       <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding EmployeeName}"
                                                  FontSize="12" FontWeight="SemiBold" Margin="0,0,12,2"/>
-                                      <TextBlock Grid.Row="0" Grid.Column="2" Text="AY" FontWeight="SemiBold"
+                                      <!-- CA S9: caption is FY-gated ("AY" 1961 Act / "Tax Year" 2025 Act) — it must
+                                           never be a literal, because the two vocabularies collide numerically. -->
+                                      <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding PeriodCaptionShort}" FontWeight="SemiBold"
                                                  FontSize="12" Foreground="{StaticResource BrandNavy}" Margin="0,0,8,2"/>
                                       <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding AssessmentYear}"
                                                  FontSize="12" Margin="0,0,0,2"/>

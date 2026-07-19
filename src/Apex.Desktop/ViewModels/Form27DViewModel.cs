@@ -147,14 +147,25 @@ public sealed partial class Form27DViewModel : ViewModelBase
     /// <summary>The certificate currently displayed. Null until a collectee is picked.</summary>
     public Form27D? Certificate { get; private set; }
 
+    /// <summary>
+    /// The PDF file name the export will write (FY + quarter + collectee PAN), no extension.
+    /// <para>CA S9 closeout — <b>FY-gated</b>, the exact mirror of <c>Form16AViewModel.ExportFileName</c> and for the
+    /// same reason: a per-recipient PDF certificate leaves the product and is filed and cited by the collectee, so a
+    /// wrong form number in its name is a statutory misstatement that outlives the open correction window. Gating on
+    /// the selected year (not on today) keeps FY 2025-26 and earlier exports named exactly as before — ER-13.</para>
+    /// <para>Deliberately <b>not</b> applied to the three FVU <c>.txt</c> exports (Form 24Q / 26Q / 27EQ): those are
+    /// machine files whose names may be bound by the FVU/RPU utility's own conventions, and their wire format is
+    /// pinned. Their legacy names stay legacy by decision, not by oversight.</para>
+    /// </summary>
     public string ExportFileName
     {
         get
         {
+            var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
             var fy = (SelectedYear?.Label ?? "FY").Replace('-', '_');
             var q = SelectedQuarter?.Quarter ?? 0;
             var pan = string.IsNullOrWhiteSpace(SelectedCollectee?.Pan) ? "NOPAN" : SelectedCollectee!.Pan;
-            return $"Form27D_{fy}_Q{q}_{pan}";
+            return $"Form{StatuteVocabulary.FormLabel("27D", fyStart)}_{fy}_Q{q}_{pan}";
         }
     }
 
@@ -164,6 +175,11 @@ public sealed partial class Form27DViewModel : ViewModelBase
     {
         var fyStart = SelectedYear?.StartYear ?? _company.FinancialYearStart.Year;
         var quarter = SelectedQuarter?.Quarter ?? 1;
+
+        // CA S9 closeout: the page heading is FY-gated, like Form24QViewModel's. The Miller cascade keeps the
+        // parent menu row visible beside the page, so an ungated "Form 27D" heading would sit on screen
+        // next to the renumbered menu label that opened it. Prior years are unchanged (ER-13).
+        Title = $"Form {StatuteVocabulary.FormLabel("27D", fyStart)} — TCS Certificate";
 
         _certs = Form27D.BuildAll(_company, fyStart, quarter);
 

@@ -195,6 +195,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     [ObservableProperty] private bool _showTcs;
 
+    /// <summary>The TCS band caption, FY-gated (CA S9) — the TCS charging section is <b>§206C</b> under the 1961 Act
+    /// and <b>§394</b> under the 2025 Act, so the caption cannot be a literal in the view. Note this is §206C, the
+    /// charging section — <b>not</b> §206CC, the (unverified, deliberately unmapped) no-PAN higher-rate section.</summary>
+    public string TcsNatureOfGoodsCaption =>
+        $"TCS — Nature of Goods (§{StatuteVocabulary.SectionLabel("206C", _company.FinancialYearStart.Year)})";
+
     /// <summary>The resolved §206C collection code for the band header (e.g. "6CE" scrap, or "Multiple" on a mixed
     /// invoice); empty when no TCS.</summary>
     [ObservableProperty] private string _tcsCollectionCodeText = string.Empty;

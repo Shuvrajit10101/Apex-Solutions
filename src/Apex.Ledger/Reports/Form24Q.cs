@@ -91,13 +91,22 @@ public sealed record Form24QControlTotals(
 }
 
 /// <summary>
-/// <b>Form 24Q</b> — the quarterly salary-TDS return u/s 192 (Phase 8 slice 7; RQ-13; catalog §13) as a pure,
+/// <b>Form 24Q (2025 Act: Form 138)</b> — the quarterly salary-TDS return u/s 192 (2025 Act: §392), filed under
+/// §200 (2025 Act: §397) (Phase 8 slice 7; RQ-13; catalog §13) as a pure,
 /// read-only projection over the posted payroll §192 deduction lines. The <b>salary sibling</b> of
 /// <see cref="Form26Q"/> (same FVU family): <b>Annexure I</b> (deductee + TDS) is filed every quarter; <b>Annexure
 /// II</b> (per-employee annual salary + tax computation) is filed in <b>Q4 only</b> and drives <b>Form 16 Part B</b>.
 /// It reads the withheld tax off each posted deduction line — never recomputing the withholding — so the return
 /// reconciles to the salary-TDS-payable credit postings for the quarter by construction. A company that never
 /// deducts salary-TDS yields an empty return (ER-13). Deterministic (no clock/RNG); ordered for byte-stability.
+///
+/// <para><b>Statute vocabulary (CA S9).</b> The 2025-Act numbering above is a <b>display</b> concern only, resolved by
+/// <see cref="StatuteVocabulary"/> and applied from <b>FY 2026-27</b>. Neither this projection nor the FVU writer
+/// changes: the flat file still carries the <c>24Q</c> form type on the wire, and a FY 2025-26 return exports
+/// byte-identically (ER-13). The statutory <b>timelines are unchanged in substance</b> — Rule 218(2) deposit within
+/// 7 days of month-end (30 April for March) and Rule 219(4) quarterly returns on 31 Jul / 31 Oct / 31 Jan / 31 May.
+/// FY 2025-26 remains filed on the 1961-Act artifacts, and §397(3)(f) allows correction statements for two years, so
+/// both vocabularies stay live simultaneously into roughly FY 2028.</para>
 /// </summary>
 /// <remarks>
 /// <b>CARRY-FORWARD (Phase 8 slice 7, F4b) — salary-TDS deposit-path integration.</b> The §192 salary-TDS is

@@ -102,6 +102,47 @@ public class Fvu24QWriterTests
         Assert.DoesNotContain("tally", text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// <b>ER-13 — the prior-year byte-identity gate for CA slice S9.</b>
+    ///
+    /// <para>The Income-tax Act 2025 vocabulary (§192→§392, Form 24Q→138, assessment year→tax year) applies only from
+    /// <b>FY 2026-27</b>. FY 2025-26 is still live and is filed on the <b>1961-Act</b> artifacts, and §397(3)(f)
+    /// permits correction statements for two years. A prior-year return that changed by even one byte would be a
+    /// <b>falsified filed document</b>.</para>
+    ///
+    /// <para>These four digests were captured from the <b>pre-S9</b> tree and are frozen here deliberately. They are
+    /// not "whatever the code produces" — if S9 (or any later vocabulary work) leaks into a FY 2025-26 export, this
+    /// test fails and the export must be treated as broken, not the expectation updated.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(1, 264, "508644DF30B8E6DCF5C9BFD4805D2408488A3200C6E06FB92369E468D2C286F4")]
+    [InlineData(2, 264, "515E3B5BC5D711B23838EBBC10C30AE7CF9470317E180B65804E535B52F8CC94")]
+    [InlineData(3, 264, "140465D88695631A5524A134E442E1139D55AE93DB2CA76B424FD0ED75107400")]
+    [InlineData(4, 268, "4DAB940DF5F4BD829D26CD21E941F2AA146B3ECBDA3916A33D5A5B611B2DC05E")]
+    public void ER13_prior_year_fvu_export_is_byte_identical_to_the_pre_S9_baseline(
+        int quarter, int expectedLength, string expectedSha256)
+    {
+        var bytes = FvuWriter.Write(Form24Q.Build(SalaryCompany(months: 12), 2025, quarter));
+
+        Assert.Equal(expectedLength, bytes.Length);
+        Assert.Equal(expectedSha256, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)));
+
+        // The 1961-Act form number and the assessment-year framing must still be on the wire for FY 2025-26.
+        var text = Encoding.UTF8.GetString(bytes);
+        Assert.StartsWith("FH^24Q^", text);
+        Assert.DoesNotContain("138", text.Split('\n')[0]);   // NOT the 2025-Act form number
+        Assert.Contains("2025-26", text);
+    }
+
+    /// <summary>The 2025-Act vocabulary is presentation-only: a <b>FY 2026-27</b> export still carries the 24Q wire
+    /// format, because S9 renamed labels and touched no writer, no schema and no computation.</summary>
+    [Fact]
+    public void ER13_the_vocabulary_gate_does_not_leak_into_the_export_wire_format()
+    {
+        var text = Encoding.UTF8.GetString(FvuWriter.Write(Form24Q.Build(SalaryCompany(months: 12), 2026, 1)));
+        Assert.StartsWith("FH^24Q^", text);
+    }
+
     [Fact]
     public void Empty_return_still_yields_a_valid_header_only_file()
     {

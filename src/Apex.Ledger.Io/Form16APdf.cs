@@ -1,5 +1,6 @@
 using System.Globalization;
 using Apex.Ledger;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using static Apex.Ledger.Io.CertificatePdfSupport;
 
@@ -15,9 +16,24 @@ namespace Apex.Ledger.Io;
 /// </summary>
 public static class Form16APdf
 {
-    private const string Title = "FORM 16A";
-    private const string Subtitle =
-        "Certificate under section 203 of the Income-tax Act, 1961 for tax deducted at source";
+    /// <summary>
+    /// The centred title band — <b>gated on the certificate's own financial year</b>, never renamed. FY 2025-26 and
+    /// earlier render "FORM 16A" exactly as before; FY 2026-27 onward renders "FORM 131", because the 1961 Act (and
+    /// with it Form 16A) stands repealed on 01.04.2026.
+    /// </summary>
+    private static string TitleFor(Form16A cert) =>
+        "FORM " + StatuteVocabulary.FormLabel("16A", cert.FinancialYearStartYear);
+
+    /// <summary>
+    /// The subtitle citing the certificate provision — likewise gated on the certificate's own financial year.
+    /// §203 (certificate of deduction) is renumbered to <b>§395</b> under the 2025 Act, and the Act named alongside it
+    /// moves with it. Gating on <see cref="Form16A.FinancialYearStartYear"/> rather than on "today" is what preserves
+    /// ER-13 <i>by construction</i>: a FY 2025-26 certificate reprinted in 2030 still cites section 203 of the
+    /// Income-tax Act, 1961, because that is the law that governed the deduction.
+    /// </summary>
+    private static string SubtitleFor(Form16A cert) =>
+        $"Certificate under section {StatuteVocabulary.SectionLabel("203", cert.FinancialYearStartYear)} of the "
+      + $"{StatuteVocabulary.ActName(cert.FinancialYearStartYear)} for tax deducted at source";
 
     /// <summary>Renders the TDS certificate to PDF bytes.</summary>
     public static byte[] Render(Form16A cert, PageConfig page)
@@ -25,19 +41,22 @@ public static class Form16APdf
         ArgumentNullException.ThrowIfNull(cert);
         ArgumentNullException.ThrowIfNull(page);
 
+        string title = TitleFor(cert);
+        string subtitle = SubtitleFor(cert);
+
         double left = page.MarginLeft;
         double right = page.PageWidth - page.MarginRight;
         double mid = left + page.ContentWidth / 2.0;
 
-        var writer = new PdfWriter { DocumentTitle = SafeTitle(Title) };
+        var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
         writer.BeginPage(page.PageWidth, page.PageHeight);
         double y = page.PageHeight - page.MarginTop;
 
         // ---- Title band ----
         y -= page.TitleFontSize;
-        Center(writer, Title, left, right, y, page.TitleFontSize, bold: true);
+        Center(writer, title, left, right, y, page.TitleFontSize, bold: true);
         y -= page.SubtitleFontSize + 2;
-        Center(writer, Subtitle, left, right, y, page.SubtitleFontSize, bold: false);
+        Center(writer, subtitle, left, right, y, page.SubtitleFontSize, bold: false);
         y -= 6;
         writer.Line(left, y, right, y, 0.8);
         y -= page.BodyFontSize + 4;

@@ -139,9 +139,23 @@ public sealed class SalaryTdsUiViewModelTests : IDisposable
         Assert.True(vm.Company.SalaryTdsEnabled);
         Assert.True(Reload(companyName).SalaryTdsEnabled);
 
-        // The AY label is the FY + 1 (surfaced on the config block).
-        Assert.Equal($"{vm.Company.FinancialYearStart.Year + 1}-{(vm.Company.FinancialYearStart.Year + 2) % 100:00}",
-            page.SalaryTdsAssessmentYearLabel);
+        // The period label surfaced on the config block is FY-GATED (CA S9). Under the 1961 Act it is the assessment
+        // year (FY + 1); from FY 2026-27 the Income-tax Act 2025 replaces it with the TAX YEAR, which IS the financial
+        // year — so this is a value change, not just a caption change. Asserting "FY + 1" unconditionally (as this
+        // test previously did) encodes a rule the 2025 Act retires, and is also clock-dependent, because the company
+        // FY here comes from DateTime.Today. Both sides of the gate are pinned explicitly below.
+        var fyStartYear = vm.Company.FinancialYearStart.Year;
+        var expectedPeriod = StatuteVocabulary.IsAct2025(fyStartYear)
+            ? $"{fyStartYear}-{(fyStartYear + 1) % 100:00}"
+            : $"{fyStartYear + 1}-{(fyStartYear + 2) % 100:00}";
+        Assert.Equal(expectedPeriod, page.SalaryTdsAssessmentYearLabel);
+        Assert.Equal(StatuteVocabulary.PeriodCaption(fyStartYear), page.SalaryTdsPeriodCaption);
+
+        // …and the gate itself, independent of whatever year the clock produced:
+        Assert.Equal("Assessment Year", StatuteVocabulary.PeriodCaption(2025));
+        Assert.Equal("2026-27", StatuteVocabulary.PeriodLabel(2025));
+        Assert.Equal("Tax Year", StatuteVocabulary.PeriodCaption(2026));
+        Assert.Equal("2026-27", StatuteVocabulary.PeriodLabel(2026));
     }
 
     [Fact]

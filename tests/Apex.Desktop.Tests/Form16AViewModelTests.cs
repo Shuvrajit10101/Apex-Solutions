@@ -231,12 +231,21 @@ public sealed class Form16AViewModelTests : IDisposable
 
     // ============================================================ (5) shell gating (ER-13) + open/return
 
+    /// <summary>
+    /// Opens a shell company whose financial year is pinned to <see cref="FyStart"/> — the same year this class's
+    /// vouchers are dated in. <c>CreateCompany()</c> derives the FY from <c>DateTime.Today</c>, which silently put the
+    /// shell in a different financial year from its own test data and made the assertions below clock-dependent
+    /// (they change vocabulary once the Income-tax Act 2025 gate opens at FY 2026-27 — see StatuteVocabularyUiTests).
+    /// Pinning the year keeps this test about what it is actually testing: the TDS/TCS gating of the menu item.
+    /// </summary>
     private MainWindowViewModel NewShellCompany(string name)
     {
+        _storage.Save(Apex.Ledger.Services.CompanyFactory.CreateSeeded(name, FyStart, FyStart));
         var vm = new MainWindowViewModel(_storage);
-        vm.NewCompanyName = name;
-        vm.CreateCompany();
+        vm.ShowCompanySelect();
+        vm.Menu.Single(m => m.Label == name).Activate();
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+        Assert.Equal(FyStart.Year, vm.Company!.FinancialYearStart.Year);
         return vm;
     }
 
