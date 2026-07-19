@@ -924,7 +924,7 @@
                                         IsVisible="{Binding IsBatchwise}">
                           <Grid RowDefinitions="Auto,*" Width="{Binding #InventoryReportPane.Bounds.Width}" MinWidth="1080">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,120,110,110,140,100,100,100,120" MinWidth="1080">
+                              <Grid ColumnDefinitions="*,110,95,95,120,100,100,100,120" MinWidth="1080">
                                 <TextBlock Grid.Column="0" Text="Item" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Batch" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Mfg" Classes="colHdr"/>
@@ -941,7 +941,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,120,110,110,140,100,100,100,120" MinWidth="1080" Height="24">
+                                      <Grid ColumnDefinitions="*,110,95,95,120,100,100,100,120" MinWidth="1080" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
@@ -7782,10 +7782,16 @@
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Group}"
+                                        <!-- D10: Group and Designation are the only cells in this row that
+                                             carried NO horizontal margin, so a Group value that filled its
+                                             180px cell ran flush into the Designation value in the next cell
+                                             with ZERO gutter — two different employees' attributes reading as
+                                             one string. The 8px inset also aligns each value with its own
+                                             colHdr header, whose Padding is "8,4". -->
+                                        <TextBlock Grid.Column="1" Text="{Binding Group}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="12" Foreground="#555555"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Designation}"
+                                        <TextBlock Grid.Column="2" Text="{Binding Designation}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="11.5" Foreground="#6A6A6A"
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="3" Text="{Binding Regime}"
@@ -10773,8 +10779,13 @@
                                   <TextBlock Grid.Column="0" Text="Paid from" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" FontSize="11"
                                             ItemsSource="{Binding BankOptions}" SelectedItem="{Binding SelectedBank, Mode=TwoWay}">
+                                    <!-- D8 (same cause as the TDS/TCS Pay-From pickers): a bank ledger name
+                                         carries its branch and A/c number, so without TextTrimming it is
+                                         HARD-CUT with no cue and a half-shown bank reads as a complete one. -->
                                     <ComboBox.ItemTemplate>
-                                      <DataTemplate><TextBlock Text="{Binding Name}"/></DataTemplate>
+                                      <DataTemplate><TextBlock Text="{Binding Name}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               ToolTip.Tip="{Binding Name}"/></DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
@@ -11873,9 +11884,18 @@
                                             ItemsSource="{Binding BankOptions}"
                                             SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
                                             PlaceholderText="Select ledger…">
+                                    <!-- D8: the Pay-From cell resolves to ~147-160px at EVERY window size (it is
+                                         column 3 of a fixed "160,*,160,*" form row), while a real bank ledger name
+                                         carries its branch and A/c number — e.g. "Bank of Maharashtra — CC A/c
+                                         60123456789 (Bhosari)". Without TextTrimming the ComboBox HARD-CUT that to
+                                         "Bank of Maharas": a truncation with no visual cue, so a name that is only
+                                         half-shown reads as a COMPLETE and different bank. On a statutory TDS/TCS
+                                         deposit that is a real-money mis-selection. The ellipsis makes the cut
+                                         visible and the ToolTip carries the full name for disambiguation. -->
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="ledger:Ledger">
-                                        <TextBlock Text="{Binding Name}"/>
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Name}"/>
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
@@ -13442,9 +13462,18 @@
                                             ItemsSource="{Binding BankOptions}"
                                             SelectedItem="{Binding SelectedBank, Mode=TwoWay}"
                                             PlaceholderText="Select ledger…">
+                                    <!-- D8: the Pay-From cell resolves to ~147-160px at EVERY window size (it is
+                                         column 3 of a fixed "160,*,160,*" form row), while a real bank ledger name
+                                         carries its branch and A/c number — e.g. "Bank of Maharashtra — CC A/c
+                                         60123456789 (Bhosari)". Without TextTrimming the ComboBox HARD-CUT that to
+                                         "Bank of Maharas": a truncation with no visual cue, so a name that is only
+                                         half-shown reads as a COMPLETE and different bank. On a statutory TDS/TCS
+                                         deposit that is a real-money mis-selection. The ellipsis makes the cut
+                                         visible and the ToolTip carries the full name for disambiguation. -->
                                     <ComboBox.ItemTemplate>
                                       <DataTemplate x:DataType="ledger:Ledger">
-                                        <TextBlock Text="{Binding Name}"/>
+                                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Name}"/>
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
