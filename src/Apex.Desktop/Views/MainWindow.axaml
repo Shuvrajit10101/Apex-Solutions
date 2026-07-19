@@ -497,7 +497,25 @@
                         </Grid>
 
                         <!-- ============ INVENTORY reports (slice 3.4b): wide per-report grids ============ -->
-                        <Grid x:Name="InventoryReportPane" Grid.Row="3" Grid.RowSpan="2" RowDefinitions="Auto,*"
+                        <!-- 🔴 THE SINGLE ROW TRACK IS LOAD-BEARING — do NOT restore the old "Auto,*".
+                             All ELEVEN report bodies below are direct children that set no Grid.Row, so every one
+                             of them landed in row 0. With row 0 "Auto" that row is measured at INFINITE height and
+                             never constrained, which broke vertical scrolling on all eleven at once:
+                               * each body's own "*" list row grew to its FULL content height, so the ListBox /
+                                 ScrollViewer inside it reported Extent == Viewport and maxOffset 0 — a scroller
+                                 that can never scroll and never shows a bar;
+                               * the surplus was then clipped by the Miller pane with NO cue that anything existed
+                                 below the cut.
+                             Measured on the populated fixture BEFORE this fix: Stock Summary row 0 took 747px
+                             inside a 719px pane at 1600x900 (539px at 1280x720) and starved row 1 to 0px, so the
+                             "Grand Total  20,92,482.50" row sat at y=842 against a clip at y=688 — 20.9 lakh of
+                             closing stock with only ~3.4 lakh on screen and no scrollbar. Price List was worse:
+                             2,400px of rows reporting Extent == Viewport == 2400 in a 587px pane.
+                             NOTE the horizontal ScrollViewer wrappers below are NOT the cause and were never the
+                             cause: Stock Summary has no wrapper and was broken, Price List has one and was broken
+                             identically. A wrapper with VerticalScrollBarVisibility="Disabled" constrains height
+                             correctly; the Auto track above it did not. -->
+                        <Grid x:Name="InventoryReportPane" Grid.Row="3" Grid.RowSpan="2" RowDefinitions="*"
                               IsVisible="{Binding ShowSingleInventoryGrid}">
 
                           <!-- == Stock Summary: Item | Inward | Outward | Closing Qty | Rate | Value (drill: dbl-click / Enter) == -->
@@ -2348,13 +2366,49 @@
                                 </Grid>
                               </Border>
 
-                              <!-- Item-lines column header band. Stock Item stays the flexible star; the
-                                   page pane is now wide (C4/C5 fluid), so Godown (184) fits a real godown
-                                   name like "Main Location" past the chevron (D-2) and the Batch/Lot header
-                                   (92) shows in
-                                   full (D-1). Numeric Qty (84) / Rate (72) columns are left untouched. -->
-                              <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                                <Grid ColumnDefinitions="*,184,120,Auto,72,92,36,Auto,Auto,Auto">
+                              <!-- 🔴 HEADER BAND + LINES SHARE ONE HORIZONTAL SCROLLER — do not split them again.
+                                   The header band and the item rows are two SEPARATE grids that must stay column-
+                                   aligned, so they are wrapped together here and scroll as one. Row 1 of the outer
+                                   grid is deliberately left empty (an empty Auto track measures 0) rather than
+                                   renumbered, to keep this diff off rows 3/4.
+
+                                   WHY: the fixed columns of this grid sum to 648px whenever a Sales item-invoice
+                                   runs with Actual/Billed split + price levels on (184 Godown + 120 Qty + 84 Billed
+                                   + 72 Rate + 92 Batch + 36 chevron + 60 Disc%). The cascade floors a page column
+                                   at 640px, leaving ~630px of content — so the Stock Item "*" column, having no
+                                   floor of its own, was starved to EXACTLY 0px and the picker VANISHED. Measured on
+                                   the populated fixture before this fix: star = 0px at 1280x720, 1366x768 AND
+                                   1600x900 (only 1920x1080 gave it 317px). A sales invoice — the core document of
+                                   the product — could not be raised on a standard business laptop.
+
+                                   FIX: floor the star at 220px via the long-form ColumnDefinition (the inline
+                                   "ColumnDefinitions" string cannot express MinWidth) and let this wrapper scroll
+                                   horizontally when the pane cannot hold the total. Same shape the inventory
+                                   reports use for the identical starved-star problem. -->
+                              <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto"
+                                            VerticalScrollBarVisibility="Disabled">
+                              <Grid RowDefinitions="Auto,*">
+                              <!-- Padding="6,0" MIRRORS the row Border's Padding="6,4". Without it the header
+                                   grid is laid out 12px wider than the row grids, so every column boundary in
+                                   the band sat ~22px right of the cells beneath it. That drift was latent
+                                   while the star column was starved to 0 (both agreed on "nothing"); giving
+                                   Stock Item a real width exposed it. Header and rows must receive the SAME
+                                   content width or the columns visibly disagree. -->
+                              <Border Grid.Row="0" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0"
+                                      Padding="6,0">
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MinWidth="220"/>
+                                    <ColumnDefinition Width="184"/>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="72"/>
+                                    <ColumnDefinition Width="92"/>
+                                    <ColumnDefinition Width="36"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                  </Grid.ColumnDefinitions>
                                   <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
                                   <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on.
@@ -2383,15 +2437,31 @@
                                 </Grid>
                               </Border>
 
-                              <!-- Item lines grid (reuses the stock-voucher inventory-line UX) -->
-                              <ScrollViewer Grid.Row="2" Background="White" VerticalScrollBarVisibility="Auto">
+                              <!-- Item lines grid (reuses the stock-voucher inventory-line UX). Horizontal scrolling
+                                   is Disabled here so the rows stretch to the shared wrapper's width and stay
+                                   column-aligned with the header band above; the WRAPPER owns horizontal scroll. -->
+                              <ScrollViewer Grid.Row="1" Background="White" VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel Spacing="0">
                                   <ItemsControl ItemsSource="{Binding InventoryLines}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,184,120,Auto,72,92,36,Auto,Auto,Auto">
+                                          <!-- Column shape MUST mirror the header band above, MinWidth included. -->
+                                          <Grid>
+                                            <Grid.ColumnDefinitions>
+                                              <ColumnDefinition Width="*" MinWidth="220"/>
+                                              <ColumnDefinition Width="184"/>
+                                              <ColumnDefinition Width="120"/>
+                                              <ColumnDefinition Width="Auto"/>
+                                              <ColumnDefinition Width="72"/>
+                                              <ColumnDefinition Width="92"/>
+                                              <ColumnDefinition Width="36"/>
+                                              <ColumnDefinition Width="Auto"/>
+                                              <ColumnDefinition Width="Auto"/>
+                                              <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
@@ -2551,6 +2621,8 @@
                                     </StackPanel>
                                   </Border>
                                 </StackPanel>
+                              </ScrollViewer>
+                              </Grid>
                               </ScrollViewer>
 
                               <!-- Items total + derived Dr/Cr summary. The derived string wraps (no ellipsis)
