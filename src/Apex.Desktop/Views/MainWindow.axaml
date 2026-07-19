@@ -272,11 +272,25 @@
                                 </Border>
 
                                 <!-- BODY (a) menu column: keyboard-navigable list -->
+                                <!-- The 6px top/bottom breathing space is a MARGIN on the scrolled content, NOT
+                                     Padding on the ScrollViewer. With Padding here, Avalonia deducts it from the
+                                     viewport for the child but never measures the child beyond that, so Extent came
+                                     out as exactly Viewport-12 at EVERY window height — making Extent > Viewport
+                                     structurally impossible, so the scrollbar could never appear and maxOffset was
+                                     pinned at 0. Measured at 1280x720: the root Gateway column (every F11 feature on)
+                                     needs 606px in a 595px viewport, yet the scroller reported E=594/V=595 with
+                                     maxOffset 0 — an 11px overflow, ending at the "Quit — Change Company" row, that
+                                     NO gesture could reach, on the ~157 screens that keep the Gateway column on show.
+                                     In a column long enough to overflow at any size (the Day-Book Alt+A picker on a
+                                     company with many voucher types) the shortfall was worse: fully scrolled, the
+                                     last row still sat 16px past the clip at ALL FOUR heights, 1920x1080 included,
+                                     because maxOffset itself understated the content. As a margin the space is part
+                                     of the measured content, so Extent reports the true height and the column
+                                     scrolls: the Gateway goes E=594/V=595/maxOff=0 -> E=618/V=595/maxOff=23. -->
                                 <ScrollViewer Grid.Row="1" IsVisible="{Binding IsMenu}"
                                               VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled"
-                                              Padding="0,6">
-                                  <ItemsControl ItemsSource="{Binding Items}">
+                                              HorizontalScrollBarVisibility="Disabled">
+                                  <ItemsControl ItemsSource="{Binding Items}" Margin="0,6">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:MenuItemViewModel">
                                         <Panel>
@@ -4808,13 +4822,25 @@
                                     Content="{Binding ScenarioMaster}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ScenarioMasterViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                          <!-- Rows are "Auto,3*,Auto,2*", NOT "Auto,Auto,Auto,*". An Auto row takes its child's
+                               FULL desired height and never constrains it, so the create form below pinned at
+                               680-691px whatever the window height, starved this Grid's `*` list row to EXACTLY 0px
+                               at 1366x768 and 1280x720, and — because nothing ever "overflowed" — no ScrollViewer
+                               could see it (maxOffset 0 everywhere). Measured at 1280x720: 16 controls unreachable,
+                               the Create button 86px below the clip, so a scenario COULD NOT BE CREATED on a laptop
+                               display. The star row CONSTRAINS the form; the ScrollViewer below then has a real
+                               viewport to overflow, so it genuinely scrolls. Both halves are required — a
+                               ScrollViewer inside an Auto row is measured at infinite height, sizes to its content
+                               and reports Extent == Viewport, which is the same lie in a different place. -->
+                          <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
                             <TextBlock Grid.Row="0" Text="Scenario Creation"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
                             <!-- Create form: name + include-actuals + voucher-type toggles -->
-                            <Border Grid.Row="1" Background="White"
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                            <Border Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10">
@@ -4866,6 +4892,7 @@
                                 </Grid>
                               </StackPanel>
                             </Border>
+                            </ScrollViewer>
 
                             <!-- Existing scenarios header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
