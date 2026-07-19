@@ -3743,13 +3743,19 @@
                                     Content="{Binding Ledger}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:LedgerMasterViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                          <!-- Row 1 is PROPORTIONAL, not Auto: an Auto row takes its full desired height
+                               (1101px with GST+TDS+TCS on) and starves the sibling * list row to zero, and
+                               nothing ever overflows so no scrollbar can appear. A * track constrains the
+                               row, so the ScrollViewer below sees real overflow and scrolls. -->
+                          <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
                             <TextBlock Grid.Row="0" Text="Ledger Creation"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
                             <!-- Create form -->
-                            <Border Grid.Row="1" Background="White"
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                            <Border Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="16" Margin="0,0,0,10">
                               <StackPanel Spacing="10" Grid.IsSharedSizeScope="True">
@@ -4239,6 +4245,7 @@
                                 </Grid>
                               </StackPanel>
                             </Border>
+                            </ScrollViewer>
 
                             <!-- Existing ledgers header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
