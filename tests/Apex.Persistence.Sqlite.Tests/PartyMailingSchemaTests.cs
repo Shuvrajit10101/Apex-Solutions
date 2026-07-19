@@ -34,8 +34,10 @@ public sealed class PartyMailingSchemaTests
         {
             using (new SqliteCompanyStore(dbPath)) { }
 
-            Assert.Equal(45, Schema.CurrentVersion);
-            Assert.Equal(45L, ReadSchemaVersion(dbPath));
+            // The mailing columns arrived in v45 and must survive every later bump, so the assertion is
+            // against the CURRENT version rather than a frozen 45 (which would only re-fail on each bump).
+            Assert.True(Schema.CurrentVersion >= 45);
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
 
             var columns = ColumnNames(dbPath, "ledgers");
             foreach (var col in MailingColumns)
@@ -131,6 +133,9 @@ public sealed class PartyMailingSchemaTests
             // 2) Downgrade it to a genuine v44 shape (drop the v45 columns, stamp version 44).
             using (var conn = Open(dbPath))
             {
+                // Step the store down one version at a time — a downgrade reverses exactly one migration, so
+                // reaching v44 from the current version means walking every step in between.
+                SchemaDowngrade.V46ToV45(conn);
                 SchemaDowngrade.V45ToV44(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -138,10 +143,10 @@ public sealed class PartyMailingSchemaTests
             foreach (var col in MailingColumns)
                 Assert.DoesNotContain(col, ColumnNames(dbPath, "ledgers"));
 
-            // 3) Reopen through the production store — the v44 → v45 migration runs.
+            // 3) Reopen through the production store — the v44 → v45 migration runs (and every later one).
             using (new SqliteCompanyStore(dbPath)) { }
 
-            Assert.Equal(45L, ReadSchemaVersion(dbPath));
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             foreach (var col in MailingColumns)
                 Assert.Contains(col, ColumnNames(dbPath, "ledgers"));
 

@@ -106,9 +106,14 @@ internal static class InventoryMovements
             foreach (var line in v.InventoryLines)
             {
                 if (onlyItemId is { } id && line.StockItemId != id) continue;
+                // WI-10 Gap 2: a register row reports the quantity in the item's BASE unit (as every pure-stock
+                // row above does), so the rate beside it is re-expressed per base unit too — otherwise the row's
+                // Rate × Quantity would contradict its own value by the conversion factor. A unit-less line is
+                // the identity on both, so existing rows are byte-identical (ER-13).
                 result.Add(new Movement(v.Date, v.Number, v.Id, v.TypeId, typeName, baseType, origin,
-                    line.StockItemId, line.GodownId, line.BatchLabel, line.Quantity, line.Direction,
-                    line.Rate, v.PartyId, v.Narration));
+                    line.StockItemId, line.GodownId, line.BatchLabel,
+                    QuantityInBase(company, line), line.Direction,
+                    RateInBase(company, line), v.PartyId, v.Narration));
             }
         }
 
@@ -164,8 +169,8 @@ internal static class InventoryMovements
     /// the quantity in (WI-10 slice C; see <see cref="Unit.RateInBaseMeasure"/>). A movement's Rate is
     /// consumed straight into report rate columns (e.g. <see cref="StockItemMovement"/>) beside that base
     /// quantity, so emitting the raw per-displayed-unit rate would make Rate × Quantity disagree with the
-    /// row's own value by the conversion factor. Item-invoice lines carry no line unit and are already
-    /// per-base.
+    /// row's own value by the conversion factor. A line with no unit is already per-base and is returned
+    /// untouched (ER-13).
     /// </summary>
     private static Money? RateInBase(Company company, InventoryAllocation a)
     {
@@ -173,5 +178,23 @@ internal static class InventoryMovements
         if (a.UnitId is not { } unitId) return r;
         var unit = company.FindUnit(unitId);
         return unit is null ? r : new Money(unit.RateInBaseMeasure(r.Amount));
+    }
+
+    /// <summary>The item-invoice line's quantity normalised to the item's base unit (WI-10 Gap 2) — the same
+    /// treatment <see cref="QuantityInBase(Company, InventoryAllocation)"/> gives a pure-stock line.</summary>
+    private static decimal QuantityInBase(Company company, VoucherInventoryLine line)
+    {
+        if (line.UnitId is not { } unitId) return line.Quantity;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? line.Quantity : unit.QuantityInBaseMeasure(line.Quantity);
+    }
+
+    /// <summary>The item-invoice line's rate re-expressed per the item's base unit (WI-10 Gap 2), so it pairs
+    /// with the base quantity reported beside it.</summary>
+    private static Money? RateInBase(Company company, VoucherInventoryLine line)
+    {
+        if (line.UnitId is not { } unitId) return line.Rate;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? line.Rate : new Money(unit.RateInBaseMeasure(line.Rate.Amount));
     }
 }

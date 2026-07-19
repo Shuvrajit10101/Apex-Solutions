@@ -86,6 +86,11 @@ public static class AdditionalCostApportionment
     /// additional-cost pools. <see cref="LandedValue"/> = purchase + both shares (paisa-exact); the
     /// <see cref="LandedUnitRate"/> is the <b>exact</b> decimal <c>LandedValue / Quantity</c> the valuation reads
     /// as the movement's inward rate.
+    /// <para><b>Unit contract (WI-10):</b> <see cref="Quantity"/> is always in the stock item's <b>BASE</b> unit
+    /// (both <c>ForPurchase</c> and <c>ForTransfer</c> normalise it), so <see cref="LandedUnitRate"/> is a
+    /// <b>per-base-unit</b> rate and pairs correctly with the base quantity the valuation engine accumulates. A
+    /// consumer must NOT convert it again. A UI wanting to show it beside a per-line-unit Rate column converts it
+    /// back with the documented exact inverse <see cref="Unit.RateFromBaseMeasure"/>.</para>
     /// </summary>
     public readonly record struct LandedLine(int Index, decimal Quantity, Money PurchaseValue, Money QtyShare, Money ValueShare)
     {
@@ -136,9 +141,18 @@ public static class AdditionalCostApportionment
 
         var qtyWeights = new decimal[items.Count];
         var valueWeights = new decimal[items.Count];
+        var baseQty = new decimal[items.Count];
         for (var i = 0; i < items.Count; i++)
         {
-            qtyWeights[i] = items[i].Quantity;
+            // WI-10 Gap 2: weigh — and divide — by the line's BASE-unit quantity, exactly as ForTransfer does.
+            // Two reasons. (1) By-quantity apportionment compares lines against each other, so the quantities
+            // must be in one common unit: freight spread over "2 Doz" and "5 Nos" of the same item must weigh
+            // 24 against 5, not 2 against 5. (2) LandedUnitRate = LandedValue ÷ this quantity is consumed as the
+            // valuation's inward rate beside a base-normalised quantity, so it has to be per base unit or the
+            // stock value inflates by the conversion factor. Value itself is NOT converted — it is a total, and
+            // it is unit-invariant ("2 Doz @ ₹10" is ₹20 however the quantity is expressed).
+            baseQty[i] = BaseQuantity(company, items[i]);
+            qtyWeights[i] = baseQty[i];
             valueWeights[i] = items[i].Value.Amount;
         }
 
@@ -147,7 +161,7 @@ public static class AdditionalCostApportionment
 
         var result = new List<LandedLine>(items.Count);
         for (var i = 0; i < items.Count; i++)
-            result.Add(new LandedLine(i, items[i].Quantity, items[i].Value, qtyShares[i], valueShares[i]));
+            result.Add(new LandedLine(i, baseQty[i], items[i].Value, qtyShares[i], valueShares[i]));
         return result;
     }
 
@@ -210,6 +224,16 @@ public static class AdditionalCostApportionment
         for (var i = 0; i < dest.Count; i++)
             result.Add(new LandedLine(i, baseQty[i], baseValue[i], qtyShares[i], valueShares[i]));
         return result;
+    }
+
+    /// <summary>The item-invoice line's ACTUAL quantity normalised to the item's base unit (WI-10 Gap 2) — the
+    /// same quantity the stock engine accumulates on hand, so the landed rate divided out of it is per base
+    /// unit. A line with no unit is already in the base unit and is returned untouched (ER-13).</summary>
+    private static decimal BaseQuantity(Company company, VoucherInventoryLine line)
+    {
+        if (line.UnitId is not { } unitId) return line.Quantity;
+        var unit = company.FindUnit(unitId);
+        return unit is null ? line.Quantity : unit.QuantityInBaseMeasure(line.Quantity);
     }
 
     /// <summary>The allocation quantity normalised to the item's base unit (mirrors the valuation engine's

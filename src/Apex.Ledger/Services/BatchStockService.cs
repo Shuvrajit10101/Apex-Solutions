@@ -261,7 +261,10 @@ public sealed class BatchStockService
             {
                 if (line.StockItemId != stockItemId || line.GodownId != godownId || Normalise(line.BatchLabel) != label) continue;
                 if (line.Direction != StockDirection.Inward) continue;
-                if (!seenOpening || v.Date >= bestDate) { last = line.Rate; bestDate = v.Date; }
+                // WI-10 Gap 2: BatchOnHand.Quantity is base-normalised, so an item-invoice line's rate — which
+                // is per the LINE's unit — must be re-expressed per base unit, exactly as the pure-stock branch
+                // above does. Without this "2 Doz @ ₹10" would value 24 Nos at ₹240 instead of ₹20.
+                if (!seenOpening || v.Date >= bestDate) { last = RateInBase(line); bestDate = v.Date; }
             }
         }
 
@@ -272,13 +275,22 @@ public sealed class BatchStockService
     /// An allocation's rate re-expressed per the item's BASE unit (WI-10 slice C; see
     /// <see cref="Unit.RateInBaseMeasure"/>). A line states its rate per the unit the LINE is in, so pairing it
     /// with a base-normalised quantity requires dividing by exactly the factor the quantity was multiplied by.
-    /// Opening balances and item-invoice lines carry no line unit, so they are already per-base.
+    /// Opening balances carry no line unit, so they are already per-base.
     /// </summary>
     private Money RateInBase(InventoryAllocation a, Money rate)
     {
         if (a.UnitId is not { } unitId) return rate;
         var unit = _company.FindUnit(unitId);
         return unit is null ? rate : new Money(unit.RateInBaseMeasure(rate.Amount));
+    }
+
+    /// <summary>The item-invoice line's rate re-expressed per the item's BASE unit (WI-10 Gap 2) — the same
+    /// treatment the pure-stock overload gives an allocation. A unit-less line is returned untouched (ER-13).</summary>
+    private Money RateInBase(VoucherInventoryLine line)
+    {
+        if (line.UnitId is not { } unitId) return line.Rate;
+        var unit = _company.FindUnit(unitId);
+        return unit is null ? line.Rate : new Money(unit.RateInBaseMeasure(line.Rate.Amount));
     }
 
     /// <summary>Draws <paramref name="required"/> across the ordered buckets, min(remaining, bucket) each.</summary>

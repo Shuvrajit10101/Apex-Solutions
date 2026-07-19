@@ -43,6 +43,21 @@ public sealed class Gstr9AnnualTests
         return w;
     }
 
+    /// <summary>
+    /// Re-expresses an HSN row's <b>DECLARED</b> quantity in the item's base unit, using only the company's UNIT
+    /// MASTERS. Deliberately independent of anything either report derives, so an expectation built on it checks
+    /// the reports rather than restating them: a row declaring "5 DOZ" and a row declaring "60 NOS" describe the
+    /// same supply and both land on 60 here, while a row declaring "8" of a catch-all does not.
+    /// </summary>
+    private static decimal ToBaseMeasure(Company c, Gstr1HsnRow row)
+    {
+        if (row.DeclaredUnitId is not { } declared || row.BaseUnitId is not { } baseUnit || declared == baseUnit)
+            return row.Quantity;
+        var compound = c.Units.Single(u =>
+            u.IsCompound && u.FirstUnitId == declared && u.BaseMeasureUnitId == baseUnit);
+        return compound.QuantityInBaseMeasure(row.Quantity);
+    }
+
     private static Domain.Ledger Add(Company c, string name, string groupName, bool openingIsDebit)
     {
         var l = new Domain.Ledger(Guid.NewGuid(), name, c.FindGroupByName(groupName)!.Id, Money.Zero, openingIsDebit);
@@ -199,24 +214,42 @@ public sealed class Gstr9AnnualTests
         var g9 = Gstr9.Build(c, FyStart, FyEnd);
 
         // Independent Σ of the twelve monthly GSTR-1 HSN summaries, merged by HSN.
-        var expected = new Dictionary<string, (decimal Taxable, decimal Tax, decimal Qty)>();
+        //
+        // The quantity expectation is stated PHYSICALLY, not by restating the aggregator's rule. The previous
+        // version recomputed `Mixed` here as `!string.Equals(cur.Uqc, h.Uqc)` — a verbatim copy of the
+        // implementation's own predicate — so it agreed with the code by construction and went on passing while
+        // the annual row declared "8" for 81 Nos. A test that mirrors the rule can only ever confirm that the
+        // code does what the code does.
+        //
+        // What is asserted instead: whatever label the annual row chooses, the quantity it declares must convert
+        // — through the COMPANY'S UNIT MASTERS, which neither report is involved in defining — to the same base
+        // measure the twelve monthly rows physically supplied. That statement stays true under any future change
+        // to how the label is chosen, and is false whenever the declared pair misdescribes the supply.
+        var expected = new Dictionary<string, (decimal Taxable, decimal Tax, decimal BaseQty)>();
         foreach (var (from, to) in MonthlyWindows(FyStart))
             foreach (var h in Gstr1.Build(c, from, to).HsnSummary)
             {
-                var cur = expected.TryGetValue(h.HsnSac, out var e) ? e : (0m, 0m, 0m);
-                expected[h.HsnSac] = (cur.Item1 + h.TaxableValue.Amount, cur.Item2 + h.TotalTax.Amount, cur.Item3 + h.Quantity);
+                var cur = expected.TryGetValue(h.HsnSac, out var v) ? v : (Taxable: 0m, Tax: 0m, BaseQty: 0m);
+                expected[h.HsnSac] = (
+                    cur.Taxable + h.TaxableValue.Amount,
+                    cur.Tax + h.TotalTax.Amount,
+                    cur.BaseQty + h.BaseQuantity);
             }
 
         var actual = g9.Table17Hsn.ToDictionary(h => h.HsnSac);
         Assert.Equal(expected.Count, actual.Count);
         foreach (var (hsn, exp) in expected)
         {
-            Assert.Equal(new Money(exp.Taxable), actual[hsn].TaxableValue);
-            Assert.Equal(new Money(exp.Tax), actual[hsn].TotalTax);
-            Assert.Equal(exp.Qty, actual[hsn].Quantity);
+            var row = actual[hsn];
+            Assert.Equal(new Money(exp.Taxable), row.TaxableValue);
+            Assert.Equal(new Money(exp.Tax), row.TotalTax);
+            // The declared (Quantity, unit) pair, converted to the item's base unit, IS the physical measure.
+            Assert.Equal(exp.BaseQty, ToBaseMeasure(c, row));
+            Assert.Equal(exp.BaseQty, row.BaseQuantity);
         }
 
         // Pinned: Widget 30 nos taxable ₹3000 tax 540; Gadget 40 taxable ₹1000 tax 50; Book (exempt) taxable ₹1000 tax 0.
+        // (These are hand-worked from the fixture, independent of both reports.)
         Assert.Equal(Money.FromRupees(5000m), g9.Table17TaxableValue);
         Assert.Equal(Money.FromRupees(590m), g9.Table17TotalTax);
         var widget = actual["847130"];

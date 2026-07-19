@@ -187,12 +187,17 @@ public static class EWayBillJson
         {
             var item = company.FindStockItem(il.StockItemId);
             var (c, s, ig) = tax.TryGetValue(il, out var t) ? t : (0L, 0L, 0L);
+            // WI-10 Gap 2 follow-on: the quantity an e-way bill declares is the quantity a checkpoint physically
+            // verifies. Emitting the line quantity beside the item's BASE UQC declared "2 NOS" on a consignment
+            // in which 24 Nos travel — a verification exposure with no money symptom to catch it. Declare the
+            // line's own unit when it maps to a valid UQC, else the base unit with the quantity converted.
+            var decl = UqcResolver.Declare(company, il, il.BilledQuantity);
             items.Add(new ItemDto
             {
                 SlNo = sl++,
                 HsnCd = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "",
-                QtyMillis = (long)Math.Round(il.BilledQuantity * 1000m, MidpointRounding.AwayFromZero),
-                Unit = company.FindUnit(item?.BaseUnitId ?? Guid.Empty)?.UnitQuantityCode ?? "OTH",
+                QtyMillis = (long)Math.Round(decl.Quantity * 1000m, MidpointRounding.AwayFromZero),
+                Unit = decl.Code ?? "OTH",
                 TaxableAmtPaisa = MoneyCodec.ToPaisa(il.Value),
                 GstRt = singleRate ?? LineIntegratedRate(company, il),
                 CgstAmtPaisa = c,

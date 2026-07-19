@@ -883,7 +883,8 @@ internal sealed class ImportPlan
         foreach (var v in _model.Payload.Vouchers)
         {
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
-                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId, t);
+                costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId,
+                unitId, t);
             posting.Post(domain);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
@@ -1387,6 +1388,7 @@ internal sealed class ImportPlan
         Dictionary<Guid, Guid> tcsNatureId,
         Dictionary<Guid, Guid> employeeId,
         Dictionary<Guid, Guid> payHeadId,
+        Dictionary<Guid, Guid> unitId,
         Company t)
     {
         var lines = v.Lines.Select(l => new EntryLine(
@@ -1411,7 +1413,10 @@ internal sealed class ImportPlan
                 il.Quantity, MoneyCodec.FromPaisa(il.RatePaisa),
                 ParseEnum<StockDirection>(il.Direction), il.BatchLabel,
                 // Phase 6 slice 4: Billed defaults to Actual when null (feature off ⇒ byte-identical, ER-13).
-                billedQuantity: il.BilledQuantity)).ToList();
+                billedQuantity: il.BilledQuantity,
+                // WI-10 Gap 2: the line unit, re-mapped onto the TARGET company's unit (the same resolver the
+                // pure-stock allocations use). null ⇒ the item's base unit ⇒ byte-identical (ER-13).
+                unitId: il.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null)).ToList();
 
         // Phase 6 slice 7: POS payment tenders (empty for every non-POS voucher). The tender ledgers resolve by name.
         var posTenders = v.PosTenders.Count == 0

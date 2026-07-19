@@ -170,10 +170,29 @@ public static class VoucherValidator
         var expectedDir = isPurchase ? StockDirection.Inward : StockDirection.Outward;
         foreach (var line in v.InventoryLines)
         {
-            if (c.FindStockItem(line.StockItemId) is null)
+            var item = c.FindStockItem(line.StockItemId);
+            if (item is null)
                 throw new InvalidVoucherException($"Item-invoice line references unknown stock item {line.StockItemId}.");
             if (c.FindGodown(line.GodownId) is null)
                 throw new InvalidVoucherException($"Item-invoice line references unknown godown {line.GodownId}.");
+            // WI-10 Gap 2: a line unit must exist AND reduce to the item's own base unit, because the stock
+            // engine normalises the quantity through Unit.QuantityInBaseMeasure before it accumulates on hand.
+            // Without this gate "1 Kg" of a Nos-measured item would silently scale on-hand by an unrelated
+            // factor — and the value leg would still foot, so nothing else would catch it. (Mirrors the same
+            // guard InventoryPostingService applies to pure-stock allocations.)
+            if (line.UnitId is { } lineUnitId)
+            {
+                var unit = c.FindUnit(lineUnitId);
+                if (unit is null)
+                    throw new InvalidVoucherException($"Item-invoice line references unknown unit {lineUnitId}.");
+                if (unit.BaseMeasureUnitId != item.BaseUnitId)
+                {
+                    var itemUnit = c.FindUnit(item.BaseUnitId)?.Symbol ?? item.BaseUnitId.ToString();
+                    throw new InvalidVoucherException(
+                        $"Item-invoice line for '{item.Name}' states its quantity in '{unit.Symbol}', which does " +
+                        $"not reduce to the item's base unit '{itemUnit}'.");
+                }
+            }
             if (line.Direction != expectedDir)
                 throw new InvalidVoucherException(
                     $"Item-invoice line direction {line.Direction} does not match the '{type.Name}' nature " +

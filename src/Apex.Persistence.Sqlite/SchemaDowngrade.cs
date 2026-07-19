@@ -51,6 +51,59 @@ public static class SchemaDowngrade
         Exec(connection, "UPDATE schema_version SET version = 44;");
     }
 
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV45ToV46"/>: removes the <c>unit_id</c> column from
+    /// <c>voucher_inventory_lines</c> and stamps <c>schema_version</c> back to 45. Any line unit is discarded —
+    /// that is what a downgrade means, and the resulting line reads as "already in the item's base unit", which is
+    /// exactly how v45 interpreted every row. Nothing else is touched; v46 added no tables, indexes or constraints.
+    ///
+    /// <para>Rebuilt from <c>PRAGMA table_info</c> for the same reason <see cref="V45ToV44"/> is: SQLite's
+    /// <c>ALTER TABLE … DROP COLUMN</c> re-parses the stored, heavily-commented <c>CREATE TABLE</c> text and fails
+    /// on it. <b>The rebuild deliberately restores the full v45 DDL for this table</b> rather than a bare
+    /// <c>CREATE … AS SELECT</c>: <c>voucher_inventory_lines</c> has an <c>INTEGER PRIMARY KEY AUTOINCREMENT</c>
+    /// that a <c>CREATE … AS SELECT</c> would silently drop, leaving a manufactured "v45" database whose shape
+    /// differs from a real one — and the very next insert would then fail to allocate an id.</para>
+    /// </summary>
+    public static void V46ToV45(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        var all = ColumnNames(connection, "voucher_inventory_lines");
+        var keep = all
+            .Where(c => !Schema.V46ItemLineUnitColumns.Contains(c, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (keep.Count > 0 && keep.Count < all.Count)
+        {
+            var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+
+            Exec(connection, "PRAGMA foreign_keys=OFF;");
+            Exec(connection, $"""
+                CREATE TABLE voucher_inventory_lines_v45 (
+                    id                INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    voucher_id        TEXT    NOT NULL REFERENCES vouchers(id),
+                    line_order        INTEGER NOT NULL,
+                    stock_item_id     TEXT    NOT NULL REFERENCES stock_items(id),
+                    godown_id         TEXT    NOT NULL REFERENCES godowns(id),
+                    quantity_micro    INTEGER NOT NULL,
+                    direction         INTEGER NOT NULL,
+                    rate_paisa        INTEGER NOT NULL,
+                    batch_label       TEXT        NULL,
+                    batch_id          TEXT        NULL REFERENCES batch_masters(id),
+                    actual_qty_micro  INTEGER     NULL,
+                    billed_qty_micro  INTEGER     NULL
+                );
+                INSERT INTO voucher_inventory_lines_v45 ({columnList}) SELECT {columnList} FROM voucher_inventory_lines;
+                DROP TABLE voucher_inventory_lines;
+                ALTER TABLE voucher_inventory_lines_v45 RENAME TO voucher_inventory_lines;
+                CREATE INDEX ix_voucher_inv_lines_voucher ON voucher_inventory_lines(voucher_id);
+                """);
+            Exec(connection, "PRAGMA foreign_keys=ON;");
+        }
+
+        Exec(connection, "UPDATE schema_version SET version = 45;");
+    }
+
     private static List<string> ColumnNames(SqliteConnection connection, string table)
     {
         using var cmd = connection.CreateCommand();

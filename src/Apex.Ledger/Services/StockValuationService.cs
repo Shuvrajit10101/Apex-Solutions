@@ -220,9 +220,16 @@ public sealed class StockValuationService
             // Additional Cost of Purchase (RQ-16..RQ-19): an inward item line takes its landed rate when the
             // purchase tracks additional costs; otherwise the bare purchase rate (LandedUnitRate ?? a.Rate — the
             // untracked path is byte-identical, ER-13).
+            //
+            // WI-10 Gap 2 — QUANTITY AND RATE MUST BE IN THE SAME UNIT. An item-invoice line may now be stated in
+            // a compound unit, so the quantity is normalised to the item's base unit here and the BARE rate is
+            // divided by exactly the same factor. m.LandedUnitRate is NOT converted: ItemInvoiceStock already
+            // publishes it per base unit, and converting it twice would understate by the factor. For a line with
+            // no unit both helpers are the identity, so the path is byte-identical to before (ER-13).
+            var itemQty = QuantityInBase(a);
             tagged.Add((m.Date, 0, m.Number, m.VoucherId, a.Direction == StockDirection.Inward
-                ? MovementEvent.Inward(a.Quantity, m.LandedUnitRate ?? a.Rate?.Amount)
-                : MovementEvent.Outward(a.Quantity, a.Rate?.Amount)));
+                ? MovementEvent.Inward(itemQty, m.LandedUnitRate ?? RateInBase(a, a.Rate?.Amount))
+                : MovementEvent.Outward(itemQty, RateInBase(a, a.Rate?.Amount))));
         }
 
         return tagged

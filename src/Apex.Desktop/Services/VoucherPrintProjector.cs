@@ -103,7 +103,15 @@ public static class VoucherPrintProjector
         foreach (var il in voucher.InventoryLines)
         {
             var item = company.FindStockItem(il.StockItemId);
-            var unit = item is not null ? company.FindUnit(item.BaseUnitId)?.Symbol : null;
+            // WI-10 Gap 2: label the quantity with the unit the LINE is actually stated in, not the item's base
+            // unit — the printed quantity IS the line quantity, and the printed Rate is per that same unit, so
+            // "2 Doz @ ₹10.00 = ₹20.00" reads correctly and foots. Falling back to the item's base unit keeps a
+            // line that carries no unit byte-identical to before (ER-13). Printing "2 Nos @ ₹10 = ₹20" would be
+            // internally consistent arithmetic on a QUANTITY THAT IS NOT WHAT MOVED (24 Nos did) — a document
+            // the buyer, the auditor and the e-way bill would all read differently.
+            var unit = il.UnitId is { } lineUnitId
+                ? company.FindUnit(lineUnitId)?.Symbol
+                : item is not null ? company.FindUnit(item.BaseUnitId)?.Symbol : null;
             var qtyText = IndianFormat.Quantity(il.Quantity);
             if (!string.IsNullOrEmpty(unit)) qtyText += " " + unit;
 

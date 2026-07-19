@@ -2334,8 +2334,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>Adds a blank item-invoice inventory line (Movement kind: Item / Godown / Qty / Rate / Batch).</summary>
     public InventoryVoucherLineViewModel AddInventoryLine()
     {
+        // WI-10 Gap 2: hand the line the company's units so its picker can offer the item's base unit plus every
+        // compound unit that reduces to it. Without this argument the picker's option list is empty, ShowUnit is
+        // false and the column never appears — which is exactly the state the item-invoice grid was in before
+        // this slice, and why the CA's "2 Dozen @ ₹10" invoice line was unreachable.
         var line = new InventoryVoucherLineViewModel(
-            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice)
+            InventoryLineKind.Movement, StockItems, Godowns, RecalculateItemInvoice, _company.Units)
         {
             ShowActualBilled = CanBeItemInvoice && _company.UseSeparateActualBilledQuantity,
             ShowDiscount = ShowPriceLevelSelector,
@@ -2718,7 +2722,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // The rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             invLines.Add(new VoucherInventoryLine(
                 l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
-                StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity));
+                StockDirection.Inward, l.Batch, billedQuantity: l.ParsedBilledQuantity,
+                // WI-10 Gap 2: the preview must model the SAME line the posting will build, unit included —
+                // otherwise a by-quantity apportionment would weigh 2 where the posted voucher weighs 24 and the
+                // operator would be shown a landed rate the books never use.
+                unitId: l.UnitId));
         }
 
         var costLines = new List<EntryLine>();
@@ -2734,9 +2742,28 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             var ll = landed[i];
             completeItems[i].ShowLanded = true;
-            completeItems[i].LandedRateText = IndianFormat.AmountAlways(ll.LandedUnitRate);
+            // WI-10 Gap 2: LandedUnitRate is per the item's BASE unit (the engine's unit). This column sits
+            // beside the Rate column, which is per the LINE unit, so it is converted BACK with the documented
+            // exact inverse — showing a per-Nos landed rate next to a per-Dozen rate would read as a 12× drop in
+            // cost. LandedValue is a total and is unit-invariant, so it is displayed as-is. For a line with no
+            // unit RateFromBaseMeasure is the identity, so the display is unchanged (ER-13).
+            completeItems[i].LandedRateText =
+                IndianFormat.AmountAlways(LandedRateInLineUnit(completeItems[i], ll.LandedUnitRate));
             completeItems[i].LandedValueText = IndianFormat.AmountAlways(ll.LandedValue.Amount);
         }
+    }
+
+    /// <summary>
+    /// A per-BASE-unit landed rate from <see cref="AdditionalCostApportionment"/> re-expressed per the unit the
+    /// LINE is stated in (WI-10 Gap 2), via the documented exact inverse <see cref="Unit.RateFromBaseMeasure"/>,
+    /// so the Landed Rate column is directly comparable to the Rate column beside it. Identity for a line that
+    /// carries no unit (ER-13).
+    /// </summary>
+    private decimal LandedRateInLineUnit(InventoryVoucherLineViewModel line, decimal baseRate)
+    {
+        if (line.UnitId is not { } unitId) return baseRate;
+        var unit = _company.FindUnit(unitId);
+        return unit is null ? baseRate : unit.RateFromBaseMeasure(baseRate);
     }
 
     /// <summary>
@@ -2797,7 +2824,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
                 // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
                 direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
-                batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity));
+                batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity,
+                // WI-10 Gap 2: the unit the typed quantity AND rate are stated in. l.UnitId is the gated field —
+                // it returns null unless the picker is actually shown AND a non-base unit is chosen, so a hidden
+                // picker can never stamp a unit onto the line (the hidden-sub-form discipline). The quantity is
+                // posted AS TYPED (2), not base-normalised: Value = 2 × ₹10 = ₹20 must foot against the Sales
+                // leg, and the engine converts to 24 Nos for stock on its own side.
+                unitId: l.UnitId));
         }
 
         // Σ item value (tax EXCLUDED) — the amount the STOCK leg carries, so the pairing invariant

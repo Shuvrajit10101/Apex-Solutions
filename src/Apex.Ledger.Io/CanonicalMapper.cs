@@ -958,6 +958,9 @@ public static class CanonicalMapper
         RatePaisa = MoneyCodec.ToPaisa(l.Rate), Direction = l.Direction.ToString(), BatchLabel = l.BatchLabel,
         // Emit Billed only when it differs from Actual (feature off ⇒ null ⇒ byte-identical, ER-13).
         BilledQuantity = l.BilledQuantity == l.Quantity ? null : l.BilledQuantity,
+        // WI-10 Gap 2: the line unit, verbatim. null ⇒ the item's base unit ⇒ the key/attribute is omitted
+        // entirely, so a company with no unit-carrying item line exports byte-identically (ER-13).
+        UnitId = l.UnitId,
     };
 
     // ------------------------------------------------------------- inventory / order vouchers

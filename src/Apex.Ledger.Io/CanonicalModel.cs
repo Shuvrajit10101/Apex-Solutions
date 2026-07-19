@@ -1649,6 +1649,20 @@ public sealed record VoucherInventoryLineDto
     /// <summary>The Billed quantity (Phase 6 slice 4; RQ-22/RQ-23; DP-7) when it differs from <see cref="Quantity"/>
     /// (the Actual); <c>null</c> ⇒ Billed ≡ Actual, so a feature-off line round-trips byte-identically (ER-13).</summary>
     public decimal? BilledQuantity { get; init; }
+
+    /// <summary>
+    /// The unit both quantities and <see cref="RatePaisa"/> are stated in (WI-10 Gap 2; schema v46); <c>null</c> ⇒
+    /// the stock item's own base unit.
+    /// <para><b>Appended at the END and marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/>, exactly like
+    /// <c>LedgerDto.Mailing</c>.</b> The canonical JSON options set <c>DefaultIgnoreCondition = Never</c>, so
+    /// without the attribute EVERY item line in every existing export would gain a <c>"unitId": null</c> line and
+    /// the bytes would change for companies that never state a line unit — breaking ER-13. XML gets it free
+    /// (<c>OptId</c> emits no attribute for null).</para>
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? UnitId { get; init; }
 }
 
 // ----------------------------------------------------------------- inventory / order vouchers (catalog §10)

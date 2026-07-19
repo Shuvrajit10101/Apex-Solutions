@@ -117,7 +117,10 @@ public sealed record NegativeStock(
             if (a.StockItemId != item.Id || a.Direction != StockDirection.Inward) continue;
             if (a.Rate is { } rate && rate.Amount > 0m && m.Date >= lastDate)
             {
-                lastRate = rate.Amount;
+                // WI-10 Gap 2: an item-invoice line can now carry its own unit, and the shortfall this rate
+                // values is a BASE-unit quantity (InventoryLedger.OnHand) — so the rate is re-expressed per
+                // base unit, exactly as the pure-stock branch above does. A unit-less line is unchanged (ER-13).
+                lastRate = RateInBase(company, a, rate.Amount);
                 lastDate = m.Date;
             }
         }
@@ -129,7 +132,9 @@ public sealed record NegativeStock(
     /// An allocation's rate re-expressed per the item's BASE unit (WI-10 slice C; see
     /// <see cref="Unit.RateInBaseMeasure"/>). A line states its rate per the unit the LINE is in, so pairing it
     /// with a base-normalised quantity requires dividing by exactly the factor the quantity was multiplied by.
-    /// Opening balances and item-invoice lines carry no line unit, so they are already per-base.
+    /// Opening balances carry no line unit, so they are already per-base. Since WI-10 Gap 2 an ITEM-INVOICE
+    /// line can carry one too (ItemInvoiceStock stamps it on the synthetic allocation), so both callers below
+    /// route through here.
     /// </summary>
     private static decimal RateInBase(Company company, InventoryAllocation a, decimal rate)
     {

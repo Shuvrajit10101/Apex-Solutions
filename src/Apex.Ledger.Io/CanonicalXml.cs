@@ -795,7 +795,10 @@ public static class CanonicalXml
     private static XElement BuildVoucherInventoryLine(VoucherInventoryLineDto l) => new("inventoryLine",
         Attr("stockItemId", l.StockItemId), Attr("godownId", l.GodownId), Attr("quantity", Dec(l.Quantity)),
         Attr("ratePaisa", l.RatePaisa), Attr("direction", l.Direction), Opt("batchLabel", l.BatchLabel),
-        OptDec("billedQuantity", l.BilledQuantity));
+        OptDec("billedQuantity", l.BilledQuantity),
+        // WI-10 Gap 2: the line unit. OptId emits nothing when null, so a base-unit line's element is
+        // byte-identical to a pre-v46 export (ER-13).
+        OptId("unitId", l.UnitId));
 
     private static XElement BuildInventoryVoucher(InventoryVoucherDto v)
     {
@@ -1799,6 +1802,7 @@ public static class CanonicalXml
         StockItemId = Guid(e, "stockItemId"), GodownId = Guid(e, "godownId"), Quantity = DecReq(e, "quantity"),
         RatePaisa = Long(e, "ratePaisa"), Direction = Str(e, "direction")!, BatchLabel = Str(e, "batchLabel"),
         BilledQuantity = OptDec(e, "billedQuantity"),
+        UnitId = OptGuid(e, "unitId"),   // WI-10 Gap 2; absent ⇒ null ⇒ the item's base unit
     };
 
     private static InventoryVoucherDto ReadInventoryVoucher(XElement e) => new()

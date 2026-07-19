@@ -2340,10 +2340,14 @@
                                    (92) shows in
                                    full (D-1). Numeric Qty (84) / Rate (72) columns are left untouched. -->
                               <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
-                                <Grid ColumnDefinitions="*,184,84,Auto,72,92,36,Auto,Auto,Auto">
+                                <Grid ColumnDefinitions="*,184,120,Auto,72,92,36,Auto,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="Stock Item" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Godown" Classes="colHdr"/>
-                                  <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on. -->
+                                  <!-- Quantity header relabels to "Qty (Actual)" when the Actual/Billed split is on.
+                                       WI-10 Gap 2: the Qty column widens 84 -> 120 so the quantity and the UNIT it is
+                                       stated in share ONE column (the "per" of an invoice line), exactly as the
+                                       inventory-voucher grid does. Every other column index is untouched, so the
+                                       Billed / Rate / Batch / Landed / Disc gating is unaffected. -->
                                   <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Classes="colHdr" TextAlignment="Right"/>
                                   <!-- Billed-quantity column — shown only when the company "Use separate Actual &amp; Billed
                                        Qty" flag is on (Sales/Purchase item-invoice only). Value + GST derive from Billed. -->
@@ -2373,7 +2377,7 @@
                                       <DataTemplate x:DataType="vm:InventoryVoucherLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,184,84,Auto,72,92,36,Auto,Auto,Auto">
+                                          <Grid ColumnDefinitions="*,184,120,Auto,72,92,36,Auto,Auto,Auto">
                                             <ComboBox Grid.Column="0" Classes="gridCombo"
                                                       MinWidth="0" HorizontalAlignment="Stretch"
                                                       HorizontalContentAlignment="Left" Padding="8,3,6,3"
@@ -2400,10 +2404,30 @@
                                                 </DataTemplate>
                                               </ComboBox.ItemTemplate>
                                             </ComboBox>
-                                            <!-- Actual (stock) quantity. -->
-                                            <TextBox Grid.Column="2" Width="78"
-                                                     Text="{Binding QuantityText, Mode=TwoWay}"
-                                                     TextAlignment="Right" PlaceholderText="0"/>
+                                            <!-- Actual (stock) quantity + the UNIT it is stated in, in ONE cell
+                                                 (WI-10 Gap 2). A fixed 2-column inner Grid, never a horizontal
+                                                 StackPanel (which measures at infinite width). The unit picker
+                                                 shows only when the picked item HAS an alternative unit;
+                                                 otherwise this cell is just the quantity box, exactly as before.
+                                                 THE RATE IS PER THIS UNIT — "2 Doz @ 10.00" is 20.00, not 240.00,
+                                                 and 24 Nos of stock move. -->
+                                            <Grid Grid.Column="2" ColumnDefinitions="66,50">
+                                              <TextBox Grid.Column="0" Width="66"
+                                                       Text="{Binding QuantityText, Mode=TwoWay}"
+                                                       TextAlignment="Right" PlaceholderText="0"/>
+                                              <ComboBox Grid.Column="1" Classes="gridCombo" Width="48" Margin="2,0,0,0"
+                                                        HorizontalContentAlignment="Left" Padding="4,3,2,3"
+                                                        ItemsSource="{Binding UnitOptions}"
+                                                        SelectedItem="{Binding SelectedUnit, Mode=TwoWay}"
+                                                        ToolTip.Tip="Unit this quantity is stated in (the rate is per this unit)"
+                                                        IsVisible="{Binding ShowUnit}">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="ledger:Unit">
+                                                    <TextBlock Text="{Binding Symbol}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                            </Grid>
                                             <!-- Billed (accounts/GST) quantity — shown only when the company A/B flag is
                                                  on (ShowActualBilled). Blank ⇒ Billed defaults to Actual (RQ-22/25). -->
                                             <TextBox Grid.Column="3" Width="78" Margin="6,0,0,0"
