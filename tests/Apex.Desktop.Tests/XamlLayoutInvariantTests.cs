@@ -356,12 +356,46 @@ public sealed class XamlLayoutInvariantTests
 
     /// <summary>
     /// KNOWN-UNFIXED sites, keyed by ColumnDefinitions string (edit-stable; header/row twins share a
-    /// key by design). 4 strings / 12 sites. EVERY ONE loses a column outright.
+    /// key by design). 1 string / 6 sites.
     /// </summary>
     private static readonly HashSet<string> OverflowingGridAllowList = new(StringComparer.Ordinal)
     {
-        // e-Invoice / e-Way status + amendment tables (6 sites). 670px of fixed in 638px.
-        // REMOVED BY: the GST e-invoice/e-way + amendments screen cluster.
+        // ── "140,*,140,140,140,110" — 6 sites, ALL SIX MEASURED BY RENDER (Skia + real Consolas), 2026-07-20.
+        //
+        // WHAT THEY ACTUALLY ARE. NOT the e-invoice/e-way + amendment tables the previous comment named —
+        // that attribution was simply wrong. The six sites are the header / row / total twins of exactly two
+        // screens: TDS Challan Reconciliation (MainWindow.axaml 12052, 12067, 12088) and TCS Challan
+        // Reconciliation (13673, 13688, 13709). No e-invoice or amendment screen uses this spec.
+        //
+        // WHAT WAS MEASURED (populated fixture, TDS+TCS enabled, a worst-case row injected through the REAL
+        // row template; 1024x768 / 1280x720 / 1920x1080):
+        //   1024 (the narrowest reachable window — MinWidth="1024" is test-locked):
+        //       tracks = [140, 0, 140, 140, 140, 110], sum 670 in a 626px slot; pane clips at x=850.
+        //   1280: star = 144 (header) / 120 (row).   1920: star = 784 / 760.   Nothing overflows at either.
+        //
+        // THE STAR REALLY IS ZERO AT 1024 — and it is a DEAD SPACER, so nothing is lost by it. Column 1
+        // carries NO content in any of the three twins: the header declares Text="" (natural width 0.0px),
+        // and the row and total templates have NO child in column 1 at all. It exists only to push the money
+        // columns right at wide windows.
+        //
+        // NO DATA IS CUT, AT ANY OF THE THREE WIDTHS. Measured glyph extents at 1024 against the pane clip
+        // (850): every money cell ends at <=756; the header "Status" ends at 811; the worst-case row status
+        // "Matched" (the longest of {Matched, Short, Excess}, 7ch @ 11.5 = 45px) ends at 834 — 16px of
+        // clearance. No cell's natural width exceeds its slot; no glyph lands past the pane. The only thing
+        // past the clip is the trailing 31-43px of column 5's BLANK track.
+        //
+        // WHY IT IS NOT FIXED (and why fixing it would be a regression). The documented fix shape —
+        // h-ScrollViewer + MinWidth — cannot help here PRECISELY BECAUSE the star is dead: MinWidth=670 keeps
+        // the star at 0 and buys a horizontal scrollbar at 1024 that reveals 44px of blank space, and making
+        // the star non-zero would need MinWidth>=820, i.e. scrolling to expose a 150px EMPTY column. Strictly
+        // worse than today, where a 1024 user already reads every figure without any scrollbar. The only
+        // other route to a >=150px star is to shrink the three 140px money columns — forbidden, and the exact
+        // move behind five shipped regressions. The three non-money tracks together hold just 126px of slack
+        // against the 182px needed, so no money-safe arithmetic exists.
+        //
+        // THE RESIDUAL RISK IS LATENT, NOT LIVE, and is locked by ChallanReconColumnLockTests: put any
+        // content in column 1, or lengthen a Status value, and it would vanish with no ellipsis and no
+        // scrollbar. That test fails if either assumption rots.
         "140,*,140,140,140,110",
         // NOTE (UI-defect D4 / C6): the three inventory-register grids that used to overflow this pane —
         // Order Register "100,150,*,*,120,100,100,110", the allocation/material registers
