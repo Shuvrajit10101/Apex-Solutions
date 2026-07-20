@@ -7,10 +7,12 @@
 >
 > **Status:** APPROVED — build authorised by the user 2026-07-02. **Confirmed stack (§3): C# / .NET +
 > Avalonia (cross-platform: Windows + Linux + macOS) + SQLite**, pixel-level UI fidelity, config-driven GST
-> slabs. The domain model, phases, tests, and gates are stack-agnostic and unchanged. **Phases 0–6
-> COMPLETE** (schema **v24**; on `origin/main` via PR #18). **Current phase: Phase 7 — TDS/TCS** (open
-> decisions D1–D7 RESOLVED to recommended defaults, user-approved 2026-07-10 — see
-> `docs/phase7-tds-tcs-requirements.md`).
+> slabs. The domain model, phases, tests, and gates are stack-agnostic and unchanged.
+> **Phases 0–9 and Phase 10.5 (CA-audit remediation, slices S1–S9) are COMPLETE and merged** (PRs #19–#25);
+> the UI-defect campaign that followed is also merged (PRs #26–#33). Schema **v46**; suite **3321 tests
+> green** (Ledger 1239 · Io 349 · Sqlite 173 · Desktop 1560); `origin/main` = `c655dc2`.
+> **Phase 10 and Phase 11 are EXCLUDED by standing user decision** and are not scheduled.
+> **Current work: Phase 10.6 — Keyboard & input parity** (§5).
 >
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
@@ -523,6 +525,61 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   **A12** (GitHub Expert) commits & pushes small reviewed units (R4/R10); the real app run with evidence;
   `memory.md` updated; then **user go/no-go** per R12.
 
+> **Phase 10.5 — WI-2 scope correction (recorded 2026-07-20, history above left intact).** WI-2 is recorded
+> SHIPPED in slice **S5** (commit `43c8ea7`) and it is: the wrong-ledger `ToString` bug is fixed and the
+> dropdowns are keyboard-navigable. But what S5 delivered for "type-ahead" is **type-to-JUMP** — the typed
+> prefix moves the highlight. `GatewayColumn.TypeAhead` accumulates a prefix and then only calls
+> `SetSelected`; it never touches `Items`. **No filtering infrastructure exists anywhere in `src/`.**
+> Type-to-**FILTER** is therefore **new work**, scheduled as **KB-3** in Phase 10.6 below — not a re-run of
+> WI-2, and WI-2's shipped status is not withdrawn.
+
+### Phase 10.6 — Keyboard & input parity
+- **Goals:** make the app keyboard-complete against NFR-2 (§1.4) — every screen driveable by arrows/Tab/Space
+  including inside dropdowns, focus never lost below the fold, and pickers that **filter** as you type across
+  **both** widget families. Closes the gap between what §1.2/NFR-2 promise and what S5 actually shipped.
+- **Modules (catalog §21 keyboard surface; NFR-2):** the tunnel key handler, the ~199 `ComboBox` pickers, the
+  cascade Miller-column navigator, and the focus/scroll behaviour of every form pane.
+- **Settled contract (user-confirmed 2026-07-20 — R12 satisfied; do not re-litigate):** **R-KB1** arrows/Tab/
+  Space work on every screen, dropdowns included, and Tab to a control below the fold brings it into view.
+  **R-KB2** dropdowns filter by **PREFIX** as you type, the typed text is shown letter by letter, Backspace
+  widens the match, matching runs against **Alias as well as Name**, case-insensitive, in **both** widget
+  families. Also settled: **Space** is a literal character inside a filtering picker and activates elsewhere;
+  **authored menu columns keep their bare-letter red hotkeys** (WI-9) and only **DataDriven** columns filter;
+  repeated-letter **cycling is DROPPED**; **Escape is two presses** — the first clears the filter and leaves
+  the list open, the second closes the dropdown, and neither ever also pops the Miller column; **F4 is
+  Contra** and must never open a dropdown. The **15 `SelectedIndex`-bound `ListBox`es are DEFERRED**.
+- **Work items (id — one-line):**
+  - **KB-1** **Full keyboard navigation** — arrows / Tab / Space reach and operate every control on every
+    screen, including inside an open dropdown; no control is mouse-only and no screen traps focus.
+  - **KB-2** **Focus auto-scroll** — Tab to a control below the fold scrolls it into view. **MEASURED
+    FINDING (this session):** the **Avalonia framework default already does this** in the real `MainWindow` —
+    **40/40 Tab stops landed inside every ancestor clip** at both **1920×1080** and **1280×720**, with
+    `Disabled` scrollers rewound before scoring. **No new auto-scroll component is required for ordinary form
+    panes.** What remains **unsettled** is the **loaded case** — tax panels open, voucher lines added — which
+    is not yet measured; KB-2 is therefore a measurement item, not a build item, until the loaded case says
+    otherwise.
+  - **KB-3** **Prefix type-to-filter pickers, both widget families** — implement the R-KB2 contract in the
+    **~199 `ComboBox`** pickers **and** in the **cascade Miller columns**. The user has ruled **FULL PARITY**
+    for the cascade family: it gets a **real character feed** of its own rather than a reduced behaviour.
+    This is **NEW work** — see the WI-2 scope correction above; S5 shipped type-to-JUMP and there is no
+    filtering code in `src/` to extend.
+  - **KB-4** **Keystroke-arbitration defects** — the conflicts that ship today between the tunnel handler's
+    first-match-wins ordering and the per-widget key handling (Space, Escape, F4, bare-letter vs typed
+    character). Fixed now, under the arbitration rules settled above.
+- **Build order (user decision 2026-07-20):** the **navigation slice (KB-1, KB-2, KB-4) ships now**; the
+  **filter mechanism (KB-3) is preceded by a real-windowed measurement spike** before it is built, so the
+  character-feed design for both families rests on measured behaviour rather than assumption.
+- **Agents:** per-feature pipeline (§2.2) — Requirements/Design, **A14** (keyboard fidelity against the
+  catalogue and the `tally/` PDFs, R7), Test author, Implementer, **A10** review, **A12** GitHub Expert,
+  run-app verifier.
+- **Deliverables:** a keyboard-only pass through master creation, voucher entry and a report drill-down with
+  no mouse; the measurement spike's report for the loaded-pane auto-scroll case and for the character feed;
+  prefix filtering demonstrable in both a `ComboBox` picker and a cascade column; regression tests locking the
+  settled arbitration rules (Space, two-press Escape, F4-is-Contra, no cycling).
+- **Exit gate:** R9 — tests green and **shown** (incl. Robert & Bright); A10 review pass; A12 commits and
+  pushes small reviewed units (R4/R10); the real app run with keyboard-only evidence; `memory.md` updated;
+  then **user go/no-go** per R12.
+
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
 - **Modules:** performance passes (NFR-4), end-to-end system/acceptance tests, docs completion (user manual,
@@ -693,5 +750,7 @@ A completeness critic audited §§4–9 against the catalog. These refinements c
 ---
 
 *Change log: initial master plan drafted 2026-07-02 via `/software` from the study corpus; coverage
-refinements §10 (C-1…C-9) folded in the same day from the plan critique. Any deviation during execution is
-recorded in `memory.md` with its reason (R6).*
+refinements §10 (C-1…C-9) folded in the same day from the plan critique. Amended 2026-07-20 (user-authorised,
+R6): stale status header corrected to the real state (Phases 0–9 + 10.5 merged, schema v46, 3321 tests green,
+Phases 10/11 excluded); **Phase 10.6 — Keyboard & input parity** added (KB-1…KB-4) with the WI-2 scope
+correction recorded above it. Any deviation during execution is recorded in `memory.md` with its reason (R6).*
