@@ -1288,7 +1288,11 @@
                                 <TextBlock Grid.Column="2" Text="{Binding StatWithheldHeader}" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="Deposited" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="Outstanding" Classes="colHdr" TextAlignment="Right"/>
-                                <TextBlock Grid.Column="5" Text="Overdue Days" Classes="colHdr" TextAlignment="Right"/>
+                                <!-- "Overdue Days" needs 79.2px of text but the 84px track grants 68 — it read as
+                                     "Overdue Day". Wrapping to two lines fits inside the EXISTING width (widest
+                                     word "Overdue" = 46.2), so the money columns beside it are untouched. -->
+                                <TextBlock Grid.Column="5" Text="Overdue Days" Classes="colHdr" TextAlignment="Right"
+                                           TextWrapping="Wrap"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1382,18 +1386,65 @@
                           <Grid RowDefinitions="*,Auto" IsVisible="{Binding IsStatutoryInterest}">
                             <ScrollViewer Grid.Row="0" x:Name="StatInterestBody"
                                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                              <Grid RowDefinitions="Auto,*" MinWidth="610" Width="{Binding #StatInterestBody.Bounds.Width}"
+                              <Grid RowDefinitions="Auto,*" MinWidth="686" Width="{Binding #StatInterestBody.Bounds.Width}"
                                     Height="{Binding #StatInterestBody.Bounds.Height}">
                                 <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="*,72,64,80,86,82,46,108">
+                                  <!-- THIS GRID SERVES BOTH THE TDS AND THE TCS INTEREST REPORT, and every track is
+                                       sized against max(HEADER, DATA) over BOTH variants. Two successive rebalances
+                                       here sized a track against ONE of those and trusted the other, and each time
+                                       the untested side truncated silently. The budget below is therefore stated as
+                                       a table, not as a running "who pays whom" narrative — because the zero-sum
+                                       framing is what produced both regressions.
+
+                                       Consolas SemiBold 12 = 6.5977 DIP/glyph (headers, colHdr Padding 8,4 =>
+                                       slot = track - 16); values are 12pt except col7 at 12.5pt, and their slot is
+                                       track - their own right Margin. Every track carries >= 2px of real headroom,
+                                       clear of Avalonia's +-1px per-fixed-track rounding artifact.
+
+                                       THE MONEY CEILING IS THE FORMATTER'S, NOT AN OBSERVED FIGURE. col2 and col7
+                                       are both IndianFormat.Rupees ("#,##0" whole rupees, Indian 3;2 grouping), whose
+                                       ceiling string is "99,99,99,999" = 12 characters — NOT the 11-character
+                                       "1,00,00,000" the previous budget was sized against. Sizing col7 to 90 (an 80px
+                                       slot at its 10px right margin) therefore cut 82.47px of interest by 2.47 at
+                                       ₹10-crore scale, silently, with no TextTrimming on the cell: a REGRESSION,
+                                       because the pre-stack track was 108. col2 had the same cap at a 76px slot.
+
+                                         track  hdr TDS / TCS                 data ceiling (real formatter)   need
+                                         col1   Section 46.18 / Coll. Code 65.98   206C(1H)      52.78+8       84
+                                         col2   TDS 19.79 / TCS 19.79             99,99,99,999  79.17+10      92
+                                         col3   Ded. Date 59.38 / Coll. Date 65.98 07-May-2025  72.57+8       84
+                                         col4   "Deposit Date" wraps -> 46.18     Undeposited   72.57+8       84
+                                         col5   Due Date 52.78                    07-May-2025   72.57+8       84
+                                         col6   Months 39.59 (one word, no wrap)  144           19.79+10      58
+                                         col7   "Interest @1.5%" wraps -> 52.78   99,99,99,999  82.47+10      95
+                                                                                                total        581
+
+                                       DATA, not header, is what binds col2/col4/col5/col7 — and sizing col5 from
+                                       its 52.78 header while its data is an 11-character date is exactly how
+                                       "07-May-2025" came to be cut by 8.57px. col2 was cut by 18.57px the same way
+                                       (a crore-scale statutory TDS/TCS amount, silently, at every window width).
+
+                                       581 does not fit the ~638px pane alongside a readable Party column, so the
+                                       grid is PINNED at MinWidth 686 (= 581 + a 105 floor for Party) and the
+                                       StatInterestBody ScrollViewer's Auto horizontal scroller carries the 48px
+                                       remainder at the 1024 window minimum — the same structural answer eight other
+                                       report grids in this file already use (MinWidth 830..1120). The rejected
+                                       alternative was to leave MinWidth at 610 and let the "*" Party column absorb
+                                       the deficit: that drops Party to a 54px slot (8 characters) at 1024, and Party
+                                       is the row KEY of this report — an unrecoverable loss, traded against a bounded
+                                       and user-operable scroll. Party keeps 105 at 1024 and still seats a 35-char
+                                       name (230.92) at 1280 (242px slot). 686 is still well under the 986px
+                                       1440-default report pane, so at the default window nothing scrolls at all. -->
+                                  <Grid ColumnDefinitions="*,84,92,84,84,84,58,95">
                                     <TextBlock Grid.Column="0" Text="Party" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="{Binding StatCodeHeader}" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="{Binding StatTaxHeader}" Classes="colHdr" TextAlignment="Right"/>
                                     <TextBlock Grid.Column="3" Text="{Binding StatEventDateHeader}" Classes="colHdr"/>
-                                    <TextBlock Grid.Column="4" Text="Deposit Date" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Deposit Date" Classes="colHdr" TextWrapping="Wrap"/>
                                     <TextBlock Grid.Column="5" Text="Due Date" Classes="colHdr"/>
                                     <TextBlock Grid.Column="6" Text="Months" Classes="colHdr" TextAlignment="Right"/>
-                                    <TextBlock Grid.Column="7" Text="{Binding StatInterestHeader}" Classes="colHdr" TextAlignment="Right"/>
+                                    <TextBlock Grid.Column="7" Text="{Binding StatInterestHeader}" Classes="colHdr" TextAlignment="Right"
+                                                       TextWrapping="Wrap"/>
                                   </Grid>
                                 </Border>
                                 <ScrollViewer Grid.Row="1" Background="White">
@@ -1401,7 +1452,7 @@
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:ReportRow">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                          <Grid ColumnDefinitions="*,72,64,80,86,82,46,108" Height="24">
+                                          <Grid ColumnDefinitions="*,84,92,84,84,84,58,95" Height="24">
                                             <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
                                                        IsVisible="{Binding !IsHeader}"
                                                        VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"
@@ -2426,8 +2477,17 @@
                                   <TextBlock Grid.Column="2" Text="{Binding QuantityHeader}" Classes="colHdr" TextAlignment="Right"/>
                                   <!-- Billed-quantity column — shown only when the company "Use separate Actual &amp; Billed
                                        Qty" flag is on (Sales/Purchase item-invoice only). Value + GST derive from Billed. -->
+                                  <!-- P7: "Qty (Billed)" is 12 chars = 79.17 DIP at 12pt SemiBold, but Width="78"
+                                       less the colHdr Padding="8,4" leaves a 62px text slot — it rendered
+                                       "Qty (Bill", width-invariant (the track is fixed) and with no TextTrimming,
+                                       so not even an ellipsis said so. WRAPPING costs ZERO width here (longest word
+                                       "(Billed)" = 8 ch = 52.78 + 16 pad = 68.78, +9.22 of headroom in the same 78)
+                                       and so starves no neighbour — the same remedy the statutory "Amount Paid" /
+                                       "Rate %" headers already use. Widening instead would have taken 20px from the
+                                       star Stock Item column, which is exactly how the money columns elsewhere in
+                                       this file got cut. -->
                                   <TextBlock Grid.Column="3" Text="Qty (Billed)" Classes="colHdr" TextAlignment="Right"
-                                             Width="78" Margin="6,0,0,0"
+                                             Width="78" Margin="6,0,0,0" TextWrapping="Wrap"
                                              IsVisible="{Binding ShowActualBilledColumns}"/>
                                   <TextBlock Grid.Column="4" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
                                   <TextBlock Grid.Column="5" Text="Batch/Lot" Classes="colHdr"/>
@@ -12191,24 +12251,56 @@
                             <Grid Grid.Row="6" RowDefinitions="Auto,Auto,*">
                               <TextBlock Grid.Row="0" Text="Deductee details" FontWeight="Bold" FontSize="12"
                                          Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
-                              <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
-                                <Grid ColumnDefinitions="110,*,80,70,100,110,100,55">
+                              <!-- HEADER + ROWS SHARE ONE HORIZONTAL SCROLLER, MinWidth 660 (fixed tracks 506 +
+                                   >=154 for the star Deductee name). Same reasoning as the Forex register: inside
+                                   the 638px page floor this grid cannot hold BOTH a readable party name AND uncut
+                                   statutory money, and the previous rebalance paid for the name by cutting the
+                                   money. 660 < the 986px 1440-default pane, so nothing scrolls at the default window.
+
+                                   EVERY COLUMN, measured under a Skia harness on the real Consolas (6.3228 DIP/glyph
+                                   @11.5pt data, 6.5977 @12pt SemiBold header; colHdr Padding="8,4" = 16).
+                                     c0 PAN     80  hdr 35.79 / data "AAPFU0939F" 63.23 in slot 72 -> +8.77
+                                     c1 Deductee *  hdr 68.78 / data has TextTrimming -> honest ellipsis
+                                     c2 Section 66  HDR GOVERNS: "Section" 46.18+16 = 62.18 -> +3.82. Was 64 = +1.82,
+                                                    inside the +-1px artifact (not in the brief; found by sweeping
+                                                    every column). Data "206C(1H)" 50.58 in slot 62.
+                                     c3 FVU     40  hdr 35.79 -> +4.21 / data "94J" 18.97 in slot 36
+                                     c4 Date    78  hdr 42.39 / data "31-Mar-2026" 69.55 in slot 74 -> +4.45
+                                     c5 Amount Paid 98  NO MARGIN, so slot == track. IndianFormat.AmountAlways ceiling
+                                                    ₹99,99,99,999.00 = 15 ch = 94.84 -> +3.16. Was 88, cutting
+                                                    ₹1,00,00,000.00 (88.52) by 0.52. Header WRAPS: longest word
+                                                    "Amount" 39.59+16 = 55.59.
+                                     c6 TDS     98  NO MARGIN. Ceiling ₹29,99,99,999.00 (30% of the c5 ceiling — TDS
+                                                    can never exceed the payment) = 15 ch = 94.84 -> +3.16. Was 72,
+                                                    cutting ₹10,00,000.00 (75.87) by 3.87 — an ordinary 194J figure.
+                                     c7 Rate %  46  header WRAPS; longest word "Rate" 26.39+16 = 42.39 -> +3.61.
+                                                    Was 44 = +1.61, inside the artifact. Data "99.99" 31.61/slot 42. -->
+                              <ScrollViewer Grid.Row="1" Grid.RowSpan="2" x:Name="Form26QDeducteePane"
+                                            HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                <Grid RowDefinitions="Auto,*"
+                                      Width="{Binding #Form26QDeducteePane.Bounds.Width}" MinWidth="660">
+                              <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="80,*,66,40,78,98,98,46">
                                   <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Deductee" Classes="colHdr"/>
                                   <TextBlock Grid.Column="2" Text="Section" Classes="colHdr"/>
                                   <TextBlock Grid.Column="3" Text="FVU" Classes="colHdr"/>
                                   <TextBlock Grid.Column="4" Text="Date" Classes="colHdr"/>
-                                  <TextBlock Grid.Column="5" Text="Amount Paid" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="5" Text="Amount Paid" Classes="colHdr" TextAlignment="Right"
+                                             TextWrapping="Wrap"/>
                                   <TextBlock Grid.Column="6" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="7" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                  <!-- 55px slot is 39px of text vs 39.6 needed: "Rate %" lost its "%" by 0.6px.
+                                       Wrapping costs no width at all here, so no neighbour pays. -->
+                                  <TextBlock Grid.Column="7" Text="Rate %" Classes="colHdr" TextAlignment="Right"
+                                             TextWrapping="Wrap"/>
                                 </Grid>
                               </Border>
-                              <ListBox Grid.Row="2" Background="White"
+                              <ListBox Grid.Row="1" Background="White"
                                        ItemsSource="{Binding Deductees}"
                                        SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
                                 <ListBox.ItemTemplate>
                                   <DataTemplate x:DataType="vm:Form26QDeducteeRowVm">
-                                    <Grid ColumnDefinitions="110,*,80,70,100,110,100,55" Height="24">
+                                    <Grid ColumnDefinitions="80,*,66,40,78,98,98,46" Height="24">
                                       <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
                                                  VerticalAlignment="Center" FontSize="11.5"
                                                  FontFamily="Consolas,Menlo,monospace"
@@ -12233,6 +12325,8 @@
                                   </DataTemplate>
                                 </ListBox.ItemTemplate>
                               </ListBox>
+                                </Grid>
+                              </ScrollViewer>
                             </Grid>
 
                             <!-- Status + actions -->
@@ -12300,32 +12394,38 @@
                               <StackPanel Spacing="4">
                                 <Grid ColumnDefinitions="*,*,*,*,*,*">
                                   <StackPanel Grid.Column="0" Classes="statCell">
-                                    <TextBlock Text="A/c 1 — EPF ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="A/c 1 — EPF ₹" FontSize="10.5" Foreground="#777777"
+                                               TextWrapping="Wrap" MinHeight="26"/>
                                     <TextBlock Text="{Binding Account1Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
                                   <StackPanel Grid.Column="1" Classes="statCell">
-                                    <TextBlock Text="A/c 2 — Admin ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="A/c 2 — Admin ₹" FontSize="10.5" Foreground="#777777"
+                                               TextWrapping="Wrap" MinHeight="26"/>
                                     <TextBlock Text="{Binding Account2Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
                                   <StackPanel Grid.Column="2" Classes="statCell">
-                                    <TextBlock Text="A/c 10 — EPS ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="A/c 10 — EPS ₹" FontSize="10.5" Foreground="#777777"
+                                               TextWrapping="Wrap" MinHeight="26"/>
                                     <TextBlock Text="{Binding Account10Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
                                   <StackPanel Grid.Column="3" Classes="statCell">
-                                    <TextBlock Text="A/c 21 — EDLI ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="A/c 21 — EDLI ₹" FontSize="10.5" Foreground="#777777"
+                                               TextWrapping="Wrap" MinHeight="26"/>
                                     <TextBlock Text="{Binding Account21Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
                                   <StackPanel Grid.Column="4" Classes="statCell">
-                                    <TextBlock Text="A/c 22 — EDLI Adm ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="A/c 22 — EDLI Adm ₹" FontSize="10.5" Foreground="#777777"
+                                               TextWrapping="Wrap" MinHeight="26"/>
                                     <TextBlock Text="{Binding Account22Text}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold"/>
                                   </StackPanel>
                                   <StackPanel Grid.Column="5" Classes="statCell">
-                                    <TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"
+                                               TextWrapping="Wrap" MinHeight="26"/>
                                     <TextBlock Text="{Binding GrandTotalText}" TextAlignment="Right"
                                                FontSize="14" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
@@ -13772,24 +13872,36 @@
                             <Grid Grid.Row="6" RowDefinitions="Auto,Auto,*">
                               <TextBlock Grid.Row="0" Text="Collectee details" FontWeight="Bold" FontSize="12"
                                          Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
-                              <Border Grid.Row="1" Background="{StaticResource BrandNavy}">
-                                <Grid ColumnDefinitions="110,*,80,70,100,110,100,55">
+                              <!-- Header + rows share ONE horizontal scroller, MinWidth 660 — the Form 26Q deductee
+                                   grid's twin screen, same spec and the SAME ceilings (a TCS collection is the same
+                                   statutory money as a TDS deduction). See the Form 26Q band for the per-column
+                                   derivation; the only label differences are Collectee / Code / Amount Recd / TCS,
+                                   all of which are NARROWER than their 26Q counterparts, so the 26Q budget covers
+                                   this screen with room to spare. -->
+                              <ScrollViewer Grid.Row="1" Grid.RowSpan="2" x:Name="Form27EQCollecteePane"
+                                            HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                <Grid RowDefinitions="Auto,*"
+                                      Width="{Binding #Form27EQCollecteePane.Bounds.Width}" MinWidth="660">
+                              <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                                <Grid ColumnDefinitions="80,*,66,40,78,98,98,46">
                                   <TextBlock Grid.Column="0" Text="PAN" Classes="colHdr"/>
                                   <TextBlock Grid.Column="1" Text="Collectee" Classes="colHdr"/>
                                   <TextBlock Grid.Column="2" Text="Code" Classes="colHdr"/>
                                   <TextBlock Grid.Column="3" Text="FVU" Classes="colHdr"/>
                                   <TextBlock Grid.Column="4" Text="Date" Classes="colHdr"/>
-                                  <TextBlock Grid.Column="5" Text="Amount Recd" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="5" Text="Amount Recd" Classes="colHdr" TextAlignment="Right"
+                                             TextWrapping="Wrap"/>
                                   <TextBlock Grid.Column="6" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="7" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="7" Text="Rate %" Classes="colHdr" TextAlignment="Right"
+                                             TextWrapping="Wrap"/>
                                 </Grid>
                               </Border>
-                              <ListBox Grid.Row="2" Background="White"
+                              <ListBox Grid.Row="1" Background="White"
                                        ItemsSource="{Binding Collectees}"
                                        SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
                                 <ListBox.ItemTemplate>
                                   <DataTemplate x:DataType="vm:Form27EQCollecteeRowVm">
-                                    <Grid ColumnDefinitions="110,*,80,70,100,110,100,55" Height="24">
+                                    <Grid ColumnDefinitions="80,*,66,40,78,98,98,46" Height="24">
                                       <TextBlock Grid.Column="0" Text="{Binding Pan}" Margin="4,0"
                                                  VerticalAlignment="Center" FontSize="11.5"
                                                  FontFamily="Consolas,Menlo,monospace"
@@ -13814,6 +13926,8 @@
                                   </DataTemplate>
                                 </ListBox.ItemTemplate>
                               </ListBox>
+                                </Grid>
+                              </ScrollViewer>
                             </Grid>
 
                             <!-- Status + actions -->
@@ -13909,7 +14023,11 @@
 
                               <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
                                             HorizontalScrollBarVisibility="Auto">
-                                <StackPanel Spacing="8" MinWidth="384">
+                                <!-- 384 -> 430: the TDS-deduction grid below is now 428 of fixed track (its two money
+                                     columns were sized for ₹10 lakh / ₹1 crore and cut there). The floor clears it so
+                                     the certificate body is never squeezed; this ScrollViewer's Auto h-scroll carries
+                                     the overflow at the narrowest pane. -->
+                                <StackPanel Spacing="8" MinWidth="430">
                                   <!-- Deductor block -->
                                   <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
                                           BorderThickness="1" Padding="10">
@@ -13952,19 +14070,44 @@
                                   <TextBlock Text="Summary of TDS deducted" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="56,42,82,86,70,46">
+                                    <!-- Track budget 382 -> 428. The previous rebalance held the TOTAL fixed and paid
+                                         for its header fixes out of neighbours while leaving BOTH money columns
+                                         under-sized — on a certificate the deductee files with their own return.
+                                         Measured under a Skia harness on the real Consolas (6.3228 DIP/glyph @11.5pt
+                                         data; 6.5977 @12pt SemiBold header; colHdr Padding="8,4" = 16):
+                                           c0 Section 66  HDR GOVERNS 46.18+16 = 62.18 -> +3.82 (was 64 = +1.82,
+                                                          inside the +-1px artifact)
+                                           c1 FVU     40  hdr 35.79 -> +4.21; data "94J" 18.97 in slot 32
+                                           c2 Date    80  data "31-Mar-2026" 69.55 in slot 72 -> +2.45 (was 78 =
+                                                          slot 70 = +0.45, inside the artifact — NOT in the brief,
+                                                          found by sweeping every column)
+                                           c3 Amount Paid 98  NO MARGIN so slot == track. AmountAlways ceiling
+                                                          ₹99,99,99,999.00 = 15 ch = 94.84 -> +3.16. Was 86, cutting
+                                                          ₹1,00,00,000.00 (88.52) by 2.52.
+                                           c4 TDS     98  NO MARGIN. Ceiling ₹29,99,99,999.00 = 94.84 -> +3.16.
+                                                          Was 70, cutting ₹10,00,000.00 (75.87) by 5.87 — ₹10 lakh.
+                                           c5 Rate %  46  header WRAPS; longest word "Rate" 26.39+16 = 42.39 -> +3.61
+                                                          (was 44 = +1.61, inside the artifact).
+                                         The two multi-word headers still WRAP rather than trim: "Rate %" clipped to
+                                         "Rate" would make 10.00 read as rupees, and an ellipsis cannot restore the
+                                         "%". 428 > the enclosing StackPanel's floor, which is raised 384 -> 430 so
+                                         the certificate never squeezes this grid; the pane's own h-scroller carries
+                                         it at the narrowest window. -->
+                                    <Grid ColumnDefinitions="66,40,80,98,98,46">
                                       <TextBlock Grid.Column="0" Text="Section" Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="FVU" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
-                                      <TextBlock Grid.Column="3" Text="Amount Paid" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="3" Text="Amount Paid" Classes="colHdr" TextAlignment="Right"
+                                                 TextWrapping="Wrap"/>
                                       <TextBlock Grid.Column="4" Text="TDS" Classes="colHdr" TextAlignment="Right"/>
-                                      <TextBlock Grid.Column="5" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="5" Text="Rate %" Classes="colHdr" TextAlignment="Right"
+                                                 TextWrapping="Wrap"/>
                                     </Grid>
                                   </Border>
                                   <ItemsControl ItemsSource="{Binding Deductions}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form16ADeductionRowVm">
-                                        <Grid ColumnDefinitions="56,42,82,86,70,46" Height="22">
+                                        <Grid ColumnDefinitions="66,40,80,98,98,46" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding Section}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FvuCode}" Margin="4,0"
@@ -13986,7 +14129,27 @@
                                   <TextBlock Text="Tax deposited (challans)" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="86,64,90,92">
+                                    <!-- 332 -> 356 -> 364, inside the 430 MinWidth of the enclosing StackPanel, so
+                                         this costs no scrolling and starves nothing: EVERY column gains. Widened
+                                         (not trimmed) because a challan number / BSR code / deposit date is filed
+                                         with the return — an ellipsis would leave the figure unusable.
+
+                                         356 WAS NOT A FIT. Every one of the four tracks cleared its header by less
+                                         than 1px (+0.43 / +0.22 / +0.83 / +0.23), i.e. entirely inside Avalonia's
+                                         ~+-1px-per-fixed-track arrange artifact — the same artifact that visibly
+                                         arranges a declared 89/69/96/102 as 90/70/97/103. A sub-1px margin on the
+                                         DECLARED track is a coin toss, not a fit. Each track now clears its own
+                                         worst case by >= 2px (headers @12pt SemiBold 6.5977/glyph + colHdr
+                                         Padding="8,4" = 16; data @11.5pt 6.3228/glyph + its own margin):
+                                           c0  91  hdr "Challan No."   11 ch  72.57+16 =  88.57  -> +2.43
+                                           c1  71  hdr "BSR Code"       8 ch  52.78+16 =  68.78  -> +2.22
+                                           c2  98  hdr "Deposit Date"  12 ch  79.17+16 =  95.17  -> +2.83
+                                           c3 104  hdr "TDS Deposited" 13 ch  85.77+16 = 101.77  -> +2.23
+                                               and its DATA is IndianFormat.AmountAlways, ceiling
+                                               "99,99,99,999.00" = 15 ch = 94.84 + 4px margin = 98.84 -> +5.16
+                                         c0/c1/c2 data (5-char CIN serial, 7-char BSR code, "31-Mar-2026") are all
+                                         far inside their tracks, so the HEADER governs those three. -->
+                                    <Grid ColumnDefinitions="91,71,98,104">
                                       <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
@@ -13996,7 +14159,7 @@
                                   <ItemsControl ItemsSource="{Binding Challans}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form16AChallanRowVm">
-                                        <Grid ColumnDefinitions="86,64,90,92" Height="22">
+                                        <Grid ColumnDefinitions="91,71,98,104" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
@@ -14134,7 +14297,10 @@
 
                               <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
                                             HorizontalScrollBarVisibility="Auto">
-                                <StackPanel Spacing="8" MinWidth="384">
+                                <!-- 384 -> 430, matching the Form 16A body: the TCS-collection grid below is
+                                     now 422 of fixed track (its two money columns were cut at ₹10 lakh / ₹1
+                                     crore). The floor clears it so the certificate is never squeezed. -->
+                                <StackPanel Spacing="8" MinWidth="430">
                                   <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}"
                                           BorderThickness="1" Padding="10">
                                     <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto">
@@ -14174,19 +14340,31 @@
                                   <TextBlock Text="Summary of TCS collected" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="56,42,82,86,70,46">
+                                    <!-- Track budget 382 -> 422. Form 16A's twin: the SAME two money columns were
+                                         under-sized here and cut the SAME statutory figures, and this site was not
+                                         named in the defect report — it was found by sweeping every column of every
+                                         grid touched. "Amount Recd" 86 -> 98 and "TCS" 70 -> 98; both cells carry NO
+                                         margin, so slot == track, and the ceiling is IndianFormat.AmountAlways at
+                                         ₹99,99,99,999.00 = 15 ch = 94.84 DIP at 11.5pt, leaving +3.16.
+                                         c0 "Code" (42.39 incl. padding) already fits 56 with +13.61 and c2 Date 82
+                                         holds "31-Mar-2026" (69.55 + 8px margin) with +4.45, so neither moves. The
+                                         two multi-word headers still WRAP so the "%" survives on a filed
+                                         certificate. 422 is inside the body's 430 MinWidth floor. -->
+                                    <Grid ColumnDefinitions="56,40,82,98,98,48">
                                       <TextBlock Grid.Column="0" Text="Code" Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="FVU" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Date" Classes="colHdr"/>
-                                      <TextBlock Grid.Column="3" Text="Amount Recd" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="3" Text="Amount Recd" Classes="colHdr" TextAlignment="Right"
+                                                 TextWrapping="Wrap"/>
                                       <TextBlock Grid.Column="4" Text="TCS" Classes="colHdr" TextAlignment="Right"/>
-                                      <TextBlock Grid.Column="5" Text="Rate %" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="5" Text="Rate %" Classes="colHdr" TextAlignment="Right"
+                                                 TextWrapping="Wrap"/>
                                     </Grid>
                                   </Border>
                                   <ItemsControl ItemsSource="{Binding Collections}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form27DCollectionRowVm">
-                                        <Grid ColumnDefinitions="56,42,82,86,70,46" Height="22">
+                                        <Grid ColumnDefinitions="56,40,82,98,98,48" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding CollectionCode}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FvuCode}" Margin="4,0"
@@ -14207,7 +14385,14 @@
                                   <TextBlock Text="Tax deposited (challans)" FontWeight="Bold" FontSize="12"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <Border Background="{StaticResource BrandNavy}">
-                                    <Grid ColumnDefinitions="86,64,90,92">
+                                    <!-- 332 -> 356 -> 364, inside the enclosing 430 MinWidth: every column gains,
+                                         none starved. Identical budget to the Form 16A challan grid above (same four
+                                         headers, "TCS Deposited" being the same 13 characters as "TDS Deposited"),
+                                         and it is kept identical DELIBERATELY: the 27D twin is the site the previous
+                                         two rebalances each forgot. At 356 all four tracks cleared their headers by
+                                         under 1px — inside the +-1px arrange artifact, so not a fit. See the Form 16A
+                                         grid above for the per-column arithmetic; every track now clears by >= 2px. -->
+                                    <Grid ColumnDefinitions="91,71,98,104">
                                       <TextBlock Grid.Column="0" Text="Challan No." Classes="colHdr"/>
                                       <TextBlock Grid.Column="1" Text="BSR Code" Classes="colHdr"/>
                                       <TextBlock Grid.Column="2" Text="Deposit Date" Classes="colHdr"/>
@@ -14217,7 +14402,7 @@
                                   <ItemsControl ItemsSource="{Binding Challans}">
                                     <ItemsControl.ItemTemplate>
                                       <DataTemplate x:DataType="vm:Form27DChallanRowVm">
-                                        <Grid ColumnDefinitions="86,64,90,92" Height="22">
+                                        <Grid ColumnDefinitions="91,71,98,104" Height="22">
                                           <TextBlock Grid.Column="0" Text="{Binding ChallanNo}" Margin="4,0"
                                                      VerticalAlignment="Center" FontSize="11.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding BsrCode}" Margin="4,0"
@@ -15384,9 +15569,59 @@
                                          Foreground="{Binding IsNetGain, Converter={StaticResource BalancedBrush}}"/>
                             </Border>
 
-                            <!-- Column header -->
-                            <Border Grid.Row="4" Background="{StaticResource BrandNavy}" Margin="8,0">
-                              <Grid ColumnDefinitions="*,90,130,110,80,130,60">
+                            <!-- HEADER + ROWS SHARE ONE HORIZONTAL SCROLLER (the batch-allocation / inventory-register
+                                 pattern already used elsewhere in this file). WHY: this grid cannot honour BOTH a
+                                 readable star Ledger column AND uncut money columns inside the 638px page floor, so
+                                 the previous rebalance chose the name column and paid for it by cutting the money.
+                                 Fixed tracks now total 566; MinWidth 718 keeps the star Ledger at >=152 and the
+                                 h-scroller carries the overflow at the narrowest window instead of starving anything.
+                                 718 < the 986px 1440-default pane, so at the default window nothing scrolls at all.
+
+                                 EVERY COLUMN'S CEILING, derived from the REAL formatters in ForexReportViewModel and
+                                 measured under a Skia harness resolving the real Consolas (6.5977 DIP/glyph @12pt,
+                                 6.0479 @11pt). Slot = track - margins - padding; colHdr carries Padding="8,4" (=16).
+                                   c0 Ledger   *      hdr "Ledger" 39.59/slot* ; data 12.5pt has TextTrimming -> ellipsis
+                                   c1 Currency 100    DATA governs, NOT the header. The earlier sizing pinned this at 72
+                                                      on the header ("Currency" 52.78+16=68.78) after reasoning that
+                                                      CurrencyName could only ever be "USD ($)" (42.34 @11pt) because
+                                                      Currency.FormalName "is the ISO code". It is NOT: FormalName is
+                                                      UNBOUNDED free user text (Currency.cs only .Trim()s it; the
+                                                      master's TextBox carries no MaxLength and CurrencyMasterViewModel
+                                                      only rejects blank), and the VM renders "{FormalName} ({Symbol})".
+                                                      This cell has NO margin and NO padding, so slot == track: at 72,
+                                                      floor(72/6.0479) = 11 characters fit, and the rendered string is
+                                                      FormalName+4, so ANY FormalName over 7 characters was CUT — with
+                                                      TextTrimming=None, i.e. silently. Measured by rendering the real
+                                                      row template: "US Dollar ($)" 13 ch = 78.62 vs 72 -> -6.62 at
+                                                      1024, 1280 AND 1920. USD is the commonest non-INR currency in
+                                                      Indian books, so this was the ORDINARY case, not a corner.
+                                                      100 is sized for the descriptive names users actually type:
+                                                      FormalName <= 12 chars with a 3-char symbol (or <= 14 with a
+                                                      1-char symbol) — "UAE Dirham (AED)" / "Japanese Yen (¥)" 16 ch =
+                                                      96.77 -> +3.23. Longer still ("Singapore Dollar (S$)" 127.00)
+                                                      cannot be bounded by ANY width because the field is free text,
+                                                      so the cell now also carries TextTrimming + ToolTip.Tip: the cut
+                                                      becomes visible and the full value stays readable.
+                                   c2 Forex Bal. 124  data ceiling = Fmt(999999999.99)+" Dr" = "999,999,999.99 Dr",
+                                                      17 chars = 112.16 (+8px right margin = 120.16) -> slot 116, +3.84.
+                                                      Fmt is "#,##0.##" on INVARIANT culture (WESTERN grouping — this is
+                                                      a FOREIGN-currency amount), and the " Dr"/" Cr" SUFFIX the VM
+                                                      appends is what the previous sizing omitted. Was 100 = slot 92,
+                                                      cutting 12,500,000.75 Dr (105.56) by 13.56.
+                                   c3 Booked ₹ 112    IndianFormat.Amount ceiling ₹99,99,99,999.99 = 15 ch = 98.96
+                                                      (+8 = 106.96) -> slot 104, +5.04. Was 108 = slot 100, +1.04.
+                                   c4 Rate     78     "#,##0.####" ceiling "9,999.9999" 10 ch = 65.98 (+8 = 73.98)
+                                                      -> slot 70, +4.02. Was 54 = slot 46, cutting 105.2537 (52.78)
+                                                      by 6.78 — a GBP/INR rate is 8 characters, not 6.
+                                   c5 Revalued ₹ 112  as c3.
+                                   c6 G/L      40     hdr "G/L" 19.79+16=35.79 -> +4.21 (data "Loss" 24.19 @11pt).
+                                                      Was 36 = +0.21, inside the artifact. -->
+                            <ScrollViewer Grid.Row="4" Grid.RowSpan="2" Margin="8,0" x:Name="ForexReportPane"
+                                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                              <Grid RowDefinitions="Auto,*"
+                                    Width="{Binding #ForexReportPane.Bounds.Width}" MinWidth="718">
+                            <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,100,124,112,78,112,40">
                                 <TextBlock Grid.Column="0" Text="Ledger" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Currency" Classes="colHdr" TextAlignment="Center"/>
                                 <TextBlock Grid.Column="2" Text="Forex Bal." Classes="colHdr" TextAlignment="Right"/>
@@ -15397,20 +15632,32 @@
                               </Grid>
                             </Border>
 
-                            <ScrollViewer Grid.Row="5" Background="White" Margin="8,0">
+                            <ScrollViewer Grid.Row="1" Background="White"
+                                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                               <ItemsControl ItemsSource="{Binding Rows}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ForexReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                             Background="{Binding IsTotal, Converter={StaticResource SelBrush}}">
-                                      <Grid ColumnDefinitions="*,90,130,110,80,130,60" Height="26">
+                                      <Grid ColumnDefinitions="*,100,124,112,78,112,40" Height="26">
                                         <TextBlock Grid.Column="0" Text="{Binding Ledger}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                    TextTrimming="CharacterEllipsis"/>
+                                        <!-- Currency is "{FormalName} ({Symbol})" and FormalName is UNBOUNDED free
+                                             user text, so no track width can bound this cell — 100 holds the
+                                             descriptive names users actually type ("UAE Dirham (AED)" 96.77) but
+                                             "Singapore Dollar (S$)" is 127.00. Without TextTrimming that overflow
+                                             was HARD-CUT with no cue, so "US Dollar ($)" rendered as "US Dollar" and
+                                             a half-shown currency reads as a COMPLETE and different one — on a
+                                             revaluation report that is a real-money misreading. Same fix shape as
+                                             the BankOptions Pay-From pickers: the ellipsis makes the cut visible and
+                                             the ToolTip carries the full value. -->
                                         <TextBlock Grid.Column="1" Text="{Binding Currency}"
                                                    TextAlignment="Center" VerticalAlignment="Center"
-                                                   FontSize="11" Foreground="#555555"/>
+                                                   FontSize="11" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Currency}"/>
                                         <TextBlock Grid.Column="2" Text="{Binding ForexBalance}"
                                                    TextAlignment="Right" Margin="0,0,8,0"
                                                    VerticalAlignment="Center" FontSize="12"/>
@@ -15432,6 +15679,8 @@
                                   </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                               </ItemsControl>
+                            </ScrollViewer>
+                              </Grid>
                             </ScrollViewer>
 
                             <TextBlock Grid.Row="6" Text="{Binding Message}"

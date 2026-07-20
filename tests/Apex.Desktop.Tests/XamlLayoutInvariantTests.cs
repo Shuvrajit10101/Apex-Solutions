@@ -422,8 +422,12 @@ public sealed class XamlLayoutInvariantTests
     private static readonly HashSet<string> StarvedStarAllowList = new(StringComparer.Ordinal)
     {
         "*,92,110,100,92,92,140",      // Stock/Godown movement report twins
-        "110,*,80,70,100,110,100,55",  // e-Way bill list twins
-        "*,90,130,110,80,130,60",      // Payroll statutory report twins
+        // "110,*,80,70,100,110,100,55" — FIXED (Form 26Q / 27EQ return grids; the old comment misnamed
+        // them). 625 of fixed track against a ~600px pane arranged the star Deductee/Collectee column to
+        // 1px at 1024 DIP. Cut to 466 against measured content, so the party name is readable again.
+        // "*,90,130,110,80,130,60" — FIXED (Forex Gain/Loss): the six fixed tracks were cut 600 -> 460
+        // against their measured content, so the star Ledger column is no longer arranged to 22px at
+        // 1024 DIP. Locked by StatutoryColumnBudgetLockTests.Forex_ledger_column_survives_*.
         "*,150,150,90,90,110",         // Bill-wise outstandings twins
         "140,110,*,70,140,110",        // Electronic ledger twins
         "150,90,*,120,110,100",        // ITC reversal twins
