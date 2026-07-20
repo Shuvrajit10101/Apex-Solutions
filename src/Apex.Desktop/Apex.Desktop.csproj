@@ -33,4 +33,11 @@
     <ProjectReference Include="..\Apex.Ledger.Io\Apex.Ledger.Io.csproj" />
     <ProjectReference Include="..\Apex.Persistence.Sqlite\Apex.Persistence.Sqlite.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Expose MainWindow.FitToWorkArea (the startup work-area fit) to the tests. The headless test
+         platform reports no screen work area, so the effect cannot be observed through a real window —
+         asserting the decision directly is the only way that lock can actually bite. -->
+    <InternalsVisibleTo Include="Apex.Desktop.Tests" />
+  </ItemGroup>
 </Project>

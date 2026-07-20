@@ -38,5 +38,25 @@
 
     <Application.Styles>
         <FluentTheme />
+
+        <!--
+          RC-5 — a ComboBox that outgrows its slot must SIGNAL the cut, not swallow it.
+
+          The defect: a selected value longer than the box (a 55-character party ledger, a bank name, a
+          nature-of-payment description) was simply cut off mid-glyph. The user read "Bank of Maharas" and
+          had no way to tell whether that was the whole value or the visible third of it — there was no
+          ellipsis, no tooltip, and the box does not scroll. Silent truncation of a value the operator is
+          about to POST is the dangerous kind: it misreads as complete.
+
+          Why a global style rather than per-site edits: the shell carries ~199 ComboBoxes, 192 of which
+          supply their own ItemTemplate, and only 4 mentioned TextTrimming anywhere. Setting it once here
+          covers the whole family — including every ComboBox added later, which is the half that per-site
+          edits always miss. The slot genuinely constrains these TextBlocks (verified by measurement), so
+          trimming engages and paints the ellipsis; this is not the infinite-width StackPanel shape where
+          TextTrimming can never fire.
+        -->
+        <Style Selector="ComboBox TextBlock">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
     </Application.Styles>
 </Application>
