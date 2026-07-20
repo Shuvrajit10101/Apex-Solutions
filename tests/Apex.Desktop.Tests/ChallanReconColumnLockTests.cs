@@ -229,7 +229,7 @@ public sealed class ChallanReconColumnLockTests
                 if (double.IsNaN(w))
                 {
                     failures.Add($"MainWindow.axaml({site.Line}) col{col}: \"{site.Spec}\" — width is not a "
-                        + "plain number, so its content budget cannot be checked. {why}");
+                        + $"plain number, so its content budget cannot be checked. {why}");
                     continue;
                 }
                 if (w < 0)

@@ -477,7 +477,14 @@ public sealed class XamlLayoutInvariantTests
         "*,*,*,*,*,*",                 // 6-way even split (GST recon)
         "*,110,110,110,120",           // Consumption twins (560px pane)
         "118,*,96,92,124,96",          // TDS/TCS report twins
-        "*,58,68,80,86,54,96",         // Form 24Q twins (560px pane)
+        // "*,58,68,80,86,54,96" — FIXED (Statutory Bonus Register, MainWindow.axaml:12956/12970 — NOT
+        // "Form 24Q twins" as this entry used to claim; that spec occurred nowhere else in the file, and
+        // Form 24Q lives at :13240. Sixth misattributed allow-list comment found in this campaign.) The
+        // 560px pane starved the star Employee column to 118px. Four fixed tracks were widened to their
+        // MEASURED content (Emp. No. 58->96 for a real 14-char employee number, Eligible 68->71, Capped
+        // Base 86->92, Annual Bonus 96->98) and the grid Width was raised 560->641 to pay for them, which
+        // leaves the star at exactly 150px. Locked by
+        // StatutoryRegisterAndOpeningColumnLockTests.Star_column_keeps_its_full_width_after_the_widening.
         "120,*,70,80,*,*",             // IMS action twins
         "130,2*,130,*",                // Import 2B twins
         "130,*,*,*,*",                 // e-invoice generate twins
@@ -488,7 +495,11 @@ public sealed class XamlLayoutInvariantTests
         "80,*,80,80,120,140",          // ITC gate twins
         "140,150,70,*,*",              // Job work twins
         "100,*,90,80,80,*",            // POS billing
-        "*,64,82,44,50,80,96",         // Form 27D twins (560px pane)
+        // "*,64,82,44,50,80,96" — FIXED (Gratuity Provision Register, MainWindow.axaml:12843/12857 — NOT
+        // "Form 27D twins" as this entry used to claim; Form 27D lives at :14331). Same treatment as the
+        // Bonus twin above: three fixed tracks widened to measured content (Emp. No. 64->96, Years 44->52,
+        // Vested 50->58) and the grid Width raised 560->614 to pay for them, leaving the star Employee
+        // column at exactly 150px. Locked by the same test.
         "100,*,46,88,88,92",           // Form 16A twins (560px pane)
         "*,150,70,150,120",            // Scenario twins
         "*,130,130,140,90",            // Interest calc twins
