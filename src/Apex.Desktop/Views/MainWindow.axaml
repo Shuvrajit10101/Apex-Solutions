@@ -11,7 +11,8 @@
         x:DataType="vm:MainWindowViewModel"
         x:Name="Root"
         Width="1440" Height="900"
-        MinWidth="1120" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        MinWidth="1024" MinHeight="560"
         Background="{StaticResource Cream}"
         FontFamily="Consolas, Cascadia Mono, Menlo, monospace"
         Title="Apex Solutions">
@@ -354,7 +355,9 @@
                                    HorizontalAlignment="Center" Margin="0,12,0,2"/>
                         <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                    FontSize="12" Foreground="#555555"
-                                   HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                   HorizontalAlignment="Center" Margin="0,0,0,10"
+                                   TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding Subtitle}"/>
 
                         <!-- Scenario picker (TB / P&L / Balance Sheet): view the figures under a scenario. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
@@ -1811,7 +1814,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
                               <Grid ColumnDefinitions="*,130,130,140">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
@@ -1887,7 +1892,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,0,10" Spacing="3">
                               <TextBlock Text="{Binding Subtitle}"
-                                         FontSize="12" Foreground="#555555" HorizontalAlignment="Center"/>
+                                         FontSize="12" Foreground="#555555" HorizontalAlignment="Center"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Subtitle}"/>
                               <!-- Document label: "Bill of Supply" for a composition sale, "Tax Invoice" for a
                                    Regular Sales item-invoice (Phase 9 slice 3; RQ-10). Empty for a plain voucher. -->
                               <Border IsVisible="{Binding DocumentLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -4388,7 +4395,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Column header band (navy) -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
@@ -4442,7 +4451,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Column header band (navy) -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
@@ -4708,7 +4719,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Column header band (navy) -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
@@ -11852,7 +11865,8 @@
                             <TextBlock Grid.Row="1"
                                        Text="{Binding OutstandingText, StringFormat='Outstanding TDS Payable: ₹{0}'}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -11967,7 +11981,9 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,4"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
                             <TextBlock Grid.Row="2" Text="{Binding StatusText}"
                                        FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"
                                        Margin="0,0,0,10" TextWrapping="Wrap"/>
@@ -13430,7 +13446,8 @@
                             <TextBlock Grid.Row="1"
                                        Text="{Binding OutstandingText, StringFormat='Outstanding TCS Payable: ₹{0}'}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -13545,7 +13562,9 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,4"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
                             <TextBlock Grid.Row="2" Text="{Binding StatusText}"
                                        FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Center"
                                        Margin="0,0,0,10" TextWrapping="Wrap"/>
@@ -14394,7 +14413,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14486,7 +14506,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14544,7 +14565,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14613,7 +14635,9 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding DocumentTitle}"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14682,7 +14706,9 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding DocumentTitle, StringFormat='Into: {0}'}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding DocumentTitle, StringFormat='Into: {0}'}"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14760,7 +14786,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding DocumentTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14832,7 +14859,9 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding CompanyName}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding CompanyName}"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14901,7 +14930,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -14997,7 +15027,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -15093,7 +15124,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -15145,7 +15177,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -15236,7 +15269,8 @@
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"/>
 
                             <!-- Page options -->
                             <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="16" Margin="2,0,0,8">
@@ -15260,7 +15294,9 @@
                                         <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="14"
                                                    HorizontalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                         <TextBlock Text="{Binding Subtitle}" FontSize="11"
-                                                   HorizontalAlignment="Center" Foreground="#555555" Margin="0,0,0,6"/>
+                                                   HorizontalAlignment="Center" Foreground="#555555" Margin="0,0,0,6"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Subtitle}"/>
                                         <ItemsControl ItemsSource="{Binding Headers}">
                                           <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
@@ -15320,7 +15356,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- As-of date + recompute + book adjustment -->
                             <Grid Grid.Row="2" ColumnDefinitions="Auto,150,Auto,Auto,*" Margin="8,0,8,8">
@@ -15416,7 +15454,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Budget picker -->
                             <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10">
@@ -15512,7 +15552,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Bank ledger picker -->
                             <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,8">
@@ -15631,7 +15673,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Bank ledger picker -->
                             <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,8">
@@ -15728,7 +15772,9 @@
                                        HorizontalAlignment="Center" Margin="0,12,0,2"/>
                             <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
                                        FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding Subtitle}"/>
 
                             <!-- Column header band (navy) -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">

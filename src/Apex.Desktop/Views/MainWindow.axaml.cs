@@ -16,14 +16,97 @@ public partial class MainWindow : Window
 {
     private INotifyCollectionChanged? _watchedColumns;
 
+    /// <summary>The size declared in XAML, captured before anything can override it — see
+    /// <see cref="OnOpened"/>, which only fits the window to the screen if this is still the size in force.</summary>
+    private readonly double _xamlWidth;
+    private readonly double _xamlHeight;
+
     public MainWindow()
     {
         InitializeComponent();
+        _xamlWidth = Width;
+        _xamlHeight = Height;
         // Handle keys at the tunnelling stage so arrow/Enter/Esc work regardless of focus.
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
         DataContextChanged += (_, _) => { HookCascadeAutoScroll(); HookWorkingDateFocus(); };
         HookCascadeAutoScroll();
         HookWorkingDateFocus();
+    }
+
+    /// <summary>
+    /// Fits the DEFAULT window size to the screen's work area on first open.
+    /// <para><b>The defect.</b> The XAML opens the shell at 1440x900 DIP with no startup fitting. A
+    /// 1366x768 panel has a work area of roughly 1366x720 DIP at 100% scaling, so the app opened ~74 DIP
+    /// wider and ~180 DIP taller than the screen could show — the button bar along the bottom edge sat
+    /// off-screen on first launch, before DPI scaling enters the picture at all. A window edge past the
+    /// screen edge is not scrollable content; it is simply unreachable, so there was no cue and no gesture
+    /// that recovered it. (Measured: at 1366x768 @125% the DIP work area is 1092.8x576, which is why
+    /// <c>MinWidth</c> also had to come down from 1120 to 1024 — at 1120 the app's own minimum exceeded
+    /// the entire desktop width and Avalonia clamped the window LARGER than the screen.)</para>
+    /// <para><b>Why it is gated on the XAML default.</b> Any caller that chose an explicit size — every
+    /// headless layout test does, at sizes up to 1920x1080 — must keep exactly the size it asked for, or
+    /// the whole measurement suite would silently be re-sized by the screen the runner happens to have.
+    /// So the fit applies only while <see cref="Window.Width"/>/<see cref="Window.Height"/> still hold the
+    /// values captured from XAML in the constructor.</para>
+    /// </summary>
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        FitDefaultSizeToWorkArea();
+    }
+
+    private void FitDefaultSizeToWorkArea()
+    {
+        try
+        {
+            var screen = Screens?.ScreenFromWindow(this) ?? Screens?.Primary;
+            var work = screen?.WorkingArea;
+            if (work is not { Width: > 0, Height: > 0 }) return;
+
+            var fitted = FitToWorkArea(
+                new Size(Width, Height),
+                new Size(_xamlWidth, _xamlHeight),
+                // WorkingArea is in PHYSICAL pixels; the window is sized in DIPs. DIP = physical / scale.
+                new Size(work.Value.Width, work.Value.Height),
+                screen!.Scaling,
+                new Size(MinWidth, MinHeight));
+
+            if (fitted.Width < Width) Width = fitted.Width;
+            if (fitted.Height < Height) Height = fitted.Height;
+        }
+        catch
+        {
+            // No screen information (headless, or a platform that does not report a work area) — keep the
+            // declared size. Fitting is an improvement, never a precondition.
+        }
+    }
+
+    /// <summary>
+    /// The whole decision behind <see cref="FitDefaultSizeToWorkArea"/>, as a pure function so it can be
+    /// locked by tests. A headless test platform reports no screen work area, so the calling method returns
+    /// early there and CANNOT demonstrate this logic — testing the effect through a real window would be a
+    /// vacuous test that passes whether or not the guard exists.
+    /// </summary>
+    /// <param name="current">The window's current size.</param>
+    /// <param name="xamlDefault">The size declared in XAML, captured in the constructor.</param>
+    /// <param name="workArea">The screen work area, in PHYSICAL pixels.</param>
+    /// <param name="scaling">The screen's DIP scale factor (physical pixels per DIP).</param>
+    /// <param name="minimum">The window's declared <c>MinWidth</c>/<c>MinHeight</c>, in DIPs.</param>
+    /// <returns>The size the window should take — never larger than <paramref name="current"/>.</returns>
+    internal static Size FitToWorkArea(Size current, Size xamlDefault, Size workArea, double scaling, Size minimum)
+    {
+        // A caller picked its own size (every headless layout test does, at widths up to 1920) — never
+        // second-guess it. Without this the whole measurement suite would silently be re-sized by whatever
+        // screen the runner happens to have.
+        if (current.Width != xamlDefault.Width || current.Height != xamlDefault.Height) return current;
+
+        var scale = scaling > 0 ? scaling : 1.0;
+
+        // Only ever SHRINK to fit, and never below the declared minimum — MinWidth/MinHeight stay the floor,
+        // so a desktop smaller than the minimum still clamps up (and is out of support scope).
+        return new Size(
+            Math.Max(minimum.Width, Math.Min(current.Width, workArea.Width / scale)),
+            Math.Max(minimum.Height, Math.Min(current.Height, workArea.Height / scale)));
     }
 
     private MainWindowViewModel? Vm => DataContext as MainWindowViewModel;
