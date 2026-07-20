@@ -63,20 +63,46 @@
         <Style Selector="Button.barBtn:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{StaticResource Amber}"/>
         </Style>
-        <!-- Report grid header cell -->
+        <!-- Report grid header cell.
+
+             TextTrimming is the CLASS BACKSTOP for header overflow (D-1). Without it a header wider than its
+             track is sliced mid-glyph at the track edge with no ellipsis, no wrap and no cue — a SILENT hard
+             cut. (It does NOT paint over its neighbour: Avalonia's TextBlock self-clips to its arranged
+             bounds, measured — a 16-character string in a 42px slot produced ink stopping 1px inside its own
+             right edge. The overprint mechanism the audit brief described does not occur.)
+
+             This setter is PAINT-ONLY and layout-neutral — measured, Skia + real Consolas, not assumed:
+             DesiredSize 69.00 with trimming and 69.00 without; arranged width 58.00 either way; and a
+             TextWrapping="Wrap" header is byte-identical either way (w=49.00 h=37.00), so the 10 headers that
+             already wrap are unaffected. It therefore cannot move a single track.
+
+             BLAST RADIUS, measured across all 603 colHdr headers in this file (the "~277" figure that used to
+             appear in the note below was stale by a factor of two): 6 overflowed by >1px, of which 5 are the
+             Gratuity/Bonus headers fixed by width in this same change. The only survivor is "Taxable Value"
+             (:1231, 2.00px), which is inside the 8px Padding buffer and so is not visibly cut. Net visible
+             change TODAY: zero headers. Its real value is prospective — the 147 headers in "*" columns and 13
+             bound-text headers have no statically resolvable slot and have never been rendered; for those this
+             converts a silent mid-glyph cut into an honest ellipsis. -->
         <Style Selector="TextBlock.colHdr">
             <Setter Property="Foreground" Value="{StaticResource AppWhite}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
         </Style>
         <!-- Report grid NUMERIC VALUE cell (C10). Right-aligned with an 8px right inset that MATCHES
              the colHdr Padding.Right (8,4) above, so a value's right edge lands EXACTLY under its column
              header's right edge. Value cells previously carried an ad-hoc 10px right margin, leaving a
              2px drift between the header figure and the value beneath it. Tagging a money/amount value
              cell Classes="numCell" (instead of the local TextAlignment="Right" Margin="0,0,10,0") pins
-             it flush with its header. The header style is deliberately UNTOUCHED (it drives ~277 headers
-             app-wide); only the value cells migrate. -->
+             it flush with its header; only the value cells migrate.
+
+             NOTE (corrected): this comment used to say the header style was "deliberately UNTOUCHED (it
+             drives ~277 headers app-wide)". Both halves are now stale. The real count is 603, measured by
+             enumerating every Classes="colHdr" TextBlock in this file — the 277 figure was low by a factor
+             of two and should not be quoted again. And colHdr DOES now carry one further setter,
+             TextTrimming, added as the D-1 class backstop; see its own comment above for why that setter is
+             layout-neutral and therefore cannot disturb the alignment this style exists to protect. -->
         <Style Selector="TextBlock.numCell">
             <Setter Property="TextAlignment" Value="Right"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
@@ -4402,7 +4428,7 @@
 
                             <!-- Existing ledgers header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,150,110,70,120">
+                              <Grid ColumnDefinitions="*,150,130,70,120">
                                 <TextBlock Grid.Column="0" Text="Ledger" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Opening" Classes="colHdr" TextAlignment="Right"/>
@@ -4416,15 +4442,59 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:LedgerListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,150,110,70,120" Height="24">
+                                      <Grid ColumnDefinitions="*,150,130,70,120" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Under}"
                                                    VerticalAlignment="Center" FontSize="12" Foreground="#555555"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Opening}"
-                                                   TextAlignment="Right" Margin="0,0,10,0"
+                                        <!-- D-2 🔴 FINANCIAL MISREAD. LedgerMasterViewModel.RefreshList formats this
+                                             as IndianFormat.Amount(...) + " Dr"/" Cr" — a 3-character SUFFIX the
+                                             column was never sized for. At track 110 with an ad-hoc 10px margin the
+                                             slot was 100px, so (measured, Skia + real Consolas, identical at
+                                             1920x1080 / 1280x720 / 1024x768):
+
+                                               "99,99,999.99 Cr"    (15) nat  99  ok 1.00   <- last value that fits
+                                               "1,00,00,000.00 Cr"  (17) nat 113  CUT 13
+                                               "10,00,00,000.00 Dr" (18) nat 119  CUT 19
+                                               "99,99,99,999.99 Cr" (18) nat 119  CUT 19
+
+                                             At and above ₹1 crore the Dr/Cr marker was SILENTLY DELETED. On a Sundry
+                                             Creditors ledger a credit opening then reads as a debit — the same class
+                                             as the Trial Balance overprint this campaign ranked worst.
+
+                                             SIZED TO 18 characters = ₹99.99 crore, the campaign's established
+                                             IndianFormat.Amount ceiling: 119px + 8px margin = 127, declare 130 for
+                                             the >=2px fixed-track headroom rule (slot 122 vs 119 = 3px). A NEGATIVE
+                                             is unreachable here, not merely unlikely: Ledger's constructor enforces
+                                             "Opening balance magnitude must be >= 0" (Ledger.cs:228) and the sign is
+                                             carried by OpeningIsDebit, so the 19-character form cannot occur. ₹100
+                                             crore and above (20 ch) still cuts; that is the deliberate, documented
+                                             ceiling used across this campaign, not an oversight.
+
+                                             WHERE THE 20px CAME FROM — the "*" Ledger column, and it had to. Every
+                                             other track in this grid is at or PAST its own natural width, measured:
+                                             Under 150 needs 159 ("Loans & Advances (Asset)"), Currency 70 needs 69
+                                             (1px), Interest 120 needs 69 for its header alone and far more for
+                                             "18.75% p.m.-basis Compound". None of them is slack, so none of them
+                                             could pay — and shrinking a money column is the exact move behind five
+                                             prior regressions. The "*" column is the only one with give: 1004px at
+                                             1920x1080. It is NOT starved by this, because it is never adequate at the
+                                             constrained sizes to begin with — ledger names run 365-378px against a
+                                             364px track at 1280x720 and 176px at 1024x768 — and it already carries
+                                             TextTrimming="CharacterEllipsis", so it degrades honestly either way.
+                                             Nothing that was previously adequate is now cut.
+
+                                             A horizontal scroller was REJECTED (it is the accepted answer at eight
+                                             report grids): the header Border sits OUTSIDE this body ScrollViewer, so
+                                             scrolling the rows would slide them out from under their own headers.
+
+                                             The cell now takes Classes="numCell", replacing a local
+                                             TextAlignment="Right" + Margin="0,0,10,0". That is worth 2px of the 20
+                                             AND fixes the documented 2px drift between this figure and its header
+                                             (numCell's 8px inset matches colHdr's 8,4 Padding). -->
+                                        <TextBlock Grid.Column="2" Text="{Binding Opening}" Classes="numCell"
                                                    VerticalAlignment="Center" FontSize="12"/>
                                         <TextBlock Grid.Column="3" Text="{Binding Currency}"
                                                    TextAlignment="Center"
@@ -12833,14 +12903,31 @@
                               </StackPanel>
                             </Border>
 
-                            <!-- Per-employee accrual grid — wide, so it scrolls horizontally -->
+                            <!-- Per-employee accrual grid — wide, so it scrolls horizontally.
+
+                                 D-1 WIDTH: 560 -> 608. The +48 is spent entirely on three starved FIXED tracks
+                                 (Emp. No. 64->96, Years 44->52, Vested 50->58); the "*" Employee column is
+                                 UNCHANGED at 144 at every window size, because the grid grew by exactly what
+                                 the fixed tracks took. Nothing was shrunk to pay for this.
+
+                                 It is FREE: this ScrollViewer's own viewport measures 626px at the 1024x768
+                                 floor (and 814/900/1134/1454 at the larger sizes), so a 614px grid still needs
+                                 NO horizontal scrollbar anywhere — maxOffset stays 0 at all five sizes, exactly
+                                 as it was at 560.
+
+                                 The last 6px (608 -> 614) lift the "*" Employee column from 144 to 150, which
+                                 RETIRES this grid's entry in XamlLayoutInvariantTests.StarvedStarAllowList
+                                 (150px is that invariant's readability floor: ~18 characters of employee name).
+                                 The entry was keyed "*,64,82,44,50,80,96" and commented "Form 27D twins" —
+                                 a MISATTRIBUTION: that spec occurred nowhere but this grid and its row twin
+                                 (Form 27D lives at :14331). -->
                             <TextBlock Grid.Row="4" Text="Employee-wise Gratuity Accrual" FontWeight="Bold" FontSize="12"
                                        Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                             <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Auto">
-                              <Grid RowDefinitions="Auto,*" Width="560">
+                              <Grid RowDefinitions="Auto,*" Width="614">
                                 <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="*,64,82,44,50,80,96">
+                                  <Grid ColumnDefinitions="*,96,82,52,58,80,96">
                                     <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Emp. No." Classes="colHdr" TextAlignment="Right"/>
                                     <TextBlock Grid.Column="2" Text="Joined" Classes="colHdr" TextAlignment="Right"/>
@@ -12854,12 +12941,22 @@
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:GratuityRegisterRowVm">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="*,64,82,44,50,80,96" Height="24">
+                                        <Grid ColumnDefinitions="*,96,82,52,58,80,96" Height="24">
                                           <TextBlock Grid.Column="0" Text="{Binding EmployeeName}" Margin="6,0"
                                                      VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
                                                      TextTrimming="CharacterEllipsis"/>
+                                          <!-- D-1 LIVE DEFECT. At track 64 this cell had slot 60 against a real
+                                               14-character employee number ("EMP/2011/00417" = 89px at 11.5pt),
+                                               so it was CUT BY 29px — silently, because it carried no
+                                               TextTrimming while the name cell beside it did. Track 96 now holds
+                                               the full 14 characters (slot 92 vs 89, 3px headroom), and the
+                                               ellipsis makes anything LONGER degrade honestly instead of
+                                               vanishing mid-glyph. An employee number truncated without a cue is
+                                               ambiguous between two employees, which is why the width comes
+                                               first and the ellipsis is only the backstop. -->
                                           <TextBlock Grid.Column="1" Text="{Binding EmployeeNumber}" TextAlignment="Right"
                                                      VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     TextTrimming="CharacterEllipsis"
                                                      FontFamily="Consolas,Menlo,monospace"/>
                                           <TextBlock Grid.Column="2" Text="{Binding DateOfJoining}" TextAlignment="Right"
                                                      VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
@@ -12946,14 +13043,56 @@
                               </StackPanel>
                             </Border>
 
-                            <!-- Per-employee bonus grid — wide, so it scrolls horizontally -->
+                            <!-- Per-employee bonus grid — wide, so it scrolls horizontally.
+
+                                 D-1 WIDTH: 560 -> 609. The +49 is spent entirely on four starved FIXED tracks
+                                 (Emp. No. 58->96, Eligible 68->71, Capped Base 86->92, Annual Bonus 96->98);
+                                 the "*" Employee column is UNCHANGED at 118 at every window size. Nothing was
+                                 shrunk to pay for this.
+
+                                 The remaining 28px (609 -> 637) lift the "*" Employee column from 118 to 150,
+                                 RETIRING this grid's entry in XamlLayoutInvariantTests.StarvedStarAllowList.
+                                 That entry was keyed "*,58,68,80,86,54,96" and commented "Form 24Q twins" — a
+                                 MISATTRIBUTION, like the Gratuity twin's: the spec occurred nowhere but this
+                                 grid and its row twin (Form 24Q lives at :13240).
+
+                                 Rate is the ONE track that shrank (54 -> 50), and deliberately so: it is a
+                                 PERCENTAGE column, not a money column, and it stays 5px above its own measured
+                                 floor of 45 (header "Rate" 27 + 16 padding = 43; the widest value the §10-§11
+                                 band can produce is "8.33%" at 32px, and even a 6-character "20.00%" is 38px
+                                 against a 46px slot). No money column paid for anything here — that move is
+                                 behind five previously-shipped regressions.
+
+                                 WHY 637 AND NOT 641. 641 was measured first and worked, but it trips the C5b
+                                 ratchet in XamlLayoutInvariantTests.Wide_report_grids_must_be_fluid_not_a_
+                                 hardcoded_wide_width: no Grid may hardcode a numeric Width >= the 638px
+                                 page-column floor, because such a grid is by construction wider than the
+                                 narrowest pane. That ratchet has NO allow-list and may only stay at zero. Its
+                                 prescribed remedy — a fluid Width bound to a named page pane, with MinWidth =
+                                 the constant — needs an x:Name on shared shell structure that the merged
+                                 MinWidth="1024" / FitToWorkArea work owns, so trimming the one genuinely slack
+                                 non-money track by 4px was the smaller, measurable change.
+
+                                 WHAT IT COSTS, stated plainly. 637px exceeds this ScrollViewer's 626px viewport
+                                 at the 1024x768 floor ONLY, so a horizontal scrollbar appears there with
+                                 maxOffset 11px; at 1280x720 and above the viewport is 814px+ and nothing
+                                 changes. That is an honest, user-operable scroller and — unlike the Ledger
+                                 master list, where the header Border sits OUTSIDE the body scroller — BOTH the
+                                 header band and the row list live inside this one, so they scroll TOGETHER and
+                                 no figure can drift out from under its own heading. 11px of scroll at the
+                                 narrowest supported window is the price of an employee-name column that can
+                                 hold ~18 characters instead of 14.
+
+                                 (A star column of 150 is not reachable without SOME scroll at 1024: the six
+                                 fixed tracks cannot go below 471 at their measured floors, and 471 + 150 = 621
+                                 only just fits 626 — leaving no room for the +2px-per-track headroom rule.) -->
                             <TextBlock Grid.Row="4" Text="Employee-wise Statutory Bonus" FontWeight="Bold" FontSize="12"
                                        Foreground="{StaticResource BrandNavy}" Margin="0,0,0,2"/>
                             <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Auto"
                                           VerticalScrollBarVisibility="Auto">
-                              <Grid RowDefinitions="Auto,*" Width="560">
+                              <Grid RowDefinitions="Auto,*" Width="637">
                                 <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="*,58,68,80,86,54,96">
+                                  <Grid ColumnDefinitions="*,96,71,80,92,50,98">
                                     <TextBlock Grid.Column="0" Text="Employee" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Emp. No." Classes="colHdr" TextAlignment="Right"/>
                                     <TextBlock Grid.Column="2" Text="Eligible" Classes="colHdr" TextAlignment="Right"/>
@@ -12967,12 +13106,18 @@
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:BonusRegisterRowVm">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="*,58,68,80,86,54,96" Height="24">
+                                        <Grid ColumnDefinitions="*,96,71,80,92,50,98" Height="24">
                                           <TextBlock Grid.Column="0" Text="{Binding EmployeeName}" Margin="6,0"
                                                      VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
                                                      TextTrimming="CharacterEllipsis"/>
+                                          <!-- D-1 LIVE DEFECT — the worse of the twins. At track 58 this cell had
+                                               slot 54 against "EMP/1998/99999" (89px at 11.5pt), so it was CUT BY
+                                               35px with no ellipsis. Track 96 holds the full number (slot 92 vs
+                                               89); the ellipsis is the backstop for anything longer. See the
+                                               Gratuity twin above for the full rationale. -->
                                           <TextBlock Grid.Column="1" Text="{Binding EmployeeNumber}" TextAlignment="Right"
                                                      VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"
+                                                     TextTrimming="CharacterEllipsis"
                                                      FontFamily="Consolas,Menlo,monospace"/>
                                           <TextBlock Grid.Column="2" Text="{Binding Eligible}" TextAlignment="Right"
                                                      VerticalAlignment="Center" FontSize="11.5" Margin="0,0,4,0"/>
