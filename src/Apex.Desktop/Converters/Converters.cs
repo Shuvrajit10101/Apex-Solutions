@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Data.Converters;
+using Avalonia.Input;
 using Avalonia.Media;
 using Apex.Ledger;
 using Apex.Desktop.ViewModels;
@@ -122,6 +123,56 @@ public sealed class ColumnMinWidthConverter : IValueConverter
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         => value is true ? 260.0 : CascadeColumnWidthConverter.PageFloor;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// TAB CONTAINMENT — keeps Tab traversal inside the TERMINAL (rightmost) cascade column. Bound to
+/// <c>IsLast</c>.
+///
+/// <para><b>The defect this closes (measured, not inferred).</b> With Ledger Creation pushed over a Payment
+/// Voucher by Alt+C, a Tab sweep of 60 presses landed <b>20 of them in the Payment Voucher column behind</b> —
+/// the operator standing in the new column tabbed off the end of it and started editing fields of the voucher
+/// underneath, with no visual cue that focus had left the active column. That contradicts the Miller-column
+/// contract, where the terminal column is the active one and Left/Esc is the only way back.</para>
+///
+/// <para><b>Why <see cref="KeyboardNavigationMode.None"/> and not <c>Contained</c>.</b> Both were measured on
+/// the real window. <c>None</c> took the sweep to <c>outsideTerminal=0</c> while leaving the F-key button bar
+/// reachable (<c>noColumn=29</c> tabs still landed there) — the bar sits outside the columns, so scoping the
+/// columns does not strand it. <c>Contained</c> made it WORSE (<c>outsideTerminal=43</c>): it traps traversal
+/// inside whichever container already holds focus, which is the opposite of excluding the inactive ones.</para>
+///
+/// <para><b>THE FAILURE DIRECTION IS A DELIBERATE CHOICE — do not "simplify" it away.</b> A XAML binding can
+/// hand a converter <c>null</c>, <c>AvaloniaProperty.UnsetValue</c> (binding not yet resolved, or the path is
+/// wrong — Avalonia reports that on a debug channel and otherwise carries on silently), or a value of the wrong
+/// type if <c>IsLast</c> is ever retyped. Every one of those cases is routed EXPLICITLY to <c>None</c> below,
+/// rather than being allowed to fall off the end of a single <c>is true</c> test.</para>
+///
+/// <para><b>Why <c>None</c> is the safe failure and <c>Continue</c> is not.</b> Failing toward <c>Continue</c>
+/// silently restores the exact defect this converter exists to close: Tab walks out of the active column and
+/// the operator edits fields of an inactive one, believing they are typing into the screen in front of them —
+/// wrong data written to a real voucher, with no cue. Failing toward <c>None</c> costs Tab traversal in that
+/// column; it does not strand the operator (the F-key bar stays outside the columns and reachable, and
+/// arrows/Enter/Escape/Left are untouched by this binding), and a dead Tab key is noticed immediately.
+/// <b>A loud, non-destructive failure beats a silent, data-corrupting one</b>, so the fallback is <c>None</c>.
+/// <c>TerminalColumnTabNavigationConverterTests</c> pins each of these inputs.</para>
+/// </summary>
+public sealed class TerminalColumnTabNavigationConverter : IValueConverter
+{
+    public static readonly TerminalColumnTabNavigationConverter Instance = new();
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value switch
+        {
+            // The only value that opens a column to Tab traversal: IsLast, genuinely true.
+            true => KeyboardNavigationMode.Continue,
+            false => KeyboardNavigationMode.None,
+
+            // Binding did not resolve (unset / null) or IsLast was retyped: fail CLOSED, per the note above.
+            _ => KeyboardNavigationMode.None,
+        };
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException();

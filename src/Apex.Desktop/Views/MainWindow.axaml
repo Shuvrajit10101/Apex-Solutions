@@ -274,7 +274,14 @@
                                  a NON-terminal page column (a report with a drill column to its right) keeps
                                  the bounded 640 floor so both fit side-by-side. Width is a MultiBinding (NOT
                                  a fixed attribute) fed IsMenu + viewport + own-X + IsLast. -->
+                            <!-- TAB CONTAINMENT: only the TERMINAL column takes part in Tab traversal. Measured
+                                 defect — with Ledger Creation pushed over a Payment Voucher, 20 of 60 Tabs
+                                 landed in the voucher column BEHIND, so the operator silently began editing the
+                                 inactive column. KeyboardNavigationMode.None on the non-terminal columns took
+                                 that to 0 while leaving the F-key button bar (outside the columns) reachable;
+                                 Contained was measured to make it worse. -->
                             <Border Margin="0,0,6,0"
+                                    KeyboardNavigation.TabNavigation="{Binding IsLast, Converter={x:Static conv:TerminalColumnTabNavigationConverter.Instance}}"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Background="White"
                                     MinWidth="{Binding IsMenu, Converter={x:Static conv:ColumnMinWidthConverter.Instance}}"

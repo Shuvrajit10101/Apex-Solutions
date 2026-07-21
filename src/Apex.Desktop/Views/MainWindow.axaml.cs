@@ -258,7 +258,18 @@ public partial class MainWindow : Window
         //     while the confirmation IS up, Y answers the confirmation rather than opening a backup panel.
         // The whole arm is SCOPED to vm.IsAcceptPromptOpen, which is false everywhere else — so Y and N keep
         // their existing meanings across the rest of the app.
-        if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        //
+        // V8 — USER DECISION: the !IsPickerOpen(e) guard fixes the stray-Y-saves bug. With the accept prompt AND
+        // a dropdown BOTH open, a bare Y used to reach ConfirmMasterAccept here and SAVE the master (measured:
+        // promptOpen=True dropdownOpen=True, ledgers 38 -> 39) — a Y the operator meant as type-ahead into the
+        // dropdown silently committed the ledger. This arm now YIELDS while a dropdown is open, so Y/N/Escape
+        // reach the dropdown, not the confirm. The same guard is on the navigation Escape arm below, so with
+        // both open the FIRST Escape closes the DROPDOWN (both arms yield; the ComboBox closes itself) and only a
+        // SECOND Escape — no dropdown left — reaches DismissMasterAccept. The prompt is never stranded: once the
+        // dropdown closes, IsPickerOpen is false and Y/N/Escape answer the prompt again exactly as before
+        // (Y_with_prompt_and_dropdown_open_does_not_save_but_saves_once_the_dropdown_closes,
+        // Escape_with_prompt_and_dropdown_open_closes_dropdown_first_then_dismisses_the_prompt).
+        if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsPickerOpen(e))
         {
             switch (e.Key)
             {
@@ -669,11 +680,24 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
-            case Key.Up when !IsTyping(e):
+            // The !IsPickerOpen guard is the USER CONTRACT: arrows must work on every screen INCLUDING inside a
+            // dropdown. Without it this tunnel consumed both keys before the open popup could see them — measured
+            // on Ledger Creation with a 26-row picker open: `BEFORE down: pickerSel=25 open=True` ->
+            // `AFTER down: pickerSel=25 open=True`, with `bubble: Down handled=True src=ComboBoxItem`. The
+            // highlight could not be moved by keyboard AT ALL, which made the Enter/Escape yields below very
+            // nearly pointless — an operator could reach a dropdown but never navigate it.
+            //
+            // !IsTyping alone does not cover this: it tests `e.Source is TextBox`, and with a dropdown open
+            // e.Source is a ComboBoxItem. Same blind spot that left Left (below) unguarded.
+            //
+            // NARROWNESS: with NO dropdown open these arms are untouched, and they are the Miller-column
+            // navigation — the most-used key pair in the app. Arrows_with_no_picker_open_still_move_the_cascade_selection
+            // locks that direction (measured Gateway: selIdx 1 -> 2 on Down, back to 1 on Up).
+            case Key.Up when !IsTyping(e) && !IsPickerOpen(e):
                 vm.MoveUp();
                 e.Handled = true;
                 break;
-            case Key.Down when !IsTyping(e):
+            case Key.Down when !IsTyping(e) && !IsPickerOpen(e):
                 vm.MoveDown();
                 e.Handled = true;
                 break;
@@ -681,6 +705,27 @@ public partial class MainWindow : Window
             // focus there). Right is a navigation key only when not editing a text field.
             case Key.Right when !IsTyping(e):
                 vm.DrillIn();
+                e.Handled = true;
+                break;
+            // V3 — USER DECISION: "Enter opens it." Enter on a FOCUSED, CLOSED picker OPENS its dropdown. This
+            // arm MUST precede BOTH Enter arms below, because on a focused closed picker each of them would
+            // otherwise claim the key: on a master screen the next arm raises "Accept …? (Y/N)" (measured), and
+            // on any screen the ActivateSelected arm drills the cascade. Placing it here makes Enter open the
+            // picker instead — and only then; the guards below still stand for every other Enter.
+            //
+            // NARROWNESS — three ways it is scoped so nothing else moves:
+            //   • IsPickerFocusedClosed matches ONLY a ComboBox that holds focus AND is closed. A menu/cascade
+            //     column focuses a menu row (not a ComboBox), so Enter still drills there
+            //     (Enter_on_a_menu_column_still_drills_the_cascade); with nothing focused e.Source is the
+            //     MainWindow, so the no-picker master prompt is untouched
+            //     (Enter_with_no_picker_open_still_raises_the_master_accept_prompt).
+            //   • It requires the dropdown CLOSED, so an already-OPEN picker is excluded — the !IsPickerOpen
+            //     yields below keep owning Enter there (commit the highlighted row + close), which is what lets
+            //     open→Down→commit compose (Enter_opens_then_Down_highlights_then_Enter_commits_and_closes).
+            //   • !IsAcceptPromptOpen keeps the :261 confirmation arm the owner of Enter while a prompt is up.
+            // e.Handled stops fall-through to the arms below AND stops the ComboBox toggling the dropdown shut.
+            case Key.Enter when !vm.IsAcceptPromptOpen && IsPickerFocusedClosed(e):
+                OpenFocusedPicker(e);
                 e.Handled = true;
                 break;
             // WI-11: Enter on a master screen ASKS before saving ("Accept Ledger? (Y/N)") instead of committing
@@ -691,21 +736,51 @@ public partial class MainWindow : Window
             // RAISES the prompt) is called in the body, never in the `when` clause: a pattern-match guard that
             // mutates would raise a confirmation as a side effect of merely testing this arm, and would silently
             // change meaning the moment anyone appended another condition after it.
-            case Key.Enter when vm.IsMasterAcceptScreen && !vm.IsAcceptPromptOpen:
+            // The !IsPickerOpen guard is the D1 fix. With a dropdown OPEN this arm used to fire, so an operator
+            // who picked a row and pressed Enter got "Accept Ledger? (Y/N)" over a still-open dropdown instead
+            // of their selection (measured on Ledger Creation:
+            // `AFTER enter: open=True promptOpen=True promptText='Accept Ledger? (Y/N)'`). Live on all 24
+            // IsMasterAcceptScreen screens. Enter now falls through to the dropdown, which owns it.
+            case Key.Enter when vm.IsMasterAcceptScreen && !vm.IsAcceptPromptOpen && !IsPickerOpen(e):
                 vm.RequestMasterAccept();
                 e.Handled = true;
                 break;
-            case Key.Enter:
+            // The SAME guard is load-bearing here, and not decoration: without it the arm above merely hands the
+            // stolen Enter to this one — the prompt stops appearing but the key is still consumed and the
+            // dropdown still never sees it. Both arms must yield for Enter to actually reach the picker.
+            case Key.Enter when !IsPickerOpen(e):
                 vm.ActivateSelected();
                 e.Handled = true;
                 break;
             // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a
             // navigation key only when not editing a text field (there it moves the caret).
-            case Key.Left when !IsTyping(e):
+            //
+            // The !IsPickerOpen guard is the SAME D2 fix as on Escape below, and it belongs here for the same
+            // reason: this comment calls Left and Esc one pair, and they must be guarded as one pair. Guarding
+            // only Escape left this arm reachable with a dropdown open, because !IsTyping tests
+            // `e.Source is TextBox` and an open dropdown makes e.Source a ComboBoxItem. Measured, and
+            // byte-identical to the D2 work-loss: `BEFORE left: columns=2 screen=LedgerMaster
+            // ledgerMasterNull=False dropDownOpen=True` -> `AFTER left: columns=1 screen=Gateway
+            // ledgerMasterNull=True` — one Left aimed at the dropdown discarded the half-typed ledger.
+            //
+            // As with Escape the guard is OPEN and not "focused": a closed picker must still let Left pop the
+            // column in one press, or ~157 form screens lose a keyboard exit
+            // (Left_on_a_CLOSED_picker_still_pops_the_column_in_one_press locks it).
+            case Key.Left when !IsTyping(e) && !IsPickerOpen(e):
                 vm.Back();
                 e.Handled = true;
                 break;
-            case Key.Escape:
+            // The !IsPickerOpen guard is the D2 fix. This arm was completely unguarded, so ONE Escape aimed at
+            // closing a dropdown also popped the Miller column and destroyed the in-progress master (measured on
+            // Ledger Creation: `BEFORE esc: columns=2 screen=LedgerMaster` -> `AFTER esc: columns=1
+            // screen=Gateway ledgerMasterNull=True` — a half-typed ledger discarded by a keystroke the operator
+            // aimed at the dropdown). Escape is TWO presses by settled contract: the first closes the dropdown
+            // (the ComboBox does that itself once this arm yields), the second reaches Back() and pops.
+            //
+            // The guard is IsPickerOpen and NOT IsTyping / "a picker is focused": a CLOSED picker leaves Escape
+            // unhandled (measured), so if this arm yielded on mere focus there would be no keyboard way out of a
+            // form column on ~157 screens.
+            case Key.Escape when !IsPickerOpen(e):
                 vm.Back();
                 e.Handled = true;
                 break;
@@ -769,6 +844,68 @@ public partial class MainWindow : Window
     }
 
     private static bool IsTyping(KeyEventArgs e) => e.Source is TextBox;
+
+    /// <summary>
+    /// True when the keystroke originated inside a picker whose dropdown is currently OPEN — the state in which
+    /// Up, Down, Enter, Left and Escape belong to the dropdown, not to this window.
+    ///
+    /// <para><b>The five arms that consult it, and why they are exactly these five.</b> Up/Down move the
+    /// highlight INSIDE the popup (the settled contract that arrows work on every screen, dropdowns included);
+    /// Enter takes the highlighted row; Left and Escape are the two documented keyboard exits from a form column
+    /// and must not pop it while a popup is up. Every one of those was measured being stolen by this tunnel. The
+    /// F-key bar is deliberately NOT guarded — F4 stays Contra with a dropdown open, and a test pins it.</para>
+    ///
+    /// <para><b>Why the parent walk.</b> Once a dropdown opens, focus moves into the popup, so
+    /// <c>e.Source</c> is a <c>ComboBoxItem</c> (measured) and never the <c>ComboBox</c> itself — a plain
+    /// <c>e.Source is ComboBox</c> test would miss every case this guard exists for.</para>
+    ///
+    /// <para><b>Why "open" and not "focused".</b> Left and Escape are the only two keyboard exits from a form
+    /// column. A picker that is merely focused but CLOSED must still let both reach <c>Back()</c>, or ~157
+    /// screens lose their keyboard route out. Requiring <c>IsDropDownOpen</c> keeps the guard to exactly the
+    /// state where the popup has something to do with the key. This is deliberately NOT a widening of
+    /// <see cref="IsTyping"/>: that predicate answers a different question (is the operator typing into a text
+    /// field) and reaches far more arms.</para>
+    ///
+    /// <para><b>Scope note.</b> Under Avalonia's headless platform the popup is hosted in the same top-level, so
+    /// this window tunnel sees the keystroke and the guard is what stops it. On Win32 the popup may live in a
+    /// separate <c>PopupRoot</c>, in which case the tunnel never runs and the guard is simply inert — it cannot
+    /// make that case worse.</para>
+    /// </summary>
+    private static bool IsPickerOpen(KeyEventArgs e)
+    {
+        for (var c = e.Source as StyledElement; c is not null; c = c.Parent)
+            if (c is ComboBox { IsDropDownOpen: true }) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True when the keystroke originated on a picker that IS focused but whose dropdown is CLOSED — the state
+    /// in which V3 ("Enter opens it.") turns Enter into an OPEN gesture. This is the exact complement of
+    /// <see cref="IsPickerOpen"/> on the open/closed axis: that guard yields keys to an OPEN popup; this one
+    /// arms Enter for a CLOSED, focused picker. Kept a sibling predicate deliberately — it must NOT widen
+    /// <see cref="IsTyping"/> (which answers a different question and reaches ~157 screens).
+    /// <para><b>Why the focus requirement.</b> A keyboard event's <c>Source</c> is the focused element, so a
+    /// closed ComboBox on its logical-parent chain already contains focus; requiring
+    /// <c>IsKeyboardFocusWithin</c> as well pins that intent and refuses to fire on a closed picker that merely
+    /// happens to be an ancestor of some other focused control. Measured on the real window: a focused closed
+    /// picker gives <c>e.Source = ComboBox</c> with <c>IsFocused = IsKeyboardFocusWithin = true</c>.</para>
+    /// </summary>
+    private static bool IsPickerFocusedClosed(KeyEventArgs e) => FocusedClosedPicker(e) is not null;
+
+    /// <summary>The focused, CLOSED <see cref="ComboBox"/> the key originated on, or null — the single walk
+    /// that backs both <see cref="IsPickerFocusedClosed"/> and <see cref="OpenFocusedPicker"/>.</summary>
+    private static ComboBox? FocusedClosedPicker(KeyEventArgs e)
+    {
+        for (var c = e.Source as StyledElement; c is not null; c = c.Parent)
+            if (c is ComboBox { IsDropDownOpen: false } cb && cb.IsKeyboardFocusWithin) return cb;
+        return null;
+    }
+
+    /// <summary>Opens the focused, closed picker the key originated on (the V3 "Enter opens it." action).</summary>
+    private static void OpenFocusedPicker(KeyEventArgs e)
+    {
+        if (FocusedClosedPicker(e) is { } picker) picker.IsDropDownOpen = true;
+    }
 
     /// <summary>
     /// Resolves the inventory-voucher line the key event originated on by walking the control tree up from the
