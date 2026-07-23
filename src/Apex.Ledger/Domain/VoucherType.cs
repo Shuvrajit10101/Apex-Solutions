@@ -6,6 +6,9 @@ namespace Apex.Ledger.Domain;
 /// </summary>
 public sealed class VoucherType
 {
+    private readonly List<VoucherNumberAffix> _prefixes;
+    private readonly List<VoucherNumberAffix> _suffixes;
+
     /// <summary>Stable surrogate key.</summary>
     public Guid Id { get; }
 
@@ -166,6 +169,42 @@ public sealed class VoucherType
     /// <summary>True iff this is a GST Stat-Adjustment type — a Journal base type with <see cref="IsGstStatAdjustment"/> on.</summary>
     public bool IsGstStatAdjustmentType => BaseType == VoucherBaseType.Journal && IsGstStatAdjustment;
 
+    /// <summary>
+    /// "<b>Prevent Duplicates</b>" (numbering-design-v2 §7; catalog §4). When <b>Yes</b>, posting/importing a voucher
+    /// whose fully-rendered number (<see cref="Services.VoucherNumberFormatter.Render"/>) collides with an existing
+    /// non-deleted voucher of this type is rejected. Defaults to <c>false</c>, so an existing type is byte-identical
+    /// (ER-13). Not yet enforced by any post path in slice S1 (the flag is carried; enforcement lands in a later slice).
+    /// </summary>
+    public bool PreventDuplicate { get; set; }
+
+    /// <summary>
+    /// "<b>Width of numerical part</b>" (numbering-design-v2 §1.3, §2.1; catalog §4). The minimum width the numeric
+    /// core is left-padded to; <c>0</c> means <b>no left-pad</b> (today's behaviour). The pad NEVER truncates a number
+    /// wider than this. Defaults to <c>0</c>, so an existing type renders the bare <c>int</c> (ER-13).
+    /// </summary>
+    public int NumberWidth { get; set; }
+
+    /// <summary>
+    /// "<b>Prefill with zero</b>" (numbering-design-v2 §1.3, §2.1; catalog §4). Only meaningful when
+    /// <see cref="NumberWidth"/> &gt; 0: the pad character is <c>'0'</c> when <b>Yes</b> (e.g. <c>007</c>), otherwise a
+    /// space (e.g. <c>"  7"</c>). Defaults to <c>false</c> (ER-13).
+    /// </summary>
+    public bool PrefillWithZero { get; set; }
+
+    /// <summary>
+    /// The date-effective <b>Prefix</b> rows (numbering-design-v2 §1.2, §1.3). Get-only and ctor-injected (mirrors
+    /// <see cref="Voucher.InventoryLines"/>/<see cref="Voucher.PosTenders"/>): the rendered number selects the row whose
+    /// <see cref="VoucherNumberAffix.ApplicableFrom"/> is the latest on/before the voucher date. May be empty (ER-13:
+    /// a type with no prefix rows renders no prefix).
+    /// </summary>
+    public IReadOnlyList<VoucherNumberAffix> Prefixes => _prefixes;
+
+    /// <summary>
+    /// The date-effective <b>Suffix</b> rows (numbering-design-v2 §1.2, §1.3). Same shape and selection rule as
+    /// <see cref="Prefixes"/>; get-only and ctor-injected. May be empty (ER-13).
+    /// </summary>
+    public IReadOnlyList<VoucherNumberAffix> Suffixes => _suffixes;
+
     public VoucherType(
         Guid id,
         string name,
@@ -186,7 +225,12 @@ public sealed class VoucherType
         bool allowConsumption = false,
         bool isStatPayment = false,
         bool isRcmPaymentVoucher = false,
-        bool isGstStatAdjustment = false)
+        bool isGstStatAdjustment = false,
+        bool preventDuplicate = false,
+        int numberWidth = 0,
+        bool prefillWithZero = false,
+        IEnumerable<VoucherNumberAffix>? prefixes = null,
+        IEnumerable<VoucherNumberAffix>? suffixes = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Voucher type name is required.", nameof(name));
@@ -211,5 +255,10 @@ public sealed class VoucherType
         IsStatPayment = isStatPayment;
         IsRcmPaymentVoucher = isRcmPaymentVoucher;
         IsGstStatAdjustment = isGstStatAdjustment;
+        PreventDuplicate = preventDuplicate;
+        NumberWidth = numberWidth;
+        PrefillWithZero = prefillWithZero;
+        _prefixes = prefixes?.ToList() ?? new List<VoucherNumberAffix>();
+        _suffixes = suffixes?.ToList() ?? new List<VoucherNumberAffix>();
     }
 }
