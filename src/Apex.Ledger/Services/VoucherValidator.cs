@@ -31,6 +31,31 @@ public static class VoucherValidator
         if (voucherType is null)
             throw new InvalidVoucherException($"Unknown voucher type {v.TypeId}.");
 
+        // numbering-design-v2 §7 — Prevent Duplicate. When the type opts in, a voucher whose FULLY-RENDERED number
+        // collides (ordinal, case-sensitive) with an existing non-deleted voucher of the same type is rejected. The
+        // check lives here so the Io import path (which posts every voucher through LedgerService.Post ⇒ EnsureValid)
+        // inherits it and cannot bypass it. An Automatic voucher reaches EnsureValid with Number == 0 (assigned AFTER
+        // validation) ⇒ renders "" ⇒ never collides; the guard bites on a Manual/pre-set number. A colliding number
+        // renders the same string only when two vouchers share an int and the same date-selected affix — a genuine
+        // duplicate (restart is deferred, so there is no legitimate repeat), so there is no false-reject. The
+        // counterparty reference field is the OTHER party's number and is never run through this guard.
+        if (voucherType.PreventDuplicate)
+        {
+            var rendered = VoucherNumberFormatter.Render(voucherType, v.Number, v.Date);
+            if (rendered.Length > 0)
+                foreach (var other in c.Vouchers)
+                {
+                    if (other.Id == v.Id) continue;                 // re-validating an already-posted voucher
+                    if (other.TypeId != v.TypeId) continue;
+                    if (string.Equals(
+                            VoucherNumberFormatter.Render(voucherType, other.Number, other.Date), rendered,
+                            StringComparison.Ordinal))
+                        throw new InvalidVoucherException(
+                            $"Voucher number '{rendered}' already exists for '{voucherType.Name}' " +
+                            "(Prevent Duplicates is on).");
+                }
+        }
+
         // §11 zero-valued transactions (Phase 6 slice 4 RQ-21): "Allow zero-valued transactions" is a Sales/Purchase
         // feature only. A Journal / Stock-Journal (or any other base) type must never carry it — reject at post time
         // so the illegal configuration can never smuggle a ₹0 accounting entry onto a non-invoice voucher.

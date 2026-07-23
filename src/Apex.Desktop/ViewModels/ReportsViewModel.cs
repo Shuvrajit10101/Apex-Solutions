@@ -1401,7 +1401,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>The particulars text a Day Book row renders (voucher type + number) — the SAME string used for
     /// the RQ-3 name filter/sort so a filter on visible text matches what the user actually sees.</summary>
-    private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.Number}";
+    private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.FormattedNumber}";
 
     // =============================================================== inventory reports (slice 3.4b)
 
@@ -1527,7 +1527,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         foreach (var r in mv.Rows)
         {
-            var voucher = r.Number > 0 ? $"{r.VoucherTypeName} No. {r.Number}" : r.VoucherTypeName;
+            var voucher = r.Number > 0 ? $"{r.VoucherTypeName} No. {r.FormattedNumber}" : r.VoucherTypeName;
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
@@ -1565,7 +1565,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
-                Col2 = r.Number.ToString(),
+                Col2 = r.FormattedNumber,
                 Col3 = r.PartyName ?? string.Empty,
                 Col4 = r.ItemName,
                 Col5 = r.GodownName,
@@ -1619,7 +1619,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
-                Col2 = $"{r.VoucherTypeName} No. {r.Number}",
+                Col2 = $"{r.VoucherTypeName} No. {r.FormattedNumber}",
                 Col3 = r.PartyName ?? string.Empty,
                 Col4 = r.ItemName,
                 Col5 = r.GodownName,
@@ -1651,7 +1651,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col1 = FormatDate(o.Date),
                 Col2 = o.OrderNo,
                 Col3 = o.PartyName ?? string.Empty,
-                Col4 = $"{o.VoucherTypeName} No. {o.Number} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
+                Col4 = $"{o.VoucherTypeName} No. {o.FormattedNumber} — {o.FinishedGoodName} × {IndianFormat.Quantity(o.FinishedGoodQuantity)}",
                 IsHeader = true,
             });
             foreach (var c in o.Components)
@@ -1689,7 +1689,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Rows.Add(new ReportRow
             {
                 Col1 = FormatDate(r.Date),
-                Col2 = r.Number.ToString(),
+                Col2 = r.FormattedNumber,
                 Col3 = r.PartyName ?? string.Empty,
                 Col4 = r.ItemName,
                 Col5 = r.GodownName,
@@ -2713,7 +2713,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         foreach (var r in report.Rows)
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Memo No. {r.Number}",
+                Particulars = $"{FormatDate(r.Date)}  Memo No. {r.FormattedNumber}",
                 Secondary = r.PartyOrParticulars ?? string.Empty,
                 Amount = IndianFormat.Amount(r.Amount),
             });
@@ -2741,7 +2741,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             var particulars = string.IsNullOrEmpty(r.Particulars) ? applicable : $"{r.Particulars}  ·  {applicable}";
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Rev. Jrnl No. {r.Number}",
+                Particulars = $"{FormatDate(r.Date)}  Rev. Jrnl No. {r.FormattedNumber}",
                 Secondary = particulars,
                 Amount = IndianFormat.Amount(r.Amount),
             });
@@ -2777,7 +2777,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         foreach (var r in report.Rows)
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  Bill No. {r.Number}  ·  {r.Party}",
+                Particulars = $"{FormatDate(r.Date)}  Bill No. {r.FormattedNumber}  ·  {r.Party}",
                 Secondary = Tenders(r),
                 Amount = IndianFormat.Amount(r.BillTotal),
             });

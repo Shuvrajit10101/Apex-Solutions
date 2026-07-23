@@ -16,7 +16,8 @@ public sealed record LedgerBookRow(
     Money Credit,
     DrCr RunningSide,
     Money RunningAmount,
-    Guid VoucherId = default)
+    Guid VoucherId = default,
+    string FormattedNumber = "")
 {
     /// <summary>True iff Enter should drill this row into the underlying voucher's detail.</summary>
     public bool IsDrillable => VoucherId != Guid.Empty;
@@ -113,7 +114,8 @@ public sealed record LedgerBook(
                 line.Side == DrCr.Credit ? line.Amount : Money.Zero,
                 runBal.Side,
                 runBal.Amount,
-                v.Id));
+                v.Id,
+                company.FormatVoucherNumber(v)));
         }
 
         // Point-in-time: the ledger's closing-as-at-To (== the TB/BS figure). Movement: the accumulated

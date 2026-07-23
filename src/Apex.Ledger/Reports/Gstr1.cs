@@ -12,7 +12,7 @@ namespace Apex.Ledger.Reports;
 public sealed record Gstr1B2BRow(
     string PartyName,
     string? PartyGstin,
-    int InvoiceNumber,
+    string InvoiceNumber,
     DateOnly InvoiceDate,
     string? PlaceOfSupplyStateCode,
     Money TaxableValue,
@@ -26,6 +26,12 @@ public sealed record Gstr1B2BRow(
     /// leaves it null on every row (byte-identical, ER-13); it is not written to the tabular export in S4a.
     /// </summary>
     public string? Irn { get; init; }
+
+    /// <summary>The <b>raw underlying voucher sequence number</b> of this document (the bare int, before affix rendering).
+    /// A display-invisible ordering key: <see cref="InvoiceNumber"/> is the rendered display string (prefix/suffix and
+    /// all), so numeric ordering of the amendment tables (<see cref="Gstr1Amendments"/>) must sort on this raw int — an
+    /// ordinal sort of the rendered string would place "10" before "2". Defaults to 0 (never emitted anywhere).</summary>
+    public int RawNumber { get; init; }
 }
 
 /// <summary>
@@ -269,8 +275,9 @@ public sealed record Gstr1(
                     ? eiv.Irn
                     : null;
                 b2b.Add(new Gstr1B2BRow(
-                    party!.Name, party.PartyGst!.Gstin, voucher.Number, voucher.Date, pos,
-                    taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst)) { Irn = irn });
+                    party!.Name, party.PartyGst!.Gstin, EInvoiceService.DocumentNumberOf(company, voucher), voucher.Date, pos,
+                    taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst))
+                    { Irn = irn, RawNumber = voucher.Number });
             }
             else
             {
@@ -357,7 +364,7 @@ public sealed record Gstr1(
             {
                 case EInvoiceStatus.Generated:
                     tagged++;
-                    if (!string.Equals(record.DocumentNumberUpper, EInvoiceService.DocumentNumberOf(voucher), StringComparison.Ordinal))
+                    if (!string.Equals(record.DocumentNumberUpper, EInvoiceService.DocumentNumberOf(company, voucher), StringComparison.Ordinal))
                         mismatched++;
                     break;
                 case EInvoiceStatus.Pending: pending++; break;

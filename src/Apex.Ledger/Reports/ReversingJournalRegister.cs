@@ -12,7 +12,8 @@ public sealed record ReversingJournalRegisterRow(
     DateOnly? ApplicableUpto,
     int Number,
     string? Particulars,
-    Money Amount);
+    Money Amount,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The Reversing Journal Register exception report (catalog §16; RQ-5 part 2). Lists every voucher whose type
@@ -45,7 +46,8 @@ public sealed record ReversingJournalRegister(
             particulars ??= v.Narration;
 
             rows.Add(new ReversingJournalRegisterRow(
-                v.Id, v.Date, v.ApplicableUpto, v.Number, particulars, v.TotalDebit));
+                v.Id, v.Date, v.ApplicableUpto, v.Number, particulars, v.TotalDebit,
+                company.FormatVoucherNumber(v)));
             total += v.TotalDebit;
         }
 

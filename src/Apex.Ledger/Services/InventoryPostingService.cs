@@ -53,6 +53,26 @@ public sealed class InventoryPostingService
         if (type.Numbering == NumberingMethod.Automatic && voucher.Number <= 0)
             voucher.Number = NextNumber(voucher.TypeId);
 
+        // numbering-design-v2 §3/§7 — Prevent Duplicate on the second (inventory) engine, mirroring
+        // VoucherValidator so a Prevent-Duplicate Stock Journal is ENFORCED, never silently ignored (review r2-F2).
+        // An Automatic number is max+1 ⇒ never collides; the guard bites on a Manual/pre-set number that already
+        // renders the same string (ordinal, case-sensitive) on a non-deleted inventory voucher of the same type.
+        if (type.PreventDuplicate)
+        {
+            var rendered = VoucherNumberFormatter.Render(type, voucher.Number, voucher.Date);
+            if (rendered.Length > 0)
+                foreach (var other in _company.InventoryVouchers)
+                {
+                    if (other.Id == voucher.Id) continue;
+                    if (other.TypeId != voucher.TypeId) continue;
+                    if (string.Equals(
+                            VoucherNumberFormatter.Render(type, other.Number, other.Date), rendered,
+                            StringComparison.Ordinal))
+                        throw new InvalidOperationException(
+                            $"Voucher number '{rendered}' already exists for '{type.Name}' (Prevent Duplicates is on).");
+                }
+        }
+
         // Apply provisionally, then verify no key ever goes negative across the whole timeline; roll back on
         // violation so a rejected voucher is never persisted (guards every outward path — DP-7/ER-5).
         _company.AddInventoryVoucherInternal(voucher);

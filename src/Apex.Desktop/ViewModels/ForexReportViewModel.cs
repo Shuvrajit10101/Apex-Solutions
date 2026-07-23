@@ -212,7 +212,7 @@ public sealed partial class ForexReportViewModel : ViewModelBase
             var posted = new LedgerService(_company).Post(adjusting);
             _storage.Save(_company);
             _onChanged();
-            Message = $"Revaluation booked as Journal No. {posted.Number} on {asOf:dd-MMM-yyyy}.";
+            Message = $"Revaluation booked as Journal No. {_company.FormatVoucherNumber(posted)} on {asOf:dd-MMM-yyyy}.";
             Recompute();
             return posted;
         }

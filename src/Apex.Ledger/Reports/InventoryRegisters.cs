@@ -23,7 +23,8 @@ public sealed record InventoryRegisterRow(
     string? BatchLabel,
     Guid? PartyId,
     string? PartyName,
-    string? Narration);
+    string? Narration,
+    string FormattedNumber = "");
 
 /// <summary>
 /// One row in the Physical-Stock register (catalog §16; requirements RQ-31): the counted quantity vs the
@@ -59,7 +60,8 @@ public sealed record OrderRegisterRow(
     decimal OutstandingQuantity,
     Money? Rate,
     Guid? PartyId,
-    string? PartyName);
+    string? PartyName,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The stock-voucher registers (catalog §10/§16; requirements RQ-31) — Day-Book-style flat chronological
@@ -138,7 +140,7 @@ public static class InventoryRegisters
                     v.Date, type.Name, v.Number, line.StockItemId, item?.Name ?? "(unknown)",
                     line.GodownId, godown?.Name ?? "(unknown)",
                     line.Quantity, FulfilledQuantity: 0m, OutstandingQuantity: line.Quantity,
-                    line.Rate, v.PartyId, partyName));
+                    line.Rate, v.PartyId, partyName, company.FormatVoucherNumber(v)));
             }
         }
         SortRegister(rows, r => (r.Date, r.Number, r.ItemName));
@@ -175,7 +177,8 @@ public static class InventoryRegisters
                 rows.Add(new InventoryRegisterRow(
                     v.Date, type.Name, v.Number, a.StockItemId, item?.Name ?? "(unknown)",
                     a.GodownId, godown?.Name ?? "(unknown)", qtyBase, a.Direction,
-                    rateBase, value, a.BatchLabel, v.PartyId, partyName, v.Narration));
+                    rateBase, value, a.BatchLabel, v.PartyId, partyName, v.Narration,
+                    company.FormatVoucherNumber(v)));
             }
         }
 

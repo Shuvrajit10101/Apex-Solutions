@@ -105,12 +105,18 @@ public sealed class EInvoiceService
         return null;
     }
 
-    /// <summary>The printed document number used to build the IRN request — the voucher's number, <b>uppercased</b>
-    /// (invariant-culture) BEFORE submission so the request, the stored artefact and any later cancel reference the
-    /// identical doc-no (§2.4; IRP is case-insensitive from 01-Jun-2025).</summary>
-    public static string DocumentNumberOf(Voucher voucher) =>
-        (voucher.Number > 0 ? voucher.Number.ToString(CultureInfo.InvariantCulture) : voucher.Id.ToString("N"))
-            .ToUpperInvariant();
+    /// <summary>The printed document number used to build the IRN request — the voucher's <b>rendered</b> number
+    /// (numbering-design-v2 §2.2: the ONE policy, so the portal DocNo equals the printed invoice number, prefix/suffix
+    /// and all), emitted <b>AS-TYPED</b> (case preserved) so paper == IRP == e-Way == GSTR-1 == B2C-QR == Day Book — the
+    /// identical string everywhere. IRP has been case-insensitive since 01-Jun-2025, so a lowercase prefix that prints
+    /// <c>inv/001</c> must file <c>inv/001</c> (not <c>INV/001</c>); the case-insensitivity is honoured in the reuse
+    /// key's COMPARISON (see <see cref="Company.HasEInvoiceDocumentNumber"/>), never by mutating the emitted string.
+    /// Falls back to the voucher id when the number renders empty (an unnumbered voucher).</summary>
+    public static string DocumentNumberOf(Company company, Voucher voucher)
+    {
+        var rendered = company.FormatVoucherNumber(voucher);
+        return rendered.Length > 0 ? rendered : voucher.Id.ToString("N");
+    }
 
     /// <summary>
     /// Assembles a fresh <see cref="EInvoiceRecord"/> (status Pending) for a <b>covered</b> voucher and attaches it to the
@@ -127,12 +133,14 @@ public sealed class EInvoiceService
         if (_company.FindEInvoiceRecordForVoucher(voucher.Id) is not null)
             throw new InvalidOperationException("An e-invoice record already exists for this voucher.");
 
-        var docNoUpper = DocumentNumberOf(voucher);
-        if (_company.HasEInvoiceDocumentNumber(docNoUpper))
+        // The stored/emitted doc-no is the AS-TYPED rendered string; the reuse check is case-insensitive (a genuine
+        // same-number reuse — even in a different case — is still blocked, §2.5).
+        var docNo = DocumentNumberOf(_company, voucher);
+        if (_company.HasEInvoiceDocumentNumber(docNo))
             throw new InvalidOperationException(
-                $"Document number '{docNoUpper}' is already used by an e-invoice record and cannot be reused (a cancelled doc-no is not reusable).");
+                $"Document number '{docNo}' is already used by an e-invoice record and cannot be reused (a cancelled doc-no is not reusable).");
 
-        var record = new EInvoiceRecord(Guid.NewGuid(), voucher.Id, docNoUpper);
+        var record = new EInvoiceRecord(Guid.NewGuid(), voucher.Id, docNo);
         record.MarkPending();
         _company.AddEInvoiceRecord(record);
         return record;

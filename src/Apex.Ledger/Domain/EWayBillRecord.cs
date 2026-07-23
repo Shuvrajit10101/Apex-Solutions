@@ -24,7 +24,8 @@ public sealed class EWayBillRecord
     /// <summary>The source goods-movement voucher this EWB was raised for.</summary>
     public Guid SourceVoucherId { get; }
 
-    /// <summary>The <b>uppercased</b> base document number the EWB references.</summary>
+    /// <summary>The <b>as-typed</b> rendered base document number the EWB references (case preserved; the property name
+    /// predates the as-typed policy and is retained for the persistence/canonical column mapping).</summary>
     public string DocumentNumberUpper { get; }
 
     /// <summary>The EWB lifecycle state (Pending initial). <see cref="EWayStatus.Expired"/> is never stored here — it is a

@@ -68,7 +68,7 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
         if (voucher.Optional) flags += "  (Optional)";
         if (voucher.PostDated) flags += "  (Post-dated)";
 
-        Title = $"{typeName} No. {voucher.Number}";
+        Title = $"{typeName} No. {company.FormatVoucherNumber(voucher)}";
         var party = voucher.PartyId is Guid pid ? company.FindLedger(pid)?.Name : null;
         var partyClause = string.IsNullOrEmpty(party) ? string.Empty : $"  —  {party}";
         Subtitle = $"{FormatDate(voucher.Date)}{partyClause}{flags}";

@@ -21,9 +21,11 @@ public sealed class EInvoiceRecord
     /// <summary>The source outward accounting voucher this e-invoice was raised for.</summary>
     public Guid SourceVoucherId { get; }
 
-    /// <summary>The <b>uppercased</b> document number used to build the IRN request (normalised before submission so the
-    /// request, the stored artefact and any later cancel all reference the identical doc-no; IRP is case-insensitive from
-    /// 01-Jun-2025).</summary>
+    /// <summary>The document number the IRN request was built with — the voucher's <b>as-typed rendered</b> number (case
+    /// preserved, so the stored artefact, the request and any later cancel all reference the same string the printed
+    /// invoice shows). IRP has been case-insensitive since 01-Jun-2025, so the reuse guard folds case in its COMPARISON
+    /// (<see cref="Company.HasEInvoiceDocumentNumber"/>) rather than by uppercasing this stored value. (The property name
+    /// predates the as-typed policy and is retained for the persistence/canonical column mapping.)</summary>
     public string DocumentNumberUpper { get; }
 
     /// <summary>The IRP lifecycle state (NotApplicable/Pending/Generated/Cancelled/Failed).</summary>

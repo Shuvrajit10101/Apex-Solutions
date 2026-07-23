@@ -108,6 +108,16 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     [ObservableProperty] private string _narration = string.Empty;
     [ObservableProperty] private PartyOption? _selectedParty;
 
+    /// <summary>The <b>rendered</b> preview of the number Accept will post (numbering-design-v2 §4/§3, review r2-F5) —
+    /// the affixed/padded "Voucher No." for the previewed <see cref="VoucherNumber"/> on the current <see cref="Date"/>,
+    /// equal to what the inventory engine assigns and renders on Accept. Refreshes when the date crosses an affix-row
+    /// boundary. Byte-identical to <see cref="VoucherNumber"/> with an empty numbering config.</summary>
+    public string FormattedVoucherNumber =>
+        Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
+
+    partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+    partial void OnDateChanged(DateOnly value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+
     /// <summary>Ctrl+T — marks the voucher post-dated (excluded from on-hand until its date is reached).</summary>
     [ObservableProperty] private bool _isPostDated;
 
@@ -531,7 +541,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             var posted = _service.Post(voucher); // throws on type/content/imbalance/negative — never persisted
             _storage.Save(_company);             // persist the whole aggregate to the .db
             SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted.";
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;
         }

@@ -33,7 +33,8 @@ public sealed record JobWorkOrderRow(
     string FinishedGoodName,
     decimal FinishedGoodQuantity,
     Money? FinishedGoodRate,
-    IReadOnlyList<JobWorkOrderComponentRow> Components);
+    IReadOnlyList<JobWorkOrderComponentRow> Components,
+    string FormattedNumber = "");
 
 /// <summary>
 /// One movement line in a Material In / Material Out register (Phase 6 slice 8; RQ-51): a single allocation on
@@ -56,7 +57,8 @@ public sealed record MaterialRegisterRow(
     Guid? PartyId,
     string? PartyName,
     IReadOnlyList<string> LinkedOrderNumbers,
-    string? Narration);
+    string? Narration,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The four Job Work registers (Phase 6 slice 8; RQ-51; Book1 pp.86, 89, 93, 96) — <b>Job Work In Order
@@ -116,7 +118,7 @@ public static class JobWorkReports
             rows.Add(new JobWorkOrderRow(
                 v.Date, type?.Name ?? "(unknown)", v.Number, jwo.OrderNo, jwo.Direction,
                 v.PartyId, partyName, jwo.FinishedGoodStockItemId, fg?.Name ?? "(unknown)",
-                jwo.FinishedGoodQuantity, jwo.FinishedGoodRate, components));
+                jwo.FinishedGoodQuantity, jwo.FinishedGoodRate, components, company.FormatVoucherNumber(v)));
         }
         rows.Sort(CompareOrders);
         return rows;
@@ -176,7 +178,8 @@ public static class JobWorkReports
                 rows.Add(new MaterialRegisterRow(
                     v.Date, type.Name, v.Number, a.StockItemId, item?.Name ?? "(unknown)",
                     a.GodownId, godown?.Name ?? "(unknown)", qtyBase, a.Direction,
-                    rateBase, value, a.BatchLabel, v.PartyId, partyName, linkedNos, v.Narration));
+                    rateBase, value, a.BatchLabel, v.PartyId, partyName, linkedNos, v.Narration,
+                    company.FormatVoucherNumber(v)));
             }
         }
         rows.Sort((x, y) =>

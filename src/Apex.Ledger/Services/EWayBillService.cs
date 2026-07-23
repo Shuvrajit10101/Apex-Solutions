@@ -187,7 +187,7 @@ public sealed class EWayBillService
 
         var type = _company.FindVoucherType(voucher.TypeId)!;
         var record = new EWayBillRecord(
-            Guid.NewGuid(), voucher.Id, EInvoiceService.DocumentNumberOf(voucher),
+            Guid.NewGuid(), voucher.Id, EInvoiceService.DocumentNumberOf(_company, voucher),
             SupplyTypeOf(type.BaseType), SubSupplyTypeOf(txnType), DocTypeOf(type.BaseType),
             ToPaisa(ConsignmentValue(voucher)),
             _company.Gst!.HomeStateCode, GstReportSupport.PlaceOfSupply(_company, voucher), shipToGstin);

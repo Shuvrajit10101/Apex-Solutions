@@ -4846,7 +4846,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             var service = new Apex.Ledger.Services.LedgerService(Company);
             var regular = service.ConvertToRegular(memorandumVoucherId, target.Id);
             _storage.Save(Company);
-            Message = $"Memorandum converted to {target.Name} No. {regular.Number}.";
+            Message = $"Memorandum converted to {target.Name} No. {Company.FormatVoucherNumber(regular)}.";
             return regular;
         }
         catch (InvalidOperationException ex)

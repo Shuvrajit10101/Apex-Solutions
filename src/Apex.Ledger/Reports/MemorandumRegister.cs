@@ -11,7 +11,8 @@ public sealed record MemorandumRegisterRow(
     DateOnly Date,
     int Number,
     string? PartyOrParticulars,
-    Money Amount);
+    Money Amount,
+    string FormattedNumber = "");
 
 /// <summary>
 /// The Memorandum Register exception report (catalog §16; RQ-5 part 2). Lists every voucher whose type derives
@@ -42,7 +43,8 @@ public sealed record MemorandumRegister(
             string? particulars = v.PartyId is Guid pid ? company.FindLedger(pid)?.Name : null;
             particulars ??= v.Narration;
 
-            rows.Add(new MemorandumRegisterRow(v.Id, v.Date, v.Number, particulars, v.TotalDebit));
+            rows.Add(new MemorandumRegisterRow(v.Id, v.Date, v.Number, particulars, v.TotalDebit,
+                company.FormatVoucherNumber(v)));
             total += v.TotalDebit;
         }
 

@@ -648,7 +648,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             var posted = _service.Post(voucher);
             _storage.Save(_company);
             SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted.";
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
 
             if (PrintAfterSave)
                 PrintReceiptRequested?.Invoke(BuildReceipt(posted, tenders, taxable, invoiceTax, interState, change));
@@ -801,7 +801,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         {
             Title = _type.PosConfig?.DefaultTitle ?? "Retail Invoice",
             StoreName = _company.Name,
-            BillNumber = posted.Number.ToString(CultureInfo.InvariantCulture),
+            BillNumber = _company.FormatVoucherNumber(posted),
             DateText = ApexDate.Format(Date),
             Party = SelectedParty?.Ledger?.Name ?? "(cash)",
             IsInterState = interState,

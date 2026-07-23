@@ -243,7 +243,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                 SourceVouchers.Add(new ItcReversalSourceRowVm
                 {
                     VoucherId = v.Id,
-                    DocNo = EInvoiceService.DocumentNumberOf(v),
+                    DocNo = EInvoiceService.DocumentNumberOf(_company, v),
                     Date = ApexDate.Format(v.Date),
                     Party = v.PartyId is { } pid ? _company.FindLedger(pid)?.Name ?? string.Empty : string.Empty,
                     InputTax = R(itc),

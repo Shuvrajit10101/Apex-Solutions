@@ -75,7 +75,7 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
             var counter = string.IsNullOrEmpty(r.CounterParticulars) ? string.Empty : r.CounterParticulars;
             Rows.Add(new ReportRow
             {
-                Particulars = $"{FormatDate(r.Date)}  {r.VoucherTypeName} No. {r.Number}",
+                Particulars = $"{FormatDate(r.Date)}  {r.VoucherTypeName} No. {r.FormattedNumber}",
                 Secondary = counter,
                 Debit = r.Debit != Money.Zero ? IndianFormat.Amount(r.Debit) : string.Empty,
                 Credit = r.Credit != Money.Zero ? IndianFormat.Amount(r.Credit) : string.Empty,

@@ -122,7 +122,7 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase
             Table9A.Add(new Gstr1Amend9ARowVm
             {
                 Party = r.OriginalPartyGstin ?? "—",
-                DocNo = r.OriginalDocNumber.ToString(CultureInfo.InvariantCulture),
+                DocNo = r.OriginalDocNumber,
                 OriginalDate = ApexDate.Format(r.OriginalDocDate),
                 OriginalTaxable = A(r.OriginalTaxableValue),
                 RevisedTaxable = A(r.RevisedTaxableValue),

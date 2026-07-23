@@ -15,7 +15,7 @@ namespace Apex.Ledger.Reports;
 public sealed record Gstr1AmendmentRow(
     string SectionCode,
     string? OriginalPartyGstin,
-    int OriginalDocNumber,
+    string OriginalDocNumber,
     DateOnly OriginalDocDate,
     Money OriginalTaxableValue,
     Money OriginalTax,
@@ -163,26 +163,30 @@ public sealed record Gstr1Amendments(
         var prior = Latest(Gstr1.Build(company, DateOnly.MinValue, from.AddDays(-1)).B2B);
         var current = Latest(Gstr1.Build(company, from, to).B2B);
 
-        var rows = new List<Gstr1AmendmentRow>();
+        var rows = new List<(int Seq, Gstr1AmendmentRow Row)>();
         foreach (var (key, revised) in current)
         {
             if (!prior.TryGetValue(key, out var original)) continue; // brand-new invoice this period — not an amendment
-            rows.Add(new Gstr1AmendmentRow(
+            rows.Add((original.RawNumber, new Gstr1AmendmentRow(
                 "B2BA", original.PartyGstin, original.InvoiceNumber, original.InvoiceDate,
                 original.TaxableValue, new Money(original.Cgst.Amount + original.Sgst.Amount + original.Igst.Amount),
-                revised.TaxableValue, revised.Cgst, revised.Sgst, revised.Igst, Advisory: true));
+                revised.TaxableValue, revised.Cgst, revised.Sgst, revised.Igst, Advisory: true)));
         }
+        // Secondary order is the RAW int voucher sequence (numeric), NOT an ordinal sort of the rendered doc string —
+        // otherwise invoices 2 and 10 would sort as ("10","2"). This restores the pre-retype empty-config byte-identity
+        // and is a sensible order (by underlying sequence) for affixed types too. OriginalDocNumber stays display-only.
         return rows
-            .OrderBy(r => r.OriginalPartyGstin, StringComparer.Ordinal)
-            .ThenBy(r => r.OriginalDocNumber)
+            .OrderBy(x => x.Row.OriginalPartyGstin, StringComparer.Ordinal)
+            .ThenBy(x => x.Seq)
+            .Select(x => x.Row)
             .ToList();
     }
 
     /// <summary>Collapses a B2B list to one row per (party GSTIN, invoice number) — the LATEST by (date, then taxable /
     /// tax) — so one-amendment-per-document holds (a second re-statement replaces, never stacks). Deterministic.</summary>
-    private static Dictionary<(string Gstin, int Number), Gstr1B2BRow> Latest(IReadOnlyList<Gstr1B2BRow> rows)
+    private static Dictionary<(string Gstin, string Number), Gstr1B2BRow> Latest(IReadOnlyList<Gstr1B2BRow> rows)
     {
-        var map = new Dictionary<(string, int), Gstr1B2BRow>();
+        var map = new Dictionary<(string, string), Gstr1B2BRow>();
         foreach (var r in rows.OrderBy(r => r.InvoiceDate)
                      .ThenBy(r => r.TaxableValue.Amount)
                      .ThenBy(r => r.Cgst.Amount + r.Sgst.Amount + r.Igst.Amount))

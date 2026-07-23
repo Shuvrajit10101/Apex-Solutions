@@ -97,6 +97,15 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private DateOnly _date;
     [ObservableProperty] private int _voucherNumber;
+
+    /// <summary>The rendered preview of the number Accept will post (numbering-design-v2 §4/§3) — equal to what the
+    /// inventory engine assigns and renders on Accept; byte-identical to <see cref="VoucherNumber"/> with an empty
+    /// numbering config.</summary>
+    public string FormattedVoucherNumber =>
+        Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
+
+    partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+
     [ObservableProperty] private string _orderNo = string.Empty;
     [ObservableProperty] private string _durationOfProcess = string.Empty;
     [ObservableProperty] private string _natureOfProcessing = string.Empty;
@@ -208,7 +217,11 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
 
     partial void OnFinishedGoodQtyTextChanged(string value) { if (!_seeding) Recalculate(); }
     partial void OnOrderNoChanged(string value) { if (!_seeding) Recalculate(); }
-    partial void OnDateChanged(DateOnly value) => OnPropertyChanged(nameof(DateText));
+    partial void OnDateChanged(DateOnly value)
+    {
+        OnPropertyChanged(nameof(DateText));
+        OnPropertyChanged(nameof(FormattedVoucherNumber)); // numbering-design-v2 §4: preview tracks the date
+    }
     partial void OnTrackingComponentsChanged(bool value) { if (!_seeding) Recalculate(); }
 
     partial void OnSelectedFillChanged(JobWorkFillOption? value)
@@ -376,7 +389,7 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
             var posted = _service.Post(voucher);
             _storage.Save(_company);
             SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted — order {order.OrderNo}.";
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted — order {order.OrderNo}.";
             _onSaved();
             return true;
         }

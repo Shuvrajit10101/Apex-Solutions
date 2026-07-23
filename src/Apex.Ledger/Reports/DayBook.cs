@@ -14,7 +14,8 @@ public sealed record DayBookRow(
     string? PartyOrParticulars,
     Money Amount,
     bool IsCancelled,
-    Guid VoucherId = default)
+    Guid VoucherId = default,
+    string FormattedNumber = "")
 {
     /// <summary>True iff Enter should drill this row into the underlying voucher's detail.</summary>
     public bool IsDrillable => VoucherId != Guid.Empty;
@@ -44,7 +45,8 @@ public static class DayBook
                 particulars = company.FindLedger(partyId)?.Name;
             particulars ??= v.Narration;
 
-            rows.Add(new DayBookRow(v.Date, typeName, v.Number, particulars, v.TotalDebit, v.Cancelled, v.Id));
+            rows.Add(new DayBookRow(v.Date, typeName, v.Number, particulars, v.TotalDebit, v.Cancelled, v.Id,
+                company.FormatVoucherNumber(v)));
         }
 
         rows.Sort((a, b) =>

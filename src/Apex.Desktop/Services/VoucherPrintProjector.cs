@@ -61,7 +61,7 @@ public static class VoucherPrintProjector
         {
             CompanyName = ReportPrintProjector.Ascii(CompanyDisplayName(company)),
             VoucherTypeName = ReportPrintProjector.Ascii(type?.Name ?? string.Empty),
-            VoucherNumber = voucher.Number > 0 ? voucher.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty,
+            VoucherNumber = company.FormatVoucherNumber(voucher),
             DateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
             PartyName = ReportPrintProjector.Ascii(party ?? string.Empty),
             Lines = lines,
@@ -155,7 +155,7 @@ public static class VoucherPrintProjector
         {
             Seller = SellerBlock(company),
             Buyer = BuyerBlock(company, partyLedger),
-            InvoiceNumber = voucher.Number > 0 ? voucher.Number.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty,
+            InvoiceNumber = company.FormatVoucherNumber(voucher),
             InvoiceDateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
             PlaceOfSupply = PlaceOfSupply(company, partyLedger),
             IsInterState = interState,

@@ -84,7 +84,7 @@ public static class EWayBillJson
             SupplyType = record.SupplyType ?? "",
             SubSupplyType = record.SubSupplyType ?? "",
             DocType = record.DocType ?? "",
-            DocNo = EInvoiceService.DocumentNumberOf(voucher),
+            DocNo = EInvoiceService.DocumentNumberOf(company, voucher),
             DocDate = $"{voucher.Date:yyyy-MM-dd}",
             FromGstin = gst.Gstin,
             FromStateCode = record.ShipFromStateCode ?? gst.HomeStateCode,

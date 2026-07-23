@@ -409,6 +409,16 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     [ObservableProperty] private int _voucherNumber;
     [ObservableProperty] private string _narration = string.Empty;
 
+    /// <summary>The <b>rendered</b> preview of the number Accept will post (numbering-design-v2 §4) — the affixed/padded
+    /// "Voucher No." for the previewed <see cref="VoucherNumber"/> on the current <see cref="Date"/>. It is EQUAL to the
+    /// number the engine assigns and renders on Accept (both compute <c>max+1</c> for this type and render with the same
+    /// (type, Date)); it refreshes in <see cref="OnDateChanged"/> so crossing an affix-row boundary updates the previewed
+    /// prefix in lock-step. With an empty numbering config this is byte-identical to <c>VoucherNumber</c>.</summary>
+    public string FormattedVoucherNumber =>
+        Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
+
+    partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+
     /// <summary>
     /// Ctrl+T — marks this voucher <b>post-dated</b> (catalog §8, post-dated cheques): the posted voucher
     /// is excluded from current balances until its date is reached (<see cref="Voucher.PostDated"/> ⇒ the
@@ -573,6 +583,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     partial void OnDateChanged(DateOnly value)
     {
         OnPropertyChanged(nameof(DateText));
+        // numbering-design-v2 §4: the previewed number must track the date so an affix-row boundary crossing updates
+        // the previewed prefix in lock-step with what Accept posts.
+        OnPropertyChanged(nameof(FormattedVoucherNumber));
         // Push the new date to every line so a forex line can default its rate from the rate in force.
         foreach (var line in Lines) line.SetVoucherDate(value);
 
@@ -1298,7 +1311,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var party = v.PartyId is { } pid ? _company.FindLedger(pid)?.Name : null;
         var total = v.Lines.Where(l => l.Side == DrCr.Debit).Aggregate(Money.Zero, (a, l) => a + l.Amount);
         var partyPart = string.IsNullOrWhiteSpace(party) ? string.Empty : $" · {party}";
-        return $"{typeName} No. {v.Number} · {v.Date:dd-MMM-yyyy}{partyPart} · ₹{IndianFormat.AmountAlways(total.Amount)}";
+        return $"{typeName} No. {_company.FormatVoucherNumber(v)} · {v.Date:dd-MMM-yyyy}{partyPart} · ₹{IndianFormat.AmountAlways(total.Amount)}";
     }
 
     /// <summary>
@@ -1311,7 +1324,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (SelectedCdnOriginalInvoice is not { } opt || opt.IsNone) return (null, null, null);
 
         if (opt.Invoice is { } invoice)
-            return (invoice.Id, invoice.Number.ToString(System.Globalization.CultureInfo.InvariantCulture), invoice.Date);
+            return (invoice.Id, _company.FormatVoucherNumber(invoice), invoice.Date);
 
         var number = string.IsNullOrWhiteSpace(CdnOriginalInvoiceNumber) ? null : CdnOriginalInvoiceNumber.Trim();
         // WI-5: the shared lenient day-first parser, so a typed original-invoice date accepts the same
@@ -1580,7 +1593,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Kept compact: this string is shown inside a ComboBox, which ellipsizes — a longer label pushed the tax figure
         // out of sight. The full consequence is spelled out in AdvanceActionSummary underneath.
         var receipt = _company.FindVoucher(a.ReceiptVoucherId);
-        var receiptPart = receipt is null ? "Advance" : $"Receipt {receipt.Number} · {receipt.Date:dd-MMM-yy}";
+        var receiptPart = receipt is null ? "Advance" : $"Receipt {_company.FormatVoucherNumber(receipt)} · {receipt.Date:dd-MMM-yy}";
         var kind = a.IsService ? "service" : "goods";
         return $"{receiptPart} · {kind} · net ₹{IndianFormat.AmountAlways(a.AdvanceAmount.Amount)} · "
                + $"tax ₹{IndianFormat.AmountAlways(a.AdvanceTax.Amount)}";
@@ -2015,7 +2028,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         }
 
         SavedNumber = posted.Number;
-        Message = $"{_type.Name} No. {posted.Number} accepted.{rcmDocNote}";
+        Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.{rcmDocNote}";
         _onSaved();
         return true;
     }
@@ -2948,7 +2961,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             var posted = _service.Post(voucher); // enforces pairing + atomic stock + no-negative — never persisted on failure
             _storage.Save(_company);
             SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted.";
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;
         }

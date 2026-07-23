@@ -202,7 +202,7 @@ public sealed partial class BankStatementImportViewModel : ViewModelBase
             Results.Add(new StatementResultRow(
                 StatementRowKind.UnmatchedBook,
                 ApexDate.Format(tx.Date),
-                $"Voucher No. {tx.VoucherNumber} ({tx.TransactionType})",
+                $"Voucher No. {tx.FormattedNumber} ({tx.TransactionType})",
                 IndianFormat.AmountAlways(Math.Abs(tx.Amount.Amount)) + (tx.Side == DrCr.Debit ? " Dr(in)" : " Cr(out)"),
                 string.IsNullOrWhiteSpace(tx.InstrumentNumber) ? "—" : tx.InstrumentNumber,
                 "—"));

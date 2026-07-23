@@ -42,7 +42,8 @@ public static class EInvoiceJson
     };
 
     /// <summary>Builds the deterministic INV-01 request bytes (UTF-8, no BOM) for a single covered outward voucher.
-    /// Money is integer paisa; <c>DocDtls.No</c> is the <b>uppercased</b> document number.</summary>
+    /// Money is integer paisa; <c>DocDtls.No</c> is the <b>as-typed</b> rendered document number (the same string print /
+    /// e-Way / GSTR-1 / Day Book emit).</summary>
     public static byte[] BuildInv01(Company company, Voucher voucher)
     {
         ArgumentNullException.ThrowIfNull(company);
@@ -133,7 +134,7 @@ public static class EInvoiceJson
             DocDtls = new DocDtlsDto
             {
                 Typ = docType,
-                No = EInvoiceService.DocumentNumberOf(voucher),
+                No = EInvoiceService.DocumentNumberOf(company, voucher),
                 Dt = $"{voucher.Date:yyyy-MM-dd}",
             },
             SellerDtls = new PartyDtlsDto { Gstin = gst.Gstin, StateCode = gst.HomeStateCode },

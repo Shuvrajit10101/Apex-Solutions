@@ -111,6 +111,14 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
     [ObservableProperty] private int _voucherNumber;
     [ObservableProperty] private string _narration = string.Empty;
     [ObservableProperty] private PartyOption? _selectedParty;
+
+    /// <summary>The rendered preview of the number Accept will post (numbering-design-v2 §4/§3) — equal to what the
+    /// inventory engine assigns and renders on Accept; byte-identical to <see cref="VoucherNumber"/> with an empty
+    /// numbering config.</summary>
+    public string FormattedVoucherNumber =>
+        Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
+
+    partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
     [ObservableProperty] private JobWorkOrderOption? _selectedOrder;
     [ObservableProperty] private Godown? _sourceGodown;
     [ObservableProperty] private Godown? _destinationGodown;
@@ -204,7 +212,11 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
         Recalculate();
     }
 
-    partial void OnDateChanged(DateOnly value) => OnPropertyChanged(nameof(DateText));
+    partial void OnDateChanged(DateOnly value)
+    {
+        OnPropertyChanged(nameof(DateText));
+        OnPropertyChanged(nameof(FormattedVoucherNumber)); // numbering-design-v2 §4: preview tracks the date
+    }
 
     partial void OnSelectedOrderChanged(JobWorkOrderOption? value)
     {
@@ -385,7 +397,7 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
             var posted = _service.Post(voucher);
             _storage.Save(_company);
             SavedNumber = posted.Number;
-            Message = $"{_type.Name} No. {posted.Number} accepted.";
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;
         }

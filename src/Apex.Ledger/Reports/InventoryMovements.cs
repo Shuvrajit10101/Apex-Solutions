@@ -51,7 +51,8 @@ internal static class InventoryMovements
         StockDirection Direction,
         Money? Rate,
         Guid? PartyId,
-        string? Narration);
+        string? Narration,
+        string FormattedNumber = "");
 
     /// <summary>
     /// Every stock-affecting movement in the company dated within [<paramref name="from"/>, <paramref name="to"/>]
@@ -79,7 +80,7 @@ internal static class InventoryMovements
                 result.Add(new Movement(v.Date, v.Number, v.Id, v.TypeId, typeName, baseType,
                     OriginOfAllocation(baseType, isDestination: false),
                     a.StockItemId, a.GodownId, a.BatchLabel, QuantityInBase(company, a), a.Direction,
-                    RateInBase(company, a), v.PartyId, v.Narration));
+                    RateInBase(company, a), v.PartyId, v.Narration, company.FormatVoucherNumber(v)));
             }
 
             foreach (var a in v.DestinationAllocations)
@@ -88,7 +89,7 @@ internal static class InventoryMovements
                 result.Add(new Movement(v.Date, v.Number, v.Id, v.TypeId, typeName, baseType,
                     OriginOfAllocation(baseType, isDestination: true),
                     a.StockItemId, a.GodownId, a.BatchLabel, QuantityInBase(company, a), a.Direction,
-                    RateInBase(company, a), v.PartyId, v.Narration));
+                    RateInBase(company, a), v.PartyId, v.Narration, company.FormatVoucherNumber(v)));
             }
         }
 
@@ -113,7 +114,7 @@ internal static class InventoryMovements
                 result.Add(new Movement(v.Date, v.Number, v.Id, v.TypeId, typeName, baseType, origin,
                     line.StockItemId, line.GodownId, line.BatchLabel,
                     QuantityInBase(company, line), line.Direction,
-                    RateInBase(company, line), v.PartyId, v.Narration));
+                    RateInBase(company, line), v.PartyId, v.Narration, company.FormatVoucherNumber(v)));
             }
         }
 

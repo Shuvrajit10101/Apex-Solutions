@@ -148,10 +148,14 @@ public sealed class B2cQrService
         return contribution;
     }
 
-    /// <summary>The invoice document reference cross-linked into the payment (the voucher number, or its id when
-    /// unnumbered). Formatted invariant-culture for a deterministic payload.</summary>
-    private static string DocumentReference(Voucher voucher) =>
-        voucher.Number > 0 ? voucher.Number.ToString(CultureInfo.InvariantCulture) : voucher.Id.ToString("N");
+    /// <summary>The invoice document reference cross-linked into the payment — the voucher's <b>rendered</b> number
+    /// (numbering-design-v2 §2.2/§2.3: the ONE policy, prefix/suffix and all), or its id when the number renders empty
+    /// (an unnumbered voucher). Deterministic payload.</summary>
+    private string DocumentReference(Voucher voucher)
+    {
+        var rendered = _company.FormatVoucherNumber(voucher);
+        return rendered.Length > 0 ? rendered : voucher.Id.ToString("N");
+    }
 
     /// <summary>Builds the deterministic UPI deep link. The VPA is kept literal (a UPI id carries its own <c>@bank</c>
     /// suffix); the payee name and reference are URI-escaped; the amount is invariant-culture, two-decimal rupees.</summary>

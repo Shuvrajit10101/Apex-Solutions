@@ -653,10 +653,12 @@ public sealed class Company
     /// <summary>The e-invoice IRP artefact for a given source voucher (at most one per covered voucher), or <c>null</c>.</summary>
     public EInvoiceRecord? FindEInvoiceRecordForVoucher(Guid sourceVoucherId) =>
         _eInvoiceRecords.FirstOrDefault(r => r.SourceVoucherId == sourceVoucherId);
-    /// <summary>True iff any e-invoice record (even Cancelled) already carries the given uppercased document number — a
-    /// cancelled/used doc-no is NEVER reusable (§2.5), so <c>EInvoiceService.PrepareRecord</c> refuses a second record.</summary>
-    public bool HasEInvoiceDocumentNumber(string documentNumberUpper) =>
-        _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumberUpper, StringComparison.Ordinal));
+    /// <summary>True iff any e-invoice record (even Cancelled) already carries the given document number, compared
+    /// <b>case-insensitively</b> — a cancelled/used doc-no is NEVER reusable (§2.5; IRP is case-insensitive), so
+    /// <c>EInvoiceService.PrepareRecord</c> refuses a second record even when it differs only in case. The stored value is
+    /// the AS-TYPED rendered doc-no (case preserved for display/emission); only this reuse COMPARISON folds case.</summary>
+    public bool HasEInvoiceDocumentNumber(string documentNumber) =>
+        _eInvoiceRecords.Any(r => string.Equals(r.DocumentNumberUpper, documentNumber, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Adds an e-Way Bill artefact (Phase 9 slice 5; also used by the store/import rehydration).</summary>
     public void AddEWayBillRecord(EWayBillRecord record) => _eWayBillRecords.Add(record ?? throw new ArgumentNullException(nameof(record)));
@@ -916,6 +918,33 @@ public sealed class Company
     public Ledger? FindLedger(Guid id) => _ledgers.FirstOrDefault(l => l.Id == id);
     public VoucherType? FindVoucherType(Guid id) => _voucherTypes.FirstOrDefault(t => t.Id == id);
     public Voucher? FindVoucher(Guid id) => _vouchers.FirstOrDefault(v => v.Id == id);
+
+    /// <summary>
+    /// The ONE rendered "Voucher No." policy (numbering-design-v2 §2.1): the human document number for
+    /// <paramref name="voucher"/> — <c>Prefix ++ leftPad(Number, Width) ++ Suffix</c> using the date-selected
+    /// affix rows of the voucher's type (<see cref="Services.VoucherNumberFormatter.Render"/>). Every render
+    /// site (print, statutory, registers, toasts) routes through here so the number is identical everywhere.
+    /// With an empty numbering config this is byte-identical to <c>Number.ToString()</c> (ER-13). Falls back to
+    /// the bare int only when the type cannot be resolved (referential integrity normally guarantees it can).
+    /// </summary>
+    public string FormatVoucherNumber(Voucher voucher)
+    {
+        var type = FindVoucherType(voucher.TypeId);
+        return type is null
+            ? voucher.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : Services.VoucherNumberFormatter.Render(type, voucher.Number, voucher.Date);
+    }
+
+    /// <summary>The rendered "Voucher No." for a stock/order voucher — the second (inventory) engine's analogue of
+    /// <see cref="FormatVoucherNumber(Voucher)"/>, so an inventory register/toast reads the same affixed number the
+    /// accounting side does (numbering-design-v2 §3).</summary>
+    public string FormatVoucherNumber(InventoryVoucher voucher)
+    {
+        var type = FindVoucherType(voucher.TypeId);
+        return type is null
+            ? voucher.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : Services.VoucherNumberFormatter.Render(type, voucher.Number, voucher.Date);
+    }
     public CostCategory? FindCostCategory(Guid id) => _costCategories.FirstOrDefault(c => c.Id == id);
     public CostCentre? FindCostCentre(Guid id) => _costCentres.FirstOrDefault(c => c.Id == id);
     public Budget? FindBudget(Guid id) => _budgets.FirstOrDefault(b => b.Id == id);

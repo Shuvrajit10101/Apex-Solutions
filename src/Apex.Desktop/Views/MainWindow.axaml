@@ -2053,7 +2053,7 @@
                                   </StackPanel>
                                   <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
                                              VerticalAlignment="Center" Margin="16,0,0,0">
-                                    <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                    <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                   </TextBlock>
                                   <TextBox Classes="working-date" Grid.Column="3" Width="140"
                                            Text="{Binding DateText, Mode=TwoWay}"
@@ -3166,7 +3166,7 @@
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
                                            VerticalAlignment="Center" Margin="0,0,18,0">
-                                  <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                  <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                 </TextBlock>
                                 <CheckBox Grid.Column="2" Content="Post-Dated (Ctrl+T)"
                                           IsChecked="{Binding IsPostDated, Mode=TwoWay}"
@@ -3501,7 +3501,7 @@
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
                                            VerticalAlignment="Center" Margin="0,0,18,0">
-                                  <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                  <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                 </TextBlock>
                                 <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
@@ -3726,7 +3726,7 @@
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
                                            VerticalAlignment="Center" Margin="0,0,18,0">
-                                  <Run Text="No. "/><Run Text="{Binding VoucherNumber}"/>
+                                  <Run Text="No. "/><Run Text="{Binding FormattedVoucherNumber}"/>
                                 </TextBlock>
                                 <TextBox Classes="working-date" Grid.Column="2" Width="140"
                                          Text="{Binding DateText, Mode=TwoWay}"
