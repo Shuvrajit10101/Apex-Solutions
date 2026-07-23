@@ -253,6 +253,10 @@ public sealed class InventoryVoucherRoundTripTests
     {
         using var conn = Open(dbPath);
         Exec(conn, "PRAGMA foreign_keys = OFF;");
+        // Drop the v47 numbering affix child tables so the reopen's v46→v47 CREATE TABLE does not collide (the
+        // voucher_types rebuild below strips the v47 prevent_duplicate/number_width/prefill_with_zero columns too).
+        Exec(conn, "DROP TABLE IF EXISTS voucher_type_prefix;");
+        Exec(conn, "DROP TABLE IF EXISTS voucher_type_suffix;");
         // Drop the v26 TDS withholding-detail table (+ index) so the reopen's v25→v26 CREATE TABLE does not collide.
         Exec(conn, "DROP INDEX IF EXISTS ix_tds_lines_entry_line;");
         // Drop the v28 TCS collection-detail table (+ index) so the reopen's v27→v28 CREATE TABLE does not collide.

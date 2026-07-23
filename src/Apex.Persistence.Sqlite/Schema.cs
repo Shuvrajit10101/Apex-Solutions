@@ -97,9 +97,12 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v46</b> is the latest bump (Phase 10.5
+    /// <summary>The current schema version this adapter reads and writes. <b>v47</b> is the latest bump
+    /// (voucher-numbering S3 — the per-type numbering config: three additive columns on <c>voucher_types</c>
+    /// (<c>prevent_duplicate</c>, <c>number_width</c>, <c>prefill_with_zero</c>) plus two date-keyed affix child
+    /// tables (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their indexes). v46 was Phase 10.5
     /// WI-10 Gap 2 — the item-invoice line unit: one nullable <c>unit_id</c> column on
-    /// <c>voucher_inventory_lines</c>). v45 was Phase 10.5
+    /// <c>voucher_inventory_lines</c>. v45 was Phase 10.5
     /// slice 7 — WI-4 party Mailing Details: four nullable TEXT columns on <c>ledgers</c>. v44 was the Phase 9
     /// slice 7a — Rule-88A set-off + electronic ledgers + PMT-06/DRC-03: the <c>gst_setoff_lines</c> +
     /// <c>itc_reversals</c> + <c>gst_challans</c> + <c>gst_drc03</c> tables + their indexes, and the adjustment
@@ -109,7 +112,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 46;
+    public const int CurrentVersion = 47;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -834,7 +837,33 @@ public static class Schema
             is_rcm_payment_voucher INTEGER NOT NULL DEFAULT 0,      -- 0/1
             -- v44 (Phase 9 slice 7): "Use for GST Statutory Adjustment (Alt+J)" — a Journal voucher-type flag marking a
             -- Rule-88A set-off / ITC-reversal stat-adjustment. 0/1, default 0 so an existing Journal type is byte-identical (ER-13).
-            is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0       -- 0/1
+            is_gst_stat_adjustment INTEGER NOT NULL DEFAULT 0,      -- 0/1
+            -- v47 (voucher-numbering S3; numbering-design-v2 §6; catalog §4): per-type numbering config. "Prevent
+            -- Duplicates" rejects a colliding rendered number; "Width of numerical part" left-pads the numeric core
+            -- (0 = no pad); "Prefill with zero" chooses '0' vs ' ' as the pad char. Default 0 so an existing type is
+            -- byte-identical (ER-13). The date-keyed Prefix/Suffix rows live in voucher_type_prefix / _suffix below.
+            prevent_duplicate  INTEGER NOT NULL DEFAULT 0,          -- 0/1
+            number_width       INTEGER NOT NULL DEFAULT 0,          -- 0 = no left-pad
+            prefill_with_zero  INTEGER NOT NULL DEFAULT 0           -- 0/1
+        );
+
+        -- v47 (voucher-numbering S3; numbering-design-v2 §1.2/§6): the date-effective Prefix / Suffix rows for a
+        -- voucher type's numbering. Each is an unbounded list of {applicable_from, particulars} keyed by the type
+        -- (following the pos_tender_ledger_defaults child-table precedent). particulars is the ENTIRE affix text,
+        -- separators included (e.g. "25-26/", "/A") and may be empty. A type with no affix rows serialises
+        -- byte-identically (ER-13).
+        CREATE TABLE voucher_type_prefix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,      -- ISO yyyy-MM-dd
+            particulars     TEXT NOT NULL       -- separators included; may be ""
+        );
+
+        CREATE TABLE voucher_type_suffix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,
+            particulars     TEXT NOT NULL
         );
 
         CREATE TABLE vouchers (
@@ -1461,6 +1490,9 @@ public static class Schema
         CREATE INDEX ix_groups_company        ON groups(company_id);
         CREATE INDEX ix_ledgers_company        ON ledgers(company_id);
         CREATE INDEX ix_voucher_types_company  ON voucher_types(company_id);
+        -- v47 (voucher-numbering S3): lookup the date-keyed affix rows by their owning voucher type.
+        CREATE INDEX ix_vt_prefix_type ON voucher_type_prefix(voucher_type_id);
+        CREATE INDEX ix_vt_suffix_type ON voucher_type_suffix(voucher_type_id);
         CREATE INDEX ix_vouchers_company       ON vouchers(company_id);
         CREATE INDEX ix_entry_lines_voucher    ON entry_lines(voucher_id);
         CREATE INDEX ix_bill_allocations_line  ON bill_allocations(entry_line_id);
@@ -3538,4 +3570,47 @@ public static class Schema
     /// <see cref="MigrateV45ToV46"/> creates and <c>SchemaDowngrade.V46ToV45</c> removes. Named once so the two can
     /// never disagree.</summary>
     public static readonly IReadOnlyList<string> V46ItemLineUnitColumns = new[] { "unit_id" };
+
+    /// <summary>
+    /// v46 → v47 (voucher-numbering S3; numbering-design-v2 §6 — the per-type <b>numbering config</b>): additive —
+    /// three columns on <c>voucher_types</c> (<c>prevent_duplicate</c>, <c>number_width</c>,
+    /// <c>prefill_with_zero</c>, all <c>INTEGER NOT NULL DEFAULT 0</c>) plus two date-keyed affix child tables
+    /// (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their by-type indexes, run inside a transaction
+    /// that bumps <c>schema_version</c> to 47. <b>No row rewrites, no data backfill</b>: every existing v46 voucher
+    /// type reads the three <c>DEFAULT 0</c> columns and the two tables start empty, so a company that never
+    /// configures numbering persists and serialises byte-identically to a v46 company (ER-13).
+    ///
+    /// <para>The three <c>ALTER … ADD COLUMN … DEFAULT 0</c> and the two <c>CREATE TABLE</c> / <c>CREATE INDEX</c>
+    /// statements are byte-identical to their counterparts in <see cref="CreateV1"/> — the migration-equivalence
+    /// test compares <c>PRAGMA table_info</c> (name/type/notnull/<b>default</b>/pk) and normalised index SQL, so
+    /// the <c>DEFAULT 0</c> literals and the index definitions MUST match on both sides. A fresh DB is stamped
+    /// straight to v47 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV46ToV47 = """
+        ALTER TABLE voucher_types ADD COLUMN prevent_duplicate  INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN number_width       INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN prefill_with_zero  INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE voucher_type_prefix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,      -- ISO yyyy-MM-dd
+            particulars     TEXT NOT NULL       -- separators included; may be ""
+        );
+
+        CREATE TABLE voucher_type_suffix (
+            id              TEXT NOT NULL PRIMARY KEY,
+            voucher_type_id TEXT NOT NULL REFERENCES voucher_types(id),
+            applicable_from TEXT NOT NULL,
+            particulars     TEXT NOT NULL
+        );
+
+        CREATE INDEX ix_vt_prefix_type ON voucher_type_prefix(voucher_type_id);
+        CREATE INDEX ix_vt_suffix_type ON voucher_type_suffix(voucher_type_id);
+        """;
+
+    /// <summary>The three <c>voucher_types</c> columns v47 adds — the exact set <see cref="MigrateV46ToV47"/>
+    /// creates and <c>SchemaDowngrade.V47ToV46</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V47NumberingColumns =
+        new[] { "prevent_duplicate", "number_width", "prefill_with_zero" };
 }

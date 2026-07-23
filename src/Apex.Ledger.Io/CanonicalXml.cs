@@ -453,10 +453,21 @@ public static class CanonicalXml
             Attr("allowConsumption", t.AllowConsumption),
             Attr("isStatPayment", t.IsStatPayment),
             Attr("isRcmPaymentVoucher", t.IsRcmPaymentVoucher),
-            Attr("isGstStatAdjustment", t.IsGstStatAdjustment));
+            Attr("isGstStatAdjustment", t.IsGstStatAdjustment),
+            // v47 (numbering S3): emit CONDITIONALLY (omit-at-default) so a never-configured type is byte-identical
+            // to the pre-feature golden (ER-13) — mirrors the unit_id / Opt precedent.
+            OptTrue("preventDuplicate", t.PreventDuplicate),
+            OptInt("numberWidth", t.NumberWidth == 0 ? null : t.NumberWidth),
+            OptTrue("prefillWithZero", t.PrefillWithZero));
         if (t.PosConfig is { } pc) el.Add(BuildPosConfig(pc));
+        // v47: emit the affix child element lists ONLY when non-empty (byte-identical when absent, ER-13).
+        if (t.Prefixes is { Count: > 0 } pre) el.Add(List("prefixes", "prefix", pre, a => BuildAffix("prefix", a)));
+        if (t.Suffixes is { Count: > 0 } suf) el.Add(List("suffixes", "suffix", suf, a => BuildAffix("suffix", a)));
         return el;
     }
+
+    private static XElement BuildAffix(string name, VoucherNumberAffixDto a) => new(name,
+        Attr("applicableFrom", a.ApplicableFrom), Attr("particulars", a.Particulars));
 
     private static XElement BuildPosConfig(PosConfigDto c)
     {
@@ -1368,8 +1379,31 @@ public static class CanonicalXml
         IsStatPayment = Bool(e, "isStatPayment"),
         IsRcmPaymentVoucher = Bool(e, "isRcmPaymentVoucher"),
         IsGstStatAdjustment = Bool(e, "isGstStatAdjustment"),
+        // v47 (numbering S3): absent attrs read false/0 (Bool/Int); absent child lists read null — so a pre-feature
+        // type is untouched AND a configured type round-trips losslessly.
+        PreventDuplicate = Bool(e, "preventDuplicate"),
+        NumberWidth = Int(e, "numberWidth"),
+        PrefillWithZero = Bool(e, "prefillWithZero"),
+        Prefixes = ReadAffixes(e, "prefixes", "prefix"),
+        Suffixes = ReadAffixes(e, "suffixes", "suffix"),
         PosConfig = e.Element("posConfig") is { } pc ? ReadPosConfig(pc) : null,
     };
+
+    /// <summary>Reads a voucher type's date-keyed affix list (v47; numbering S3), or <c>null</c> when the wrapper is
+    /// absent or empty — so a re-export of a never-configured type stays byte-identical (ER-13).</summary>
+    private static IReadOnlyList<VoucherNumberAffixDto>? ReadAffixes(XElement e, string wrapper, string item)
+    {
+        var wrap = e.Element(wrapper);
+        if (wrap is null) return null;
+        var list = wrap.Elements(item)
+            .Select(x => new VoucherNumberAffixDto
+            {
+                ApplicableFrom = Str(x, "applicableFrom") ?? string.Empty,
+                Particulars = Str(x, "particulars") ?? string.Empty,
+            })
+            .ToList();
+        return list.Count == 0 ? null : list;
+    }
 
     private static TdsChallanDto ReadTdsChallan(XElement e) => new()
     {

@@ -104,6 +104,49 @@ public static class SchemaDowngrade
         Exec(connection, "UPDATE schema_version SET version = 45;");
     }
 
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV46ToV47"/>: drops the two date-keyed affix child tables
+    /// (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c> — their indexes drop with them) and removes the three
+    /// numbering columns (<see cref="Schema.V47NumberingColumns"/>) from <c>voucher_types</c>, then stamps
+    /// <c>schema_version</c> back to 46. Any captured numbering config is discarded — that is what a downgrade means.
+    ///
+    /// <para>The child tables are dropped <b>first</b> (they FK <c>voucher_types</c>, which is rebuilt below), then
+    /// <c>voucher_types</c> is rebuilt from <c>PRAGMA table_info</c> minus the three v47 columns via the plain
+    /// <c>CREATE … AS SELECT</c> idiom of <see cref="V45ToV44"/>. <c>voucher_types</c>'s primary key is a
+    /// <c>TEXT</c> GUID (<c>id</c>), so the AUTOINCREMENT-preserving full-DDL special-case that
+    /// <see cref="V46ToV45"/> needed does NOT apply. Constraint/index loss on the rebuild is tolerated by the
+    /// row-survival-only downgrade harness, exactly as it already is for <c>ledgers</c>. Foreign keys are switched
+    /// off for the swap because other tables reference <c>voucher_types(id)</c>.</para>
+    /// </summary>
+    public static void V47ToV46(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        // Drop the two numbering affix child tables first (their indexes drop with them); they FK voucher_types,
+        // which is rebuilt below. This table-drop-in-downgrade is new territory, so it is explicit and comes FIRST.
+        Exec(connection, "DROP TABLE IF EXISTS voucher_type_prefix;");
+        Exec(connection, "DROP TABLE IF EXISTS voucher_type_suffix;");
+
+        var all = ColumnNames(connection, "voucher_types");
+        var keep = all
+            .Where(c => !Schema.V47NumberingColumns.Contains(c, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (keep.Count > 0 && keep.Count < all.Count)
+        {
+            var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+            Exec(connection, $"""
+                CREATE TABLE voucher_types_v46 AS SELECT {columnList} FROM voucher_types;
+                DROP TABLE voucher_types;
+                ALTER TABLE voucher_types_v46 RENAME TO voucher_types;
+                """);
+        }
+
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+        Exec(connection, "UPDATE schema_version SET version = 46;");
+    }
+
     private static List<string> ColumnNames(SqliteConnection connection, string table)
     {
         using var cmd = connection.CreateCommand();

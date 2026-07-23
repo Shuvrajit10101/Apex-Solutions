@@ -1123,6 +1123,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 46;
         }
 
+        // v46 → v47: add the voucher-numbering config (numbering-design-v2 §6) — three additive columns on
+        // voucher_types (prevent_duplicate / number_width / prefill_with_zero) plus the two date-keyed affix child
+        // tables (voucher_type_prefix / _suffix) and their indexes, then bump the marker. Purely additive — existing
+        // v46 rows read the three DEFAULT 0 columns and the two tables start empty, so a company that never
+        // configures numbering is byte-identical to a v46 company (ER-13).
+        if (version == 46)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV46ToV47;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 47);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 47;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1637,6 +1662,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         InsertPriceLevels(tx, company);
         InsertLedgers(tx, company);
         InsertVoucherTypes(tx, company);
+        // v47 (numbering S3): the date-keyed Prefix/Suffix affix rows FK voucher_types(id) — insert after the types.
+        InsertVoucherTypeNumberingRows(tx, company);
         // Cost categories before centres (centres FK categories); both before vouchers (cost allocations
         // FK both).
         InsertCostCategories(tx, company);
@@ -1989,12 +2016,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
     private IEnumerable<VoucherType> ReadVoucherTypes(Guid companyId)
     {
+        // v47 (numbering S3; numbering-design-v2 §6.5): Prefixes/Suffixes are get-only and ctor-injected on
+        // VoucherType, so the child rows MUST be in hand BEFORE the type is constructed — a POS-style second-pass
+        // attach is impossible. Pre-query both affix child tables for the whole company into by-type dictionaries
+        // FIRST (each fully materialised before the voucher_types reader opens — one open reader per connection),
+        // then pass the rows into the ctor in the single construction pass below.
+        var prefixByType = ReadVoucherTypeAffixes(companyId, "voucher_type_prefix");
+        var suffixByType = ReadVoucherTypeAffixes(companyId, "voucher_type_suffix");
+
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
                    allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
-                   is_rcm_payment_voucher, is_gst_stat_adjustment
+                   is_rcm_payment_voucher, is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2002,9 +2037,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         var list = new List<VoucherType>();
         while (r.Read())
         {
+            var id = Guid.Parse(r.GetString(0));
             var useForPos = r.GetInt64(13) != 0;
             var type = new VoucherType(
-                Guid.Parse(r.GetString(0)),
+                id,
                 r.GetString(1),
                 (VoucherBaseType)(int)r.GetInt64(2),
                 numbering: (NumberingMethod)(int)r.GetInt64(4),
@@ -2030,7 +2066,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v39 (Phase 9 slice 2): "Use for RCM Payment Voucher" flag, read verbatim.
                 isRcmPaymentVoucher: r.GetInt64(17) != 0,
                 // v44 (Phase 9 slice 7): "Use for GST Statutory Adjustment (Alt+J)" flag, read verbatim.
-                isGstStatAdjustment: r.GetInt64(18) != 0);
+                isGstStatAdjustment: r.GetInt64(18) != 0,
+                // v47 (numbering S3): the three scalar numbering settings + the ctor-injected date-keyed affix rows.
+                preventDuplicate: r.GetInt64(19) != 0,
+                numberWidth: (int)r.GetInt64(20),
+                prefillWithZero: r.GetInt64(21) != 0,
+                prefixes: prefixByType.GetValueOrDefault(id),
+                suffixes: suffixByType.GetValueOrDefault(id));
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -2039,6 +2081,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             if (type.UseForPos)
                 type.PosConfig = ReadPosVoucherTypeConfig(type.Id);
         return list;
+    }
+
+    /// <summary>Pre-queries one affix child table (<c>voucher_type_prefix</c> or <c>voucher_type_suffix</c>) for a
+    /// whole company into a by-voucher-type dictionary, ordered by <c>(applicable_from, id)</c> — the same total
+    /// order the renderer selects on (v47; numbering-design-v2 §6.5). Fully materialised so the caller can open the
+    /// <c>voucher_types</c> reader afterwards (one open reader per connection).</summary>
+    private Dictionary<Guid, List<VoucherNumberAffix>> ReadVoucherTypeAffixes(Guid companyId, string table)
+    {
+        var byType = new Dictionary<Guid, List<VoucherNumberAffix>>();
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT a.voucher_type_id, a.id, a.applicable_from, a.particulars
+            FROM {table} a
+            JOIN voucher_types vt ON vt.id = a.voucher_type_id
+            WHERE vt.company_id = $cid
+            ORDER BY a.voucher_type_id, a.applicable_from, a.id;
+            """;
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var typeId = Guid.Parse(r.GetString(0));
+            var affix = new VoucherNumberAffix(Guid.Parse(r.GetString(1)), ParseDate(r.GetString(2)), r.GetString(3));
+            if (!byType.TryGetValue(typeId, out var rows))
+                byType[typeId] = rows = new List<VoucherNumberAffix>();
+            rows.Add(affix);
+        }
+        return byType;
     }
 
     /// <summary>Reads the POS retail-till config (v23; RQ-38/DP-4) for one voucher type — its
@@ -4251,6 +4321,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Exchange rates FK currencies; ledgers + entry-line forex FK currencies → after those are gone.
         ExecTx(tx, "DELETE FROM exchange_rates WHERE company_id = $cid;", ("$cid", cid));
         ExecTx(tx, "DELETE FROM currencies WHERE company_id = $cid;", ("$cid", cid));
+        // v47 numbering affix child rows FK voucher_types(id) → clear before the voucher_types delete below,
+        // mirroring the POS child-clear (a second Save of a numbering-configured company FK-breaks without this).
+        ExecTx(tx, """
+            DELETE FROM voucher_type_prefix WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
+        ExecTx(tx, """
+            DELETE FROM voucher_type_suffix WHERE voucher_type_id IN (
+                SELECT id FROM voucher_types WHERE company_id = $cid);
+            """, ("$cid", cid));
         ExecTx(tx, "DELETE FROM voucher_types WHERE company_id = $cid;", ("$cid", cid));
         // Cost centres reference cost categories → delete centres first.
         ExecTx(tx, "DELETE FROM cost_centres WHERE company_id = $cid;", ("$cid", cid));
@@ -4921,8 +5001,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     (id, company_id, name, base_type, default_shortcut, numbering, abbreviation, is_active, is_predefined,
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
                      use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher,
-                     is_gst_stat_adjustment)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj);
+                     is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -4944,8 +5024,40 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$stat", t.IsStatPayment ? 1 : 0);             // v27 (Phase 7 slice 3)
             cmd.Parameters.AddWithValue("$rcmpv", t.IsRcmPaymentVoucher ? 1 : 0);      // v39 (Phase 9 slice 2)
             cmd.Parameters.AddWithValue("$gstadj", t.IsGstStatAdjustment ? 1 : 0);     // v44 (Phase 9 slice 7)
+            cmd.Parameters.AddWithValue("$pd", t.PreventDuplicate ? 1 : 0);            // v47 (numbering S3)
+            cmd.Parameters.AddWithValue("$nw", t.NumberWidth);                         // v47 (numbering S3)
+            cmd.Parameters.AddWithValue("$pfz", t.PrefillWithZero ? 1 : 0);            // v47 (numbering S3)
             cmd.ExecuteNonQuery();
         }
+    }
+
+    /// <summary>
+    /// Persists the date-keyed Prefix / Suffix affix rows (v47; numbering-design-v2 §1.2/§6.5) for every voucher
+    /// type into <c>voucher_type_prefix</c> / <c>voucher_type_suffix</c>. A type with no affix rows writes nothing —
+    /// byte-identical (ER-13). Mirrors the POS child-insert precedent (<see cref="InsertPosVoucherTypeConfig"/>).
+    /// </summary>
+    private void InsertVoucherTypeNumberingRows(SqliteTransaction tx, Company c)
+    {
+        foreach (var t in c.VoucherTypes)
+        {
+            foreach (var p in t.Prefixes) InsertAffixRow(tx, "voucher_type_prefix", t.Id, p);
+            foreach (var s in t.Suffixes) InsertAffixRow(tx, "voucher_type_suffix", t.Id, s);
+        }
+    }
+
+    private void InsertAffixRow(SqliteTransaction tx, string table, Guid voucherTypeId, VoucherNumberAffix a)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = $"""
+            INSERT INTO {table} (id, voucher_type_id, applicable_from, particulars)
+            VALUES ($id, $vt, $from, $part);
+            """;
+        cmd.Parameters.AddWithValue("$id", a.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$vt", voucherTypeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$from", FormatDate(a.ApplicableFrom));
+        cmd.Parameters.AddWithValue("$part", a.Particulars);
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>

@@ -599,8 +599,24 @@ public static class CanonicalMapper
         IsStatPayment = t.IsStatPayment,
         IsRcmPaymentVoucher = t.IsRcmPaymentVoucher,
         IsGstStatAdjustment = t.IsGstStatAdjustment, // Phase 9 slice 7
+        // v47 (numbering S3): the three scalars + the two date-keyed affix lists. Lists are null when empty so a
+        // never-configured type serialises byte-identically (ER-13); each is ordered by (ApplicableFrom, Id) for
+        // deterministic bytes, matching the render selection order.
+        PreventDuplicate = t.PreventDuplicate,
+        NumberWidth = t.NumberWidth,
+        PrefillWithZero = t.PrefillWithZero,
+        Prefixes = MapAffixes(t.Prefixes),
+        Suffixes = MapAffixes(t.Suffixes),
         PosConfig = t.PosConfig is { } pc ? MapPosConfig(pc) : null,
     };
+
+    private static IReadOnlyList<VoucherNumberAffixDto>? MapAffixes(IReadOnlyList<VoucherNumberAffix> affixes) =>
+        affixes.Count == 0
+            ? null
+            : affixes
+                .OrderBy(a => a.ApplicableFrom).ThenBy(a => a.Id)
+                .Select(a => new VoucherNumberAffixDto { ApplicableFrom = Iso(a.ApplicableFrom), Particulars = a.Particulars })
+                .ToList();
 
     private static PosConfigDto MapPosConfig(PosConfig c) => new()
     {

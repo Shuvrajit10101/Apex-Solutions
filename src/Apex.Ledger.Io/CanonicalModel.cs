@@ -774,8 +774,58 @@ public sealed record VoucherTypeDto
     /// <summary>"Use for GST Statutory Adjustment (Alt+J)" (Phase 9 slice 7) — a Journal voucher-type flag. Default false.</summary>
     public bool IsGstStatAdjustment { get; init; }
 
+    /// <summary>"Prevent Duplicates" (voucher-numbering S3; numbering-design-v2 §7). Default false.
+    /// <para>Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> so a
+    /// default-false type emits no <c>preventDuplicate</c> key — the canonical JSON options set
+    /// <c>DefaultIgnoreCondition = Never</c>, so without this attribute EVERY existing voucher type would gain the
+    /// key and the bytes would change (ER-13). XML gets it free via <c>OptTrue</c>.</para></summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PreventDuplicate { get; init; }
+
+    /// <summary>"Width of numerical part" (voucher-numbering S3; numbering-design-v2 §1.3). Default 0 = no left-pad.
+    /// Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> (ER-13; see
+    /// <see cref="PreventDuplicate"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int NumberWidth { get; init; }
+
+    /// <summary>"Prefill with zero" (voucher-numbering S3; numbering-design-v2 §1.3). Default false. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> (ER-13; see
+    /// <see cref="PreventDuplicate"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool PrefillWithZero { get; init; }
+
+    /// <summary>The date-effective <b>Prefix</b> rows (voucher-numbering S3; numbering-design-v2 §1.2), or
+    /// <c>null</c> when the type has none. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> so a type with no prefix
+    /// rows emits no <c>prefixes</c> key (ER-13), exactly like <see cref="PosConfig"/> would.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<VoucherNumberAffixDto>? Prefixes { get; init; }
+
+    /// <summary>The date-effective <b>Suffix</b> rows (voucher-numbering S3; numbering-design-v2 §1.2), or
+    /// <c>null</c> when the type has none. Marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> (ER-13; see
+    /// <see cref="Prefixes"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<VoucherNumberAffixDto>? Suffixes { get; init; }
+
     /// <summary>The POS retail-till configuration (Phase 6 slice 7; RQ-38; DP-4), non-null only on a POS Sales type.</summary>
     public PosConfigDto? PosConfig { get; init; }
+}
+
+/// <summary>One date-effective affix row in a <see cref="VoucherTypeDto"/>'s <see cref="VoucherTypeDto.Prefixes"/>
+/// or <see cref="VoucherTypeDto.Suffixes"/> (voucher-numbering S3; numbering-design-v2 §1.2), mirroring the domain
+/// <c>VoucherNumberAffix</c> and the SQLite <c>voucher_type_prefix</c> / <c>voucher_type_suffix</c> rows. The
+/// surrogate <c>Id</c> is a private seed (only a same-date tie-break, which the config UI forbids), so it is NOT
+/// serialised — a fresh id is minted on import.</summary>
+public sealed record VoucherNumberAffixDto
+{
+    public required string ApplicableFrom { get; init; }   // ISO yyyy-MM-dd
+    public required string Particulars { get; init; }      // separators included; may be ""
 }
 
 /// <summary>The POS retail-till configuration carried by a POS-flagged Sales voucher type (Phase 6 slice 7; RQ-38;

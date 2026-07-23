@@ -198,6 +198,9 @@ internal sealed class ImportPlan
             }
             // Phase 6: the additional-cost / zero-valued / POS / job-work flags ride the type verbatim. The POS
             // retail-till config (which references godowns + ledgers created later) is attached in a deferred pass.
+            // v47 (numbering S3): the three scalars + the two date-keyed affix lists are constructed through the ctor
+            // (get-only, ctor-injected) so an imported type ROUND-TRIPS its numbering config — a fresh surrogate id
+            // is minted per affix (the DTO carries only date + particulars).
             var domain = new VoucherType(Guid.NewGuid(), vt.Name,
                 ParseEnum<VoucherBaseType>(vt.BaseType), ParseEnum<NumberingMethod>(vt.Numbering),
                 vt.DefaultShortcut, vt.Abbreviation, vt.IsActive, isPredefined: false,
@@ -210,7 +213,12 @@ internal sealed class ImportPlan
                 allowConsumption: vt.AllowConsumption,
                 isStatPayment: vt.IsStatPayment,
                 isRcmPaymentVoucher: vt.IsRcmPaymentVoucher,
-                isGstStatAdjustment: vt.IsGstStatAdjustment);
+                isGstStatAdjustment: vt.IsGstStatAdjustment,
+                preventDuplicate: vt.PreventDuplicate,
+                numberWidth: vt.NumberWidth,
+                prefillWithZero: vt.PrefillWithZero,
+                prefixes: ImportAffixes(vt.Prefixes),
+                suffixes: ImportAffixes(vt.Suffixes));
             t.AddVoucherType(domain);
             journal.RecordVoucherType(domain);
             voucherTypeId[vt.Id] = domain.Id;
@@ -1785,6 +1793,15 @@ internal sealed class ImportPlan
     }
 
     private static TEnum ParseEnum<TEnum>(string name) where TEnum : struct, Enum => Enum.Parse<TEnum>(name);
+
+    /// <summary>Rebuilds a voucher type's date-keyed affix rows from the DTO list (v47; numbering S3). A fresh
+    /// surrogate id is minted per row (the DTO carries only date + particulars — the id is a private tie-break
+    /// seed); a malformed date throws in pre-flight ⇒ all-or-nothing (RQ-23). <c>null</c> ⇒ no rows.</summary>
+    private static IEnumerable<VoucherNumberAffix> ImportAffixes(IReadOnlyList<VoucherNumberAffixDto>? affixes) =>
+        (affixes ?? [])
+            .Select(a => new VoucherNumberAffix(
+                Guid.NewGuid(), CompanyImportService.ParseDate(a.ApplicableFrom), a.Particulars))
+            .ToList();
 
     /// <summary>Parses an optional ISO round-trip (o) <see cref="DateTimeOffset"/> (Phase 9 slice 5 e-Way generation
     /// timestamp / validity); a malformed value throws in pre-flight ⇒ all-or-nothing (RQ-23).</summary>
