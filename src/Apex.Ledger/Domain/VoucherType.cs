@@ -261,4 +261,21 @@ public sealed class VoucherType
         _prefixes = prefixes?.ToList() ?? new List<VoucherNumberAffix>();
         _suffixes = suffixes?.ToList() ?? new List<VoucherNumberAffix>();
     }
+
+    /// <summary>
+    /// Replaces the date-effective Prefix/Suffix rows <b>in place</b> — the internal rebuild helper the F12 numbering
+    /// config uses to commit an edit (numbering-design-v2 §5.5). The get-only <see cref="Prefixes"/>/<see cref="Suffixes"/>
+    /// stay get-only for the persistence <i>read</i> path (single-pass ctor injection, r2-F6); this method is the sole
+    /// write seam, and it keeps the SAME instance (so <see cref="Id"/> and every reference to this type stay stable and a
+    /// posted voucher re-projects its display against the edited config on the next render). The scalar numbering fields
+    /// (<see cref="PreventDuplicate"/>/<see cref="NumberWidth"/>/<see cref="PrefillWithZero"/>) are ordinary setters and
+    /// are assigned directly by the caller; only the affix collections need this seam. Passing <c>null</c> clears a kind.
+    /// </summary>
+    public void SetAffixes(IEnumerable<VoucherNumberAffix>? prefixes, IEnumerable<VoucherNumberAffix>? suffixes)
+    {
+        _prefixes.Clear();
+        if (prefixes is not null) _prefixes.AddRange(prefixes);
+        _suffixes.Clear();
+        if (suffixes is not null) _suffixes.AddRange(suffixes);
+    }
 }

@@ -9726,6 +9726,140 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: F12 Voucher Numbering configuration (numbering S4) — per-type Prefix/Suffix/Width/Prefill/
+                         Prevent-duplicate. N1 type list (arrow-navigable) + N2 fields + N3 date-keyed affix editors. -->
+                    <ContentControl IsVisible="{Binding VoucherNumberingConfig, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding VoucherNumberingConfig}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:VoucherNumberingConfigViewModel">
+                          <Grid RowDefinitions="Auto,220,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="Voucher Numbering (F12)"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <!-- N1 — the voucher-type list (arrow Up/Down highlights; the fields below follow) -->
+                            <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Margin="0,0,0,8">
+                              <ListBox ItemsSource="{Binding Types}"
+                                       SelectedItem="{Binding SelectedType, Mode=TwoWay}"
+                                       Background="Transparent">
+                                <ListBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:VoucherType">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                      <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                 TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding Numbering}"
+                                                 FontSize="11" Foreground="#9098A8" VerticalAlignment="Center"
+                                                 Margin="8,0,0,0"/>
+                                    </Grid>
+                                  </DataTemplate>
+                                </ListBox.ItemTemplate>
+                              </ListBox>
+                            </Border>
+
+                            <!-- N2 fields + N3 affix editors for the selected type -->
+                            <ScrollViewer Grid.Row="2">
+                              <StackPanel Spacing="10" IsVisible="{Binding SelectedType, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12">
+                                  <StackPanel Spacing="10">
+                                    <Grid ColumnDefinitions="150,*">
+                                      <TextBlock Grid.Column="0" Text="Method" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding MethodDisplay}" VerticalAlignment="Center"/>
+                                    </Grid>
+                                    <CheckBox Content="Prevent duplicate numbers"
+                                              IsChecked="{Binding PreventDuplicate, Mode=TwoWay}"
+                                              FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                    <Grid ColumnDefinitions="150,120" IsEnabled="{Binding CanConfigureAffixes}">
+                                      <TextBlock Grid.Column="0" Text="Width of numerical part" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                                 TextWrapping="Wrap"/>
+                                      <TextBox Grid.Column="1" Text="{Binding WidthText, Mode=TwoWay}"/>
+                                    </Grid>
+                                    <CheckBox Content="Prefill with zero" IsEnabled="{Binding CanConfigureAffixes}"
+                                              IsChecked="{Binding PrefillWithZero, Mode=TwoWay}"
+                                              FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- N3 (prefix) -->
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                  <StackPanel Spacing="6">
+                                    <TextBlock Text="PREFIX DETAILS" FontSize="11" FontWeight="Bold"
+                                               Foreground="#9098A8" LetterSpacing="1.5"/>
+                                    <Grid ColumnDefinitions="130,*,30">
+                                      <TextBlock Grid.Column="0" Text="Applicable From" FontSize="11" Foreground="#9098A8"/>
+                                      <TextBlock Grid.Column="1" Text="Particulars" FontSize="11" Foreground="#9098A8"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Prefixes}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AffixRowViewModel">
+                                          <Grid ColumnDefinitions="130,*,30" Margin="0,2">
+                                            <TextBox Grid.Column="0" Text="{Binding ApplicableFromText, Mode=TwoWay}"/>
+                                            <TextBox Grid.Column="1" Text="{Binding Particulars, Mode=TwoWay}" Margin="4,0"/>
+                                            <Button Grid.Column="2" Content="✕" Padding="4,0"
+                                                    Command="{Binding $parent[ItemsControl].DataContext.RemovePrefixCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                          </Grid>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="+ Add Prefix Row" Command="{Binding AddPrefixCommand}"
+                                            HorizontalAlignment="Left"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- N3 (suffix) -->
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                  <StackPanel Spacing="6">
+                                    <TextBlock Text="SUFFIX DETAILS" FontSize="11" FontWeight="Bold"
+                                               Foreground="#9098A8" LetterSpacing="1.5"/>
+                                    <Grid ColumnDefinitions="130,*,30">
+                                      <TextBlock Grid.Column="0" Text="Applicable From" FontSize="11" Foreground="#9098A8"/>
+                                      <TextBlock Grid.Column="1" Text="Particulars" FontSize="11" Foreground="#9098A8"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding Suffixes}">
+                                      <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AffixRowViewModel">
+                                          <Grid ColumnDefinitions="130,*,30" Margin="0,2">
+                                            <TextBox Grid.Column="0" Text="{Binding ApplicableFromText, Mode=TwoWay}"/>
+                                            <TextBox Grid.Column="1" Text="{Binding Particulars, Mode=TwoWay}" Margin="4,0"/>
+                                            <Button Grid.Column="2" Content="✕" Padding="4,0"
+                                                    Command="{Binding $parent[ItemsControl].DataContext.RemoveSuffixCommand}"
+                                                    CommandParameter="{Binding}"/>
+                                          </Grid>
+                                        </DataTemplate>
+                                      </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Content="+ Add Suffix Row" Command="{Binding AddSuffixCommand}"
+                                            HorizontalAlignment="Left"/>
+                                  </StackPanel>
+                                </Border>
+                              </StackPanel>
+                            </ScrollViewer>
+
+                            <!-- status + the §5.4 warn-and-confirm gate -->
+                            <TextBlock Grid.Row="3" Text="{Binding Message}" TextWrapping="Wrap"
+                                       Foreground="{StaticResource BrandNavy}" Margin="2,8,2,4"
+                                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto">
+                              <Button Grid.Column="1" Content="Confirm" Padding="14,6" Margin="0,0,8,0"
+                                      IsVisible="{Binding IsConfirmPending}"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Command="{Binding RunConfirmCommand}"/>
+                              <Button Grid.Column="2" Content="Save (Ctrl+A)" Padding="14,6"
+                                      Background="{StaticResource BrandNavy}" Foreground="White"
+                                      Command="{Binding RunSaveCommand}"/>
+                            </Grid>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GST Rate Setup — dated GST 2.0 rate history + Compensation-Cess (Phase 9 slice 1) -->
                     <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstRateSetup, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstRateSetup}">

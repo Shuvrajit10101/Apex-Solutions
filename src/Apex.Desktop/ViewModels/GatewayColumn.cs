@@ -165,6 +165,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
 
+    /// <summary>The hosted F12 voucher-numbering configuration page (non-null only for that column; numbering S4).</summary>
+    public VoucherNumberingConfigViewModel? VoucherNumberingConfig => Page as VoucherNumberingConfigViewModel;
+
     /// <summary>The hosted Nature-of-Payment (TDS section) master (non-null only for that column; Phase 7 slice 1).</summary>
     public NatureOfPaymentMasterViewModel? NatureOfPaymentMaster => Page as NatureOfPaymentMasterViewModel;
 

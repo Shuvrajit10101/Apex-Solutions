@@ -68,6 +68,10 @@ public enum Screen
     GstConfig,
     GstRateSetup,
 
+    // F12 voucher-numbering configuration (numbering-design-v2 §5; §9 S4) — pushed as a cascade column over a
+    // voucher-entry context; edits the per-type Prefix/Suffix/Width/Prefill/Prevent-duplicate S3-persisted fields.
+    VoucherNumberingConfig,
+
     // Composition returns (Phase 9 slice 3; RQ-16) — CMP-08 (quarterly) + GSTR-4 (annual), surfaced only for a
     // Composition dealer under Reports → Statutory Reports → Composition Returns.
     Cmp08Report,
@@ -343,6 +347,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
+
+    /// <summary>The F12 voucher-numbering configuration (numbering S4) view model, non-null only while that page is open.</summary>
+    [ObservableProperty] private VoucherNumberingConfigViewModel? _voucherNumberingConfig;
 
     /// <summary>The GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance) view model, non-null only while open.</summary>
     [ObservableProperty] private GstRateSetupViewModel? _gstRateSetup;
@@ -4532,6 +4539,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         MaterialMovementEntry = null;
         PosBilling = null;
         GstConfig = null;
+        VoucherNumberingConfig = null;
         GstRateSetup = null;
         Cmp08Report = null;
         Gstr4Report = null;
@@ -5489,6 +5497,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // Numbering S4: on the F12 voucher-numbering config the arrows move the N1 voucher-type highlight (the type
+        // whose numbering fields the N2/N3 editors show). Same placement rule as the master arms above — it is a page
+        // column, so the IsGatewayCascade branch below would otherwise swallow the keystroke and the list never move.
+        if (IsVoucherNumberingConfigScreen)
+        {
+            VoucherNumberingConfig!.MoveHighlight(direction);
+            return;
+        }
+
         if (IsGatewayCascade)
         {
             var col = ActiveColumn;
@@ -5646,6 +5663,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.GstConfig:
                 GstConfig?.AcceptStatutoryConfig();
+                return;
+            // Numbering S4: Ctrl+A / Enter commits the working numbering config (validation runs inside Save — a
+            // duplicate-date reject, digit-adjacent warn, or historical-stability block/confirm never tears the
+            // screen down, so this stays a non-destructive accept action like every other master). Accept semantics
+            // parity (Ctrl+A/Enter = accept): the FIRST accept on a change needing confirmation warns (Save →
+            // NeedsConfirmation, IsConfirmPending); a SECOND accept confirms it (ConfirmSave persists). Without this
+            // branch the accept key re-ran Save(), which resets IsConfirmPending and re-warns forever — leaving Confirm
+            // reachable only by mouse / Tab+Space. Purely VM-side; the b8c617e key handler in MainWindow.axaml.cs is untouched.
+            case Screen.VoucherNumberingConfig:
+                if (VoucherNumberingConfig is { IsConfirmPending: true }) VoucherNumberingConfig.ConfirmSave();
+                else VoucherNumberingConfig?.Save();
                 return;
             case Screen.GstRateSetup:
                 GstRateSetup?.AddRateHistory(); // Ctrl+A appends the add-form's dated rate window (primary action)
@@ -6342,13 +6370,76 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void F12Configure()
     {
+        // Re-pressing F12 while the numbering config is already open POPS it (the F12/Esc toggle, numbering S4).
+        if (CurrentScreen == Screen.VoucherNumberingConfig)
+        {
+            Back();
+            return;
+        }
+
         if (CurrentScreen == Screen.LedgerMaster && LedgerMaster is { } lm)
         {
             lm.ToggleConfiguration();
             return;
         }
+
+        // On a voucher-entry context F12 opens the per-type voucher-numbering configuration (numbering-design-v2 §5.1),
+        // pushed as a cascade column to the right (prior panes persist). Every other F12 context is unchanged: the
+        // report-F12 (OpenReportConfig) and print-preview-F12 (OpenPrintConfig) are handled earlier in the key tunnel.
+        if (Company is not null && IsVoucherNumberingContext(out var preselectTypeId))
+        {
+            OpenVoucherNumberingConfig(preselectTypeId);
+            return;
+        }
+
         Message = "F12 Configure — display options (Phase 1 defaults).";
     }
+
+    /// <summary>
+    /// True when the live screen is a voucher-entry context whose type's numbering F12 configures; outputs that
+    /// type's id so the config column opens pre-selected on it (numbering S4).
+    /// </summary>
+    private bool IsVoucherNumberingContext(out Guid preselectTypeId)
+    {
+        preselectTypeId = Guid.Empty;
+        switch (CurrentScreen)
+        {
+            case Screen.VoucherEntry when VoucherEntry is { } v: preselectTypeId = v.Type.Id; return true;
+            case Screen.InventoryVoucherEntry when InventoryVoucherEntry is { } iv: preselectTypeId = iv.Type.Id; return true;
+            case Screen.ManufacturingJournalEntry when ManufacturingJournalEntry is { } mj: preselectTypeId = mj.Type.Id; return true;
+            case Screen.JobWorkOrderEntry when JobWorkOrderEntry is { } jw: preselectTypeId = jw.Type.Id; return true;
+            case Screen.MaterialMovementEntry when MaterialMovementEntry is { } mm: preselectTypeId = mm.Type.Id; return true;
+            case Screen.PosBilling when PosBilling is { } pos: preselectTypeId = pos.Type.Id; return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// Opens the F12 voucher-numbering configuration as a cascade column pushed to the RIGHT of the current pane
+    /// (numbering S4; §5.1). Like <see cref="OpenReportConfig"/> it does NOT trim the pane it opened over, so the
+    /// voucher-entry column stays live beneath and Esc/F12 pops back to it. Re-pressing while open is a no-op (the F12
+    /// toggle in <see cref="F12Configure"/> pops instead). Optionally pre-selects <paramref name="preselectTypeId"/>.
+    /// </summary>
+    public void OpenVoucherNumberingConfig(Guid? preselectTypeId = null)
+    {
+        if (Company is null) return;
+        if (VoucherNumberingConfig is not null) return; // already open — don't stack a second column
+
+        var page = new VoucherNumberingConfigViewModel(Company, _storage, onSaved: BuildButtonBar);
+        if (preselectTypeId is { } id) page.SelectByTypeId(id);
+        VoucherNumberingConfig = page;
+        Columns.Add(new GatewayColumn(page.Title, page));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.VoucherNumberingConfig;
+        ScreenTitle = page.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>True while the F12 voucher-numbering configuration is the live screen — the arrows then move its N1
+    /// voucher-type highlight (numbering S4).</summary>
+    public bool IsVoucherNumberingConfigScreen =>
+        CurrentScreen == Screen.VoucherNumberingConfig && VoucherNumberingConfig is not null;
 
     private void BuildButtonBar()
     {
