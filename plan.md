@@ -580,6 +580,111 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   pushes small reviewed units (R4/R10); the real app run with keyboard-only evidence; `memory.md` updated;
   then **user go/no-go** per R12.
 
+### Phase 10.7 — Voucher numbering
+- **Goals:** ship per-voucher-type customizable **Voucher No.** for the existing **24 seeded voucher types** —
+  **Prefix + Suffix** as **date-effective rows** (each value applies from its `ApplicableFrom` until the next
+  row; separators live inside the affix text — there is **no implicit separator**), a numeric **Width**,
+  **Prefill-with-zero**, and **Prevent-duplicate** — exposed through an **F12 numbering CONFIG screen** (this
+  finally wires the Phase-1 **F12 Configure** stub). The rendered number `Prefix ++ leftPad(int, width) ++
+  Suffix` becomes **THE document number at every site** (print, e-invoice / e-Way / B2C-QR, GSTR-1, registers,
+  Day Book, POS, entry preview + accept toasts), while `Voucher.Number` stays the persisted **`int`** identity
+  and sequence seed (the human number is an unpersisted projection over `(int, Date, the type's affix/width
+  rows)`). Also add a captured **counterparty reference field** — **Reference No.** on sales /
+  **Supplier Invoice No.** on purchase — a proper editable, persisted, printable field that **never** receives
+  auto prefix/suffix/reset (it is the other party's number, distinct from the CDN `original_invoice_number`).
+- **Explicitly DEFERRED (user decision 2026-07-21 — do NOT build here):** the financial-year **RESTART / reset**
+  (no restart rows, no `PeriodOf`, no period-scoped `NextNumber`). *Rationale:* the bare `Voucher.Number` **IS**
+  the statutory document number — the IRP `DocDtls.No` / e-Way `DocNo` and the e-invoice uniqueness key
+  (`HasEInvoiceDocumentNumber`) — so a naive FY reset makes the `int` collide across years and **hard-blocks**
+  the new-FY `#1` e-invoice. Deferring restart keeps the shipped `int` **strictly unique per type**
+  (`NextNumber = max+1`), which is exactly what makes render-everywhere safe. When later built, FY-reset =
+  **Tally-style MANUAL dated prefix rows** (user preference) paired with the document-number repoint this
+  feature already ships — a separate, gated slice. Also deferred: the **5-method** `NumberingMethod` extension
+  (stays **Automatic / Manual / None**) and the **Renumber / Retain** delete-behaviour toggle (today's only
+  behaviour — Cancel keeps the number, Delete leaves a gap — is retained).
+- **Modules:** the pure `VoucherNumberFormatter` (`Apex.Ledger` domain + `Services/`); the ~40 sites that today
+  emit the bare `int`, repointed through one `Company.FormatVoucherNumber` policy incl.
+  `DocumentNumberOf(company, voucher)`; the **second (inventory) posting engine** (`InventoryPostingService` —
+  render + config + duplicate guard extended, allocation math unchanged at `max+1`); the schema / persistence /
+  Io fold-in; the **F12 Miller-cascade config UI**; and the counterparty header field on `vouchers`.
+- **R7 fidelity — web-verified (A14):** the spec was **web-verified against the official TallyPrime 7.1 docs
+  (help.tallysolutions.com)** — Prefix/Suffix as tables of `{ApplicableFrom, Particulars}` with multiple
+  date-ranged rows, separators inside `Particulars`, Width + Prefill-zero → `001`, Prevent-duplicate, scope
+  per voucher type. The `tally/` PDF corpus was **screenshot-only on this feature**, so the official web docs
+  are the authoritative R7 source of record here (record the citation in `memory.md`).
+- **Work items (id — one-line):**
+  - **VN-1** **Numbering engine** — the immutable `VoucherNumberAffix {Id, ApplicableFrom, Particulars}` value
+    object, the new get-only ctor-injected `VoucherType` fields (`Prefixes` / `Suffixes` / `NumberWidth` /
+    `PrefillWithZero` / `PreventDuplicate`, all defaulting empty/0/false), and the pure
+    `VoucherNumberFormatter.Render` — date-selected affix (greatest `ApplicableFrom <= date`), `(ApplicableFrom,
+    Id)` tie-break, **non-truncating** left-pad; empty-config + Width 0 returns exactly `int.ToString()`.
+  - **VN-2** **Render-everywhere ONE policy** — repoint every bare-`int` render site to the formatter, incl.
+    `DocumentNumberOf(company, voucher)` (e-invoice IRP / e-Way / B2C-QR / the GSTR-1 equality re-derivation),
+    the print projector's **both** number fields, registers + Day Book via a row-carried `FormattedNumber`,
+    Ledger Vouchers, POS, and the entry preview + accept toasts; cover **both** posting engines. Keep the raw
+    `int` only for identity, `ORDER BY`, `max+1` allocation, and the separate RCM `SeriesNumber`.
+  - **VN-3** **Prevent-duplicate guard** — compare the **fully-rendered** number (ordinal, case-sensitive)
+    against non-deleted vouchers of the same type in `VoucherValidator` (so the Io import path inherits it),
+    mirrored in `InventoryPostingService.Post`; the counterparty field is never run through it.
+  - **VN-4** **Schema v47 + persistence + Io** — 3 scalar columns + `voucher_type_prefix` / `voucher_type_suffix`
+    date-keyed child tables + indexes, `MigrateV46ToV47` (equivalence-parity) + a `DowngradeV47ToV46`,
+    single-pass **ctor-injected** read of the child rows, the child **delete-clear** on Save, and a
+    **conditional (omit-at-default)** Io round-trip + import mirror.
+  - **VN-5** **F12 config UI + historical-stability guard** — `Screen.VoucherNumberingConfig` **pushed** by F12
+    into the Miller cascade (prior panes persist; F12/Esc pops), the three cascade columns, the date-keyed
+    affix editor (duplicate-`ApplicableFrom` **rejected** on commit), dropdown/keystroke-arbitration compliance
+    (no regression of the `b8c617e` rules), inventory types configurable, and the guard that **blocks /
+    warn-confirms** edits that re-project already-issued or filed documents.
+  - **VN-6** **Counterparty reference field** — `Voucher.ReferenceNo` / `ReferenceDate` (a distinct header
+    field, NOT a reuse of the CDN `original_invoice_number`), its schema columns, persistence, Io round-trip,
+    entry capture (labelled per base type), and print surfacing.
+- **Slices (build order — dependency order; full rationale in `memory.md`):**
+  1. **S1 — Pure formatter** (VN-1) — **domain + `VoucherNumberFormatter`, no schema, no UI.** Files:
+     `Domain/VoucherType.cs`, new `Domain/VoucherNumberAffix.cs`, new `Services/VoucherNumberFormatter.cs`.
+     Low risk — nothing reaches posted vouchers yet.
+  2. **S2 — Render-everywhere ONE policy + duplicate guard** (VN-2, VN-3) — **highest correctness;** repoint all
+     ~40 bare-`int` sites incl. e-invoice / e-Way / B2C-QR / GSTR-1 / registers, add the rendered-duplicate
+     guard to both post paths, and sync the entry preview to the posted number. Schema-clean (rules set
+     in-memory by tests). Robert & Bright must not move. **Surfaces USER GATE (a) — digit-adjacent affix
+     collision handling.**
+  3. **S3 — Schema v47 + persistence + Io round-trip** (VN-4) — **highest discipline;** owns **v47** (see
+     Schema below). ER-13 byte-identical for a never-configured type. Data-carrying only.
+  4. **S4 — F12 config UI (Miller cascade) + historical-stability guard** (VN-5) — must not regress the
+     `b8c617e` keystroke arbitration. **Surfaces USER GATE (b) — editing an affix that covers a GSTR-1-filed
+     but not-e-invoiced voucher.**
+  5. **S5 — Counterparty reference field** (VN-6) — independent; carries its own additive migration on
+     `vouchers` (ordered after v47).
+- **Schema:** numbering config is **v46 → v47** (S3: `prevent_duplicate` / `number_width` / `prefill_zero` on
+  `voucher_types` + the `voucher_type_prefix` / `voucher_type_suffix` child tables + indexes, `MigrateV46ToV47`
+  with `SchemaMigrationEquivalenceTests` parity and a `DowngradeV47ToV46`). The counterparty field (S5) rides
+  its own additive migration on `vouchers` (`reference_no` / `reference_date`), ordered after v47 (design:
+  **v47 → v48**). **Version coordination — numbering owns v47:** a separately-planned **negative-stock** change
+  that had provisionally targeted v47 must **rebase to v48**; the two v48 claimants reconcile at build time by
+  whichever lands first. S1/S2 are schema-clean; ER-13 stays byte-identical for a never-configured type via
+  **conditional (omit-at-default) emit** — no golden regeneration.
+- **User gates (recommend-first; surface at the named slice — R12):**
+  - **(S2) Digit-adjacent affix collision handling** — when an affix's own digits abut the padded numeric core
+    (e.g. suffix `2001` after core `00001` → `200100001`, or a prefix ending in a digit) the boundary reads
+    ambiguously. *Recommend:* render **verbatim** (faithful to Tally — separators are part of `Particulars`,
+    the operator's responsibility) plus a **config-time advisory** on a digit-adjacent affix; do not silently
+    insert a separator.
+  - **(S4) Editing an affix covering a GSTR-1-filed but not-e-invoiced voucher** — the stability guard already
+    **blocks** edits that re-project a voucher carrying a generated e-invoice / e-Way (filed statutory doc) and
+    **warn-confirms** for merely-posted-unfiled. The middle case — a voucher already inside a **filed GSTR-1**
+    return but with **no e-invoice** — needs its own ruling. *Recommend:* **BLOCK** (treat GSTR-1 inclusion as a
+    filed number, preserving the `Gstr1.cs:360` live-vs-frozen equality).
+- **Agents:** per-feature pipeline (§2.2) — Requirements/Design (design of record in `memory.md`), **A14**
+  (Tally fidelity, R7), Test author, Implementer, **A10** review, **A12** GitHub Expert, run-app verifier.
+- **Deliverables:** a per-voucher-type numbering config reachable by **F12** on the 24 types; the printed /
+  e-invoice / e-Way / QR / GSTR-1 / register / Day Book / POS number all equal to one rendered string; the
+  Prevent-duplicate guard enforced on both create and import; the counterparty Reference / Supplier-Invoice
+  number captured, persisted, round-tripped and printed; and regression tests locking empty-config == today
+  (Robert & Bright unmoved), the two user-gate rulings, and the v47 migration parity + downgrade.
+- **Exit gate:** R9 — tests green and **shown** (incl. Robert & Bright — they must not move under empty config);
+  **A10** three-lens review per slice; **A12** (GitHub Expert) commits & pushes small reviewed units (R4/R10);
+  the real app run with evidence (**F12 opens the numbering config**); `memory.md` updated; then **user
+  go/no-go** per R12.
+
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
 - **Modules:** performance passes (NFR-4), end-to-end system/acceptance tests, docs completion (user manual,
