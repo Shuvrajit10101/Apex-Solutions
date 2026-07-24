@@ -90,6 +90,17 @@ public sealed class InvoicePrintData
     /// <summary>Invoice date, already formatted (Rule 46 (c)).</summary>
     public string InvoiceDateText { get; init; } = string.Empty;
 
+    /// <summary>The counterparty document number (numbering §8) — on a Sales tax invoice this is the buyer's
+    /// "Reference No." (e.g. their PO number); blank when none was captured. Printed only when non-empty, so an
+    /// invoice without one stays byte-identical (ER-13).</summary>
+    public string ReferenceNo { get; init; } = string.Empty;
+
+    /// <summary>The label for <see cref="ReferenceNo"/> (per base type; "Reference No." on a Sales invoice).</summary>
+    public string ReferenceCaption { get; init; } = "Reference No.";
+
+    /// <summary>The counterparty document's date, already formatted; blank when none was captured.</summary>
+    public string ReferenceDateText { get; init; } = string.Empty;
+
     /// <summary>Place of supply — State name + code (Rule 46 (m/n)); required for inter-state supplies.</summary>
     public string PlaceOfSupply { get; init; } = string.Empty;
 

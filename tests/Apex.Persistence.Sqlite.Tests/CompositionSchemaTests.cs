@@ -165,6 +165,9 @@ public sealed class CompositionSchemaTests
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         -- voucher_inventory_lines is required because the chain now runs through the v45 -> v46 item-invoice
         -- line-unit migration, whose ALTER TABLE voucher_inventory_lines ADD COLUMN unit_id needs the table to
         -- exist. A real database of this vintage always has it (created at v12); this fixture is a minimal

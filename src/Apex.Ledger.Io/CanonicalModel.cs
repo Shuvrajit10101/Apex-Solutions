@@ -1561,6 +1561,26 @@ public sealed record VoucherDto
     public bool Optional { get; init; }
     public bool PostDated { get; init; }
     public string? ApplicableUpto { get; init; }       // ISO or null
+
+    /// <summary>The counterparty document number (numbering-design-v2 §8; schema v48) — "Supplier Invoice No."
+    /// (Purchase) / "Reference No." (Sales); the OTHER party's number, never auto-numbered. <c>null</c> ⇒ absent.
+    /// <para><b>Appended at the END and marked
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/>, exactly like
+    /// <c>VoucherInventoryLineDto.UnitId</c>.</b> The canonical JSON options set <c>DefaultIgnoreCondition =
+    /// Never</c>, so without the attribute EVERY voucher in every existing export would gain a
+    /// <c>"referenceNo": null</c> line and the bytes would change for companies that never capture a reference —
+    /// breaking ER-13. XML gets it free (<c>Opt</c> emits no attribute for null).</para></summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReferenceNo { get; init; }
+
+    /// <summary>The counterparty document's date (numbering-design-v2 §8; schema v48), ISO yyyy-MM-dd. <c>null</c> ⇒
+    /// absent. Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> (ER-13; see
+    /// <see cref="ReferenceNo"/>).</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReferenceDate { get; init; }        // ISO or null
+
     public IReadOnlyList<EntryLineDto> Lines { get; init; } = [];
     public IReadOnlyList<VoucherInventoryLineDto> InventoryLines { get; init; } = [];
 

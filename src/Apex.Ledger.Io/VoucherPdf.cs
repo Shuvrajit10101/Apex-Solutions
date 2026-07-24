@@ -107,6 +107,7 @@ public static class VoucherPdf
         h += page.SubtitleFontSize + 2 + 10;                 // title band
         h += page.BodyFontSize + 4;                          // No/Date row
         if (!string.IsNullOrWhiteSpace(data.PartyName)) h += page.BodyFontSize + 4;
+        if (!string.IsNullOrWhiteSpace(data.ReferenceNo)) h += page.BodyFontSize + 4; // v48 numbering §8 ref row
         return h;
     }
 
@@ -150,6 +151,15 @@ public static class VoucherPdf
             if (!string.IsNullOrWhiteSpace(data.PartyName))
             {
                 writer.Text(left, y, "Party: " + data.PartyName, page.BodyFontSize, bold: true);
+                y -= page.BodyFontSize + 4;
+            }
+            // v48 (numbering §8): the counterparty document number ("Supplier Invoice No." / "Reference No."),
+            // printed only when captured so a voucher without one is byte-identical to before (ER-13).
+            if (!string.IsNullOrWhiteSpace(data.ReferenceNo))
+            {
+                var refLine = data.ReferenceCaption + ": " + data.ReferenceNo;
+                if (!string.IsNullOrWhiteSpace(data.ReferenceDateText)) refLine += "   Dated: " + data.ReferenceDateText;
+                writer.Text(left, y, refLine, page.BodyFontSize, bold: false);
                 y -= page.BodyFontSize + 4;
             }
         }

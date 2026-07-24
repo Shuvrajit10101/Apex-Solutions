@@ -317,5 +317,8 @@ public sealed class SmtpProfileRoundTripTests
         -- entry_lines is required because the chain now runs through the v38→v39 RCM migration, whose
         -- ALTER TABLE entry_lines ADD COLUMN gst_is_reverse_charge/gst_rcm_scheme needs the table to exist.
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, ledger_id TEXT NOT NULL DEFAULT '', amount_paisa INTEGER NOT NULL DEFAULT 0, side INTEGER NOT NULL DEFAULT 0);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         """;
 }

@@ -108,9 +108,11 @@ public sealed class ItemLineUnitSchemaTests
             Assert.True(lineCountBefore > 0);
 
             // 2) Downgrade to a genuine v45 shape (step down one version at a time from the current version:
-            //    v47→v46 drops the numbering config, v46→v45 drops unit_id, stamping version 45).
+            //    v48→v47 drops the counterparty reference columns, v47→v46 drops the numbering config, v46→v45
+            //    drops unit_id, stamping version 45).
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V48ToV47(conn);
                 SchemaDowngrade.V47ToV46(conn);
                 SchemaDowngrade.V46ToV45(conn);
                 SqliteConnection.ClearPool(conn);

@@ -888,6 +888,9 @@ public static class CanonicalMapper
         Narration = v.Narration, PartyId = v.PartyId,
         Cancelled = v.Cancelled, Optional = v.Optional, PostDated = v.PostDated,
         ApplicableUpto = Iso(v.ApplicableUpto),
+        // v48 (numbering S5): the counterparty reference — empty ⇒ null so an unset reference omits (ER-13).
+        ReferenceNo = string.IsNullOrEmpty(v.ReferenceNo) ? null : v.ReferenceNo,
+        ReferenceDate = Iso(v.ReferenceDate),
         Lines = v.Lines.Select(MapEntryLine).ToList(),
         InventoryLines = v.InventoryLines.Select(MapVoucherInventoryLine).ToList(),
         // POS tenders preserved in their declared (stable) order — Gift, Card, Cheque, Cash.

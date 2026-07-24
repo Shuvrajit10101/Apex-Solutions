@@ -2090,6 +2090,20 @@
                                              FontSize="12" VerticalAlignment="Center"
                                              PlaceholderText="dd-MMM-yyyy"/>
                                   </StackPanel>
+                                  <!-- Counterparty captured field (numbering §8): "Supplier Invoice No." (Purchase)
+                                       / "Reference No." (Sales). Free text — never auto-numbered. -->
+                                  <StackPanel Orientation="Horizontal" Spacing="6"
+                                              IsVisible="{Binding ShowReferenceCapture}"
+                                              VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding ReferenceNoCaption}" Foreground="#CFE0FF" FontSize="11"
+                                               VerticalAlignment="Center"/>
+                                    <TextBox Width="130" Text="{Binding ReferenceNo, Mode=TwoWay}"
+                                             FontSize="12" VerticalAlignment="Center"
+                                             PlaceholderText="Party's no."/>
+                                    <TextBox Width="120" Text="{Binding ReferenceDateText, Mode=TwoWay}"
+                                             FontSize="12" VerticalAlignment="Center"
+                                             PlaceholderText="dd-MMM-yyyy"/>
+                                  </StackPanel>
                                 </StackPanel>
                               </Grid>
                             </Border>

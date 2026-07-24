@@ -147,6 +147,46 @@ public static class SchemaDowngrade
         Exec(connection, "UPDATE schema_version SET version = 46;");
     }
 
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV47ToV48"/>: removes the two counterparty-reference columns
+    /// (<see cref="Schema.V48ReferenceColumns"/> — <c>reference_no</c>, <c>reference_date</c>) from <c>vouchers</c>
+    /// and stamps <c>schema_version</c> back to 47. Any captured reference is discarded — that is what a downgrade
+    /// means, and the resulting voucher reads as "no counterparty reference", exactly how v47 interpreted every row.
+    /// Nothing else is touched; v48 added no tables, indexes or constraints.
+    ///
+    /// <para><c>vouchers</c> is rebuilt from <c>PRAGMA table_info</c> minus the two v48 columns via the plain
+    /// <c>CREATE … AS SELECT</c> idiom of <see cref="V45ToV44"/>. <c>vouchers</c>'s primary key is a <c>TEXT</c> GUID
+    /// (<c>id</c>), so the AUTOINCREMENT-preserving full-DDL special-case that <see cref="V46ToV45"/> needed does NOT
+    /// apply. Constraint/index loss on the rebuild is tolerated by the row-survival-only downgrade harness, exactly
+    /// as it already is for <c>ledgers</c> and <c>voucher_types</c>. Foreign keys are switched off for the swap
+    /// because <c>entry_lines</c>, <c>voucher_inventory_lines</c>, <c>pos_tender_allocations</c> and others reference
+    /// <c>vouchers(id)</c>.</para>
+    /// </summary>
+    public static void V48ToV47(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        var all = ColumnNames(connection, "vouchers");
+        var keep = all
+            .Where(c => !Schema.V48ReferenceColumns.Contains(c, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (keep.Count > 0 && keep.Count < all.Count)
+        {
+            var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+
+            Exec(connection, "PRAGMA foreign_keys=OFF;");
+            Exec(connection, $"""
+                CREATE TABLE vouchers_v47 AS SELECT {columnList} FROM vouchers;
+                DROP TABLE vouchers;
+                ALTER TABLE vouchers_v47 RENAME TO vouchers;
+                """);
+            Exec(connection, "PRAGMA foreign_keys=ON;");
+        }
+
+        Exec(connection, "UPDATE schema_version SET version = 47;");
+    }
+
     private static List<string> ColumnNames(SqliteConnection connection, string table)
     {
         using var cmd = connection.CreateCommand();

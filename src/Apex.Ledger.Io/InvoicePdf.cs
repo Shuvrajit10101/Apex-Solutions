@@ -216,6 +216,15 @@ public static class InvoicePdf
         writer.Text(left, y, "Invoice No: " + data.InvoiceNumber, page.BodyFontSize, bold: false);
         writer.Text(geo.MidX + 6, y, "Date: " + data.InvoiceDateText, page.BodyFontSize, bold: false);
         y -= page.BodyFontSize + 2;
+        // v48 (numbering §8): the buyer's reference (e.g. their PO / "Reference No."). Printed only when captured,
+        // so an invoice without one is byte-identical to before (ER-13).
+        if (!string.IsNullOrWhiteSpace(data.ReferenceNo))
+        {
+            var refLine = data.ReferenceCaption + ": " + data.ReferenceNo;
+            if (!string.IsNullOrWhiteSpace(data.ReferenceDateText)) refLine += "   Dated: " + data.ReferenceDateText;
+            writer.Text(left, y, refLine, page.BodyFontSize, bold: false);
+            y -= page.BodyFontSize + 2;
+        }
         writer.Text(left, y, "Place of Supply: " + data.PlaceOfSupply, page.BodyFontSize, bold: false);
         string supply = data.IsInterState ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
         writer.Text(geo.MidX + 6, y, supply, page.BodyFontSize, bold: false);

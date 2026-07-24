@@ -42,6 +42,17 @@ public sealed class VoucherPrintData
     /// <summary>Optional party / particulars name (invoice-type vouchers); blank for a plain voucher.</summary>
     public string PartyName { get; init; } = string.Empty;
 
+    /// <summary>The counterparty document number (numbering §8) — the other party's number; blank when none was
+    /// captured. Printed only when non-empty, so a voucher without one stays byte-identical (ER-13).</summary>
+    public string ReferenceNo { get; init; } = string.Empty;
+
+    /// <summary>The label for <see cref="ReferenceNo"/> per base type: "Supplier Invoice No." on a Purchase,
+    /// "Reference No." on a Sales.</summary>
+    public string ReferenceCaption { get; init; } = "Reference No.";
+
+    /// <summary>The counterparty document's date, already formatted; blank when none was captured.</summary>
+    public string ReferenceDateText { get; init; } = string.Empty;
+
     /// <summary>The Dr/Cr posting lines in entry order.</summary>
     public IReadOnlyList<VoucherPrintLine> Lines { get; init; } = Array.Empty<VoucherPrintLine>();
 

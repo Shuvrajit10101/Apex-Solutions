@@ -389,6 +389,30 @@ public sealed class InventoryVoucherRoundTripTests
             """);
         Exec(conn, "DROP TABLE voucher_types;");
         Exec(conn, "ALTER TABLE voucher_types_v9 RENAME TO voucher_types;");
+        // Rebuild vouchers WITHOUT the two v48 counterparty-reference columns (reference_no/reference_date), so this
+        // is a faithful pre-v48 shape and the reopen's v47→v48 ALTER TABLE ADD COLUMN does not collide. applicable_upto
+        // (v6) predates v9, so it is kept. The explicit DDL preserves the id PRIMARY KEY — a CREATE … AS SELECT would
+        // drop it, and voucher_inventory_lines (which FK-references vouchers(id)) then fails on the re-save.
+        Exec(conn, """
+            CREATE TABLE vouchers_v9 (
+                id          TEXT    NOT NULL PRIMARY KEY,
+                company_id  TEXT    NOT NULL,
+                type_id     TEXT    NOT NULL,
+                number      INTEGER NOT NULL,
+                date        TEXT    NOT NULL,
+                narration   TEXT        NULL,
+                party_id    TEXT        NULL,
+                cancelled   INTEGER NOT NULL,
+                optional    INTEGER NOT NULL,
+                post_dated  INTEGER NOT NULL,
+                applicable_upto TEXT    NULL);
+            INSERT INTO vouchers_v9
+                (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated, applicable_upto)
+            SELECT id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated, applicable_upto
+            FROM vouchers;
+            DROP TABLE vouchers;
+            ALTER TABLE vouchers_v9 RENAME TO vouchers;
+            """);
         // Rebuild stock_items WITHOUT the v11 standard_cost_paisa column, so this is a faithful v9 shape and
         // the reopen's v10→v11 ALTER TABLE ADD COLUMN does not collide with an already-present column.
         Exec(conn, """

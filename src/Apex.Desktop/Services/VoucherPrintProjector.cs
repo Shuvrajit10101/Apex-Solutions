@@ -64,6 +64,13 @@ public static class VoucherPrintProjector
             VoucherNumber = company.FormatVoucherNumber(voucher),
             DateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
             PartyName = ReportPrintProjector.Ascii(party ?? string.Empty),
+            // Counterparty captured field (numbering §8): the other party's number, labelled per base type. Blank
+            // when none was captured ⇒ nothing prints ⇒ byte-identical (ER-13).
+            ReferenceNo = ReportPrintProjector.Ascii(voucher.ReferenceNo ?? string.Empty),
+            ReferenceCaption = ReferenceCaption(type),
+            ReferenceDateText = voucher.ReferenceDate is { } rd
+                ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty,
             Lines = lines,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
         };
@@ -157,6 +164,13 @@ public static class VoucherPrintProjector
             Buyer = BuyerBlock(company, partyLedger),
             InvoiceNumber = company.FormatVoucherNumber(voucher),
             InvoiceDateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            // Counterparty captured field (numbering §8): on a Sales tax invoice this is the buyer's "Reference No.".
+            // Blank when none was captured ⇒ nothing prints ⇒ byte-identical (ER-13).
+            ReferenceNo = ReportPrintProjector.Ascii(voucher.ReferenceNo ?? string.Empty),
+            ReferenceCaption = ReferenceCaption(company.FindVoucherType(voucher.TypeId)),
+            ReferenceDateText = voucher.ReferenceDate is { } rd
+                ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty,
             PlaceOfSupply = PlaceOfSupply(company, partyLedger),
             IsInterState = interState,
             Items = items,
@@ -173,6 +187,11 @@ public static class VoucherPrintProjector
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /// <summary>The counterparty-reference label per base type (numbering §8): "Supplier Invoice No." on a Purchase
+    /// (the other party's number is the supplier's invoice number), "Reference No." on every other type.</summary>
+    private static string ReferenceCaption(VoucherType? type) =>
+        type?.BaseType == VoucherBaseType.Purchase ? "Supplier Invoice No." : "Reference No.";
 
     private static void AccumulateRate(List<(int Bp, decimal Taxable)> acc, int bp, decimal taxable)
     {

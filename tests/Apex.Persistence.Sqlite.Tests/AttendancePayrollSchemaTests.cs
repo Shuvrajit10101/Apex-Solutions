@@ -181,6 +181,9 @@ public sealed class AttendancePayrollSchemaTests
         CREATE TABLE employees (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE attendance_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         -- voucher_types is required because the chain now runs through the v38→v39 RCM migration, whose
         -- ALTER TABLE voucher_types ADD COLUMN is_rcm_payment_voucher needs the table to exist.
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);

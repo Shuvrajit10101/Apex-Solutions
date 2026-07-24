@@ -97,8 +97,12 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v47</b> is the latest bump
-    /// (voucher-numbering S3 — the per-type numbering config: three additive columns on <c>voucher_types</c>
+    /// <summary>The current schema version this adapter reads and writes. <b>v48</b> is the latest bump
+    /// (voucher-numbering S5 — the <b>counterparty captured field</b>: two nullable columns on <c>vouchers</c>
+    /// (<c>reference_no</c>, <c>reference_date</c>) holding the other party's document number/date — "Supplier
+    /// Invoice No." on a Purchase, "Reference No." on a Sales — a distinct field from the CDN-only
+    /// <c>original_invoice_number</c>). v47 was voucher-numbering S3 — the per-type numbering config: three additive
+    /// columns on <c>voucher_types</c>
     /// (<c>prevent_duplicate</c>, <c>number_width</c>, <c>prefill_with_zero</c>) plus two date-keyed affix child
     /// tables (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their indexes). v46 was Phase 10.5
     /// WI-10 Gap 2 — the item-invoice line unit: one nullable <c>unit_id</c> column on
@@ -112,7 +116,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 47;
+    public const int CurrentVersion = 48;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -878,7 +882,11 @@ public static class Schema
             optional    INTEGER NOT NULL,
             post_dated  INTEGER NOT NULL,
             -- v6 (catalog §7): Reversing-Journal "Applicable upto" date; NULL for every other voucher
-            applicable_upto TEXT    NULL
+            applicable_upto TEXT    NULL,
+            -- v48 (numbering S5): the counterparty document number/date — "Supplier Invoice No." (Purchase) /
+            -- "Reference No." (Sales); free text, NEVER auto-numbered; NULL for every voucher without one
+            reference_no   TEXT    NULL,
+            reference_date TEXT    NULL       -- ISO yyyy-MM-dd
         );
 
         CREATE TABLE entry_lines (
@@ -3613,4 +3621,29 @@ public static class Schema
     /// creates and <c>SchemaDowngrade.V47ToV46</c> removes. Named once so the two can never disagree.</summary>
     public static readonly IReadOnlyList<string> V47NumberingColumns =
         new[] { "prevent_duplicate", "number_width", "prefill_with_zero" };
+
+    /// <summary>
+    /// v47 → v48 (voucher-numbering S5; numbering-design-v2 §8 — the <b>counterparty captured field</b>): additive —
+    /// two nullable columns on <c>vouchers</c> (<c>reference_no</c> TEXT NULL, <c>reference_date</c> TEXT NULL, ISO
+    /// yyyy-MM-dd) that hold the OTHER party's document number/date ("Supplier Invoice No." on a Purchase, "Reference
+    /// No." on a Sales). This is a DISTINCT field from the GST credit/debit-note-only <c>original_invoice_number</c>
+    /// on <c>gst_cdn_links</c> (which references OUR earlier invoice). Run inside a transaction that bumps
+    /// <c>schema_version</c> to 48. <b>No row rewrites, no data backfill</b>: every existing v47 voucher reads the two
+    /// NULL columns, so a company with no captured reference persists and serialises byte-identically to a v47
+    /// company (ER-13).
+    ///
+    /// <para>The two <c>ALTER … ADD COLUMN … TEXT NULL</c> statements are byte-identical to their counterparts in
+    /// <see cref="CreateV1"/> — the migration-equivalence test compares <c>PRAGMA table_info</c>
+    /// (name/type/notnull/default/pk), so the <c>TEXT</c>/nullable contract MUST match on both sides. A fresh DB is
+    /// stamped straight to v48 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV47ToV48 = """
+        ALTER TABLE vouchers ADD COLUMN reference_no   TEXT NULL;
+        ALTER TABLE vouchers ADD COLUMN reference_date TEXT NULL;
+        """;
+
+    /// <summary>The two <c>vouchers</c> columns v48 adds — the exact set <see cref="MigrateV47ToV48"/> creates and
+    /// <c>SchemaDowngrade.V48ToV47</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V48ReferenceColumns =
+        new[] { "reference_no", "reference_date" };
 }

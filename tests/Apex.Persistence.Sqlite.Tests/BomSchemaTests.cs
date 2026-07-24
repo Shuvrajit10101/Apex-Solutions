@@ -268,6 +268,9 @@ public sealed class BomSchemaTests
             abbreviation TEXT NULL, is_active INTEGER NOT NULL, is_predefined INTEGER NOT NULL,
             affects_accounts INTEGER NOT NULL DEFAULT 0, affects_stock INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, voucher_id TEXT NOT NULL, line_order INTEGER NOT NULL DEFAULT 0, ledger_id TEXT NOT NULL DEFAULT '', amount_paisa INTEGER NOT NULL DEFAULT 0, side INTEGER NOT NULL DEFAULT 0);
+        -- vouchers is required because the chain now runs through the v47->v48 counterparty-reference migration,
+        -- whose ALTER TABLE vouchers ADD COLUMN reference_no/reference_date needs the table to exist.
+        CREATE TABLE vouchers (id TEXT NOT NULL PRIMARY KEY);
         CREATE TABLE stock_groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, parent_id TEXT NULL, alias TEXT NULL, add_quantities INTEGER NOT NULL DEFAULT 1);
         CREATE TABLE units (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),

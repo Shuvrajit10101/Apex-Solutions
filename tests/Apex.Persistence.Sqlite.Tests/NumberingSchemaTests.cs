@@ -41,6 +41,9 @@ public sealed class NumberingSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                // Step down one version at a time from the current version: v48→v47 drops the counterparty
+                // reference columns, v47→v46 drops the numbering config.
+                SchemaDowngrade.V48ToV47(conn);
                 SchemaDowngrade.V47ToV46(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -170,6 +173,8 @@ public sealed class NumberingSchemaTests
 
             using (var conn = Open(dbPath))
             {
+                // Step down from the current version: v48→v47 (reference columns) then v47→v46 (numbering config).
+                SchemaDowngrade.V48ToV47(conn);
                 SchemaDowngrade.V47ToV46(conn);
                 SqliteConnection.ClearPool(conn);
             }

@@ -741,7 +741,9 @@ public static class CanonicalXml
             Attr("id", v.Id), Attr("typeId", v.TypeId), Attr("number", v.Number), Attr("date", v.Date),
             Opt("narration", v.Narration), OptId("partyId", v.PartyId),
             Attr("cancelled", v.Cancelled), Attr("optional", v.Optional), Attr("postDated", v.PostDated),
-            Opt("applicableUpto", v.ApplicableUpto));
+            Opt("applicableUpto", v.ApplicableUpto),
+            // v48 (numbering S5): counterparty reference — omitted when null so an unset voucher is byte-identical.
+            Opt("referenceNo", v.ReferenceNo), Opt("referenceDate", v.ReferenceDate));
         var lines = new XElement("lines");
         foreach (var l in v.Lines) lines.Add(BuildEntryLine(l));
         el.Add(lines);
@@ -1764,6 +1766,7 @@ public static class CanonicalXml
         Narration = Str(e, "narration"), PartyId = OptGuid(e, "partyId"),
         Cancelled = Bool(e, "cancelled"), Optional = Bool(e, "optional"), PostDated = Bool(e, "postDated"),
         ApplicableUpto = Str(e, "applicableUpto"),
+        ReferenceNo = Str(e, "referenceNo"), ReferenceDate = Str(e, "referenceDate"),
         Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>()).Select(ReadEntryLine).ToList(),
         InventoryLines = (e.Element("inventoryLines")?.Elements("inventoryLine") ?? Enumerable.Empty<XElement>())
             .Select(ReadVoucherInventoryLine).ToList(),

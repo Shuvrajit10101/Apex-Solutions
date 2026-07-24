@@ -1148,6 +1148,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 47;
         }
 
+        // v47 → v48: apply the numbering-S5 counterparty captured field (two nullable columns on vouchers,
+        // reference_no/reference_date), then bump the marker. Existing v47 data survives untouched (ALTER … ADD
+        // COLUMN only; no new tables, no row rewrites). ER-13 byte-identical when no voucher carries a reference
+        // (both columns read NULL).
+        if (version == 47)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV47ToV48;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 48);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 48;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -3858,13 +3882,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         // Header rows first, then lines per voucher (ordered), to build each aggregate.
         var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
-            Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto)>();
+            Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto,
+            string? ReferenceNo, DateOnly? ReferenceDate)>();
 
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                       applicable_upto
+                       applicable_upto, reference_no, reference_date
                 FROM vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3881,7 +3906,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.GetInt64(6) != 0,
                     r.GetInt64(7) != 0,
                     r.GetInt64(8) != 0,
-                    r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9))));
+                    r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9)),
+                    r.IsDBNull(10) ? null : r.GetString(10),
+                    r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11))));
             }
         }
 
@@ -3901,7 +3928,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 postDated: h.PostDated,
                 applicableUpto: h.ApplicableUpto,
                 inventoryLines: inventoryLines.Count > 0 ? inventoryLines : null,
-                posTenders: posTenders.Count > 0 ? posTenders : null));
+                posTenders: posTenders.Count > 0 ? posTenders : null,
+                referenceNo: h.ReferenceNo,
+                referenceDate: h.ReferenceDate));
         }
         return result;
     }
@@ -6538,8 +6567,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO vouchers
                     (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                     applicable_upto)
-                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au);
+                     applicable_upto, reference_no, reference_date)
+                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate);
                 """;
             cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -6552,6 +6581,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$opt", v.Optional ? 1 : 0);
             cmd.Parameters.AddWithValue("$pd", v.PostDated ? 1 : 0);
             cmd.Parameters.AddWithValue("$au", (object?)(v.ApplicableUpto is { } au ? FormatDate(au) : null) ?? DBNull.Value);
+            // v48 (numbering S5): the counterparty reference number/date — free text, never auto-numbered; NULL absent.
+            cmd.Parameters.AddWithValue("$refno", (object?)v.ReferenceNo ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$refdate", (object?)(v.ReferenceDate is { } rd ? FormatDate(rd) : null) ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
 

@@ -458,6 +458,33 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     [ObservableProperty] private string _applicableUptoText = string.Empty;
 
     /// <summary>
+    /// True only for a Purchase or Sales voucher: the header exposes the <b>counterparty captured field</b>
+    /// (numbering-design-v2 §8) — "Supplier Invoice No." on a Purchase, "Reference No." on a Sales. Drives the
+    /// field's visibility.
+    /// </summary>
+    public bool ShowReferenceCapture =>
+        _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+
+    /// <summary>The label for the counterparty captured field, per base type: "Supplier Invoice No." on a Purchase
+    /// (the other party's number is the supplier's invoice number), "Reference No." on a Sales.</summary>
+    public string ReferenceNoCaption =>
+        _type.BaseType == VoucherBaseType.Purchase ? "Supplier Invoice No." : "Reference No.";
+
+    /// <summary>
+    /// The counterparty document number (numbering-design-v2 §8) — the OTHER party's number, captured as free text.
+    /// It receives NO auto prefix/suffix/numbering (that is our own <see cref="VoucherNumber"/>); flowed to
+    /// <see cref="Voucher.ReferenceNo"/> on Accept. Blank ⇒ null ⇒ byte-identical to a voucher without one (ER-13).
+    /// </summary>
+    [ObservableProperty] private string _referenceNo = string.Empty;
+
+    /// <summary>
+    /// The counterparty document's date as editable text (dd-MMM-yyyy); optional. Blank ⇒ no date. Parsed on
+    /// Accept and flowed to <see cref="Voucher.ReferenceDate"/>; unparseable non-blank input is rejected (never
+    /// silently discarded).
+    /// </summary>
+    [ObservableProperty] private string _referenceDateText = string.Empty;
+
+    /// <summary>
     /// The voucher date as editable text, in the one canonical <see cref="ApexDate.Canonical"/> spelling
     /// (WI-5). Input is read by the shared DAY-FIRST parser, so "03/04/2024" is 3-Apr — never the 4-Mar
     /// month-first misread the old InvariantCulture parse produced.
@@ -1870,6 +1897,33 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// whole window on ANY non-success exit. Returns false ⇒ refused with <see cref="Message"/> set; may throw
     /// <see cref="UnbalancedVoucherException"/> / <see cref="InvalidVoucherException"/> (the caller relays both).
     /// </summary>
+    /// <summary>
+    /// Resolves the counterparty captured field (numbering-design-v2 §8) for the post: the free-text
+    /// <see cref="ReferenceNo"/> (blank ⇒ null) and the optional <see cref="ReferenceDateText"/> (blank ⇒ null,
+    /// unparseable ⇒ rejected with a message). Captured only on a Purchase/Sales voucher — every other type gets
+    /// null/null so the posted voucher is byte-identical to today (ER-13). Returns false (and sets
+    /// <see cref="Message"/>) only when a non-blank reference date fails to parse.
+    /// </summary>
+    private bool TryResolveReferenceCapture(out string? referenceNo, out DateOnly? referenceDate)
+    {
+        referenceNo = null;
+        referenceDate = null;
+        if (!ShowReferenceCapture) return true; // never captured off a Purchase/Sales voucher
+
+        referenceNo = string.IsNullOrWhiteSpace(ReferenceNo) ? null : ReferenceNo.Trim();
+
+        if (!string.IsNullOrWhiteSpace(ReferenceDateText))
+        {
+            if (!ApexDate.TryParse(ReferenceDateText, Date, out var refDate))
+            {
+                Message = ApexDate.ErrorFor(ReferenceDateText);
+                return false;
+            }
+            referenceDate = refDate;
+        }
+        return true;
+    }
+
     private bool PostAndSave(Guid voucherId, Stack<Action> undo)
     {
         // GST on advances (RQ-25). All three actions come from the SAME engine the panel previewed (ER-4), and all three
@@ -1986,6 +2040,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             applicableUpto = upto;
         }
 
+        // Counterparty captured field (numbering-design-v2 §8) — "Supplier Invoice No." / "Reference No.".
+        if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return false;
+
         var voucher = new Voucher(
             voucherId,
             _type.Id,
@@ -1997,7 +2054,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // toggle only applies to real voucher types.
             optional: !IsProvisionalType && IsOptional,
             postDated: IsPostDated,
-            applicableUpto: applicableUpto);
+            applicableUpto: applicableUpto,
+            referenceNo: referenceNo,
+            referenceDate: referenceDate);
 
         var posted = _service.Post(voucher); // throws on unbalanced/invalid — never persisted
         undo.Push(() => _company.RemoveVoucher(posted));
@@ -2944,6 +3003,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         entryLines.AddRange(taxLines);
         entryLines.AddRange(tcsPayableLines);
 
+        // Counterparty captured field (numbering-design-v2 §8) — "Supplier Invoice No." / "Reference No.".
+        if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return false;
+
         var voucher = new Voucher(
             Guid.NewGuid(),
             _type.Id,
@@ -2954,7 +3016,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             partyId: party.Id,
             optional: IsOptional,
             postDated: IsPostDated,
-            inventoryLines: inventoryLines);
+            inventoryLines: inventoryLines,
+            referenceNo: referenceNo,
+            referenceDate: referenceDate);
 
         try
         {

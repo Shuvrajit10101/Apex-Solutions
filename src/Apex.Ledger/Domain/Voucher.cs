@@ -100,6 +100,23 @@ public sealed class Voucher
     /// </summary>
     public DateOnly? ApplicableUpto { get; set; }
 
+    /// <summary>
+    /// The <b>counterparty document number</b> (numbering-design-v2 §8): the OTHER party's number on an
+    /// ordinary Purchase/Sales voucher — captured as "Supplier Invoice No." on a Purchase and "Reference No."
+    /// on a Sales. Pure free text: it receives <b>no</b> auto prefix/suffix/width/numbering (that is our own
+    /// <see cref="Number"/>), and it is a DISTINCT field from the GST credit/debit-note-only
+    /// <c>original_invoice_number</c> (which references OUR earlier invoice). <c>null</c>/empty for every voucher
+    /// without one, so a voucher that carries no reference is behaviourally and serialisation-identical to today
+    /// (ER-13).
+    /// </summary>
+    public string? ReferenceNo { get; set; }
+
+    /// <summary>
+    /// The counterparty document's date (numbering-design-v2 §8), captured alongside <see cref="ReferenceNo"/>
+    /// for fidelity (Tally shows it). <c>null</c> for every voucher without a captured reference.
+    /// </summary>
+    public DateOnly? ReferenceDate { get; set; }
+
     public Voucher(
         Guid id,
         Guid typeId,
@@ -113,7 +130,9 @@ public sealed class Voucher
         bool postDated = false,
         DateOnly? applicableUpto = null,
         IEnumerable<VoucherInventoryLine>? inventoryLines = null,
-        IEnumerable<PosTender>? posTenders = null)
+        IEnumerable<PosTender>? posTenders = null,
+        string? referenceNo = null,
+        DateOnly? referenceDate = null)
     {
         Id = id;
         TypeId = typeId;
@@ -128,6 +147,8 @@ public sealed class Voucher
         ApplicableUpto = applicableUpto;
         _inventoryLines = inventoryLines?.ToList() ?? new List<VoucherInventoryLine>();
         _posTenders = posTenders?.ToList() ?? new List<PosTender>();
+        ReferenceNo = referenceNo;
+        ReferenceDate = referenceDate;
     }
 
     /// <summary>

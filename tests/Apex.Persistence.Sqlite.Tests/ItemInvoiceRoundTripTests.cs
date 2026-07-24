@@ -380,6 +380,30 @@ public sealed class ItemInvoiceRoundTripTests
             DROP TABLE voucher_types;
             ALTER TABLE voucher_types_v17 RENAME TO voucher_types;
             """);
+        // Rebuild vouchers WITHOUT the two v48 counterparty-reference columns (reference_no/reference_date), so this
+        // is a faithful pre-v48 shape and the reopen's v47→v48 ALTER TABLE ADD COLUMN does not collide. applicable_upto
+        // (v6) predates v11, so it is kept. The explicit DDL preserves the id PRIMARY KEY — a CREATE … AS SELECT would
+        // drop it, and voucher_inventory_lines (which FK-references vouchers(id)) then fails on the re-save.
+        Exec(conn, """
+            CREATE TABLE vouchers_v11 (
+                id          TEXT    NOT NULL PRIMARY KEY,
+                company_id  TEXT    NOT NULL,
+                type_id     TEXT    NOT NULL,
+                number      INTEGER NOT NULL,
+                date        TEXT    NOT NULL,
+                narration   TEXT        NULL,
+                party_id    TEXT        NULL,
+                cancelled   INTEGER NOT NULL,
+                optional    INTEGER NOT NULL,
+                post_dated  INTEGER NOT NULL,
+                applicable_upto TEXT    NULL);
+            INSERT INTO vouchers_v11
+                (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated, applicable_upto)
+            SELECT id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated, applicable_upto
+            FROM vouchers;
+            DROP TABLE vouchers;
+            ALTER TABLE vouchers_v11 RENAME TO vouchers;
+            """);
         DowngradeStripV16(conn);
         DowngradeStripV13(conn);
         Exec(conn, "UPDATE schema_version SET version = 11;");

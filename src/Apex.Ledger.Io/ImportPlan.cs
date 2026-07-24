@@ -1442,7 +1442,9 @@ internal sealed class ImportPlan
             CompanyImportService.ParseDate(v.Date), lines, v.Number, v.Narration,
             v.PartyId is { } pid ? ResolveLedgerId(pid, ledgerId, t) : null,
             v.Cancelled, v.Optional, v.PostDated, CompanyImportService.ParseDateOpt(v.ApplicableUpto),
-            invLines, posTenders);
+            invLines, posTenders,
+            // v48 (numbering S5): the counterparty reference carries across the import (the mandatory Io mirror).
+            referenceNo: v.ReferenceNo, referenceDate: CompanyImportService.ParseDateOpt(v.ReferenceDate));
     }
 
     private static BillAllocation BuildBillAllocation(BillAllocationDto a) => new(
