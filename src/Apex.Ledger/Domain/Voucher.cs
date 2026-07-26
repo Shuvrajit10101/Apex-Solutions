@@ -117,6 +117,26 @@ public sealed class Voucher
     /// </summary>
     public DateOnly? ReferenceDate { get; set; }
 
+    /// <summary>
+    /// True iff this voucher was posted from the <b>Accounting Invoice</b> (service-invoice) entry mode — a Sales
+    /// invoice billed as service-income LEDGER lines with SAC-based GST and <b>no stock</b>
+    /// (<see cref="HasInventoryLines"/> stays false). Schema v49; default <c>false</c>, so every voucher that predates
+    /// the flag — and every hand-keyed As-Voucher entry, item invoice and plain voucher — reads exactly as before
+    /// (ER-13).
+    ///
+    /// <para><b>Why this is persisted and not inferred.</b> The print gate used to decide "this is a service invoice"
+    /// by looking for engine-stamped <c>GstLineTax</c> forward legs on a ledger-only Sales voucher. That inference is
+    /// wrong in both directions: a <b>zero-rated</b> (LUT/export, 0%) and a <b>wholly-exempt</b> service invoice post
+    /// NO tax leg at all, yet both ARE valid Rule-46 tax invoices and must print as one; and the exclusion of
+    /// hand-keyed sales rested on "no other path currently stamps <c>GstLineTax</c> on a ledger-only Sales voucher" —
+    /// true of today's code, not a structural property. Recording WHAT THE USER DID at posting time makes both
+    /// directions structural: the document type is a fact about the voucher, not a guess re-derived from its tax.</para>
+    ///
+    /// <para>Read-only after construction, deliberately: the printed document type of an issued invoice must not be
+    /// flippable after the fact.</para>
+    /// </summary>
+    public bool IsAccountingInvoice { get; }
+
     public Voucher(
         Guid id,
         Guid typeId,
@@ -132,7 +152,8 @@ public sealed class Voucher
         IEnumerable<VoucherInventoryLine>? inventoryLines = null,
         IEnumerable<PosTender>? posTenders = null,
         string? referenceNo = null,
-        DateOnly? referenceDate = null)
+        DateOnly? referenceDate = null,
+        bool isAccountingInvoice = false)
     {
         Id = id;
         TypeId = typeId;
@@ -149,6 +170,7 @@ public sealed class Voucher
         _posTenders = posTenders?.ToList() ?? new List<PosTender>();
         ReferenceNo = referenceNo;
         ReferenceDate = referenceDate;
+        IsAccountingInvoice = isAccountingInvoice;
     }
 
     /// <summary>

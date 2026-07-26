@@ -274,6 +274,63 @@ public sealed class InvoicePdfTests
         Assert.True(CountOccurrences(s, "Description") >= 2, "the item-table column header must repeat on continuation pages");
     }
 
+    // ---- F5(b): the RENDERING half of the Compensation-Cess fix ----
+
+    /// <summary>
+    /// <b>F5(b) — the rendering half of FIX-1 was untested.</b> The projector was pinned to carry <c>TotalCess</c> into
+    /// the Grand Total, but no test ever RENDERED a cess-bearing invoice: deleting the
+    /// <c>TotalLine("Compensation Cess", …)</c> call from <c>InvoicePdf</c> survived the whole suite. The totals box
+    /// reserves the row height either way, so the defect is invisible to a layout assertion — the customer simply reads
+    /// a Grand Total 1,050 higher than the lines above it, with no line saying why.
+    /// <para><b>Bite:</b> delete that <c>TotalLine</c> call and the label + the cess amount vanish from the bytes.</para>
+    /// </summary>
+    [Fact]
+    public void Compensation_cess_prints_its_own_totals_row_and_reaches_the_grand_total()
+    {
+        var data = CessBearingInvoice();
+        string s = AsLatin1(InvoicePdf.Render(data, new PrintConfig(), new PageConfig()));
+
+        Assert.Contains("Compensation Cess", s);   // the charge is NAMED on the bill …
+        Assert.Contains("1,050.00", s);            // … at its own amount …
+        Assert.Contains("CGST", s);
+        Assert.Contains("787.50", s);
+
+        // … and the Grand Total = 8,750 + 1,575 + 1,050 = 11,375, in figures and in words.
+        Assert.Equal(11375m, data.GrandTotal.Amount);
+        Assert.Contains("11,375.00", s);
+        Assert.Contains("Rupees Eleven Thousand Three Hundred Seventy Five Only", s);
+    }
+
+    /// <summary>ER-13: an invoice bearing no cess renders exactly as it always did — no row, no label.</summary>
+    [Fact]
+    public void Cess_free_invoice_prints_no_compensation_cess_row()
+    {
+        string s = AsLatin1(InvoicePdf.Render(IntraStateInvoice(out _), new PrintConfig(), new PageConfig()));
+        Assert.DoesNotContain("Compensation Cess", s);
+    }
+
+    /// <summary>The intra-state fixture plus a ₹1,050 ring-fenced Compensation Cess (kept OUT of CGST/SGST).</summary>
+    private static InvoicePrintData CessBearingInvoice()
+    {
+        var data = IntraStateInvoice(out _);
+        return new InvoicePrintData
+        {
+            Seller = data.Seller,
+            Buyer = data.Buyer,
+            InvoiceNumber = data.InvoiceNumber,
+            InvoiceDateText = data.InvoiceDateText,
+            PlaceOfSupply = data.PlaceOfSupply,
+            IsInterState = false,
+            Items = data.Items,
+            TaxRows = data.TaxRows,
+            TotalTaxable = data.TotalTaxable,
+            TotalCgst = data.TotalCgst,
+            TotalSgst = data.TotalSgst,
+            TotalIgst = data.TotalIgst,
+            TotalCess = new Money(1050m),
+        };
+    }
+
     // ---- PDF-inspection helpers (parse the content-stream text operators) ----
 
     /// <summary>The number of page objects in the PDF (from the /Type /Pages Count).</summary>

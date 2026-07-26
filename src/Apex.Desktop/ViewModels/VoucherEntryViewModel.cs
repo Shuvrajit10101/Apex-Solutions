@@ -2556,12 +2556,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>Whether a ledger is a valid Particulars-line target on this nature — a service-income (Sales) /
-    /// expense (Purchase) ledger by primary-ancestor nature, never a GST tax ledger. Deliberately broad within the
-    /// nature so any user-defined service ledger (Sales Accounts / Direct or Indirect Income) is offered; a taxable
-    /// ledger with no resolvable SAC/rate still fails fast at Accept (never a silent ₹0).</summary>
+    /// expense (Purchase) ledger by primary-ancestor nature, never a GST tax ledger, and never a ledger that declares
+    /// a <b>GOODS</b> supply. Deliberately broad otherwise, so any user-defined service ledger (Sales Accounts /
+    /// Direct or Indirect Income) is offered; a taxable ledger with no resolvable SAC/rate still fails fast at Accept
+    /// (never a silent ₹0).
+    ///
+    /// <para><b>The goods exclusion is a Rule-46 validity guard, not a nicety.</b> An Accounting Invoice prints its
+    /// lines with a BLANK Quantity and a BLANK Rate — a service has neither. Rule 46(f) requires the quantity <i>and</i>
+    /// unit for a supply of GOODS, so billing a goods ledger here produces a tax invoice that is invalid on its face
+    /// (measured before this guard: a Goods-supply ledger was offered, Accept succeeded, and the document printed
+    /// <c>hsn/sac=847130 qty="" rate=""</c>). Goods belong on an item invoice, which carries real quantities.</para>
+    ///
+    /// <para>The test is "declares Goods", not "declares Services": a ledger with <b>no</b> <c>SalesPurchaseGst</c>
+    /// block at all declares no supply type — that is every ledger in a GST-off company, and every ledger just created
+    /// on the fly with Alt+C — and excluding those would empty the picker and break the feature. Only an explicit
+    /// <see cref="GstSupplyType.Goods"/> declaration is refused.</para></summary>
     private bool IsAccountingLineLedger(DomainLedger ledger)
     {
         if (ledger.GstClassification is not null) return false; // never a GST tax (Duties &amp; Taxes) ledger
+        if (ledger.SalesPurchaseGst is { SupplyType: GstSupplyType.Goods }) return false; // goods ⇒ item invoice
         var group = _company.FindGroup(ledger.GroupId);
         if (group is null) return false;
         var nature = ClassificationRules.PrimaryNatureOf(group, _company);
@@ -2990,7 +3003,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             postDated: IsPostDated,
             // No inventory lines — HasInventoryLines stays false; no stock is entered.
             referenceNo: referenceNo,
-            referenceDate: referenceDate);
+            referenceDate: referenceDate,
+            // v49: stamp the ACCOUNTING-INVOICE fact on the voucher. This — not an inference from the posted GST
+            // legs — is what makes the print path call it a tax invoice, so a zero-rated (LUT/export) or a
+            // wholly-exempt service invoice, both of which post NO tax leg, still print as the Rule-46 tax invoices
+            // they are; and a hand-keyed As-Voucher sale is excluded structurally (it never sets this).
+            isAccountingInvoice: true);
 
         try
         {

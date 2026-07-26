@@ -25,10 +25,15 @@ namespace Apex.Desktop.Tests;
 ///
 /// <para><b>The safety argument</b> is <see cref="HandKeyedAsVoucherSale_printOutput_isUnchanged"/>: an existing
 /// hand-keyed As-Voucher GST sale must print EXACTLY as it does today, same label, same rows. The discriminator is the
-/// posted <c>GstLineTax</c> metadata (a service invoice's engine-built tax legs carry it; hand-typed tax legs do not) —
-/// the same signal <c>Gstr1.AccumulateServiceHsn</c> already keys on. Relaxing the gate to "any ledger-only GST sale"
-/// would silently relabel vouchers the user already posted, and a print-time recompute would make the printed tax
-/// diverge from the posted GL.</para>
+/// PERSISTED <c>Voucher.IsAccountingInvoice</c> flag (schema v49) — stamped by the Accounting-Invoice accept path and
+/// by nothing else, so a hand-keyed sale is excluded structurally and every already-posted voucher (flag false by
+/// migration default) prints exactly as it did. It replaced an inference from posted <c>GstLineTax</c> forward legs
+/// that was wrong in BOTH directions: it excluded zero-rated (LUT/export) and wholly-exempt service invoices, which
+/// post no tax leg yet ARE Rule-46 tax invoices
+/// (<see cref="ZeroRatedServiceInvoice_printsAsTaxInvoice"/>,
+/// <see cref="WhollyExemptServiceInvoice_printsAsTaxInvoice"/>), and its exclusion of hand-keyed sales rested on "no
+/// other path stamps <c>GstLineTax</c> on a ledger-only Sales voucher" — true of the code, not of the data. The tax
+/// itself is still read off the posted legs and never recomputed.</para>
 /// </summary>
 public sealed class ServiceAccountingInvoicePrintTests : IDisposable
 {
@@ -189,11 +194,13 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
     // ================================================================ (4) THE GUARD: hand-keyed As-Voucher sale untouched
 
     /// <summary>
-    /// A hand-keyed ledger-only GST sale — plain grid, tax legs typed by hand, <b>no <c>GstLineTax</c> metadata</b> —
-    /// must project EXACTLY as before: still NOT a tax invoice, still labelled by its voucher type, same Dr/Cr rows.
-    /// <para><b>Bite:</b> relaxing the gate to "any ledger-only GST sale" (dropping the posted-<c>GstLineTax</c>
-    /// requirement) flips <c>IsTaxInvoice</c> to true here and the label to "Tax Invoice" — every assertion below
-    /// fails. That relabelling would hit vouchers the user has ALREADY posted.</para>
+    /// A hand-keyed ledger-only GST sale — plain grid, tax legs typed by hand, and above all <b>never stamped
+    /// <c>IsAccountingInvoice</c></b> — must project EXACTLY as before: still NOT a tax invoice, still labelled by its
+    /// voucher type, same Dr/Cr rows. The fixture ALSO carries a SAC-bearing sales ledger and the same economics as a
+    /// real service invoice, so nothing but the flag separates the two.
+    /// <para><b>Bite:</b> dropping the <c>if (!voucher.IsAccountingInvoice) return false;</c> conjunct from
+    /// <c>IsServiceAccountingInvoice</c> flips <c>IsTaxInvoice</c> to true here and the label to "Tax Invoice" — every
+    /// assertion below fails. That relabelling would hit vouchers the user has ALREADY posted.</para>
     /// </summary>
     [Fact]
     public void HandKeyedAsVoucherSale_printOutput_isUnchanged()
@@ -213,7 +220,8 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
             new EntryLine(TaxLedgerId(c, GstTaxHead.State, GstTaxDirection.Output), Money.FromRupees(450m), DrCr.Credit),
         }, partyId: k.LocalCustomerId);
         service.Post(v);
-        Assert.All(v.Lines, l => Assert.Null(l.Gst));   // the discriminator: no posted GstLineTax anywhere
+        Assert.False(v.IsAccountingInvoice);            // THE discriminator: it was never billed as a service invoice
+        Assert.All(v.Lines, l => Assert.Null(l.Gst));   // (and, as before, no posted GstLineTax anywhere)
 
         // Unchanged: not a tax invoice, no document label, plain-voucher projection with the posted legs verbatim.
         Assert.False(VoucherPrintProjector.IsTaxInvoice(c, v));
@@ -232,6 +240,20 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
 
     // ================================================================ (5) item invoices print exactly as before
 
+    /// <summary>
+    /// An item invoice must keep printing the ITEM projection — Widget, HSN from the stock item, a real Qty and Rate.
+    ///
+    /// <para><b>FIX-5 — this test did not used to bite its own mutation.</b> The fixture's Sales ledger carried NO
+    /// <c>SalesPurchaseGst</c> block, so <c>Gstr1.ServiceLegs</c> found nothing on it and the service branch was
+    /// UNREACHABLE in this fixture: deleting the guards from <c>IsServiceAccountingInvoice</c> left all six print
+    /// tests green. Real companies DO configure a ledger-level GST block on their sales ledger
+    /// (<see cref="NewItemInvoiceKit"/> now does), and with it the service branch is reachable, so the guards are
+    /// genuinely exercised.</para>
+    ///
+    /// <para><b>Bite:</b> gate <c>IsServiceAccountingInvoice</c> on <c>Gstr1.ServiceLegs(...).Any()</c> alone (delete
+    /// the <c>HasInventoryLines</c> and <c>IsAccountingInvoice</c> conjuncts) and this item invoice is hijacked to the
+    /// service path: it prints <c>desc="Sales" qty="" rate=""</c> instead of the Widget line.</para>
+    /// </summary>
     [Fact]
     public void ItemInvoice_printOutput_isUnchanged()
     {
@@ -320,6 +342,299 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
         Assert.Equal("998311", Assert.Single(after.Items).HsnSac);
     }
 
+    // ================================================================ (7) FIX-1: Compensation Cess reaches the bill
+
+    /// <summary>
+    /// <b>FIX-1 (high) — the printed Grand Total under-billed the customer by the whole Compensation Cess.</b>
+    /// <c>ReadPostedRateGroups</c> correctly ring-fences cess out of the per-RATE rows (a cess leg records the same
+    /// group taxable on its own cess-rate key, so it would inject a phantom rate row), but the totals then dropped it
+    /// entirely and <c>InvoicePrintData</c> had nowhere to carry it. Measured on this very invoice: printed GrandTotal
+    /// 11,800 against a posted party leg of 13,000 — a 1,200 shortfall on the document the customer pays from.
+    /// <para><b>Bite:</b> stop carrying <c>TotalCess</c> into the projection (or drop it from
+    /// <c>InvoicePrintData.GrandTotal</c>) and the foot-to-the-party-leg assertion fails by exactly the cess.</para>
+    /// </summary>
+    [Fact]
+    public void ServiceInvoice_compensationCess_reachesTheGrandTotal()
+    {
+        var k = NewServiceKit("Svc Print Cess Co");
+        var entry = OpenAccountingSale(k);
+        SelectParty(entry, k.LocalCustomerId);
+
+        // Cess Service @18% + 12% cess on ₹10,000 intra ⇒ CGST 900 + SGST 900 + Cess 1,200; customer owes 13,000.
+        FillLine(entry, k.CessServiceId, "10000");
+        Assert.True(entry.Accept());
+
+        var c = k.Vm.Company!;
+        var v = PostedSale(c);
+        Assert.Equal(900m, PostedHead(c, v, GstTaxHead.Central));
+        Assert.Equal(900m, PostedHead(c, v, GstTaxHead.State));
+        Assert.Equal(1200m, PostedHead(c, v, GstTaxHead.Cess));   // the cess really was posted…
+        Assert.Equal(13000m, PartyLegAmount(c, v));               // …and really is part of the recorded debt
+
+        var data = VoucherPrintProjector.ProjectInvoice(c, v);
+
+        Assert.Equal(1200m, data.TotalCess.Amount);
+        // Ring-fenced: cess is NOT folded into the GST heads, and injects no phantom rate row.
+        Assert.Equal(900m, data.TotalCgst.Amount);
+        Assert.Equal(900m, data.TotalSgst.Amount);
+        Assert.Equal(1800m, data.TotalTax.Amount);
+        var tr = Assert.Single(data.TaxRows);
+        Assert.Equal("18%", tr.RateLabel);
+        Assert.Equal(10000m, tr.TaxableValue.Amount);
+        // …but it IS what the customer owes.
+        Assert.Equal(13000m, data.GrandTotal.Amount);
+        Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+
+        // And the real renderer still produces a real invoice with the extra totals row.
+        Assert.NotEmpty(new VoucherDetailViewModel(c, v).BuildPrintPreview().PdfBytes);
+    }
+
+    /// <summary>
+    /// The SAME defect on the ITEM path, which the HEAD oracle confirmed is identically wrong today: a cess-bearing
+    /// item invoice printed 1,180 against a posted party leg of 1,300. The item path recomputes its tax, so the fix is
+    /// to hand each line its resolved <c>CessCharge</c> to the engine — exactly what the ACCEPT path does — instead of
+    /// feeding rate-aggregated, cess-free lines.
+    /// <para><b>Bite:</b> drop the <c>ResolveCess</c> call (pass <c>TaxableLine(value, bp)</c>) and the grand total
+    /// falls back to 1,180.</para>
+    /// </summary>
+    [Fact]
+    public void ItemInvoice_compensationCess_reachesTheGrandTotal()
+    {
+        var vm = NewItemInvoiceKit("Svc Print ItemCess Co", out var widgetId, out var godownId, out var customerId,
+            cessBasisPoints: 1200);
+        vm.OpenVoucher(VoucherBaseType.Sales);
+        var entry = vm.VoucherEntry!;
+        entry.ToggleItemInvoice();
+        SelectParty(entry, customerId);
+        FillItemLine(entry, widgetId, godownId, 10m, "100.00");
+        Assert.True(entry.Accept());
+
+        var c = vm.Company!;
+        var v = PostedSale(c);
+        Assert.Equal(90m, PostedHead(c, v, GstTaxHead.Central));
+        Assert.Equal(90m, PostedHead(c, v, GstTaxHead.State));
+        Assert.Equal(120m, PostedHead(c, v, GstTaxHead.Cess));
+        Assert.Equal(1300m, PartyLegAmount(c, v));
+
+        var data = VoucherPrintProjector.ProjectInvoice(c, v);
+        Assert.Equal(120m, data.TotalCess.Amount);
+        Assert.Equal(90m, data.TotalCgst.Amount);
+        Assert.Equal(90m, data.TotalSgst.Amount);
+        Assert.Equal(1000m, data.TotalTaxable.Amount);
+        Assert.Equal(1300m, data.GrandTotal.Amount);
+        Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+        // The item row itself is untouched by the cess fix.
+        var row = Assert.Single(data.Items);
+        Assert.Equal("Widget", row.Description);
+        Assert.Equal("10 Nos", row.QuantityText);
+        Assert.Equal("100.00", row.RateText);
+    }
+
+    // ================================================================ (8) FIX-3: the document cannot contradict itself
+
+    /// <summary>
+    /// <b>FIX-3 (med-high) — editing the party's State after posting made the printed document self-contradictory.</b>
+    /// The posted tax is (rightly) never recomputed, so the invoice kept printing intra-state CGST+SGST; but the buyer
+    /// block and the Place of Supply were read from the LIVE party master, so the same page then declared an
+    /// INTER-state place of supply and a re-stated buyer GSTIN. CGST+SGST asserts the place of supply IS the
+    /// supplier's State — no such document is valid.
+    /// <para><b>Bite:</b> revert <c>BuyerBlock</c>/<c>PlaceOfSupply</c> to read <c>party.PartyGst.StateCode</c>
+    /// directly and this prints "Gujarat (24)" beside CGST+SGST.</para>
+    /// </summary>
+    [Fact]
+    public void ServiceInvoice_partyStateEditedAfterPosting_documentStaysSelfConsistent()
+    {
+        var k = NewServiceKit("Svc Print StateEdit Co");
+        var entry = OpenAccountingSale(k);
+        SelectParty(entry, k.LocalCustomerId);           // Maharashtra (27) — the company's own State
+        FillLine(entry, k.ConsultancyId, "5000");
+        Assert.True(entry.Accept());
+
+        var c = k.Vm.Company!;
+        var v = PostedSale(c);
+        var before = VoucherPrintProjector.ProjectInvoice(c, v);
+        Assert.False(before.IsInterState);
+        Assert.Equal("Maharashtra (27)", before.PlaceOfSupply);
+        Assert.Equal(GstinMaharashtra, before.Buyer.Gstin);
+
+        // The customer relocates (or the State was simply mis-keyed and is corrected) AFTER the invoice was issued.
+        c.FindLedger(k.LocalCustomerId)!.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = GstinGujarat, StateCode = "24" };
+        _storage.Save(c);
+
+        var after = VoucherPrintProjector.ProjectInvoice(c, v);
+
+        // The posted tax is unchanged — it is history, and it is never recomputed.
+        Assert.False(after.IsInterState);
+        Assert.Equal(450m, after.TotalCgst.Amount);
+        Assert.Equal(450m, after.TotalSgst.Amount);
+        Assert.Equal(0m, after.TotalIgst.Amount);
+
+        // …and the buyer block + Place of Supply AGREE with it, instead of contradicting it.
+        Assert.Equal("Maharashtra (27)", after.PlaceOfSupply);
+        Assert.Equal("Maharashtra (27)", after.Buyer.StateText);
+        Assert.NotEqual(GstinGujarat, after.Buyer.Gstin);   // a 24… GSTIN under a 27 Place of Supply is the same lie
+
+        // The invariant, stated once: an intra-state document names the supplier's own State as the place of supply.
+        Assert.Equal(after.Seller.StateText, after.PlaceOfSupply);
+    }
+
+    // ================================================================ (9) FIX-0: no tax leg is still a tax invoice
+
+    /// <summary>
+    /// <b>FIX-0 (user decision) — a ZERO-RATED (LUT/export, 0%) service invoice posts no tax leg at all.</b> Under the
+    /// old "has forward GstLineTax legs" inference it printed as a plain accounting voucher: no SAC, no GSTIN blocks,
+    /// no document label — though it IS a Rule-46 tax invoice. Keying on the persisted <c>IsAccountingInvoice</c> flag
+    /// makes the document type a fact about what the user did, not a guess from the tax.
+    /// <para><b>Bite:</b> gate <c>IsServiceAccountingInvoice</c> on <c>GstReportSupport.HasForwardTaxLines</c> again —
+    /// this voucher has none, so it reverts to a plain voucher and every assertion below fails.</para>
+    /// </summary>
+    [Fact]
+    public void ZeroRatedServiceInvoice_printsAsTaxInvoice()
+    {
+        var k = NewServiceKit("Svc Print ZeroRated Co");
+        var entry = OpenAccountingSale(k);
+        SelectParty(entry, k.LocalCustomerId);
+        FillLine(entry, k.ZeroRatedId, "5000");
+        Assert.True(entry.Accept());
+
+        var c = k.Vm.Company!;
+        var v = PostedSale(c);
+        Assert.True(v.IsAccountingInvoice);
+        Assert.All(v.Lines, l => Assert.Null(l.Gst));      // NOT ONE posted tax leg …
+        Assert.Equal(5000m, PartyLegAmount(c, v));
+
+        Assert.True(VoucherPrintProjector.IsTaxInvoice(c, v));                       // … and still a tax invoice
+        Assert.Equal("Tax Invoice", new VoucherDetailViewModel(c, v).DocumentLabel);
+
+        var data = VoucherPrintProjector.ProjectInvoice(c, v);
+        var row = Assert.Single(data.Items);
+        Assert.Equal("Export Service (LUT)", row.Description);
+        Assert.Equal("998313", row.HsnSac);                // the SAC Rule 46(g) requires
+        Assert.Equal(5000m, row.TaxableValue.Amount);
+        Assert.Empty(data.TaxRows);                        // no rate row — there is no tax
+        Assert.Equal(0m, data.TotalTax.Amount);
+        Assert.Equal(5000m, data.GrandTotal.Amount);
+        Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+        Assert.Equal(GstinMaharashtra, data.Seller.Gstin); // the GSTIN blocks Rule 46(a)/(d)/(e) requires
+        Assert.Equal(GstinMaharashtra, data.Buyer.Gstin);
+        Assert.Equal(PrintPreviewViewModel.PrintKind.Invoice, new VoucherDetailViewModel(c, v).BuildPrintPreview().Kind);
+    }
+
+    /// <summary>
+    /// The other half of FIX-0: a <b>WHOLLY EXEMPT</b> service invoice also posts no tax leg, and was documented as a
+    /// deliberate known limitation of the previous gate ("keeps printing as a plain voucher"). It is a Rule-46
+    /// document too, and the persisted flag now says so.
+    /// <para><b>Bite:</b> the same one — restore the <c>HasForwardTaxLines</c> gate.</para>
+    /// </summary>
+    [Fact]
+    public void WhollyExemptServiceInvoice_printsAsTaxInvoice()
+    {
+        var k = NewServiceKit("Svc Print Exempt Co");
+        var entry = OpenAccountingSale(k);
+        SelectParty(entry, k.LocalCustomerId);
+        FillLine(entry, k.ExemptServiceId, "7500");
+        Assert.True(entry.Accept());
+
+        var c = k.Vm.Company!;
+        var v = PostedSale(c);
+        Assert.True(v.IsAccountingInvoice);
+        Assert.All(v.Lines, l => Assert.Null(l.Gst));
+        Assert.Equal(7500m, PartyLegAmount(c, v));
+
+        Assert.True(VoucherPrintProjector.IsTaxInvoice(c, v));
+        var data = VoucherPrintProjector.ProjectInvoice(c, v);
+        var row = Assert.Single(data.Items);
+        Assert.Equal("Exempt Service", row.Description);
+        Assert.Equal("999999", row.HsnSac);
+        Assert.Equal(7500m, row.TaxableValue.Amount);
+        Assert.Empty(data.TaxRows);
+        Assert.Equal(7500m, data.GrandTotal.Amount);
+        Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+    }
+
+    // ================================================================ (10) FIX-6: a PARTLY exempt service invoice
+
+    /// <summary>
+    /// <b>FIX-6 (test adequacy) — the partly-exempt shape was correct but UNGUARDED.</b> A service invoice mixing a
+    /// taxed line and an exempt line must print BOTH rows, tax only the taxable one, and still foot to the posted
+    /// party leg. Nothing tested it, so a one-word money mutation survived the whole suite.
+    /// <para><b>Bite:</b> make <c>ProjectServiceInvoice</c> accumulate <c>totalServiceValue</c> only for taxable legs
+    /// (<c>if (!Gstr1.IsNonTaxableServiceLedger(ledger)) totalServiceValue += value;</c>) and the invoice under-bills
+    /// by the exempt amount — 11,800 printed against 16,800 posted — with all six original tests still green.</para>
+    /// </summary>
+    [Fact]
+    public void ServiceInvoice_partlyExempt_printsTheExemptLineAndFootsToThePostedPartyLeg()
+    {
+        var k = NewServiceKit("Svc Print PartExempt Co");
+        var entry = OpenAccountingSale(k);
+        SelectParty(entry, k.LocalCustomerId);
+
+        // Consultancy @18% ₹10,000 (CGST 900 + SGST 900) + Exempt Service ₹5,000 (untaxed) ⇒ customer owes 16,800.
+        FillLine(entry, k.ConsultancyId, "10000", index: 0);
+        FillLine(entry, k.ExemptServiceId, "5000", index: 1);
+        Assert.True(entry.Accept());
+
+        var c = k.Vm.Company!;
+        var v = PostedSale(c);
+        Assert.Equal(900m, PostedHead(c, v, GstTaxHead.Central));
+        Assert.Equal(900m, PostedHead(c, v, GstTaxHead.State));
+        Assert.Equal(16800m, PartyLegAmount(c, v));
+
+        var data = VoucherPrintProjector.ProjectInvoice(c, v);
+
+        // BOTH lines print — the exempt supply is never silently dropped from the document.
+        Assert.Equal(2, data.Items.Count);
+        Assert.Equal(10000m, data.Items.Single(i => i.HsnSac == "998311").TaxableValue.Amount);
+        Assert.Equal(5000m, data.Items.Single(i => i.HsnSac == "999999").TaxableValue.Amount);
+
+        // Only the TAXABLE line carries a rate row, on its own taxable value (never the whole 15,000).
+        var tr = Assert.Single(data.TaxRows);
+        Assert.Equal("18%", tr.RateLabel);
+        Assert.Equal(10000m, tr.TaxableValue.Amount);
+        Assert.Equal(900m, tr.Cgst.Amount);
+        Assert.Equal(900m, tr.Sgst.Amount);
+
+        // …and the exempt value is still IN the total the customer pays.
+        Assert.Equal(15000m, data.TotalTaxable.Amount);
+        Assert.Equal(16800m, data.GrandTotal.Amount);
+        Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+    }
+
+    // ================================================================ (11) F7: the base-type check lives in the gate
+
+    /// <summary>
+    /// <b>F7 (small).</b> <c>IsServiceAccountingInvoice</c> is public and <c>ProjectInvoice</c> calls it directly, so
+    /// relying on <c>IsTaxInvoice</c> to have checked the base type first left a ledger-only PURCHASE able to divert
+    /// into the service projection when <c>ProjectInvoice</c> was called directly — a divergence from HEAD. The check
+    /// now lives INSIDE the gate.
+    /// <para><b>Bite:</b> delete the base-type conjunct from <c>IsServiceAccountingInvoice</c> and this ledger-only
+    /// purchase projects a service row instead of the empty item projection HEAD produced.</para>
+    /// </summary>
+    [Fact]
+    public void LedgerOnlyPurchase_neverDivertsIntoTheServiceProjection()
+    {
+        var k = NewServiceKit("Svc Print PurchaseGuard Co");
+        var c = k.Vm.Company!;
+        var purchaseType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase && t.IsActive);
+
+        // A ledger-only PURCHASE against a SAC-bearing expense ledger — and stamped with the accounting-invoice flag,
+        // which the purchase side of the screen cannot do today. The base-type check is what keeps it out regardless.
+        var v = new Voucher(Guid.NewGuid(), purchaseType.Id, FyStart.AddDays(12), new[]
+        {
+            new EntryLine(k.ProfessionalFeesId, Money.FromRupees(5000m), DrCr.Debit),
+            new EntryLine(k.SupplierId, Money.FromRupees(5000m), DrCr.Credit),
+        }, partyId: k.SupplierId, isAccountingInvoice: true);
+        new LedgerService(c).Post(v);
+
+        Assert.False(VoucherPrintProjector.IsServiceAccountingInvoice(c, v));
+        Assert.False(VoucherPrintProjector.IsTaxInvoice(c, v));
+        // HEAD's behaviour for a direct ProjectInvoice call on a ledger-only purchase: the (empty) item projection.
+        Assert.Empty(VoucherPrintProjector.ProjectInvoice(c, v).Items);
+        // …and it still prints as the plain Dr/Cr voucher it is.
+        Assert.Equal(PrintPreviewViewModel.PrintKind.Voucher, new VoucherDetailViewModel(c, v).BuildPrintPreview().Kind);
+    }
+
     // ---------------------------------------------------------------- scaffolding
 
     private sealed class Kit
@@ -328,6 +643,11 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
         public required Guid ConsultancyId { get; init; }    // Income, taxable @18% (SAC 998311)
         public required Guid FreightIncomeId { get; init; }  // Income, taxable @5%  (SAC 996511)
         public required Guid PlainSalesId { get; init; }     // Income, taxable @18% — the hand-keyed sale's value ledger
+        public required Guid CessServiceId { get; init; }    // Income, taxable @18% + 12% ad-valorem Compensation Cess
+        public required Guid ExemptServiceId { get; init; }  // Income, EXEMPT (SAC 999999) — no tax leg at all
+        public required Guid ZeroRatedId { get; init; }      // Income, taxable @0% (LUT/export) — no tax leg at all
+        public required Guid ProfessionalFeesId { get; init; } // Expense, taxable @18% (SAC 998311) — purchase-side leg
+        public required Guid SupplierId { get; init; }       // Sundry Creditors, in-state
         public required Guid LocalCustomerId { get; init; }  // in-state (27), registered
         public required Guid InterCustomerId { get; init; }  // Gujarat (24), inter-state
     }
@@ -368,6 +688,38 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
             SupplyType = GstSupplyType.Services,
         };
 
+        // A cess-bearing service: 18% GST + a 12% ad-valorem Compensation Cess declared on the ledger itself.
+        var cessService = AddLedger(c, "Cess Service", "Sales Accounts");
+        cessService.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998399", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Services,
+            CessApplicable = true, CessValuationMode = CessValuationMode.AdValorem, CessRateBasisPoints = 1200,
+        };
+        // A wholly EXEMPT service and a ZERO-RATED (LUT/export) one: neither posts a single tax leg, and both are
+        // still Rule-46 tax invoices.
+        var exemptService = AddLedger(c, "Exempt Service", "Sales Accounts");
+        exemptService.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "999999", Taxability = GstTaxability.Exempt, SupplyType = GstSupplyType.Services,
+        };
+        var zeroRated = AddLedger(c, "Export Service (LUT)", "Sales Accounts");
+        zeroRated.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998313", Taxability = GstTaxability.Taxable, RateBasisPoints = 0,
+            SupplyType = GstSupplyType.Services,
+        };
+        // Purchase side: an expense ledger carrying a SAC block + a creditor, for the base-type guard (F7).
+        var professionalFees = AddLedger(c, "Professional Fees", "Indirect Expenses");
+        professionalFees.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998311", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Services,
+        };
+        var supplier = AddLedger(c, "Local Supplier", "Sundry Creditors");
+        supplier.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "27" };
+
         var localCustomer = AddLedger(c, "Local Customer", "Sundry Debtors");
         localCustomer.PartyGst = new PartyGstDetails
         { RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "27" };
@@ -383,13 +735,21 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
             ConsultancyId = consultancy.Id,
             FreightIncomeId = freight.Id,
             PlainSalesId = plainSales.Id,
+            CessServiceId = cessService.Id,
+            ExemptServiceId = exemptService.Id,
+            ZeroRatedId = zeroRated.Id,
+            ProfessionalFeesId = professionalFees.Id,
+            SupplierId = supplier.Id,
             LocalCustomerId = localCustomer.Id,
             InterCustomerId = interCustomer.Id,
         };
     }
 
-    /// <summary>A GST-enabled company with a stock item + a sales ledger, for the item-invoice parity guard.</summary>
-    private MainWindowViewModel NewItemInvoiceKit(string companyName, out Guid widgetId, out Guid godownId, out Guid customerId)
+    /// <summary>A GST-enabled company with a stock item + a sales ledger, for the item-invoice parity guard.
+    /// <paramref name="cessBasisPoints"/> optionally declares an ad-valorem Compensation Cess on the item (null ⇒ no
+    /// cess at all, i.e. the original fixture, byte-identical).</summary>
+    private MainWindowViewModel NewItemInvoiceKit(
+        string companyName, out Guid widgetId, out Guid godownId, out Guid customerId, int? cessBasisPoints = null)
     {
         var vm = new MainWindowViewModel(_storage);
         vm.NewCompanyName = companyName;
@@ -409,10 +769,25 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
         var nos = inv.CreateSimpleUnit("Nos", "Numbers", unitQuantityCode: "NOS");
         var main = c.MainLocation!.Id;
         var widget = inv.CreateStockItem("Widget", grp.Id, nos.Id);
-        widget.Gst = new StockItemGstDetails { HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        widget.Gst = new StockItemGstDetails
+        {
+            HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            CessApplicable = cessBasisPoints is not null,
+            CessValuationMode = cessBasisPoints is null ? null : CessValuationMode.AdValorem,
+            CessRateBasisPoints = cessBasisPoints,
+        };
         inv.AddOpeningBalance(widget.Id, main, 200m, Money.FromRupees(100m));
 
-        AddLedger(c, "Sales", "Sales Accounts");
+        // FIX-5: the sales VALUE ledger carries a ledger-level GST block, as a real company's does. Without it
+        // Gstr1.ServiceLegs finds no leg here and the service branch of the projector is unreachable in this fixture —
+        // which is exactly why this parity test used to survive deleting the guards that protect it. With it, the
+        // guards genuinely bite. Declared as GOODS (SupplyType default), which is what a goods sales ledger is.
+        var salesLedger = AddLedger(c, "Sales", "Sales Accounts");
+        salesLedger.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Goods,
+        };
         var customer = AddLedger(c, "Local Customer", "Sundry Debtors");
         customer.PartyGst = new PartyGstDetails
         { RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "27" };

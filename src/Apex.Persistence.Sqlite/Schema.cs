@@ -97,8 +97,13 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v48</b> is the latest bump
-    /// (voucher-numbering S5 — the <b>counterparty captured field</b>: two nullable columns on <c>vouchers</c>
+    /// <summary>The current schema version this adapter reads and writes. <b>v49</b> is the latest bump
+    /// (the <b>accounting-invoice flag</b>: one <c>INTEGER NOT NULL DEFAULT 0</c> column on <c>vouchers</c>
+    /// (<c>is_accounting_invoice</c>) recording that a Sales voucher was posted from the Accounting Invoice
+    /// (service-invoice) entry mode, so the printed document type is a PERSISTED FACT rather than an inference from
+    /// the posted GST legs — a zero-rated or wholly-exempt service invoice posts no tax leg yet is still a Rule-46
+    /// tax invoice. Existing v48 rows read 0 = "not an accounting invoice" and print exactly as before). v48 was
+    /// voucher-numbering S5 — the <b>counterparty captured field</b>: two nullable columns on <c>vouchers</c>
     /// (<c>reference_no</c>, <c>reference_date</c>) holding the other party's document number/date — "Supplier
     /// Invoice No." on a Purchase, "Reference No." on a Sales — a distinct field from the CDN-only
     /// <c>original_invoice_number</c>). v47 was voucher-numbering S3 — the per-type numbering config: three additive
@@ -116,7 +121,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 48;
+    public const int CurrentVersion = 49;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -886,7 +891,10 @@ public static class Schema
             -- v48 (numbering S5): the counterparty document number/date — "Supplier Invoice No." (Purchase) /
             -- "Reference No." (Sales); free text, NEVER auto-numbered; NULL for every voucher without one
             reference_no   TEXT    NULL,
-            reference_date TEXT    NULL       -- ISO yyyy-MM-dd
+            reference_date TEXT    NULL,      -- ISO yyyy-MM-dd
+            -- v49: posted from the Accounting Invoice (service-invoice) entry mode. 0 for every other voucher —
+            -- hand-keyed As-Voucher sales, item invoices, plain vouchers — so they print exactly as before.
+            is_accounting_invoice INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE entry_lines (
@@ -3646,4 +3654,30 @@ public static class Schema
     /// <c>SchemaDowngrade.V48ToV47</c> removes. Named once so the two can never disagree.</summary>
     public static readonly IReadOnlyList<string> V48ReferenceColumns =
         new[] { "reference_no", "reference_date" };
+
+    /// <summary>
+    /// v48 → v49 (the <b>accounting-invoice flag</b>): additive — one <c>is_accounting_invoice INTEGER NOT NULL
+    /// DEFAULT 0</c> column on <c>vouchers</c> recording that the voucher was posted from the <b>Accounting Invoice</b>
+    /// (service-invoice) entry mode. The printed document type then rests on a persisted FACT instead of an inference
+    /// from the posted GST legs: a zero-rated (LUT/export, 0%) or wholly-exempt service invoice posts no tax leg at all
+    /// yet is still a valid Rule-46 tax invoice, and a hand-keyed As-Voucher sale is excluded structurally (flag = 0)
+    /// rather than by "no other path happens to stamp <c>GstLineTax</c> today".
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 49. <b>No row rewrites, no data backfill</b>:
+    /// every existing v48 voucher reads the DEFAULT 0 — "not an accounting invoice" — which is exactly how v48 treated
+    /// every row, so an existing company prints and serialises byte-identically (ER-13).</para>
+    ///
+    /// <para>The <c>ALTER … ADD COLUMN</c> is byte-identical to its counterpart in <see cref="CreateV1"/> — the
+    /// migration-equivalence test compares <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the
+    /// <c>INTEGER</c>/NOT NULL/<c>DEFAULT 0</c> contract MUST match on both sides. A fresh DB is stamped straight to
+    /// v49 via <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV48ToV49 = """
+        ALTER TABLE vouchers ADD COLUMN is_accounting_invoice INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    /// <summary>The single <c>vouchers</c> column v49 adds — the exact set <see cref="MigrateV48ToV49"/> creates and
+    /// <c>SchemaDowngrade.V49ToV48</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V49AccountingInvoiceColumns =
+        new[] { "is_accounting_invoice" };
 }

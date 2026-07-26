@@ -955,6 +955,48 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         return vm;
     }
 
+    // ================================================================ FIX-4: goods may not be billed on this screen
+
+    /// <summary>
+    /// <b>FIX-4 (medium) — a GOODS ledger was offered on the Accounting-Invoice Particulars picker, and billing one
+    /// produced a Rule-46-INVALID tax invoice.</b> <c>IsAccountingLineLedger</c> only asked for an Income primary
+    /// nature, and no <c>SupplyType</c> check existed anywhere on the path. Measured through the real screen before
+    /// this guard: <c>offered=True</c>, Accept succeeded, the document was labelled "Tax Invoice", and its row printed
+    /// <c>hsn/sac=847130 qty="" rate=""</c> — Rule 46(f) requires the quantity AND unit for a supply of goods, and an
+    /// accounting invoice has neither by construction. Goods belong on an item invoice.
+    ///
+    /// <para>The guard refuses an explicit <see cref="GstSupplyType.Goods"/> declaration only: a ledger with no
+    /// <c>SalesPurchaseGst</c> block declares no supply type (every ledger in a GST-off company, and every ledger just
+    /// created with Alt+C) and stays offered, so the mode does not become unusable.</para>
+    ///
+    /// <para><b>Bite:</b> drop the <c>SupplyType</c> conjunct from <c>IsAccountingLineLedger</c> and the goods ledger
+    /// is offered again.</para>
+    /// </summary>
+    [Fact]
+    public void ParticularsPicker_doesNotOfferAGoodsSupplyLedger()
+    {
+        var k = NewServiceKit("Svc Goods Picker Co");
+        var c = k.Vm.Company!;
+
+        // A goods sales ledger, exactly as a trading company configures one: Income nature, HSN, SupplyType = Goods.
+        var goodsSales = AddLedger(c, "Widget Sales", "Sales Accounts");
+        goodsSales.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Goods,
+        };
+        // …and a service ledger created with NO GST block at all (the Alt+C shape), which must stay offered.
+        var undeclared = AddLedger(c, "Training Income", "Sales Accounts");
+        _storage.Save(c);
+
+        var entry = OpenAccountingSale(k);
+        entry.RefreshMasterPickers();
+
+        Assert.DoesNotContain(entry.AccountingInvoiceLedgers, l => l.Id == goodsSales.Id);   // goods: refused
+        Assert.Contains(entry.AccountingInvoiceLedgers, l => l.Id == k.ConsultancyId);       // services: offered
+        Assert.Contains(entry.AccountingInvoiceLedgers, l => l.Id == undeclared.Id);         // no block: still offered
+    }
+
     // ---------------------------------------------------------------- item-invoice kit (for the guard/parity tests)
 
     private MainWindowViewModel NewItemInvoiceKit(string companyName, out Guid widgetId, out Guid mainGodownId, out Guid salesLedgerId, out Guid customerId)

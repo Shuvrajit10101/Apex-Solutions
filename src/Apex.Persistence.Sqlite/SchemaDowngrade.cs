@@ -187,6 +187,53 @@ public static class SchemaDowngrade
         Exec(connection, "UPDATE schema_version SET version = 47;");
     }
 
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV48ToV49"/>: removes the accounting-invoice flag column
+    /// (<see cref="Schema.V49AccountingInvoiceColumns"/> — <c>is_accounting_invoice</c>) from <c>vouchers</c> and
+    /// stamps <c>schema_version</c> back to 48. The flag is discarded — that is what a downgrade means, and the
+    /// resulting voucher reads as "not an accounting invoice", exactly how v48 interpreted every row. Nothing else is
+    /// touched; v49 added no tables, indexes or constraints.
+    ///
+    /// <para><c>vouchers</c> is rebuilt from <c>PRAGMA table_info</c> minus the v49 column via the same plain
+    /// <c>CREATE … AS SELECT</c> idiom <see cref="V48ToV47"/> uses, for the same reasons (SQLite's
+    /// <c>DROP COLUMN</c> chokes on our commented DDL; a hand-written prior-version <c>CREATE TABLE</c> would rot).
+    /// Foreign keys are switched off for the swap because <c>entry_lines</c>, <c>voucher_inventory_lines</c>,
+    /// <c>pos_tender_allocations</c> and others reference <c>vouchers(id)</c>.</para>
+    ///
+    /// <para><b>KNOWN (F6), unchanged deliberately:</b> the <c>CREATE … AS SELECT</c> rebuild reproduces the columns
+    /// and data but NOT the table's PRIMARY KEY, its NOT NULL constraints or its index — the downgraded
+    /// <c>vouchers</c> table is looser than a genuine v48 one. This is the SAME pre-existing idiom as
+    /// <see cref="V48ToV47"/> and <see cref="V47ToV46"/>, and <c>SchemaDowngrade</c> is referenced nowhere in
+    /// <c>src/</c> — it exists so the tests can prove the forward migration reaches byte-equal parity with a fresh
+    /// <c>CreateV1</c>, and no shipped code path ever opens a downgraded database. Fixing it means rewriting all three
+    /// (and every future) downgrade to emit a real prior-version DDL, which is a separate change; doing it for v49
+    /// alone would leave the chain inconsistent.</para>
+    /// </summary>
+    public static void V49ToV48(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        var all = ColumnNames(connection, "vouchers");
+        var keep = all
+            .Where(c => !Schema.V49AccountingInvoiceColumns.Contains(c, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (keep.Count > 0 && keep.Count < all.Count)
+        {
+            var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+
+            Exec(connection, "PRAGMA foreign_keys=OFF;");
+            Exec(connection, $"""
+                CREATE TABLE vouchers_v48 AS SELECT {columnList} FROM vouchers;
+                DROP TABLE vouchers;
+                ALTER TABLE vouchers_v48 RENAME TO vouchers;
+                """);
+            Exec(connection, "PRAGMA foreign_keys=ON;");
+        }
+
+        Exec(connection, "UPDATE schema_version SET version = 48;");
+    }
+
     private static List<string> ColumnNames(SqliteConnection connection, string table)
     {
         using var cmd = connection.CreateCommand();

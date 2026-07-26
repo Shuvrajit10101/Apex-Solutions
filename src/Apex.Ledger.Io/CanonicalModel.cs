@@ -1581,6 +1581,16 @@ public sealed record VoucherDto
         Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? ReferenceDate { get; init; }        // ISO or null
 
+    /// <summary>Posted from the <b>Accounting Invoice</b> (service-invoice) entry mode (schema v49) — the persisted
+    /// fact that makes the printed document type independent of the posted GST legs. Default <c>false</c>.
+    /// <para>Marked <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/> so a
+    /// default-false voucher emits no <c>isAccountingInvoice</c> key — the canonical JSON options set
+    /// <c>DefaultIgnoreCondition = Never</c>, so without this attribute EVERY voucher in every existing export would
+    /// gain the key and the bytes would change (ER-13). XML gets it free via <c>OptTrue</c>.</para></summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsAccountingInvoice { get; init; }
+
     public IReadOnlyList<EntryLineDto> Lines { get; init; } = [];
     public IReadOnlyList<VoucherInventoryLineDto> InventoryLines { get; init; } = [];
 

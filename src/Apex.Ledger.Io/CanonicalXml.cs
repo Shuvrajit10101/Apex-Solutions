@@ -743,7 +743,9 @@ public static class CanonicalXml
             Attr("cancelled", v.Cancelled), Attr("optional", v.Optional), Attr("postDated", v.PostDated),
             Opt("applicableUpto", v.ApplicableUpto),
             // v48 (numbering S5): counterparty reference — omitted when null so an unset voucher is byte-identical.
-            Opt("referenceNo", v.ReferenceNo), Opt("referenceDate", v.ReferenceDate));
+            Opt("referenceNo", v.ReferenceNo), Opt("referenceDate", v.ReferenceDate),
+            // v49: the accounting-invoice (service-invoice) flag — omitted when false (ER-13).
+            OptTrue("isAccountingInvoice", v.IsAccountingInvoice));
         var lines = new XElement("lines");
         foreach (var l in v.Lines) lines.Add(BuildEntryLine(l));
         el.Add(lines);
@@ -1767,6 +1769,7 @@ public static class CanonicalXml
         Cancelled = Bool(e, "cancelled"), Optional = Bool(e, "optional"), PostDated = Bool(e, "postDated"),
         ApplicableUpto = Str(e, "applicableUpto"),
         ReferenceNo = Str(e, "referenceNo"), ReferenceDate = Str(e, "referenceDate"),
+        IsAccountingInvoice = Bool(e, "isAccountingInvoice"),
         Lines = (e.Element("lines")?.Elements("line") ?? Enumerable.Empty<XElement>()).Select(ReadEntryLine).ToList(),
         InventoryLines = (e.Element("inventoryLines")?.Elements("inventoryLine") ?? Enumerable.Empty<XElement>())
             .Select(ReadVoucherInventoryLine).ToList(),

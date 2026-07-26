@@ -70,11 +70,13 @@ public sealed class ReferenceFieldSchemaTests
             var fresh = CompanyFactory.CreateSeeded("Fresh Ref Co", FyStart);
             using (var store = new SqliteCompanyStore(freshPath)) store.Save(fresh);
 
-            // Manufacture a genuine v47 database: save at v48, then downgrade (drop the 2 reference columns).
+            // Manufacture a genuine v47 database: save at the current version, then step down one version at a time
+            // (v49→v48 drops the accounting-invoice flag, v48→v47 drops the 2 reference columns).
             var legacy = CompanyFactory.CreateSeeded("Legacy Ref Co", FyStart);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -119,6 +121,8 @@ public sealed class ReferenceFieldSchemaTests
 
             using (var conn = Open(dbPath))
             {
+                // Step down one version at a time from the current version to reach v47.
+                SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);
                 SqliteConnection.ClearPool(conn);
             }

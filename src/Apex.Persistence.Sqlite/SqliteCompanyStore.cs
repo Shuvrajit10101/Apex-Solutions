@@ -1172,6 +1172,30 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 48;
         }
 
+        // v48 → v49: add the accounting-invoice flag (is_accounting_invoice INTEGER NOT NULL DEFAULT 0 on vouchers),
+        // then bump the marker. Existing v48 data survives untouched (ALTER … ADD COLUMN only; no new tables, no row
+        // rewrites) and every existing row reads the DEFAULT 0 = "not an accounting invoice" — exactly how v48 read
+        // every row, so an existing company prints and serialises byte-identically (ER-13).
+        if (version == 48)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV48ToV49;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 49);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 49;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -3883,13 +3907,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // Header rows first, then lines per voucher (ordered), to build each aggregate.
         var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
             Guid? PartyId, bool Cancelled, bool Optional, bool PostDated, DateOnly? ApplicableUpto,
-            string? ReferenceNo, DateOnly? ReferenceDate)>();
+            string? ReferenceNo, DateOnly? ReferenceDate, bool IsAccountingInvoice)>();
 
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                       applicable_upto, reference_no, reference_date
+                       applicable_upto, reference_no, reference_date, is_accounting_invoice
                 FROM vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3908,7 +3932,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.GetInt64(8) != 0,
                     r.IsDBNull(9) ? (DateOnly?)null : ParseDate(r.GetString(9)),
                     r.IsDBNull(10) ? null : r.GetString(10),
-                    r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11))));
+                    r.IsDBNull(11) ? (DateOnly?)null : ParseDate(r.GetString(11)),
+                    // v49: NOT NULL DEFAULT 0, so every pre-v49 row reads false = "not an accounting invoice".
+                    r.GetInt64(12) != 0));
             }
         }
 
@@ -3930,7 +3956,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 inventoryLines: inventoryLines.Count > 0 ? inventoryLines : null,
                 posTenders: posTenders.Count > 0 ? posTenders : null,
                 referenceNo: h.ReferenceNo,
-                referenceDate: h.ReferenceDate));
+                referenceDate: h.ReferenceDate,
+                isAccountingInvoice: h.IsAccountingInvoice));
         }
         return result;
     }
@@ -6567,8 +6594,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.CommandText = """
                 INSERT INTO vouchers
                     (id, company_id, type_id, number, date, narration, party_id, cancelled, optional, post_dated,
-                     applicable_upto, reference_no, reference_date)
-                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate);
+                     applicable_upto, reference_no, reference_date, is_accounting_invoice)
+                VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $opt, $pd, $au, $refno, $refdate, $acctinv);
                 """;
             cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -6584,6 +6611,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             // v48 (numbering S5): the counterparty reference number/date — free text, never auto-numbered; NULL absent.
             cmd.Parameters.AddWithValue("$refno", (object?)v.ReferenceNo ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$refdate", (object?)(v.ReferenceDate is { } rd ? FormatDate(rd) : null) ?? DBNull.Value);
+            // v49: posted from the Accounting Invoice (service-invoice) entry mode. 0 for every other voucher (ER-13).
+            cmd.Parameters.AddWithValue("$acctinv", v.IsAccountingInvoice ? 1 : 0);
             cmd.ExecuteNonQuery();
         }
 

@@ -1444,7 +1444,10 @@ internal sealed class ImportPlan
             v.Cancelled, v.Optional, v.PostDated, CompanyImportService.ParseDateOpt(v.ApplicableUpto),
             invLines, posTenders,
             // v48 (numbering S5): the counterparty reference carries across the import (the mandatory Io mirror).
-            referenceNo: v.ReferenceNo, referenceDate: CompanyImportService.ParseDateOpt(v.ReferenceDate));
+            referenceNo: v.ReferenceNo, referenceDate: CompanyImportService.ParseDateOpt(v.ReferenceDate),
+            // v49: the accounting-invoice (service-invoice) flag carries across too, so an imported service invoice
+            // still prints as the tax invoice it was issued as. false for every other voucher (ER-13).
+            isAccountingInvoice: v.IsAccountingInvoice);
     }
 
     private static BillAllocation BuildBillAllocation(BillAllocationDto a) => new(

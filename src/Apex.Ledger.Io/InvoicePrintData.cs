@@ -125,15 +125,28 @@ public sealed class InvoicePrintData
     /// <summary>Σ IGST over the invoice (paisa-exact).</summary>
     public Money TotalIgst { get; init; }
 
+    /// <summary>
+    /// Σ <b>Compensation Cess</b> over the invoice (paisa-exact); 0 when the supply bears none — which is every
+    /// invoice outside the de-merit/luxury HSNs, so an invoice without cess renders byte-identically to before
+    /// (ER-13).
+    /// <para>Ring-fenced OUT of <see cref="TotalTax"/> (which stays CGST+SGST+IGST, mirroring
+    /// <c>GstService.InvoiceTax.TotalCess</c> and ER-2) but IN <see cref="GrandTotal"/> — cess is a charge the
+    /// recipient actually pays, and the posting side already adds it to the party leg, so an invoice that left it out
+    /// of the Grand Total under-billed the customer by the whole cess.</para>
+    /// </summary>
+    public Money TotalCess { get; init; }
+
     /// <summary>The signed round-off applied to the grand total (0 when none).</summary>
     public Money RoundOff { get; init; }
 
     /// <summary>Optional narration; printed only when <see cref="PrintConfig.ShowNarration"/> is set.</summary>
     public string Narration { get; init; } = string.Empty;
 
-    /// <summary>Σ all tax (CGST+SGST+IGST).</summary>
+    /// <summary>Σ all GST tax (CGST+SGST+IGST) — <b>excludes</b> the ring-fenced <see cref="TotalCess"/> (ER-2).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
-    /// <summary>The invoice grand total = taxable + tax + round-off (paisa-exact).</summary>
-    public Money GrandTotal => new(TotalTaxable.Amount + TotalTax.Amount + RoundOff.Amount);
+    /// <summary>The invoice grand total = taxable + tax + cess + round-off (paisa-exact) — the amount the recipient
+    /// owes, which must foot to the posted party leg.</summary>
+    public Money GrandTotal =>
+        new(TotalTaxable.Amount + TotalTax.Amount + TotalCess.Amount + RoundOff.Amount);
 }

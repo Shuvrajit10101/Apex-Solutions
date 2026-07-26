@@ -135,6 +135,7 @@ public sealed class PartyMailingSchemaTests
             {
                 // Step the store down one version at a time — a downgrade reverses exactly one migration, so
                 // reaching v44 from the current version means walking every step in between.
+                SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);
                 SchemaDowngrade.V47ToV46(conn);
                 SchemaDowngrade.V46ToV45(conn);

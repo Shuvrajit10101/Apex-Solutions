@@ -165,8 +165,11 @@ public static class InvoicePdf
             "all particulars are true and correct.";
         var declLines = VoucherPdf.WrapText(declaration, page.ContentWidth * 0.62, page.FooterFontSize);
 
-        // Totals rows: Taxable + (IGST | CGST+SGST) + optional Round Off + Grand Total.
-        int totalRows = 1 + (data.IsInterState ? 1 : 2) + (data.RoundOff.Amount != 0m ? 1 : 0) + 1;
+        // Totals rows: Taxable + (IGST | CGST+SGST) + optional Cess + optional Round Off + Grand Total.
+        // The Cess row appears only on a cess-bearing invoice, so a cess-free one measures (and renders) as before.
+        int totalRows = 1 + (data.IsInterState ? 1 : 2)
+                        + (data.TotalCess.Amount != 0m ? 1 : 0)
+                        + (data.RoundOff.Amount != 0m ? 1 : 0) + 1;
         double h = 2 + totalRows * page.RowHeight + 2;
 
         if (data.TaxRows.Count > 0)
@@ -297,6 +300,11 @@ public static class InvoicePdf
             TotalLine("CGST", Fmt(data.TotalCgst), false);
             TotalLine("SGST", Fmt(data.TotalSgst), false);
         }
+        // Compensation Cess gets its OWN line — it is ring-fenced from the GST heads (never folded into CGST/SGST/IGST)
+        // but it IS charged to the recipient, so it must appear on the bill and reach the Grand Total. Printed only
+        // when non-zero, so a cess-free invoice renders exactly as before (ER-13).
+        if (data.TotalCess.Amount != 0m)
+            TotalLine("Compensation Cess", Fmt(data.TotalCess), false);
         if (data.RoundOff.Amount != 0m)
             TotalLine("Round Off", FmtSigned(data.RoundOff), false);
         writer.Line(geo.QtyRight, y + page.RowHeight - 2, right, y + page.RowHeight - 2, 0.7);
