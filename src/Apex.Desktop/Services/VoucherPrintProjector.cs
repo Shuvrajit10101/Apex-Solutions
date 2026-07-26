@@ -4,6 +4,7 @@ using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 
 namespace Apex.Desktop.Services;
@@ -21,16 +22,48 @@ public static class VoucherPrintProjector
 {
     /// <summary>
     /// True iff <paramref name="voucher"/> should print as a GST <b>tax invoice</b> rather than a plain voucher:
-    /// a Sales voucher carrying item-invoice stock lines. Purchase item-invoices and every other voucher print
-    /// as the plain Dr/Cr voucher (RQ-10).
+    /// a Sales voucher carrying item-invoice stock lines, <b>or</b> a Sales <b>accounting (service) invoice</b>
+    /// (<see cref="IsServiceAccountingInvoice"/>). Purchase item-invoices and every other voucher print as the plain
+    /// Dr/Cr voucher (RQ-10).
     /// </summary>
     public static bool IsTaxInvoice(Company company, Voucher voucher)
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
-        if (!voucher.HasInventoryLines) return false;
         var type = company.FindVoucherType(voucher.TypeId);
-        return type?.BaseType == VoucherBaseType.Sales;
+        if (type?.BaseType != VoucherBaseType.Sales) return false;
+        return voucher.HasInventoryLines || IsServiceAccountingInvoice(company, voucher);
+    }
+
+    /// <summary>
+    /// True iff a <b>ledger-only</b> voucher is a SERVICE (Accounting Invoice) sale — the one ledger-only shape that
+    /// may print as a tax invoice. Two conjuncts, both structural, both read off what was POSTED:
+    /// <list type="number">
+    /// <item>it posts at least one <b>forward GST tax leg carrying <see cref="GstLineTax"/> metadata</b>
+    /// (<see cref="GstReportSupport.HasForwardTaxLines"/>) — the engine stamps that metadata; and</item>
+    /// <item>it carries at least one SAC-bearing service-income leg (<see cref="Gstr1.ServiceLegs"/>), so the
+    /// document has a line to print.</item>
+    /// </list>
+    ///
+    /// <para><b>Conjunct 1 is the whole safety argument.</b> An EXISTING hand-keyed As-Voucher GST sale types its
+    /// Output CGST/SGST legs by hand, as plain <c>EntryLine</c>s with <b>no</b> <see cref="GstLineTax"/> — so it fails
+    /// this gate and keeps printing exactly as it does today, under exactly today's label. This is the same
+    /// discriminator <c>Gstr1.AccumulateServiceHsn</c> already keys on (a hand-keyed voucher reads zero posted tax and
+    /// short-circuits into the exempt branch), so the printed document and the filed return agree on what a service
+    /// invoice IS. Relaxing this to "any ledger-only GST sale" would silently relabel vouchers the user already posted;
+    /// recomputing tax at print time would make the printed figures diverge from the posted GL.</para>
+    ///
+    /// <para>A wholly EXEMPT service invoice posts no tax leg at all and is therefore structurally indistinguishable
+    /// from a hand-keyed exempt sale; it keeps printing as a plain voucher. That is the conservative side of the
+    /// ruling, deliberately chosen.</para>
+    /// </summary>
+    public static bool IsServiceAccountingInvoice(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        if (voucher.HasInventoryLines) return false;
+        if (!GstReportSupport.HasForwardTaxLines(voucher)) return false;
+        return Gstr1.ServiceLegs(company, voucher).Any();
     }
 
     // ---------------------------------------------------------------- RQ-10: plain voucher
@@ -95,6 +128,11 @@ public static class VoucherPrintProjector
         var partyLedger = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
         var partyState = partyLedger?.PartyGst?.StateCode;
         bool interState = gst.IsInterState(partyState);
+
+        // A SERVICE (Accounting Invoice) sale has no stock lines, so the item pass below would project an EMPTY
+        // invoice. It takes its own projection, built entirely from the POSTED legs. The item path is untouched.
+        if (IsServiceAccountingInvoice(company, voucher))
+            return ProjectServiceInvoice(company, voucher, partyLedger);
 
         // The sales value ledger drives rate resolution (item → ledger → company). It is the posted entry line
         // whose ledger carries a Sales/Purchase GST block; fall back to the first non-party, non-tax ledger.
@@ -184,6 +222,133 @@ public static class VoucherPrintProjector
             RoundOff = invoiceTax.RoundOffAmount,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
         };
+    }
+
+    // ---------------------------------------------------------------- service (Accounting Invoice) tax invoice
+
+    /// <summary>
+    /// Projects a Sales <b>accounting (service) invoice</b> into an <see cref="InvoicePrintData"/> GST tax invoice —
+    /// the service mirror of the item pass above. The seller/buyer/place-of-supply blocks are the SAME master reads;
+    /// what differs is where the lines and the tax come from:
+    /// <list type="bullet">
+    /// <item><b>Lines</b> — one printed row per service-income leg (<see cref="Gstr1.ServiceLegs"/>), described by its
+    /// ledger, carrying the SAC that <c>Gstr1</c>'s Table-12 row and the e-invoice <c>HsnCd</c> already use
+    /// (<see cref="Gstr1.ServiceSacOf"/>) so the document, the return and the payload cannot disagree, and valued at
+    /// the posted leg amount. A service has neither a quantity nor a per-unit rate, so those cells print blank.</item>
+    /// <item><b>Tax</b> — read verbatim off the posted <see cref="GstLineTax"/> legs
+    /// (<see cref="ReadPostedRateGroups"/>), <b>never recomputed</b>. Re-rating the service ledger's master after
+    /// posting therefore cannot move a printed figure: the invoice the customer holds always states the tax the GL
+    /// actually carries.</item>
+    /// <item><b>Intra vs inter</b> — decided by which HEAD was posted, not re-derived from the party's (editable)
+    /// State, for the same reason.</item>
+    /// </list>
+    /// <para>No round-off is printed: the accounting-invoice accept path computes its tax with
+    /// <c>applyInvoiceRoundOff: false</c> and posts no round-off leg, so <c>GrandTotal</c> = Σ service legs + Σ posted
+    /// tax foots to the posted party leg exactly.</para>
+    /// </summary>
+    private static InvoicePrintData ProjectServiceInvoice(
+        Company company, Voucher voucher, Apex.Ledger.Domain.Ledger? partyLedger)
+    {
+        var items = new List<InvoiceItemRow>();
+        // Σ of EVERY service leg — taxed AND exempt/nil — so an exempt line is never silently dropped from the
+        // Grand Total (the same rule the item pass keeps with `totalGoodsValue`).
+        decimal totalServiceValue = 0m;
+        foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
+        {
+            items.Add(new InvoiceItemRow
+            {
+                Description = ReportPrintProjector.Ascii(ledger.Name),
+                HsnSac = ReportPrintProjector.Ascii(Gstr1.ServiceSacOf(ledger) ?? string.Empty),
+                QuantityText = string.Empty, // a service carries no quantity …
+                RateText = string.Empty,     // … and no per-unit rate
+                TaxableValue = new Money(value),
+            });
+            totalServiceValue += value;
+        }
+
+        var groups = ReadPostedRateGroups(voucher);
+        bool interState = PostedInterState(voucher);
+
+        var taxRows = new List<InvoiceTaxRow>(groups.Count);
+        decimal totalCgst = 0m, totalSgst = 0m, totalIgst = 0m;
+        foreach (var g in groups)
+        {
+            taxRows.Add(new InvoiceTaxRow
+            {
+                RateLabel = RateLabel(g.Rate),
+                TaxableValue = new Money(g.Taxable),
+                Cgst = new Money(g.Cgst),
+                Sgst = new Money(g.Sgst),
+                Igst = new Money(g.Igst),
+            });
+            totalCgst += g.Cgst; totalSgst += g.Sgst; totalIgst += g.Igst;
+        }
+
+        return new InvoicePrintData
+        {
+            Seller = SellerBlock(company),
+            Buyer = BuyerBlock(company, partyLedger),
+            InvoiceNumber = company.FormatVoucherNumber(voucher),
+            InvoiceDateText = voucher.Date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            ReferenceNo = ReportPrintProjector.Ascii(voucher.ReferenceNo ?? string.Empty),
+            ReferenceCaption = ReferenceCaption(company.FindVoucherType(voucher.TypeId)),
+            ReferenceDateText = voucher.ReferenceDate is { } rd
+                ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty,
+            PlaceOfSupply = PlaceOfSupply(company, partyLedger),
+            IsInterState = interState,
+            Items = items,
+            TaxRows = taxRows,
+            TotalTaxable = new Money(totalServiceValue),
+            TotalCgst = new Money(totalCgst),
+            TotalSgst = new Money(totalSgst),
+            TotalIgst = new Money(totalIgst),
+            RoundOff = Money.Zero,
+            Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
+        };
+    }
+
+    /// <summary>
+    /// The per-(integrated rate) posted tax of a voucher, read straight off its <see cref="GstLineTax"/> legs — the
+    /// print-side twin of <c>Gstr1.ReadInvoiceRateGroups</c>, with the same head exclusions so the printed breakup and
+    /// the filed return can never disagree: the ring-fenced Compensation Cess is not a CGST/SGST/IGST rate row (it
+    /// records the SAME taxable value on its own doubled key and would inject a phantom row), and reverse-charge legs
+    /// are their own bucket, not forward tax. Within one rate group every leg records the same group taxable, so the
+    /// max dedups the intra CGST+SGST pair. Ordered by rate for determinism.
+    /// </summary>
+    private static List<(int Rate, decimal Taxable, decimal Cgst, decimal Sgst, decimal Igst)> ReadPostedRateGroups(Voucher voucher)
+    {
+        var byRate = new Dictionary<int, (decimal Taxable, decimal Cgst, decimal Sgst, decimal Igst)>();
+        foreach (var line in voucher.Lines)
+        {
+            if (line.Gst is not { } g || g.IsReverseCharge) continue;
+            if (g.TaxHead == GstTaxHead.Cess) continue;
+            var rate = GstReportSupport.IntegratedRateOf(g);
+            var acc = byRate.TryGetValue(rate, out var cur) ? cur : default;
+            switch (g.TaxHead)
+            {
+                case GstTaxHead.Central: acc.Cgst += line.Amount.Amount; break;
+                case GstTaxHead.State: acc.Sgst += line.Amount.Amount; break;
+                case GstTaxHead.Integrated: acc.Igst += line.Amount.Amount; break;
+                default: continue;
+            }
+            if (g.TaxableValue.Amount > acc.Taxable) acc.Taxable = g.TaxableValue.Amount;
+            byRate[rate] = acc;
+        }
+        return byRate
+            .OrderBy(kv => kv.Key)
+            .Select(kv => (kv.Key, kv.Value.Taxable, kv.Value.Cgst, kv.Value.Sgst, kv.Value.Igst))
+            .ToList();
+    }
+
+    /// <summary>True iff the voucher POSTED its forward tax under the Integrated head — the printed intra/inter
+    /// routing, taken from the GL rather than re-derived from the party's (editable) State master, so an edit to the
+    /// party after posting can never make the document contradict the books.</summary>
+    private static bool PostedInterState(Voucher voucher)
+    {
+        foreach (var line in voucher.Lines)
+            if (line.Gst is { IsReverseCharge: false, TaxHead: GstTaxHead.Integrated }) return true;
+        return false;
     }
 
     // ---------------------------------------------------------------- helpers
