@@ -90,6 +90,11 @@ public static class VoucherPrintProjector
     /// future divergence between what a service invoice posts and what this projector reads — not just the crafted
     /// import that motivated it. Every genuine service invoice foots by construction (the accept path builds the party
     /// leg from exactly those three sums), so this is byte-identical on the real path (ER-13).</para>
+    ///
+    /// <para><b>Conjuncts 5 (F9) and 6 (F11)</b> extend the same idea from the TOTALS to the two statements the totals
+    /// cannot police — see <see cref="TaxedLegsCarryTheirTax"/> (a taxable supply may not be billed at NIL GST; the
+    /// route is ordinary use, not tampering) and <see cref="RateBreakupReconciles"/> (the printed rate ROW must
+    /// reconcile to the invoice's own taxable total). Every genuine service invoice satisfies both by construction.</para>
     /// </summary>
     public static bool IsServiceAccountingInvoice(Company company, Voucher voucher)
     {
@@ -99,7 +104,67 @@ public static class VoucherPrintProjector
         if (voucher.HasInventoryLines) return false;
         if (!voucher.IsAccountingInvoice) return false;
         if (!Gstr1.ServiceLegs(company, voucher).Any()) return false;
+        if (!TaxedLegsCarryTheirTax(company, voucher)) return false;
+        if (!RateBreakupReconciles(company, voucher)) return false;
         return ServiceInvoiceFoots(company, voucher);
+    }
+
+    /// <summary>
+    /// <b>Conjunct 5 (F9) — a TAXABLE supply may not be billed at NIL GST.</b> A voucher that posted no forward tax leg
+    /// at all states "this supply bore no GST". That is TRUE of a zero-rated (0%, LUT/export) or wholly-exempt supply —
+    /// both are genuine Rule-46 tax invoices, and admitting them is exactly what F1/FIX-0 exist for. It is FALSE of a
+    /// leg whose ledger declares a TAXABLE supply at a NON-ZERO rate: such a document declares a taxable SAC supply,
+    /// charges nothing for it, and prints an EMPTY rate breakup. It contradicts itself, so it is not projected as a tax
+    /// invoice and prints as the plain Dr/Cr voucher it was posted as.
+    ///
+    /// <para><b>The reachable route is ordinary use, not tampering</b> (measured): post a service invoice while GST is
+    /// OFF — the Accounting-Invoice screen is available on any Sales voucher, <c>IsAccountingGstInvoice</c> is false, so
+    /// two legs post and the flag is stamped — then register for GST and classify the income ledger. The SAME
+    /// already-issued voucher then printed <c>label="Tax Invoice" sac=998311 taxable=5000 tax=0 rows=0 grand=5000</c>.
+    /// <see cref="ServiceInvoiceFoots"/> cannot catch it: a document that charges no tax foots trivially.</para>
+    ///
+    /// <para>The discriminator is what the ledger DECLARES (<see cref="Gstr1.IsNonTaxableServiceLedger"/> plus a
+    /// non-zero declared rate), never "no tax was posted" — that reading would demote the zero-rated and exempt
+    /// invoices F1 restored. A taxable ledger declaring no rate of its own is left alone: its rate would have to be
+    /// resolved from the company default at print time, and a live resolve is exactly what this projector refuses to do
+    /// with money.</para>
+    /// </summary>
+    private static bool TaxedLegsCarryTheirTax(Company company, Voucher voucher)
+    {
+        if (PostedForwardRouting(voucher) is not null) return true; // forward tax was posted — nothing to object to
+        foreach (var (ledger, _) in Gstr1.ServiceLegs(company, voucher))
+            if (!Gstr1.IsNonTaxableServiceLedger(ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
+                return false;
+        return true;
+    }
+
+    /// <summary>
+    /// <b>Conjunct 6 (F11) — the printed rate ROW must reconcile too, not just the totals.</b>
+    /// <see cref="ReadPostedRateGroups"/> takes the rate label and the taxable value VERBATIM off the
+    /// <see cref="GstLineTax"/> metadata, and <see cref="ServiceInvoiceFoots"/> constrains only the TOTALS (it sums the
+    /// tax AMOUNTS, never the declared bases). Measured: a flagged voucher whose tax legs are stamped
+    /// <c>GstLineTax(head, 250, TaxableValue = 10,00,000)</c> FOOTS (5,000 + 900 = 5,900) yet printed
+    /// <c>rows = 5% / taxable = 10,00,000 / cgst = 450</c> under a totals band saying ₹5,000 — a breakup row
+    /// contradicting the document it sits on.
+    ///
+    /// <para>The bound is <b>≤</b>, not <b>=</b>, and that is load-bearing: an exempt leg and a zero-rated leg each
+    /// carry value into the invoice taxable total while posting no tax line, so a genuine partly-exempt invoice has
+    /// rate rows summing to strictly LESS than its taxable total (measured 10,000 of 15,000). Equality would demote it.
+    /// Both figures are read from POSTED data only — the leg amounts and the leg metadata — so no live master can move
+    /// this verdict.</para>
+    /// </summary>
+    private static bool RateBreakupReconciles(Company company, Voucher voucher)
+    {
+        var invoiceTaxable = 0m;
+        foreach (var (_, value) in Gstr1.ServiceLegs(company, voucher)) invoiceTaxable += value;
+
+        var breakupTaxable = 0m;
+        foreach (var g in ReadPostedRateGroups(voucher))
+        {
+            if (g.Taxable < 0m) return false;  // a negative base could otherwise mask an inflated one in the sum
+            breakupTaxable += g.Taxable;
+        }
+        return breakupTaxable <= invoiceTaxable;
     }
 
     /// <summary>
@@ -260,23 +325,29 @@ public static class VoucherPrintProjector
             taxableLines.Add(new GstService.TaxableLine(il.Value, res.RateBasisPoints, cess));
         }
 
-        // Compute the whole-invoice tax once (all taxable lines, one call) so the head totals + round-off match the
-        // engine exactly, then compute each rate group's tax separately for the per-rate breakup rows.
-        var invoiceTax = gst.ComputeInvoiceTax(taxableLines, interState, GstTaxDirection.Output, applyInvoiceRoundOff: true);
+        // Compute the whole-invoice tax once (all taxable lines, one call) so the head totals match the engine exactly,
+        // then compute each rate group's tax separately for the per-rate breakup rows.
+        //
+        // FIX-F10 (HIGH, money, pre-existing): `applyInvoiceRoundOff` is FALSE here because it is false on the ACCEPT
+        // path (`VoucherEntryViewModel.AcceptItemInvoice` uses the 3-arg overload, whose default is false). It used to
+        // be true, so PRINT invented a nearest-rupee round-off that NO voucher ever posts — `GstService.InvoiceTax`
+        // .RoundOffLine is produced here and consumed NOWHERE in src/. Measured on 7 Widgets @ ₹133.33 @18%: taxable
+        // 933.31 + CGST 84.00 + SGST 84.00 = a POSTED party leg of 1101.31, against a printed Round Off −0.31 and a
+        // Grand Total of 1101.00. Up to ±0.50 on every invoice whose taxable+tax is not a whole rupee — the printed
+        // demand differed from the recorded debt, and paying the printed figure left a permanent paisa residue in the
+        // debtor ledger. A whole-rupee invoice (the common case, and the only case the pre-existing tests exercised)
+        // rounded to zero, which is why this survived. Nothing about POSTING changes: already-posted vouchers keep
+        // every recorded amount; this is the document catching up with the books.
+        var invoiceTax = gst.ComputeInvoiceTax(taxableLines, interState, GstTaxDirection.Output);
 
         // F4: prefer the POSTED cess, as the service path already does — so re-rating an item's cess after posting
-        // cannot move the printed Grand Total off the debt the GL recorded. When the two agree (every ordinary reprint,
-        // and every cess-free invoice, where both are zero) nothing below runs and the projection is byte-identical
-        // (ER-13); when they differ, the nearest-rupee round-off is re-derived on the corrected grand total using the
-        // SAME arithmetic GstService.ComputeInvoiceTax applies, so the two figures stay consistent with each other.
+        // cannot move the printed Grand Total off the debt the GL recorded. Zero on every cess-free invoice, and equal
+        // to the engine's figure on every ordinary reprint (ER-13).
         var totalCess = hasPostedCess ? PostedCess(voucher) : invoiceTax.TotalCess;
-        var roundOff = invoiceTax.RoundOffAmount;
-        if (totalCess.Amount != invoiceTax.TotalCess.Amount)
-        {
-            var ratedTaxable = taxableLines.Sum(l => l.TaxableValue.Amount);
-            var grand = ratedTaxable + invoiceTax.TotalTax.Amount + totalCess.Amount;
-            roundOff = new Money(Math.Round(grand, 0, MidpointRounding.AwayFromZero) - grand);
-        }
+        // FIX-F10: the printed round-off is the one the voucher POSTED — never one invented at print time. Zero for
+        // every voucher this app posts (no path posts a Round-Off leg), so the Grand Total equals the party leg; a
+        // crafted/imported document that DOES carry one still states its own debt.
+        var roundOff = PostedRoundOff(company, voucher);
 
         var taxRows = new List<InvoiceTaxRow>(taxableByRate.Count);
         foreach (var (bp, taxable) in taxableByRate)
@@ -555,6 +626,37 @@ public static class VoucherPrintProjector
         foreach (var line in voucher.Lines)
             if (line.Gst is { IsReverseCharge: false, TaxHead: GstTaxHead.Cess })
                 total += line.Amount.Amount;
+        return new Money(total);
+    }
+
+    /// <summary>
+    /// The voucher's POSTED invoice round-off (FIX-F10), signed the way <c>InvoicePrintData.GrandTotal</c> adds it:
+    /// positive when the round-off RAISED the party total to the rupee, negative when it shaved it. On a sale the party
+    /// is a debit, so a Round-Off CREDIT raised the total; on a purchase the party is a credit, so the sides invert —
+    /// the same convention <c>GstService.RoundOffSide</c> posts with.
+    ///
+    /// <para>Zero for every voucher this app posts: nothing in <c>src/</c> ever posts a Round-Off leg (the accept paths
+    /// call <c>ComputeInvoiceTax</c> without <c>applyInvoiceRoundOff</c>, so <c>InvoiceTax.RoundOffLine</c> is always
+    /// null and is read by nobody). Reading the posted leg rather than hardcoding zero is what makes the rule "print
+    /// the round-off that was POSTED" rather than "print no round-off", so a crafted or imported document that genuinely
+    /// settles at the rupee still prints a Grand Total equal to its party leg.</para>
+    ///
+    /// <para><b>Deliberately NOT used by the service path.</b> <see cref="ServiceInvoiceFoots"/> is a security guard,
+    /// and admitting a Round-Off leg into it would hand crafted data a free plug for any shortfall. A service voucher
+    /// carrying one simply fails to foot and prints as the plain voucher it is — the conservative direction.</para>
+    /// </summary>
+    private static Money PostedRoundOff(Company company, Voucher voucher)
+    {
+        if (company.FindLedgerByName(GstService.RoundOffLedgerName)?.Id is not Guid roundOffId) return Money.Zero;
+        var partyIsCredit = company.FindVoucherType(voucher.TypeId)?.BaseType == VoucherBaseType.Purchase;
+
+        var total = 0m;
+        foreach (var line in voucher.Lines)
+        {
+            if (line.LedgerId != roundOffId) continue;
+            var raisedThePartyTotal = partyIsCredit ? line.Side == DrCr.Debit : line.Side == DrCr.Credit;
+            total += raisedThePartyTotal ? line.Amount.Amount : -line.Amount.Amount;
+        }
         return new Money(total);
     }
 

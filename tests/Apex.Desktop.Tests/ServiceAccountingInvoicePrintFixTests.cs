@@ -177,8 +177,13 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// cess) must equal the posted party leg. When it does not, the voucher is not a service tax invoice and prints as
     /// the plain Dr/Cr voucher a pre-slice build produced. Structural, so it also catches any future divergence.</para>
     ///
-    /// <para><b>Bite:</b> drop the footing conjunct from <c>IsServiceAccountingInvoice</c> and the imported voucher
-    /// prints a 5,900-rupee debt as a 5,000-rupee tax invoice.</para>
+    /// <para><b>Bite (superseded):</b> dropping the footing conjunct from <c>IsServiceAccountingInvoice</c> used to be
+    /// the only thing standing between this fixture and a 5,900-rupee debt printed as a 5,000-rupee tax invoice. The
+    /// F9 conjunct (<c>TaxedLegsCarryTheirTax</c>) now rejects this same shape independently — the hand-keyed tax legs
+    /// carry no <c>GstLineTax</c>, so the voucher posts no forward tax leg while its value ledger declares a taxable
+    /// 18% supply — which is defence in depth, but means the footing mutation no longer bites HERE. The dedicated
+    /// footing fixture is <c>InvoicePrintFootingTests.CraftedUnderStatedTotal_isCaughtByTheFootingInvariantAlone</c>,
+    /// built so that F9 and F11 both pass and only the totals reconciliation can reject it.</para>
     /// </summary>
     [Fact]
     public void CraftedImport_flagOnAHandKeyedVoucher_printsAsAPlainVoucher()
@@ -269,31 +274,37 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// POSTED cess legs; the item path now does too, falling back to a live resolve only when no cess leg was posted.
     /// <para><b>Bite:</b> use <c>invoiceTax.TotalCess</c> (the live re-resolve) instead of the posted cess legs and the
     /// reprint foots to 1,780 against a posted party leg of 1,300.</para>
+    ///
+    /// <para><b>F10 — re-pointed at an ODD-PAISA fixture.</b> This ran on 10 @ ₹100 (party leg 1,300), where the print
+    /// path's invented nearest-rupee round-off was 0.00, so it could not see the ±0.50 defect it was otherwise
+    /// perfectly placed to catch. On 7 @ ₹133.33 the posted party leg is 1213.31 and the invented round-off was −0.31,
+    /// so this test now bites <c>applyInvoiceRoundOff: true</c> as well as its own F4 mutation.</para>
     /// </summary>
     [Fact]
     public void ItemInvoice_cessRateChangedAfterPosting_reprintStillFootsToThePostedPartyLeg()
     {
         var vm = NewItemInvoiceKit("Fix ItemCessRate Co", out var widgetId, out var godownId, out var customerId,
             cess: g => { g.CessApplicable = true; g.CessValuationMode = CessValuationMode.AdValorem; g.CessRateBasisPoints = 1200; });
-        var c = PostItemInvoice(vm, widgetId, godownId, customerId);
+        // 7 @ ₹133.33 ⇒ taxable 933.31; 18% ⇒ CGST 84.00 + SGST 84.00; 12% cess ⇒ 112.00; party leg 1213.31.
+        var c = PostItemInvoice(vm, widgetId, godownId, customerId, qty: "7", rate: "133.33");
         var v = PostedSale(c);
-        Assert.Equal(120m, PostedHead(v, GstTaxHead.Cess));
-        Assert.Equal(1300m, PartyLegAmount(c, v));
+        Assert.Equal(112m, PostedHead(v, GstTaxHead.Cess));
+        Assert.Equal(1213.31m, PartyLegAmount(c, v));
 
         var before = VoucherPrintProjector.ProjectInvoice(c, v);
-        Assert.Equal(120m, before.TotalCess.Amount);
-        Assert.Equal(1300m, before.GrandTotal.Amount);
+        Assert.Equal(112m, before.TotalCess.Amount);
+        Assert.Equal(1213.31m, before.GrandTotal.Amount);
 
         // The de-merit cess on this HSN is revised 12% -> 60% AFTER the invoice was issued.
         c.FindStockItem(widgetId)!.Gst!.CessRateBasisPoints = 6000;
 
         var after = VoucherPrintProjector.ProjectInvoice(c, v);
-        Assert.Equal(120m, after.TotalCess.Amount);          // the POSTED cess, not the new master rate
-        Assert.Equal(90m, after.TotalCgst.Amount);
-        Assert.Equal(90m, after.TotalSgst.Amount);
-        Assert.Equal(1000m, after.TotalTaxable.Amount);
-        Assert.Equal(0m, after.RoundOff.Amount);
-        Assert.Equal(1300m, after.GrandTotal.Amount);
+        Assert.Equal(112m, after.TotalCess.Amount);          // the POSTED cess, not the new master rate
+        Assert.Equal(84m, after.TotalCgst.Amount);
+        Assert.Equal(84m, after.TotalSgst.Amount);
+        Assert.Equal(933.31m, after.TotalTaxable.Amount);
+        Assert.Equal(0m, after.RoundOff.Amount);             // no round-off leg was posted ⇒ none is printed (F10)
+        Assert.Equal(1213.31m, after.GrandTotal.Amount);
         Assert.Equal(PartyLegAmount(c, v), after.GrandTotal.Amount);
     }
 
@@ -338,15 +349,18 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// RSP-factor cess after posting. Printing must degrade to zero cess, never crash.
     /// <para><b>Bite:</b> delete the try/catch around the fallback <c>ResolveCess</c> and this throws
     /// <c>InvalidOperationException</c>.</para>
+    ///
+    /// <para><b>F10 — re-pointed at an ODD-PAISA fixture</b> (7 @ ₹133.33 ⇒ a posted party leg of 1101.31, where the
+    /// invented print-time round-off was −0.31). It used to run on 10 @ ₹100, whose round-off was 0.00.</para>
     /// </summary>
     [Fact]
     public void ItemInvoice_masterGainsAnUnvaluableCessAfterPosting_reprintsWithZeroCessInsteadOfThrowing()
     {
         var vm = NewItemInvoiceKit("Fix ItemLateCess Co", out var widgetId, out var godownId, out var customerId);
-        var c = PostItemInvoice(vm, widgetId, godownId, customerId);
+        var c = PostItemInvoice(vm, widgetId, godownId, customerId, qty: "7", rate: "133.33");
         var v = PostedSale(c);
         Assert.Equal(0m, PostedHead(v, GstTaxHead.Cess));     // no cess leg was ever posted
-        Assert.Equal(1180m, PartyLegAmount(c, v));
+        Assert.Equal(1101.31m, PartyLegAmount(c, v));
 
         // The item master later declares an RSP-factor cess but carries no Retail Sale Price — unvaluable.
         var gstBlock = c.FindStockItem(widgetId)!.Gst!;
@@ -357,7 +371,8 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
 
         var data = VoucherPrintProjector.ProjectInvoice(c, v); // must not throw
         Assert.Equal(0m, data.TotalCess.Amount);
-        Assert.Equal(1180m, data.GrandTotal.Amount);
+        Assert.Equal(0m, data.RoundOff.Amount);                // F10: no posted round-off leg ⇒ none printed
+        Assert.Equal(1101.31m, data.GrandTotal.Amount);
         Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
     }
 
@@ -368,6 +383,9 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// 22-Sep-2025; an invoice dated BEFORE that must reprint at the historic 18% it posted.
     /// <para><b>Bite:</b> call <c>gst.ResolveRate(item, valueLedger)</c> (drop <c>voucher.Date</c>) and the reprint
     /// states 40% tax on a voucher whose GL carries 18%.</para>
+    ///
+    /// <para><b>F10 — re-pointed at an ODD-PAISA fixture</b> (7 @ ₹133.33 ⇒ a posted party leg of 1101.31). On the old
+    /// 10 @ ₹100 fixture the invented print-time round-off was 0.00 and this test could not see it.</para>
     /// </summary>
     [Fact]
     public void ItemInvoice_reprint_resolvesTheRateAsOfTheVoucherDate_likeTheAcceptPath()
@@ -382,18 +400,20 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         c.Gst!.AddRateHistory(new GstRateHistoryEntry(Guid.NewGuid(), "847130", 4000, GstRateClass.DeMerit,
             new DateOnly(2025, 9, 22), null, GstValuationBasis.TransactionValue, "40% (GST 2.0)"));
 
-        PostItemInvoice(vm, widgetId, godownId, customerId, dateText: "01-05-2024"); // inside the legacy window
+        // 7 @ ₹133.33 ⇒ taxable 933.31; the historic 18% ⇒ CGST 84.00 + SGST 84.00; party leg 1101.31.
+        PostItemInvoice(vm, widgetId, godownId, customerId, dateText: "01-05-2024", qty: "7", rate: "133.33");
         var v = PostedSale(c);
         Assert.Equal(new DateOnly(2024, 5, 1), v.Date);
-        Assert.Equal(90m, PostedHead(v, GstTaxHead.Central));  // POSTED at the historic 18% (the accept path is dated)
-        Assert.Equal(90m, PostedHead(v, GstTaxHead.State));
-        Assert.Equal(1180m, PartyLegAmount(c, v));
+        Assert.Equal(84m, PostedHead(v, GstTaxHead.Central));  // POSTED at the historic 18% (the accept path is dated)
+        Assert.Equal(84m, PostedHead(v, GstTaxHead.State));
+        Assert.Equal(1101.31m, PartyLegAmount(c, v));
 
         var data = VoucherPrintProjector.ProjectInvoice(c, v);
         Assert.Equal("18%", Assert.Single(data.TaxRows).RateLabel);   // not the master's live 40%
-        Assert.Equal(90m, data.TotalCgst.Amount);
-        Assert.Equal(90m, data.TotalSgst.Amount);
-        Assert.Equal(1180m, data.GrandTotal.Amount);
+        Assert.Equal(84m, data.TotalCgst.Amount);
+        Assert.Equal(84m, data.TotalSgst.Amount);
+        Assert.Equal(0m, data.RoundOff.Amount);                       // F10: no posted round-off leg ⇒ none printed
+        Assert.Equal(1101.31m, data.GrandTotal.Amount);
         Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
     }
 
@@ -606,9 +626,16 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
 
     private Company NewEmptyCompany(string companyName) => NewCompany(companyName).Company!;
 
-    /// <summary>Posts 10 Widgets @ ₹100 through the REAL item-invoice screen; returns the company.</summary>
+    /// <summary>
+    /// Posts Widgets through the REAL item-invoice screen; returns the company. Defaults to the original 10 @ ₹100.
+    /// <para><b>F10:</b> <paramref name="qty"/>/<paramref name="rate"/> exist so a test can post an <b>ODD-PAISA</b>
+    /// invoice (7 @ ₹133.33 ⇒ taxable 933.31). Every foot-to-the-party-leg assertion in this file used to run on whole
+    /// rupees (1,180 / 1,300 / 1,330), where the print path's invented nearest-rupee round-off happened to be 0.00 —
+    /// which is precisely why a ±0.50 money defect on the customer-facing document survived the whole suite.</para>
+    /// </summary>
     private static Company PostItemInvoice(
-        MainWindowViewModel vm, Guid widgetId, Guid godownId, Guid customerId, string? dateText = null)
+        MainWindowViewModel vm, Guid widgetId, Guid godownId, Guid customerId, string? dateText = null,
+        string qty = "10", string rate = "100.00")
     {
         vm.OpenVoucher(VoucherBaseType.Sales);
         var entry = vm.VoucherEntry!;
@@ -619,8 +646,8 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         var line = entry.InventoryLines[0];
         line.SelectedItem = entry.StockItems.Single(i => i.Id == widgetId);
         line.SelectedGodown = entry.Godowns.Single(g => g.Id == godownId);
-        line.QuantityText = "10";
-        line.RateText = "100.00";
+        line.QuantityText = qty;
+        line.RateText = rate;
         Assert.True(entry.Accept());
         return vm.Company!;
     }
