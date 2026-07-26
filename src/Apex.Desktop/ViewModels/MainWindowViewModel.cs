@@ -4821,6 +4821,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             VoucherEntry?.ToggleItemInvoice();
     }
 
+    /// <summary>Ctrl+H "Change Mode": cycle the in-progress Purchase/Sales voucher through As Voucher → Item Invoice →
+    /// Accounting Invoice → As Voucher. A no-op on any other screen/type.</summary>
+    public void ChangeMode()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ChangeMode();
+    }
+
+    /// <summary>The Accounting-Invoice checkbox affordance: flip the in-progress Purchase/Sales voucher between plain
+    /// accounting and accounting-(service)-invoice mode. A no-op on any other screen/type.</summary>
+    public void ToggleAccountingInvoice()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.ToggleAccountingInvoice();
+    }
+
     /// <summary>True while a Purchase/Sales voucher-entry page is active (drives the Ctrl+I item-invoice action).</summary>
     public bool IsInvoiceableEntry =>
         CurrentScreen == Screen.VoucherEntry && VoucherEntry?.CanBeItemInvoice == true;
@@ -5214,6 +5230,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 row.SelectedLedger = Company.Ledgers.FirstOrDefault(l => l.Id == createdId);
                 return;
 
+            // Accounting-invoice Particulars row. Resolved out of the ROW'S OWN option list (rebuilt a few lines above
+            // by RefreshMasterPickers), not out of Company.Ledgers: that list is filtered to income/expense-nature
+            // non-tax ledgers, so a ledger created under some other group is genuinely not selectable here and the
+            // field must keep what it had rather than hold a value its ComboBox cannot display. Without this case the
+            // create round-trip returned to a blank field on every Alt+C in that column.
+            case AccountingInvoiceLineViewModel row when fieldId == MasterCreateFields.Ledger:
+                row.SelectedLedger = row.Ledgers.FirstOrDefault(l => l.Id == createdId) ?? row.SelectedLedger;
+                return;
+
             case CostAllocationRowViewModel row when fieldId == MasterCreateFields.CostCategory:
                 row.SelectedCategory = Company.CostCategories.FirstOrDefault(c => c.Id == createdId);
                 return;
@@ -5318,6 +5343,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.AddInventoryLine();
+    }
+
+    /// <summary>Adds a fresh blank Particulars line to the current accounting-invoice's grid ("+ Add line").</summary>
+    public void AddAccountingInvoiceLine()
+    {
+        if (CurrentScreen == Screen.VoucherEntry)
+            VoucherEntry?.AddAccountingInvoiceLine();
     }
 
     /// <summary>Adds a fresh blank line to the current inventory voucher's primary grid ("+ Add line").</summary>

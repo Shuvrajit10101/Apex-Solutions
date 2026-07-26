@@ -68,13 +68,62 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         _type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
 
     /// <summary>
+    /// True only for a <b>Sales</b> voucher — accounting-(service)-invoice mode is <b>SALES ONLY</b>.
+    /// <para><b>Why the purchase side is gated off (scope, not taste).</b> The settled scope declared the
+    /// purchase-side accounting invoice DEFERRED, and shipping it silently BROKE MONEY: <c>TdsPossible</c> and
+    /// <c>DetectTdsShape</c> read the plain <c>Lines</c> collection, which is empty in accounting mode, so a
+    /// professional-fee purchase posted <c>Cr Consultant 1,18,000 / Dr Professional Fees 1,00,000 / Dr Input CGST
+    /// 9,000 / Dr Input SGST 9,000</c> with <b>no §194J TDS carve-out at all</b> (and RCM mis-evaluated the same
+    /// way). The purchase-side code below is deliberately KEPT — dormant behind this gate — rather than deleted, so
+    /// the deferred slice can be finished by wiring TDS/RCM to the Particulars lines and flipping this predicate.</para>
+    /// </summary>
+    public bool CanBeAccountingInvoice => _type.BaseType == VoucherBaseType.Sales;
+
+    /// <summary>
+    /// The per-voucher <b>entry mode</b> (catalog §10; Tally "Change Mode", Ctrl+H) — the single source of truth for
+    /// which grid/render the Purchase/Sales screen shows: the classic Dr/Cr grid (<see cref="VoucherEntryMode.AsVoucher"/>,
+    /// the default and the only mode on every non-Purchase/Sales type), the stock-item Item Invoice
+    /// (<see cref="VoucherEntryMode.ItemInvoice"/>, Ctrl+I), or the service/accounting-ledger Accounting Invoice
+    /// (<see cref="VoucherEntryMode.AccountingInvoice"/>). All three post ordinary balanced <c>Voucher</c> legs; the mode
+    /// is transient screen state, never persisted (inferred downstream from the posted legs — see the print/GSTR-1 paths).
+    /// </summary>
+    [ObservableProperty] private VoucherEntryMode _mode = VoucherEntryMode.AsVoucher;
+
+    /// <summary>
     /// Ctrl+I — whether this Purchase/Sales voucher is being entered <b>as an item invoice</b> (catalog §10):
     /// the user enters a party + inventory lines (Stock Item / Godown / Qty / Rate / Batch) and the VM
     /// auto-derives the two balancing accounting legs, so the pairing invariant always holds without any
     /// hand-balancing. When off, the plain Dr/Cr grid is used and the voucher behaves exactly as before.
-    /// Only ever true when <see cref="CanBeItemInvoice"/>.
+    /// Only ever true when <see cref="CanBeItemInvoice"/>. Now a <b>derived alias</b> of <see cref="Mode"/> so every
+    /// existing binding, test and code path is unchanged; the source of truth is <see cref="Mode"/>.
     /// </summary>
-    [ObservableProperty] private bool _isItemInvoice;
+    public bool IsItemInvoice => Mode == VoucherEntryMode.ItemInvoice;
+
+    /// <summary>
+    /// Whether this Purchase/Sales voucher is being entered <b>as an accounting (service) invoice</b>: the user enters
+    /// a party + service-income <b>ledger</b> lines under Particulars (no stock item) and the VM resolves auto SAC-based
+    /// GST from each ledger's GST block, splitting CGST/SGST (intra) vs IGST (inter). No stock/godown/valuation is ever
+    /// entered (<c>HasInventoryLines</c> stays false). Only ever true when <see cref="CanBeAccountingInvoice"/>.
+    /// <para>The <see cref="CanBeAccountingInvoice"/> conjunct is the <b>whole</b> deferral gate, deliberately placed
+    /// here rather than only in <see cref="ChangeMode"/>: every downstream consumer (the Accept routing, the
+    /// Recalculate routing, the GST gate, the grid gates) reads THIS property, so even forcing <see cref="Mode"/>
+    /// directly cannot arm the deferred purchase path.</para>
+    /// </summary>
+    public bool IsAccountingInvoice => Mode == VoucherEntryMode.AccountingInvoice && CanBeAccountingInvoice;
+
+    /// <summary>Whether this voucher is in the classic Dr/Cr "As Voucher" mode — the default, and the plain-grid gate.
+    /// Defined as the COMPLEMENT of the two invoice modes (not <c>Mode == AsVoucher</c>) so the three gates stay a
+    /// total, mutually-exclusive partition: a Purchase forced to <c>Mode == AccountingInvoice</c> renders — and posts
+    /// as — the plain Dr/Cr voucher rather than showing no grid at all.</summary>
+    public bool IsAsVoucherMode => !IsItemInvoice && !IsAccountingInvoice;
+
+    /// <summary>Whether the invoice overlay (party header + line grid + GST band) is shown — true in Item OR
+    /// Accounting mode; the plain Dr/Cr grid shows in its complement (<see cref="IsAsVoucherMode"/>).</summary>
+    public bool ShowInvoiceOverlay => !IsAsVoucherMode;
+
+    /// <summary>The caption of the shared running-total figure beside the derived Dr/Cr summary. Mode-aware: an
+    /// accounting (service) invoice has no items, so reading "Items Total" on it was simply wrong.</summary>
+    public string LineTotalCaption => IsAccountingInvoice ? "Services Total ₹ " : "Items Total ₹ ";
 
     /// <summary>True for a Purchase item-invoice (stock inward; party = supplier; Dr Purchases / Cr Supplier).</summary>
     public bool IsPurchaseInvoice => _type.BaseType == VoucherBaseType.Purchase;
@@ -152,6 +201,38 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// item-invoice (two accounting legs, no tax).
     /// </summary>
     public bool IsGstInvoice => IsItemInvoice && _company.GstEnabled;
+
+    /// <summary>
+    /// True when this Purchase/Sales <b>accounting (service) invoice</b> is GST-aware — accounting-invoice mode is on
+    /// AND the company has GST enabled. Only then does the screen resolve each Particulars line's SAC-based GST from
+    /// the ledger's GST block, DISPLAY the tax + party total, and POST the additive tax lines. The sibling of
+    /// <see cref="IsGstInvoice"/> for the accounting path; on a GST-off company it stays <c>false</c> and the invoice
+    /// posts the plain income + party legs with no tax (byte-identical to a hand-keyed ledger-only sale, ER-13).
+    /// </summary>
+    public bool IsAccountingGstInvoice => IsAccountingInvoice && _company.GstEnabled;
+
+    /// <summary>The shared gate for the GST totals band (CGST/SGST/IGST/Cess + party total): shown for a GST-aware
+    /// Item invoice OR a GST-aware Accounting invoice. Repoints the band that previously read <see cref="IsGstInvoice"/>
+    /// alone so the accounting path's computed tax is visible.</summary>
+    public bool ShowGstTotals => IsGstInvoice || IsAccountingGstInvoice;
+
+    /// <summary>The Particulars (service ledger + amount) grid is shown on an accounting invoice (Sales only — see
+    /// <see cref="CanBeAccountingInvoice"/>, which <see cref="IsAccountingInvoice"/> already folds in).</summary>
+    public bool ShowParticularsGrid => IsAccountingInvoice;
+
+    /// <summary>The editable Accounting-Invoice Particulars lines (service-income / expense ledger + amount).</summary>
+    public ObservableCollection<AccountingInvoiceLineViewModel> AccountingInvoiceLines { get; } = new();
+
+    /// <summary>
+    /// The service-income (Sales) / expense (Purchase) ledgers the Particulars line pickers choose from —
+    /// Income/Expense-nature ledgers that are not GST tax ledgers.
+    /// <para><b>An <see cref="ObservableCollection{T}"/>, rebuilt IN PLACE.</b> It used to be a ctor-built
+    /// <c>.ToList()</c> snapshot handed to every row, which <see cref="RefreshMasterPickers"/> never rebuilt — so
+    /// Alt+C create-on-the-fly was dead on the Particulars ledger field (measured: <c>AccountingInvoiceLedgers contains
+    /// new ledger = False</c> while Parties and StockLedgers both refreshed True), and on a company with no income
+    /// ledger the whole mode was unusable. Every row binds to THIS instance, so an in-place rebuild reaches all of them.</para>
+    /// </summary>
+    public ObservableCollection<DomainLedger> AccountingInvoiceLedgers { get; } = new();
 
     /// <summary>The invoice CGST total (paisa-exact display); "0.00" when off/inter-state/exempt.</summary>
     [ObservableProperty] private string _gstCgstText = "0.00";
@@ -584,10 +665,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        // Accounting-invoice (service) Particulars pickers — the service-income (Sales) / expense (Purchase) ledgers,
+        // Income/Expense-nature and never a GST tax ledger. Always populated so the Ctrl+H mode switch is cheap; inert
+        // on a type where the mode is unreachable. A ledger-only accounting invoice never touches any of the
+        // item-invoice stock machinery.
+        RebuildAccountingInvoiceLedgers();
+
         BuildItemInvoicePickers();
         BuildSection34Pickers(); // §34 note pickers (a no-op on any non-Credit/Debit-Note type)
         BuildAdvancePickers();   // outstanding-advance pickers (a no-op unless this type adjusts/refunds one)
         AddAdditionalCostRow(); // one blank trailing row ready to type into
+        AddAccountingInvoiceLine(); // one blank trailing Particulars row ready to type into
 
         // Default date: last voucher date, else books-begin (never before books, which Post rejects).
         var last = company.Vouchers.Count == 0
@@ -674,6 +762,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // In item-invoice mode the plain Dr/Cr grid is not the Accept gate — the item-invoice indicators are
         // (a change to the always-present blank starter lines must not clobber that gate).
         if (IsItemInvoice) { RecalculateItemInvoice(); return; }
+
+        // Likewise in accounting-invoice (service) mode: the Particulars grid is the Accept gate, not the plain
+        // Dr/Cr grid. BLOCKER-1 — without this route Recalculate() falls through to the plain-grid branch and stomps
+        // CanAccept to false from the empty starter Lines, permanently disabling Accept in accounting mode.
+        if (IsAccountingInvoice) { RecalculateAccountingInvoice(); return; }
 
         decimal dr = 0m, cr = 0m;
         foreach (var l in Lines)
@@ -1791,6 +1884,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Item-invoice mode routes to its own accept path (auto-derived legs + inventory lines).
         if (IsItemInvoice) return AcceptItemInvoice();
 
+        // Accounting-invoice (service) mode routes to its own accept path (income ledger legs + auto SAC GST; no stock).
+        if (IsAccountingInvoice) return AcceptAccountingInvoice();
+
         // Reject half-filled rows up front with a clear message (before touching the engine).
         if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
         {
@@ -2271,6 +2367,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             StockLedgers.Add(l);
         SelectedStockLedger = StockLedgers.FirstOrDefault(l => l.Id == stockLedgerId)
                               ?? StockLedgers.FirstOrDefault();
+
+        // The accounting-invoice Particulars picker refreshes with the others. Omitting it left Alt+C DEAD on that
+        // field: the ledger was created and the operator returned to a blank ComboBox, because the row's option list
+        // was a ctor-built snapshot that predated the new master.
+        RebuildAccountingInvoiceLedgers();
     }
 
     /// <summary>Pushes the Price-Level Discount-column gate to every item line so it shows/hides in sync (ER-13).</summary>
@@ -2370,28 +2471,150 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     partial void OnSelectedStockLedgerChanged(DomainLedger? value) => RecalculateItemInvoice();
 
     /// <summary>
-    /// Ctrl+I — toggles item-invoice mode on a Purchase/Sales (a no-op on any other type). Recomputes the
-    /// items total / derived summary so the Accept gate reflects the new mode immediately.
+    /// Ctrl+I — toggles item-invoice mode on a Purchase/Sales (a no-op on any other type), redefined over the
+    /// 3-value <see cref="Mode"/> as a 2-way As-Voucher↔Item-Invoice flip so its exact current behaviour (and all its
+    /// tests) are preserved. Recomputes so the Accept gate reflects the new mode immediately.
     /// </summary>
     public void ToggleItemInvoice()
     {
         if (!CanBeItemInvoice) return;
-        IsItemInvoice = !IsItemInvoice;
+        Mode = IsItemInvoice ? VoucherEntryMode.AsVoucher : VoucherEntryMode.ItemInvoice;
     }
 
-    partial void OnIsItemInvoiceChanged(bool value)
+    /// <summary>
+    /// Ctrl+H "Change Mode" — cycles a Purchase/Sales voucher through the entry modes
+    /// As Voucher → Item Invoice → Accounting Invoice → As Voucher (a no-op on any other type). Faithful to Tally's
+    /// per-voucher mode switch on the same Sales/Purchase voucher type (NOT an F12 flag).
+    /// <para>On a <b>Purchase</b> the Accounting arm is skipped entirely (<see cref="CanBeAccountingInvoice"/>), so the
+    /// cycle degrades to the 2-way As Voucher ↔ Item Invoice flip: the purchase-side accounting invoice is DEFERRED
+    /// scope and silently dropped §194J TDS.</para>
+    /// </summary>
+    public void ChangeMode()
     {
-        // Turning the mode on/off changes which grid gates Accept AND whether GST / additional-cost tracking / the
-        // Actual-Billed columns are wired in; recompute all.
+        if (!CanBeItemInvoice) return;
+        Mode = Mode switch
+        {
+            VoucherEntryMode.AsVoucher => VoucherEntryMode.ItemInvoice,
+            VoucherEntryMode.ItemInvoice when CanBeAccountingInvoice => VoucherEntryMode.AccountingInvoice,
+            _ => VoucherEntryMode.AsVoucher,
+        };
+    }
+
+    /// <summary>The Accounting-Invoice checkbox affordance — flips As-Voucher↔Accounting, the direct-select sibling of
+    /// <see cref="ToggleItemInvoice"/>. A no-op wherever the mode is unavailable, which includes every Purchase
+    /// (<see cref="CanBeAccountingInvoice"/>).</summary>
+    public void ToggleAccountingInvoice()
+    {
+        if (!CanBeAccountingInvoice) return;
+        Mode = IsAccountingInvoice ? VoucherEntryMode.AsVoucher : VoucherEntryMode.AccountingInvoice;
+    }
+
+    partial void OnModeChanged(VoucherEntryMode value)
+    {
+        // Leaving accounting mode must not leave its band behind. ItemsTotalText / the GST texts / PartyTotalText /
+        // DerivedSummary are SHARED with the item path, and the plain As-Voucher branch of Recalculate() writes none
+        // of them — so without this the service invoice's CGST 450.00 and "Cr Services …" summary survived a Ctrl+H
+        // into a mode that has no such figures. Cleared BEFORE the Recalculate() below, which then repopulates
+        // whatever the new mode owns.
+        if (value != VoucherEntryMode.AccountingInvoice) ResetAccountingDisplayState();
+
+        // Switching mode changes which grid gates Accept AND whether GST / additional-cost tracking / the
+        // Actual-Billed columns are wired in; notify every derived flag and re-derive. Carries the full old
+        // OnIsItemInvoiceChanged notification set PLUS the new accounting-mode flags (dropping any leaves a stale band).
+        OnPropertyChanged(nameof(IsItemInvoice));
+        OnPropertyChanged(nameof(IsAccountingInvoice));
+        OnPropertyChanged(nameof(IsAsVoucherMode));
+        OnPropertyChanged(nameof(ShowInvoiceOverlay));
         OnPropertyChanged(nameof(IsGstInvoice));
+        OnPropertyChanged(nameof(IsAccountingGstInvoice));
+        OnPropertyChanged(nameof(ShowGstTotals));
+        OnPropertyChanged(nameof(ShowParticularsGrid));
         OnPropertyChanged(nameof(IsTcsSalesInvoice));
         OnPropertyChanged(nameof(ShowAdditionalCosts));
         OnPropertyChanged(nameof(ShowActualBilledColumns));
         OnPropertyChanged(nameof(QuantityHeader));
         OnPropertyChanged(nameof(ShowPriceLevelSelector));
+        OnPropertyChanged(nameof(LineTotalCaption));
         SyncActualBilledOnLines();
-        RecalculateItemInvoice();
+        // Recalculate() dispatches to the correct per-mode recalc (item / accounting / plain) and refreshes the
+        // advisory panels — so the Accept gate is correct for the mode just entered.
         Recalculate();
+    }
+
+    /// <summary>Clears the display fields the accounting-invoice recalc owns, so none of them can outlive the mode
+    /// (see <see cref="OnModeChanged"/>). Deliberately does NOT touch <c>CanAccept</c> — the Recalculate() that
+    /// immediately follows re-derives the gate for the mode being entered.</summary>
+    private void ResetAccountingDisplayState()
+    {
+        ItemsTotalText = "0.00";
+        GstCgstText = "0.00";
+        GstSgstText = "0.00";
+        GstIgstText = "0.00";
+        GstCessText = "0.00";
+        PartyTotalText = "0.00";
+        DerivedSummary = string.Empty;
+    }
+
+    /// <summary>Whether a ledger is a valid Particulars-line target on this nature — a service-income (Sales) /
+    /// expense (Purchase) ledger by primary-ancestor nature, never a GST tax ledger. Deliberately broad within the
+    /// nature so any user-defined service ledger (Sales Accounts / Direct or Indirect Income) is offered; a taxable
+    /// ledger with no resolvable SAC/rate still fails fast at Accept (never a silent ₹0).</summary>
+    private bool IsAccountingLineLedger(DomainLedger ledger)
+    {
+        if (ledger.GstClassification is not null) return false; // never a GST tax (Duties &amp; Taxes) ledger
+        var group = _company.FindGroup(ledger.GroupId);
+        if (group is null) return false;
+        var nature = ClassificationRules.PrimaryNatureOf(group, _company);
+        return IsPurchaseInvoice ? nature == GroupNature.Expense : nature == GroupNature.Income;
+    }
+
+    /// <summary>
+    /// Rebuilds the Particulars ledger picker IN PLACE (the rows bind to the live collection instance, so a
+    /// re-assignment would not reach them). Called from the ctor and from <see cref="RefreshMasterPickers"/>, which is
+    /// what makes Alt+C create-on-the-fly work on the Particulars ledger field.
+    /// <para>Each row's already-picked ledger is captured and restored across the rebuild: a bound <c>ComboBox</c>
+    /// nulls its <c>SelectedItem</c> when its <c>ItemsSource</c> is cleared, and that write would flow back through the
+    /// TwoWay binding and silently blank a half-typed invoice. Restoring the SAME instance raises no change
+    /// notification, so this costs nothing on the common path.</para>
+    /// </summary>
+    private void RebuildAccountingInvoiceLedgers()
+    {
+        var picked = AccountingInvoiceLines.Select(l => (Line: l, Id: l.SelectedLedger?.Id)).ToList();
+
+        AccountingInvoiceLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(IsAccountingLineLedger)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            AccountingInvoiceLedgers.Add(l);
+
+        foreach (var (line, id) in picked)
+            if (id is { } ledgerId)
+                line.SelectedLedger = AccountingInvoiceLedgers.FirstOrDefault(l => l.Id == ledgerId) ?? line.SelectedLedger;
+    }
+
+    /// <summary>Adds a Particulars line (service ledger + amount); mirrors <see cref="AddAdditionalCostRow"/> and keeps
+    /// a single trailing blank row via <see cref="OnAccountingInvoiceLineChanged"/>.</summary>
+    public AccountingInvoiceLineViewModel AddAccountingInvoiceLine()
+    {
+        var row = new AccountingInvoiceLineViewModel(AccountingInvoiceLedgers, OnAccountingInvoiceLineChanged);
+        AccountingInvoiceLines.Add(row);
+        return row;
+    }
+
+    /// <summary>Removes a Particulars line (keeping at least one); recomputes the invoice.</summary>
+    public void RemoveAccountingInvoiceLine(AccountingInvoiceLineViewModel line)
+    {
+        if (AccountingInvoiceLines.Count <= 1) return;
+        AccountingInvoiceLines.Remove(line);
+        RecalculateAccountingInvoice();
+    }
+
+    private void OnAccountingInvoiceLineChanged()
+    {
+        // Keep exactly one trailing blank row so there is always a fresh line to type into (mirrors additional costs).
+        if (AccountingInvoiceLines.Count == 0 || !AccountingInvoiceLines[^1].IsBlank)
+            AddAccountingInvoiceLine();
+        RecalculateAccountingInvoice();
     }
 
     /// <summary>Adds a blank additional-cost row (ledger + amount); keeps one trailing blank row.</summary>
@@ -2513,6 +2736,287 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         TaxLines = Array.Empty<EntryLine>(),
         LineBreakdown = Array.Empty<GstService.LineTax>(),
     };
+
+    // =============================================================== GST on the ACCOUNTING (service) invoice
+
+    /// <summary>The outcome of computing GST over the current complete Particulars (service-income) lines — the
+    /// sibling of <see cref="ItemInvoiceGst"/> for the accounting-invoice path. Carries the unresolved <b>ledger</b>
+    /// (a taxable Particulars ledger with no resolvable SAC/rate) so the caller fails fast with a friendly message —
+    /// never a silent ₹0.</summary>
+    private readonly record struct AccountingInvoiceGst(
+        GstService.InvoiceTax Tax, bool InterState, DomainLedger? UnresolvedLedger)
+    {
+        public bool HasUnresolved => UnresolvedLedger is not null;
+    }
+
+    /// <summary>
+    /// Resolves each complete Particulars line's GST rate + taxability from the <b>ledger's SAC</b>
+    /// (<see cref="GstService.ResolveRate"/> called with <c>item: null</c> ⇒ the ledger <c>SalesPurchaseGst</c> path),
+    /// routes intra CGST/SGST vs inter IGST from the party's recorded State vs the company home State, and computes the
+    /// additive per-(head,rate) tax via the SAME <see cref="GstService.ComputeInvoiceTax"/> the item path uses — so it
+    /// inherits paisa-exact compute-then-split parity, per-rate grouping, Composition suppression and the ring-fenced
+    /// Cess treatment for free. The line amount IS the taxable value (no qty×rate). Exempt/Nil/Non-GST ledgers contribute
+    /// no taxable value (zero tax). A taxable ledger with no resolvable rate is flagged in
+    /// <see cref="AccountingInvoiceGst.UnresolvedLedger"/> so the caller fails fast. Returns <c>null</c> when GST is not
+    /// wired in (<see cref="IsAccountingGstInvoice"/> false).
+    /// </summary>
+    private AccountingInvoiceGst? ComputeAccountingInvoiceGst()
+    {
+        if (!IsAccountingGstInvoice) return null;
+
+        var partyState = SelectedParty?.Ledger?.PartyGst?.StateCode;
+        var interState = _gst.IsInterState(partyState);
+
+        var taxable = new List<GstService.TaxableLine>();
+        foreach (var l in AccountingInvoiceLines.Where(l => l.IsComplete))
+        {
+            if (l.ParsedAmount is not { } amt || amt <= 0m) continue;
+            var value = new Money(amt); // the line amount IS the taxable value (a service carries no qty×rate)
+
+            // Resolve the rate AS OF the voucher Date from the LEDGER's SAC (item: null ⇒ ResolveBase step-2). A rate
+            // history override only fires when the ledger's HSN/SAC matches a dated row — else byte-identical.
+            var res = _gst.ResolveRate(item: null, l.SelectedLedger, Date);
+            if (GstService.IsUnresolved(res))
+                return new AccountingInvoiceGst(EmptyInvoiceTax(), interState, l.SelectedLedger);
+            if (!res.IsTaxable) continue; // Exempt/Nil/Non-GST service ⇒ no tax
+
+            // Compensation Cess for a service is ad-valorem only (no quantity) — pass quantity 0. null ⇒ no cess.
+            var cess = _gst.ResolveCess(item: null, l.SelectedLedger, Date, quantity: 0m);
+            taxable.Add(new GstService.TaxableLine(value, res.RateBasisPoints, cess));
+        }
+
+        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
+        return new AccountingInvoiceGst(tax, interState, UnresolvedLedger: null);
+    }
+
+    /// <summary>
+    /// Recomputes the accounting-invoice indicators: the running Particulars total (shown in the shared
+    /// <see cref="LineTotalCaption"/>/"Taxable Value" band), the live CGST/SGST/IGST/Cess + party total, the derived
+    /// Dr/Cr summary, and whether Accept is allowed (a party picked, ≥ 1 complete Particulars line, no half-filled
+    /// row, positive total, and no unresolved taxable ledger). Mirrors <see cref="RecalculateItemInvoice"/> over the
+    /// Particulars lines; never touches <c>InventoryLines</c> or <see cref="ComputeItemInvoiceGst"/>.
+    /// <para>A NO-OP outside accounting mode. The display fields it writes are SHARED with the item path, so writing
+    /// them from a Particulars-line change while another mode is live cross-contaminated that mode's band; and on a
+    /// Purchase (where the mode is deferred) it must not run at all.</para>
+    /// </summary>
+    public void RecalculateAccountingInvoice()
+    {
+        if (!IsAccountingInvoice) return;
+
+        var total = 0m;
+        foreach (var l in AccountingInvoiceLines)
+            if (l.IsComplete && l.ParsedAmount is { } a) total += a;
+        ItemsTotalText = IndianFormat.AmountAlways(total);
+
+        var party = SelectedParty?.Ledger?.Name ?? "party";
+
+        // Mirror the item recalc's fail-fast guard: an unresolvable-cess input (e.g. an RSP-factor cess service with
+        // no declared price) must surface a message and clear the gate rather than propagate out of the change handler.
+        AccountingInvoiceGst? gst;
+        try
+        {
+            gst = ComputeAccountingInvoiceGst();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            GstCgstText = "0.00";
+            GstSgstText = "0.00";
+            GstIgstText = "0.00";
+            GstCessText = "0.00";
+            PartyTotalText = IndianFormat.AmountAlways(total);
+            DerivedSummary = BuildAccountingDerivedSummary(party, total, 0m, 0m, 0m, 0m, total);
+            CanAccept = false;
+            return;
+        }
+
+        var cgst = gst?.Tax.TotalCgst.Amount ?? 0m;
+        var sgst = gst?.Tax.TotalSgst.Amount ?? 0m;
+        var igst = gst?.Tax.TotalIgst.Amount ?? 0m;
+        var cess = gst?.Tax.TotalCess.Amount ?? 0m; // ring-fenced out of the tax total, still added to the party total
+        var taxTotal = cgst + sgst + igst;
+        var partyTotal = total + taxTotal + cess;
+
+        GstCgstText = IndianFormat.AmountAlways(cgst);
+        GstSgstText = IndianFormat.AmountAlways(sgst);
+        GstIgstText = IndianFormat.AmountAlways(igst);
+        GstCessText = IndianFormat.AmountAlways(cess);
+        PartyTotalText = IndianFormat.AmountAlways(partyTotal);
+        DerivedSummary = BuildAccountingDerivedSummary(party, total, cgst, sgst, igst, cess, partyTotal);
+
+        var completeLines = AccountingInvoiceLines.Count(l => l.IsComplete);
+        var hasHalfFilled = AccountingInvoiceLines.Any(l => !l.IsBlank && !l.IsComplete);
+        var hasUnresolved = gst?.HasUnresolved ?? false; // a taxable ledger with no SAC/rate blocks Accept (no silent ₹0)
+        CanAccept =
+            SelectedParty?.Ledger is not null
+            && completeLines >= 1
+            && !hasHalfFilled
+            && !hasUnresolved
+            && total > 0m;
+    }
+
+    /// <summary>
+    /// Builds the accounting-invoice derived Dr/Cr summary. Sales ⇒ "Dr Party (taxable+tax) · Cr Services (taxable)
+    /// [· Cr Output CGST/SGST or IGST · Cr Output Cess]"; Purchase ⇒ the mirror (Dr Services / Dr Input tax / Cr Party).
+    /// The income legs are collapsed to a single "Services"/"Purchases" caption for the one-line summary — the posted
+    /// voucher still carries one leg per Particulars line.
+    /// </summary>
+    private string BuildAccountingDerivedSummary(string party, decimal taxable, decimal cgst, decimal sgst, decimal igst, decimal cess, decimal partyTotal)
+    {
+        string A(decimal v) => IndianFormat.AmountAlways(v);
+        var caption = IsPurchaseInvoice ? "Purchases" : "Services";
+        var side = IsPurchaseInvoice ? "Dr" : "Cr"; // tax follows the income leg's side (Input Dr / Output Cr)
+        var head = IsPurchaseInvoice ? "Input" : "Output";
+
+        var extraLegs = new List<string>();
+        if (igst != 0m) extraLegs.Add($"{side} {head} IGST {A(igst)}");
+        else
+        {
+            if (cgst != 0m) extraLegs.Add($"{side} {head} CGST {A(cgst)}");
+            if (sgst != 0m) extraLegs.Add($"{side} {head} SGST {A(sgst)}");
+        }
+        if (cess != 0m) extraLegs.Add($"{side} {head} Cess {A(cess)}");
+        var taxPart = extraLegs.Count > 0 ? "  ·  " + string.Join("  ·  ", extraLegs) : string.Empty;
+
+        return IsPurchaseInvoice
+            ? $"Dr {caption} {A(taxable)}{taxPart}  ·  Cr {party} {A(partyTotal)}"
+            : $"Dr {party} {A(partyTotal)}{taxPart}  ·  Cr {caption} {A(taxable)}";
+    }
+
+    /// <summary>
+    /// Ctrl+A accept for accounting-invoice (service) mode: pre-validates (friendly message, before the engine),
+    /// builds one income/expense leg per Particulars line + the auto SAC-based GST tax legs + the party leg (so the
+    /// pairing invariant holds by construction), and posts it through <see cref="LedgerService.Post"/> — with
+    /// <b>no inventory lines</b>, so <c>HasInventoryLines</c> stays false and the stock/godown/valuation machinery is
+    /// never entered. Any domain error is surfaced to <see cref="Message"/> without crashing. Mirrors
+    /// <see cref="AcceptItemInvoice"/>.
+    /// </summary>
+    private bool AcceptAccountingInvoice()
+    {
+        Message = null;
+
+        // Belt-and-braces on the deferral gate: Accept() only routes here when IsAccountingInvoice (which folds in
+        // CanBeAccountingInvoice), so this is unreachable today — it exists so that re-enabling the purchase side can
+        // only ever be done deliberately, by flipping CanBeAccountingInvoice after wiring TDS/RCM to the Particulars
+        // lines. Without those, a professional-fee purchase posts with NO §194J carve-out.
+        if (!CanBeAccountingInvoice)
+        {
+            Message = "Accounting-invoice mode is available on Sales vouchers only.";
+            return false;
+        }
+
+        if (SelectedParty?.Ledger is not { } party)
+        {
+            Message = $"Select the {PartyCaption.ToLowerInvariant()} for this accounting invoice.";
+            return false;
+        }
+
+        // Reject half-filled (touched-but-incomplete) Particulars rows up front with a clear message.
+        if (AccountingInvoiceLines.Any(l => !l.IsBlank && !l.IsComplete))
+        {
+            Message = "Every particulars line needs a ledger and a paisa-exact amount greater than zero.";
+            return false;
+        }
+
+        var complete = AccountingInvoiceLines.Where(l => l.IsComplete).ToList();
+        if (complete.Count == 0)
+        {
+            Message = "Enter at least one particulars line before accepting.";
+            return false;
+        }
+
+        // One income (Sales ⇒ Cr) / expense (Purchase ⇒ Dr) leg per Particulars line — never a single collapsed leg,
+        // so a Consultancy-Income row and a Freight-Income row post two separate legs (the correct accounting shape).
+        var incomeLines = new List<EntryLine>(complete.Count);
+        var taxable = Money.Zero;
+        foreach (var l in complete)
+        {
+            var amt = new Money(l.ParsedAmount!.Value);
+            taxable += amt;
+            incomeLines.Add(new EntryLine(l.SelectedLedger!.Id, amt, IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit));
+        }
+
+        // GST (only when enabled): resolve each line's SAC rate, split intra CGST/SGST vs inter IGST, and build the
+        // additive tax lines (posted to the correct Output/Input tax ledgers, carrying GstLineTax so the invoice flows
+        // into GSTR-1/3B). A taxable ledger with no resolvable rate fails fast (never a silent ₹0).
+        var taxLines = new List<EntryLine>();
+        var partyAmount = taxable;
+        if (IsAccountingGstInvoice)
+        {
+            AccountingInvoiceGst gst;
+            try
+            {
+                gst = ComputeAccountingInvoiceGst()!.Value;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Message = $"Cannot accept: {ex.Message}";
+                return false;
+            }
+            if (gst.HasUnresolved)
+            {
+                Message = $"Ledger '{gst.UnresolvedLedger!.Name}' is taxable but no GST rate/SAC is set on the ledger " +
+                          "or the company. Set a rate before accepting.";
+                return false;
+            }
+            taxLines.AddRange(gst.Tax.TaxLines);
+            // party = taxable + tax + cess. TotalTax excludes the ring-fenced Cess, so add TotalCess explicitly or a
+            // cess-bearing service voucher would be out of balance. TotalCess is 0 when off (ER-13).
+            partyAmount = new Money(taxable.Amount + gst.Tax.TotalTax.Amount + gst.Tax.TotalCess.Amount);
+        }
+
+        // Party leg: Sales ⇒ Dr Party (taxable + tax); Purchase ⇒ Cr Party. Pairing holds by construction
+        // (Σ income + Σ tax == party).
+        var partyLine = IsPurchaseInvoice
+            ? new EntryLine(party.Id, partyAmount, DrCr.Credit)
+            : new EntryLine(party.Id, partyAmount, DrCr.Debit);
+
+        var entryLines = new List<EntryLine>(1 + incomeLines.Count + taxLines.Count) { partyLine };
+        entryLines.AddRange(incomeLines);
+        entryLines.AddRange(taxLines);
+
+        // Counterparty captured field (numbering-design-v2 §8) — "Reference No." (Sales) / "Supplier Invoice No.".
+        if (!TryResolveReferenceCapture(out var referenceNo, out var referenceDate)) return false;
+
+        var voucher = new Voucher(
+            Guid.NewGuid(),
+            _type.Id,
+            Date,
+            entryLines,
+            number: 0,
+            narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+            partyId: party.Id,
+            optional: IsOptional,
+            postDated: IsPostDated,
+            // No inventory lines — HasInventoryLines stays false; no stock is entered.
+            referenceNo: referenceNo,
+            referenceDate: referenceDate);
+
+        try
+        {
+            var posted = _service.Post(voucher); // enforces pairing/atomicity — never persisted on failure
+            _storage.Save(_company);
+            SavedNumber = posted.Number;
+            Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
+            _onSaved();
+            return true;
+        }
+        catch (UnbalancedVoucherException)
+        {
+            Message = "The accounting invoice is out of balance. Not saved.";
+            return false;
+        }
+        catch (InvalidVoucherException ex)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = $"Cannot accept: {ex.Message}";
+            return false;
+        }
+    }
 
     // =============================================================== TCS additive collection (catalog §13; Phase 7 slice 5)
 

@@ -168,11 +168,58 @@ public static class EInvoiceJson
         var inventory = voucher.InventoryLines;
         if (inventory.Count == 0)
         {
-            // As-voucher (no stock lines): one synthetic item per posted rate group; the whole cess rides the first.
+            // Ledger-only voucher. An ACCOUNTING (service) invoice's income legs carry a SAC, so each rate group is
+            // expanded into one item PER SERVICE LEG bearing its own HsnCd. A plain As-Voucher sale has no SAC-bearing
+            // leg and keeps the original single synthetic item per rate group (HsnCd "") — byte-identical, ER-13.
+            var serviceLegs = ServiceLegsByRate(company, voucher, groups);
             var list = new List<ItemDto>();
             var slNo = 1;
             foreach (var g in groups)
             {
+                if (serviceLegs.TryGetValue(g.Rate, out var legs) && legs.Count > 0)
+                {
+                    // Split the group's posted taxable + per-head tax across ITS legs by value share, last leg
+                    // absorbing the remainder — the same identity the item path and Gstr1's SAC attribution keep, so
+                    // Σ AssAmt still foots to ass_val_paisa exactly and no line is invented or lost.
+                    var groupValue = legs.Sum(l => l.Paisa);
+                    long runV = 0, runC = 0, runS = 0, runI = 0;
+                    for (var i = 0; i < legs.Count; i++)
+                    {
+                        var last = i == legs.Count - 1;
+                        var v = last ? g.TaxablePaisa - runV
+                            : (groupValue > 0 ? Apportion(g.TaxablePaisa, legs[i].Paisa, groupValue) : 0);
+                        var c = last ? g.CgstPaisa - runC
+                            : (groupValue > 0 ? Apportion(g.CgstPaisa, legs[i].Paisa, groupValue) : 0);
+                        var s = last ? g.SgstPaisa - runS
+                            : (groupValue > 0 ? Apportion(g.SgstPaisa, legs[i].Paisa, groupValue) : 0);
+                        var ig = last ? g.IgstPaisa - runI
+                            : (groupValue > 0 ? Apportion(g.IgstPaisa, legs[i].Paisa, groupValue) : 0);
+                        if (!last) { runV += v; runC += c; runS += s; runI += ig; }
+
+                        list.Add(new ItemDto
+                        {
+                            SlNo = slNo,
+                            // The SAME resolver GSTR-1's Table-12 row uses; a ledger with no declared SAC still emits
+                            // "" (unchanged) rather than a fabricated code.
+                            HsnCd = Gstr1.ServiceSacOf(legs[i].Ledger) ?? "",
+                            QtyMillis = 0,
+                            Unit = "OTH",
+                            UnitPricePaisa = v,
+                            TotAmtPaisa = v,
+                            AssAmtPaisa = v,
+                            GstRt = g.Rate,
+                            CgstAmtPaisa = c,
+                            SgstAmtPaisa = s,
+                            IgstAmtPaisa = ig,
+                            CesRt = 0,
+                            CesAmtPaisa = slNo == 1 ? cessTotalPaisa : 0,
+                            CesNonAdvlAmtPaisa = 0,
+                        });
+                        slNo++;
+                    }
+                    continue;
+                }
+
                 list.Add(new ItemDto
                 {
                     SlNo = slNo,
@@ -286,6 +333,33 @@ public static class EInvoiceJson
 
     private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
         company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+
+    /// <summary>
+    /// The TAXABLE service-income ledger legs of a ledger-only voucher, bucketed into the posted rate group each
+    /// belongs to — the e-invoice mirror of <c>Gstr1.AccumulateServiceHsn</c>'s bucketing, reading the SAME
+    /// <see cref="Gstr1.ServiceLegs"/> definition so the payload's <c>HsnCd</c> cannot drift from the SAC the return
+    /// files.
+    /// <para>A NON-taxable (exempt/nil/non-GST) leg is deliberately excluded: it contributed nothing to the posted tax
+    /// and nothing to <c>ass_val_paisa</c>, so bucketing it into a posted rate group would both tax an exempt supply
+    /// and break the payload's footing identity. It is simply not an INV-01 line (an e-invoice is projected off the
+    /// posted tax lines; the exempt value is reported through GSTR-1's exempt bucket, which now carries it — FIX-1/2).</para>
+    /// <para>Empty for a plain As-Voucher sale, which is what keeps that path byte-identical.</para>
+    /// </summary>
+    private static Dictionary<int, List<(Domain.Ledger Ledger, long Paisa)>> ServiceLegsByRate(
+        Company company, Voucher voucher, IReadOnlyList<RateGroup> groups)
+    {
+        var byRate = new Dictionary<int, List<(Domain.Ledger, long)>>();
+        // Single-rate collapse, scoped to TAXABLE legs only (a non-taxable leg is never a group member).
+        var singleRate = groups.Count == 1 ? groups[0].Rate : (int?)null;
+        foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
+        {
+            if (Gstr1.IsNonTaxableServiceLedger(ledger)) continue;
+            var rate = singleRate ?? (ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0);
+            if (!byRate.TryGetValue(rate, out var list)) byRate[rate] = list = new List<(Domain.Ledger, long)>();
+            list.Add((ledger, MoneyCodec.ToPaisa(new Money(value))));
+        }
+        return byRate;
+    }
 
     private static long Apportion(long total, long value, long totalValue) =>
         totalValue == 0 ? 0 : (long)Math.Round((decimal)total * value / totalValue, MidpointRounding.AwayFromZero);

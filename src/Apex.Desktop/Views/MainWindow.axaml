@@ -2063,10 +2063,24 @@
                                 <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="16"
                                             HorizontalAlignment="Left"
                                             VerticalAlignment="Center" Margin="0,6,0,0">
-                                  <!-- Item-Invoice toggle (Ctrl+I) — only on a Purchase/Sales voucher. -->
+                                  <!-- Entry-mode selector (Ctrl+I Item Invoice / Ctrl+H Change Mode) — only on a
+                                       Purchase/Sales voucher. Two OneWay-bound checkboxes over the 3-value Mode: both
+                                       clear ⇒ As Voucher, Item checked ⇒ Item Invoice, Accounting checked ⇒ Accounting
+                                       (service) Invoice. OneWay only — a TwoWay write onto the now get-only IsItemInvoice
+                                       would throw; the Click handlers drive the mode change (mirroring Ctrl+I/Ctrl+H). -->
                                   <CheckBox IsVisible="{Binding CanBeItemInvoice}"
                                             Content="Item Invoice (Ctrl+I)"
-                                            IsChecked="{Binding IsItemInvoice, Mode=TwoWay}"
+                                            IsChecked="{Binding IsItemInvoice, Mode=OneWay}"
+                                            Click="OnToggleItemInvoiceClick"
+                                            Foreground="#CFE0FF" FontSize="11"
+                                            VerticalAlignment="Center"/>
+                                  <!-- Accounting (service) invoice is SALES ONLY — the purchase side is deferred
+                                       scope and silently dropped §194J TDS, so the affordance is not offered there
+                                       (CanBeAccountingInvoice, not CanBeItemInvoice). -->
+                                  <CheckBox IsVisible="{Binding CanBeAccountingInvoice}"
+                                            Content="Accounting Invoice (Ctrl+H)"
+                                            IsChecked="{Binding IsAccountingInvoice, Mode=OneWay}"
+                                            Click="OnToggleAccountingInvoiceClick"
                                             Foreground="#CFE0FF" FontSize="11"
                                             VerticalAlignment="Center"/>
                                   <!-- Optional (Ctrl+L): hidden for a provisional type (already off-books). -->
@@ -2110,7 +2124,7 @@
 
                             <!-- Column header band -->
                             <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0"
-                                    IsVisible="{Binding !IsItemInvoice}">
+                                    IsVisible="{Binding IsAsVoucherMode}">
                               <Grid ColumnDefinitions="*,90,160,40">
                                 <TextBlock Grid.Column="0" Text="Particulars (Ledger)" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Dr/Cr" Classes="colHdr"/>
@@ -2129,7 +2143,7 @@
                                  on screen; the panels get their own bounded scroll region instead of taking it. -->
                             <ScrollViewer Grid.Row="3" Background="White" VerticalScrollBarVisibility="Auto"
                                           MinHeight="140"
-                                          IsVisible="{Binding !IsItemInvoice}">
+                                          IsVisible="{Binding IsAsVoucherMode}">
                               <ItemsControl ItemsSource="{Binding Lines}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:VoucherLineViewModel">
@@ -2387,14 +2401,14 @@
                             <Button Grid.Row="4" Content="+ Add line" HorizontalAlignment="Left"
                                     Margin="0,6" Padding="10,4"
                                     Background="{StaticResource Panel}"
-                                    IsVisible="{Binding !IsItemInvoice}"
+                                    IsVisible="{Binding IsAsVoucherMode}"
                                     Click="OnAddVoucherLineClick"/>
 
                             <!-- Live balance indicator -->
                             <Border Grid.Row="5" Background="{StaticResource Cream}"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10,6" Margin="0,2"
-                                    IsVisible="{Binding !IsItemInvoice}">
+                                    IsVisible="{Binding IsAsVoucherMode}">
                               <Grid ColumnDefinitions="Auto,*,Auto,Auto,40">
                                 <TextBlock Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center">
                                   <Run Text="Difference: "/>
@@ -2413,9 +2427,12 @@
                               </Grid>
                             </Border>
 
-                            <!-- ITEM-INVOICE MODE (Ctrl+I) — party + inventory lines; the accounting legs are
-                                 auto-derived so the pairing invariant always holds (no hand-balancing). -->
-                            <Grid Grid.Row="1" Grid.RowSpan="5" IsVisible="{Binding IsItemInvoice}"
+                            <!-- INVOICE OVERLAY — Item Invoice (Ctrl+I) OR Accounting Invoice (Ctrl+H). Shares the
+                                 party header, the line-grid row, the derived-summary line and the GST totals band;
+                                 the line grid itself switches between the stock-item grid (IsItemInvoice) and the
+                                 service Particulars grid (ShowParticularsGrid). The accounting legs are auto-derived
+                                 either way so the pairing invariant always holds (no hand-balancing). -->
+                            <Grid Grid.Row="1" Grid.RowSpan="5" IsVisible="{Binding ShowInvoiceOverlay}"
                                   RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="0,6,0,0">
 
                               <!-- Party (supplier/customer) + value ledger band -->
@@ -2437,10 +2454,15 @@
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
+                                  <!-- Item-invoice value ledger (Purchases/Sales) — hidden in Accounting mode, where
+                                       each Particulars line carries its OWN income/expense ledger (there is no single
+                                       value leg). The party picker to the left stays shared across both modes. -->
                                   <TextBlock Grid.Column="2" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
+                                             IsVisible="{Binding IsItemInvoice}"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0"/>
                                   <ComboBox Grid.Column="3" Width="220"
+                                            IsVisible="{Binding IsItemInvoice}"
                                             ItemsSource="{Binding StockLedgers}"
                                             views:CreateField.Master="StockLedger"
                                             SelectedItem="{Binding SelectedStockLedger, Mode=TwoWay}"
@@ -2491,7 +2513,8 @@
                                    horizontally when the pane cannot hold the total. Same shape the inventory
                                    reports use for the identical starved-star problem. -->
                               <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Auto"
-                                            VerticalScrollBarVisibility="Disabled">
+                                            VerticalScrollBarVisibility="Disabled"
+                                            IsVisible="{Binding IsItemInvoice}">
                               <Grid RowDefinitions="Auto,*">
                               <!-- Padding="6,0" MIRRORS the row Border's Padding="6,4". Without it the header
                                    grid is laid out 12px wider than the row grids, so every column boundary in
@@ -2739,6 +2762,61 @@
                               </Grid>
                               </ScrollViewer>
 
+                              <!-- ACCOUNTING (SERVICE) INVOICE — Particulars grid: service-income LEDGER + amount
+                                   rows (no stock item). Shares this Grid.Row="2" slot with the item scroller above;
+                                   exactly one is visible (ShowParticularsGrid vs IsItemInvoice, mutually exclusive).
+                                   The auto SAC-based GST + the balancing party leg are derived on Accept. -->
+                              <ScrollViewer Grid.Row="2" Background="White" VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Disabled"
+                                            IsVisible="{Binding ShowParticularsGrid}">
+                                <StackPanel Spacing="0">
+                                  <Border Background="{StaticResource BrandNavyDark}" Padding="6,0" Margin="0,6,0,0">
+                                    <Grid ColumnDefinitions="*,160,40">
+                                      <TextBlock Grid.Column="0" Text="Particulars (Ledger)" Classes="colHdr"/>
+                                      <TextBlock Grid.Column="1" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                      <TextBlock Grid.Column="2" Text="" Classes="colHdr"/>
+                                    </Grid>
+                                  </Border>
+                                  <ItemsControl ItemsSource="{Binding AccountingInvoiceLines}">
+                                    <ItemsControl.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:AccountingInvoiceLineViewModel">
+                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                                Padding="6,4">
+                                          <Grid ColumnDefinitions="*,160,40">
+                                            <ComboBox Grid.Column="0" MinWidth="200" HorizontalAlignment="Stretch"
+                                                      views:CreateField.Master="Ledger"
+                                                      ItemsSource="{Binding Ledgers}"
+                                                      SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                      PlaceholderText="Select income ledger…">
+                                              <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="ledger:Ledger">
+                                                  <TextBlock Text="{Binding Name}"/>
+                                                </DataTemplate>
+                                              </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <TextBox Grid.Column="1" Width="150" Margin="6,0,0,0"
+                                                     Text="{Binding AmountText, Mode=TwoWay}"
+                                                     TextAlignment="Right" PlaceholderText="0.00"/>
+                                            <!-- The declared 40px column was EMPTY and RemoveAccountingInvoiceLine
+                                                 had zero call sites, so a Particulars line could not be deleted at
+                                                 all. The handler reads the button's own DataContext, so the click
+                                                 removes THAT row. -->
+                                            <Button Grid.Column="2" Content="✕" Padding="6,0" Margin="4,0,0,0"
+                                                    FontSize="11" ToolTip.Tip="Remove this particulars line"
+                                                    Background="Transparent"
+                                                    Click="OnRemoveAccountingInvoiceLineClick"/>
+                                          </Grid>
+                                        </Border>
+                                      </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                  </ItemsControl>
+                                  <Button Content="+ Add line" HorizontalAlignment="Left"
+                                          Margin="0,6" Padding="10,4"
+                                          Background="{StaticResource Panel}"
+                                          Click="OnAddAccountingInvoiceLineClick"/>
+                                </StackPanel>
+                              </ScrollViewer>
+
                               <!-- Items total + derived Dr/Cr summary. The derived string wraps (no ellipsis)
                                    so it can never clip; the authoritative GST numbers live in the band below. -->
                               <Border Grid.Row="3" Background="{StaticResource Cream}"
@@ -2752,15 +2830,17 @@
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBlock Grid.Column="2" VerticalAlignment="Center" FontWeight="SemiBold"
                                              FontSize="13" Foreground="{StaticResource BrandNavy}" Margin="8,0,0,0">
-                                    <Run Text="Items Total ₹ "/><Run Text="{Binding ItemsTotalText}"/>
+                                    <!-- Mode-aware caption: an accounting (service) invoice has no items, so the
+                                         shared band read "Items Total" over a list of service ledgers. -->
+                                    <Run Text="{Binding LineTotalCaption}"/><Run Text="{Binding ItemsTotalText}"/>
                                   </TextBlock>
                                 </Grid>
                               </Border>
 
-                              <!-- GST summary band (shown only when GST is on — IsGstInvoice). Carries the
-                                   authoritative tax breakdown (CGST/SGST/IGST) + the party total so nothing
-                                   is lost to ellipsis in the Derived line at any report/voucher-pane width. -->
-                              <Border Grid.Row="4" IsVisible="{Binding IsGstInvoice}"
+                              <!-- GST summary band (shown when GST is on for EITHER an item invoice or an accounting
+                                   invoice — ShowGstTotals). Carries the authoritative tax breakdown (CGST/SGST/IGST)
+                                   + the party total so nothing is lost to ellipsis in the Derived line at any width. -->
+                              <Border Grid.Row="4" IsVisible="{Binding ShowGstTotals}"
                                       Background="{StaticResource Cream}"
                                       BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
                                       Padding="10,6" Margin="0,2,0,0">

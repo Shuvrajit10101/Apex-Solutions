@@ -485,6 +485,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Ctrl+H "Change Mode" cycles a Purchase/Sales voucher through the three entry modes
+        // As Voucher → Item Invoice → Accounting Invoice → As Voucher. Consumed (e.Handled) ONLY on an invoiceable
+        // entry (Purchase/Sales) so the key is not swallowed app-wide; a no-op — and unhandled, falling through —
+        // everywhere else. Additive: it consumes a key the keystroke arbiter does not otherwise route, and touches no
+        // dropdown/Tab/arrow ownership, so the b8c617e arbitration and the numbering config are untouched.
+        if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsInvoiceableEntry)
+        {
+            vm.ChangeMode();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+I toggles the in-progress POS bill between Single and Multi tender mode (both ways, RQ-42). Scoped to
         // the POS Billing screen so it never collides elsewhere; the item-invoice toggle stays on Ctrl+I.
         if (e.Key == Key.I && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
@@ -948,6 +960,22 @@ public partial class MainWindow : Window
 
     private void OnAddItemInvoiceLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddItemInvoiceLine();
+
+    private void OnAddAccountingInvoiceLineClick(object? sender, RoutedEventArgs e)
+        => Vm?.AddAccountingInvoiceLine();
+
+    /// <summary>Removes the Particulars row the clicked "✕" belongs to (the button's own DataContext IS that row).</summary>
+    private void OnRemoveAccountingInvoiceLineClick(object? sender, RoutedEventArgs e)
+    {
+        if (Vm?.VoucherEntry is { } entry && (sender as Control)?.DataContext is AccountingInvoiceLineViewModel row)
+            entry.RemoveAccountingInvoiceLine(row);
+    }
+
+    private void OnToggleItemInvoiceClick(object? sender, RoutedEventArgs e)
+        => Vm?.ToggleItemInvoice();
+
+    private void OnToggleAccountingInvoiceClick(object? sender, RoutedEventArgs e)
+        => Vm?.ToggleAccountingInvoice();
 
     private void OnAddAdditionalCostClick(object? sender, RoutedEventArgs e)
         => Vm?.VoucherEntry?.AddAdditionalCostRow();

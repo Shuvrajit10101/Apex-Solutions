@@ -577,12 +577,31 @@ public sealed record Gstr1(
                 exempt += il.Value.Amount;
                 AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, hsnAcc);
             }
+
+            // Accounting (service) invoice with no stock lines: attribute the service-income LEDGER legs to the exempt
+            // bucket + their SAC row — but ONLY a genuinely exempt/nil service ledger (SalesPurchaseGst IsTaxable:false).
+            // A plain As-Voucher TAXABLE sale (an 18% ledger, but the plain grid posts NO tax legs) ALSO reaches this
+            // no-tax branch; attributing it here would file its value in the Table-12 EXEMPT column — a positive
+            // misstatement. The IsTaxable:false gate is the discriminator the flag-less structural signal otherwise
+            // lacks. Gated on InventoryLines.Count==0 so an existing exempt item invoice is never double-counted.
+            if (voucher.InventoryLines.Count == 0)
+                foreach (var (ledger, value) in ServiceLegs(company, voucher))
+                    if (IsNonTaxableServiceLedger(ledger))
+                    {
+                        exempt += value;
+                        AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc);
+                    }
             return;
         }
 
         if (voucher.InventoryLines.Count == 0)
         {
-            // As-voucher (no stock lines): nothing to attribute to HSN; return.
+            // Accounting (service) invoice: attribute the posted tax to the service-income LEDGER legs, grouped by
+            // SAC — the service mirror of the item-line attribution below. ONLY when there are no stock lines, so an
+            // existing item invoice's HSN summary is never double-counted (its stock lines carry the tax below). A
+            // plain As-Voucher sale with posted tax legs (unusual) still finds no SAC-bearing service leg here and is
+            // simply not attributed to HSN, exactly as before.
+            AccumulateServiceHsn(company, voucher, hsnAcc, ref exempt);
             return;
         }
 
@@ -691,6 +710,154 @@ public sealed record Gstr1(
         if (acc.BaseUnitId != decl.BaseUnitId) acc.MixedBases = true;
         acc.Quantity += decl.Quantity;
         acc.BaseQuantity += decl.BaseQuantity;
+        acc.Taxable += value;
+        acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst;
+    }
+
+    /// <summary>
+    /// The service-income LEDGER legs of an accounting (service) invoice — a non-party, non-tax entry line whose
+    /// ledger carries a <c>SalesPurchaseGst</c> (SAC) block; its taxable value is the leg amount. Round-Off and every
+    /// other ledger without a SAC block (or a GST tax ledger) are excluded. Used ONLY when the voucher has no stock
+    /// lines, so an item invoice never routes through here.
+    /// <para><b>Public because the e-invoice payload MUST share this exact definition.</b> The NIC INV-01 emitter used
+    /// to send <c>HsnCd = ""</c> on the ledger-only path while this method filed SAC 998311 in Table 12 for the very
+    /// same voucher — a blank mandatory HsnCd is an IRP rejection, and two parallel implementations would drift again.
+    /// One definition, two readers.</para>
+    /// </summary>
+    public static IEnumerable<(Domain.Ledger Ledger, decimal Value)> ServiceLegs(Company company, Voucher voucher)
+    {
+        foreach (var line in voucher.Lines)
+        {
+            if (voucher.PartyId is Guid pid && line.LedgerId == pid) continue; // the party leg is not a service leg
+            var led = company.FindLedger(line.LedgerId);
+            if (led?.SalesPurchaseGst is null) continue;    // not a service-income / SAC-bearing ledger
+            if (led.GstClassification is not null) continue; // a GST (Duties &amp; Taxes) tax ledger
+            yield return (led, line.Amount.Amount);
+        }
+    }
+
+    /// <summary>
+    /// Attributes an accounting (service) invoice's posted tax to its service-income ledger legs, grouped by SAC —
+    /// the service mirror of <see cref="AccumulateHsn"/>'s item-line pass. Each leg's tax is a value-share of ITS OWN
+    /// integrated-rate group's posted tax (never the blended total); within a group the value-share is paisa-exact and
+    /// the group's last leg absorbs the rounding remainder, so Σ leg tax == the group's posted tax. Reads only posted
+    /// amounts — the per-leg RATE is read from the ledger's SAC purely to bucket the leg into the matching posted group.
+    ///
+    /// <para><b>A NON-TAXABLE service leg is NEVER a member of a posted rate group.</b> It contributed no taxable value
+    /// to the tax the screen computed (<c>ComputeAccountingInvoiceGst</c> skips it), so it must not receive a share of
+    /// that tax back here. Both money defects on this path were the same root cause:</para>
+    /// <list type="bullet">
+    /// <item><b>Single-rate invoice</b> — the <c>singleRate</c> collapse forced EVERY leg into the one posted group.
+    /// Consultancy 18% 10,000 + Exempt 5,000 filed <c>998311 taxable=10,000 cgst=600 sgst=600</c> and
+    /// <c>999999 taxable=5,000 cgst=300 sgst=300</c> with an EMPTY exempt bucket: the taxed SAC understated its own
+    /// tax, an EXEMPT supply was declared as taxed, and the exempt turnover disappeared — three misstatements at once.</item>
+    /// <item><b>Multi-rate invoice</b> — <see cref="LedgerIntegratedRate"/> returns 0 for a non-taxable ledger, no
+    /// rate-0 group exists, so the <c>continue</c> below DISCARDED the leg: the 5,000 exempt supply was absent from
+    /// Table 12 AND from the exempt bucket.</item>
+    /// </list>
+    /// <para>Every non-taxable leg is therefore routed to the EXEMPT bucket + a zero-tax SAC row (mirroring the
+    /// exempt-branch treatment in <see cref="AccumulateHsn"/>), and the posted tax is apportioned across the TAXABLE
+    /// legs only. A wholly-exempt invoice never reaches here (it has no posted tax); a wholly-taxable one behaves
+    /// exactly as before.</para>
+    /// </summary>
+    private static void AccumulateServiceHsn(
+        Company company, Voucher voucher, Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt)
+    {
+        var rateGroups = ReadInvoiceRateGroups(voucher);
+
+        // Split first: exempt/nil/non-GST legs out of the rate machinery entirely, taxable legs into it.
+        var taxableLegs = new List<(Domain.Ledger Ledger, decimal Value)>();
+        foreach (var leg in ServiceLegs(company, voucher))
+        {
+            if (IsNonTaxableServiceLedger(leg.Ledger))
+            {
+                exempt += leg.Value;
+                AddServiceHsnRow(leg.Ledger, leg.Value, 0m, 0m, 0m, hsnAcc);
+                continue;
+            }
+            taxableLegs.Add(leg);
+        }
+
+        // The single-rate collapse is now scoped to the TAXABLE legs: when the invoice posted exactly one rate group,
+        // every taxable leg belongs to it regardless of where its own rate resolved (a rate-history override, a
+        // company-level default). A non-taxable leg can never reach this line.
+        var singleRate = rateGroups.Count == 1 ? rateGroups[0].Rate : (int?)null;
+
+        var legsByRate = new Dictionary<int, List<(Domain.Ledger Ledger, decimal Value)>>();
+        foreach (var leg in taxableLegs)
+        {
+            var rate = singleRate ?? LedgerIntegratedRate(leg.Ledger);
+            if (!legsByRate.TryGetValue(rate, out var list)) legsByRate[rate] = list = new List<(Domain.Ledger, decimal)>();
+            list.Add(leg);
+        }
+
+        foreach (var (rate, group) in rateGroups)
+        {
+            if (!legsByRate.TryGetValue(rate, out var groupLegs) || groupLegs.Count == 0)
+                continue; // no matched service leg for this posted rate group (defensive)
+
+            var groupValue = groupLegs.Sum(l => l.Value);
+            if (groupValue == 0m) continue;
+
+            var runCgst = 0m; var runSgst = 0m; var runIgst = 0m;
+            for (var i = 0; i < groupLegs.Count; i++)
+            {
+                var (ledger, value) = groupLegs[i];
+                decimal cgst, sgst, igst;
+                if (i == groupLegs.Count - 1)
+                {
+                    // The group's last leg absorbs the remainder so Σ leg tax == the group's posted tax exactly.
+                    cgst = group.Cgst - runCgst;
+                    sgst = group.Sgst - runSgst;
+                    igst = group.Igst - runIgst;
+                }
+                else
+                {
+                    cgst = Apportion(group.Cgst, value, groupValue);
+                    sgst = Apportion(group.Sgst, value, groupValue);
+                    igst = Apportion(group.Igst, value, groupValue);
+                    runCgst += cgst; runSgst += sgst; runIgst += igst;
+                }
+                AddServiceHsnRow(ledger, value, cgst, sgst, igst, hsnAcc);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The integrated GST rate (basis points) of a service-income ledger, read from its <c>SalesPurchaseGst</c> (SAC)
+    /// block — used only to bucket a multi-rate service invoice's legs into the matching posted rate group, never to
+    /// compute tax. A ledger with no resolvable taxable rate returns 0.
+    /// </summary>
+    private static int LedgerIntegratedRate(Domain.Ledger ledger) =>
+        ledger.SalesPurchaseGst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
+
+    /// <summary>Whether a service-income ledger's SAC block declares an <b>exempt / nil-rated / non-GST</b> supply.
+    /// The single discriminator for "this leg contributed nothing to the tax base, so it may never be bucketed into a
+    /// posted rate group" — see <see cref="AccumulateServiceHsn"/>. Kept as one predicate so the exempt-branch and the
+    /// taxed-branch treatments can never drift apart.</summary>
+    public static bool IsNonTaxableServiceLedger(Domain.Ledger ledger) =>
+        ledger.SalesPurchaseGst is { IsTaxable: false };
+
+    /// <summary>The SAC a service-income ledger declares, or <c>null</c> when it declares none. The single resolver
+    /// GSTR-1's Table-12 rows and the e-invoice <c>HsnCd</c> both read, so the two can never disagree (FIX-6).</summary>
+    public static string? ServiceSacOf(Domain.Ledger ledger) =>
+        string.IsNullOrWhiteSpace(ledger.SalesPurchaseGst?.HsnSac) ? null : ledger.SalesPurchaseGst!.HsnSac;
+
+    /// <summary>
+    /// Adds/accumulates a service-income ledger's SAC row: SAC = <c>ledger.SalesPurchaseGst.HsnSac</c>, description =
+    /// the ledger name, taxable = the leg value, tax = the attributed heads. A service carries no unit, so the row
+    /// declares a blank UQC and zero quantity (Table-12 rows for services have no quantity).
+    /// </summary>
+    private static void AddServiceHsnRow(
+        Domain.Ledger ledger, decimal value, decimal cgst, decimal sgst, decimal igst,
+        Dictionary<string, HsnAcc> hsnAcc)
+    {
+        var sac = ledger.SalesPurchaseGst?.HsnSac ?? "(none)";
+        if (!hsnAcc.TryGetValue(sac, out var acc))
+        {
+            acc = new HsnAcc { HsnSac = sac, Description = ledger.Name };
+            hsnAcc[sac] = acc;
+        }
         acc.Taxable += value;
         acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst;
     }
