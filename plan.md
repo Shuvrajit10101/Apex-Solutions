@@ -693,15 +693,36 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   to `true`) that **only warns and never blocks** a posting, and make a negative — and a negative later
   recovered by an inward — **value at a reference rate, never silently at ₹0**. Today's engine both blocks
   the entry outright and, on recovery, values the item at a rate that never existed.
-- **Explicitly DEFERRED (orchestrator decision 2026-07-27 — do NOT build here):** the **`AverageCost`**
-  valuation path under negative stock is **NOT fixed in this phase** and stays **byte-for-byte at HEAD**.
-  *Rationale:* a moving average and a lot-based debt layer need **different repayment semantics**; the one
-  attempt that changed both at once made `AverageCost` — the **DEFAULT method for a new stock item** —
-  **unboundedly wrong** (sell 1,000 with nothing on hand, then buy 1,001 @ ₹100 ⇒ the surviving 1 unit valued
-  at **₹100,100**, where HEAD and FIFO both give ₹100), and the mirror case valued 20 units of genuine ₹240
-  stock at **₹0.00**. HEAD's moving average is **in band on every conservation trace measured**, so this is
-  deferred as **its own future slice — not abandoned**.
-- **Modules:** `StockValuationService` (the FIFO/LIFO layer machinery — `Consume` / `LayerValue`);
+- **DEFERRAL REVERSED — `AverageCost` IS fixed in this phase (USER DECISION 2026-07-27):** an orchestrator
+  decision earlier the same day **explicitly DEFERRED** the **`AverageCost`** valuation path under negative
+  stock, holding it **byte-for-byte at HEAD**, on the stated rationale that *"HEAD's moving average is in band
+  on every conservation trace measured"*. **That premise has been REFUTED by measurement — and the refutation
+  is that it was a TAUTOLOGY:** the harness that "verified" it compared `AverageCost` against a reference
+  implementation deliberately written to **ECHO HEAD's own averaging rule**, so `AverageCost` could never be
+  shown wrong by it. An **adversarial audit** caught this. Two **independently written** implementations now
+  agree — a C# reference inside the harness, and an out-of-band Python model validated **byte-for-byte against
+  real HEAD output on 95/95 subjects**:
+  - On `In 5 @ ₹1000.07 → Out 25 → In 20 @ ₹1000.07 → In 30 @ ₹0.37`, HEAD's `AverageCost` closes at
+    **₹12,007.50** where debt-aware closes at **₹11.10** — **₹11,996.40 of phantom asset**, roughly **1000×
+    the true closing value**, on an item with **₹25,012.85** ever spent.
+  - **No check catches it:** the implied **₹400.25** sits inside the rate band `[₹0.37, ₹1000.07]`, and
+    **₹12,007.50** is under total spend. **6 of 95** negative-family subjects disagree with the debt-aware
+    oracle.
+  - *Honest qualifier, recorded rather than buried:* per family, `AverageCost`'s **COGS-conservation
+    violations are never worse than FIFO's**. That is the grain of truth in the original claim. But *"no worse
+    than the method we already know is broken"* is **not** "in band", and is **not** a basis for shipping.
+  - `AverageCost` is the **DEFAULT valuation method for a new stock item**, and today the posting guard makes
+    negative stock unreachable — **S-B removes that guard, so this exposure goes live.**
+  - ⚠️ **The historical warning STANDS:** the one previous attempt that changed FIFO/LIFO **and** the average
+    together was **unboundedly wrong** — sell 1,000 with nothing on hand, then buy 1,001 @ ₹100 ⇒ the
+    surviving 1 unit valued at **₹100,100** where HEAD and FIFO both give ₹100; the mirror case valued 20
+    units of genuine ₹240 stock at **₹0.00**. **Why this is now different:** those attempts ran **blind**.
+    The harness now carries a **calibrated point oracle with a proven-reachable ACCEPT state** that would
+    **convict a wrong average** — precisely what the echo-reference could not do. The average is therefore
+    built **oracle-gated**, not by inspection.
+- **Modules:** `StockValuationService` — **all three valuation paths, not just the layer ones**: the
+  lot machinery (`Consume` / `LayerValue` / `BuildLayers`) **and** the moving-average path (`RunAverage` /
+  `AverageValue`), since the debt quantity now binds FIFO, LIFO **and** `AverageCost` alike;
   `InventoryPostingService` (the guard — `EnsureNoNegativeStockAnywhere` and its public wrapper); `Company`
   (domain) + `Apex.Persistence.Sqlite`'s `Schema` + `Apex.Ledger.Io` (the new flag); `JobWorkService` and the
   manufacturing-journal consumption path; plus a new **committed HEAD-oracle harness** under
@@ -715,13 +736,18 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   repeatedly by documentation that turned out to be a claim rather than a fact, and an uncited default is
   exactly that.
 - **Work items (id — one-line):**
-  - **NS-1** **FIFO/LIFO over-draw as a debt quantity** — `Consume` silently **discards** whatever it cannot
-    draw and `LayerValue` **ignores real on-hand** (`_ = closingQty`), so a recovered negative is valued at a
-    rate that never existed: buy 10 @ ₹10 → oversell 15 → buy 20 @ ₹12 values 15 units at **₹240** (implied
-    ₹16/u) instead of **₹180** — **+₹60 straight onto Balance-Sheet Stock-in-Hand and P&L**. Carry the
-    over-draw as a **debt quantity**; a later inward **repays it at the incoming lot rate**. **An existing
-    debt is NEVER re-rated** — re-rating the balance is what produced a measured **18× overstatement**
-    (Stock-in-Hand ₹24,050 → ₹476,000 on an item with ₹26,100 ever spent).
+  - **NS-1** **Over-draw as a debt quantity — across FIFO, LIFO *and* the moving average** — `Consume`
+    silently **discards** whatever it cannot draw and `LayerValue` **ignores real on-hand** (`_ = closingQty`),
+    so a recovered negative is valued at a rate that never existed: buy 10 @ ₹10 → oversell 15 → buy 20 @ ₹12
+    values 15 units at **₹240** (implied ₹16/u) instead of **₹180** — **+₹60 straight onto Balance-Sheet
+    Stock-in-Hand and P&L**. Carry the over-draw as a **debt quantity**; a later inward **repays it at the
+    incoming lot rate**. **Scope now includes `AverageCost`** (per the decision reversal above): the moving
+    average carries the same debt and repays it on the same rule, so a recovered negative no longer closes at
+    **₹12,007.50** against a true **₹11.10**. Two invariants bind **all three** methods: **(i) an existing debt
+    is NEVER re-rated** — re-rating the balance is what produced a measured **18× overstatement**
+    (Stock-in-Hand ₹24,050 → ₹476,000 on an item with ₹26,100 ever spent); and **(ii) NO FLOORS AND NO CLAMPS**
+    — a wrong value is never papered over by pinning it at ₹0, at cost, or inside a band. Repayment semantics
+    differ per method and are proven **one method and one scenario at a time** against the oracle (NS-7).
   - **NS-2** **HEAD-oracle harness (`tools/HeadOracle/`) — built FIRST, before any production change** — two
     processes, two private engine copies, one corpus; diffs `ClosingValue` / `TotalClosingStockValue` /
     `IssueValue`, plus an engine-independent **rate-band**, **total-spend-containment** and
@@ -740,10 +766,21 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   - **NS-6** **Manufacturing + job-work shortfall costing** — `JobWorkService` shortfall costing currently
     **loses money on a location transfer**; the finished good must absorb **exactly** what the component's
     stock loses.
+  - **NS-7** **Harness check INVERSION — `AverageCost` becomes a point-oracle subject** — the direct
+    consequence of the decision reversal. The harness check that asserts **`AverageCost` byte-identity to
+    HEAD** now **FORBIDS the very fix this phase must ship**, so it is **inverted**: `AverageCost` stops being
+    a frozen-to-HEAD control and becomes a **first-class point-oracle subject**, compared against the
+    **independent debt-aware reference** exactly as FIFO/LIFO are. Additionally — and binding on every future
+    harness — **any part of a reference that merely ECHOES HEAD must be LABELLED as carrying no correctness
+    evidence**: an echo can only prove *"unchanged"*, never *"right"*, and presenting it as verification is
+    what produced the refuted deferral above. Agreement between a reference and HEAD counts as evidence only
+    where the reference was derived **independently** of HEAD's implementation.
 - **Slices (build order — dependency order; full rationale in `memory.md`):**
-  1. **S-A — HEAD oracle, then FIFO/LIFO recovery** (NS-2 **then** NS-1) — **harness first**, then the debt
-     quantity, **one method and one scenario at a time**. Schema-clean. **Surfaces USER GATE (a) —
-     FIFO/LIFO-only recovery.**
+  1. **S-A — HEAD oracle, its inversion, then recovery on ALL THREE methods** (NS-2 → NS-7 → NS-1) —
+     **harness first**, then **invert the `AverageCost` byte-identity check** so the fix is provable rather
+     than forbidden, then the debt quantity across **FIFO, LIFO and the moving average**, **one method and one
+     scenario at a time**. Schema-clean. **USER GATE (a) is RESOLVED** — see below; no gate remains on this
+     slice.
   2. **S-B — Guard, flag, schema and the test flip** (NS-3, NS-4, NS-5) — the slice that actually makes a
      negative postable; owns **v50** (see Schema below). **Surfaces USER GATE (b) — the `WarnOnNegativeStock`
      default.**
@@ -764,11 +801,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   the migration's backfill, the downgrade round-trip) must be proven to yield **true** for data written
   before v50 — with a test that fails if it does not.
 - **User gates (recommend-first; surface at the named slice — R12):**
-  - **(S-A) Ship FIFO/LIFO-only recovery, leaving `AverageCost` — the DEFAULT method for a new stock item — at
-    HEAD behaviour under negative stock?** *Recommend:* **YES** — the debt-quantity recovery is independently
-    **measured better on FIFO/LIFO** and HEAD's moving average is **in band**, whereas the one attempt to fix
-    both at once was **unboundedly wrong**. State plainly at the gate that **the default valuation method
-    therefore still mis-values a recovered negative**, and that its fix is a later slice of its own.
+  - **(S-A) ✅ RESOLVED 2026-07-27 — ship recovery on FIFO, LIFO *and* `AverageCost`.** The gate asked whether
+    to ship **FIFO/LIFO-only** recovery, leaving `AverageCost` — the **DEFAULT method for a new stock item** —
+    at HEAD behaviour; the standing recommendation was **YES**, resting on the claim that HEAD's moving average
+    is **in band**. **Evidence overturned the recommendation:** that claim came from a harness whose reference
+    **echoed HEAD's own averaging rule** (a tautology, caught by an adversarial audit); two independently
+    written implementations — one validated **byte-for-byte against HEAD on 95/95 subjects** — put HEAD's
+    close at **₹12,007.50** against a debt-aware **₹11.10** (**₹11,996.40 phantom, ~1000×**), inside every
+    existing band and spend check, with **6 of 95** negative-family subjects disagreeing. **USER DECISION:
+    fix `AverageCost` too, oracle-gated** (NS-1 scope widened, NS-7 inverts the blocking check). **Kept on
+    record, not deleted**, because the reversal — and *why* the original evidence was worthless — is the
+    reusable lesson.
   - **(S-B) The `WarnOnNegativeStock` default.** *Recommend:* **ON** — Tally-faithful (the warning exists but
     **never blocks**) and the safer default for an existing book that has never been able to go negative
     before.
@@ -776,14 +819,23 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (Tally fidelity, R7), Test author, Implementer, **A10** review, **A12** GitHub Expert, run-app verifier.
 - **Deliverables:** an over-drawing sale, consumption, manufacturing journal and stock journal that all
   **post**; a non-blocking negative-stock warning surface gated by `WarnOnNegativeStock`; the committed
-  `tools/HeadOracle/` harness with its rate-band / spend-containment / COGS-conservation checks; the v50
-  migration parity + downgrade; and regression tests locking the **₹180** recovery case, the
-  **never-re-rate-an-existing-debt** rule, the flipped guard tests, the reworked import-rollback test and the
-  job-work shortfall conservation (Robert & Bright unmoved).
-- **Exit gate:** R9 — tests green and **shown** (incl. Robert & Bright — they must not move); **A10**
-  three-lens review per slice; **A12** (GitHub Expert) commits & pushes small reviewed units (R4/R10); the
-  real app run with evidence (**a sale that over-draws stock now posts, warns, and values correctly on
-  recovery**); `memory.md` updated; then **user go/no-go** per R12.
+  `tools/HeadOracle/` harness with its rate-band / spend-containment / COGS-conservation checks **and its
+  NS-7 inversion** (`AverageCost` compared against the **independent debt-aware reference** rather than
+  byte-locked to HEAD, with any echo-of-HEAD reference labelled as carrying no correctness evidence); the v50
+  migration parity + downgrade; and regression tests locking the FIFO **₹180** recovery case, the
+  **`AverageCost`** recovery case pinning **₹11.10** against HEAD's **₹12,007.50** on
+  `In 5 @ ₹1000.07 → Out 25 → In 20 @ ₹1000.07 → In 30 @ ₹0.37`, the
+  **never-re-rate-an-existing-debt** rule (**binding on all three methods**), the flipped guard tests, the
+  reworked import-rollback test and the job-work shortfall conservation (Robert & Bright unmoved).
+- **Exit gate:** R9 — **HARNESS TRUSTWORTHINESS FIRST (user decision 2026-07-27): an INDEPENDENT ADVERSARY
+  must return TRUSTWORTHY on the harness BEFORE any production code is written**, verifying **both** that a
+  reference-conformant engine is **ACCEPTED** (the ACCEPT state is reachable, not vacuous) **and** that
+  **several distinct wrong engines are REJECTED** — a harness that cannot convict a wrong average is what
+  produced the refuted deferral, and no valuation change ships behind an unaudited oracle. Then: tests green
+  and **shown** (incl. Robert & Bright — they must not move); **A10** three-lens review per slice; **A12**
+  (GitHub Expert) commits & pushes small reviewed units (R4/R10); the real app run with evidence (**a sale
+  that over-draws stock now posts, warns, and values correctly on recovery — on the `AverageCost` default as
+  well as FIFO/LIFO**); `memory.md` updated; then **user go/no-go** per R12.
 
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
@@ -962,4 +1014,18 @@ correction recorded above it. Amended 2026-07-27 (R6): **Phase 10.8 — Allow ne
 over slices S-A…S-C, allow-by-default globally + a warn-only `WarnOnNegativeStock` toggle, schema **v49 →
 v50**, `AverageCost` under negatives explicitly deferred), and the now-stale "rebase to v48" version-
 coordination note in Phase 10.7 corrected to **v50** (v48 went to numbering S5, v49 to the accounting-invoice
-flag). Any deviation during execution is recorded in `memory.md` with its reason (R6).*
+flag). Amended again 2026-07-27 (R6, **user decision**): the `AverageCost` **deferral is REVERSED** — its
+"in band" premise was refuted as a **tautology** (the verifying harness's reference **echoed HEAD's own
+averaging rule**; an adversarial audit caught it, and two independent implementations — one validated
+byte-for-byte against HEAD on **95/95** subjects — measured HEAD closing at **₹12,007.50** against a
+debt-aware **₹11.10**, undetected by every band and spend check). **NS-1** widened to debt-aware repayment
+across **FIFO, LIFO and the moving average** (never-re-rate-a-debt and no-floors/no-clamps retained), new
+**NS-7 — harness check inversion** added (the `AverageCost` byte-identity assertion now forbids the fix and
+becomes a point-oracle subject; echo-of-HEAD references must be labelled as carrying **no correctness
+evidence**), **S-A** rescoped to all three methods, **user gate (a) RESOLVED** (kept on record with its
+evidence, not deleted; gate (b) still open), and the Exit gate now requires an **independent adversary to
+return TRUSTWORTHY on the harness before production code is written**. **Modules** and **Deliverables** were
+realigned to the same three-method scope in the same amendment (`StockValuationService` now named as the
+lot machinery **and** the moving-average path; the `AverageCost` ₹11.10-vs-₹12,007.50 regression case and the
+NS-7 harness inversion added to the test list) so no bullet still describes the phase in FIFO/LIFO terms. Any deviation during execution is
+recorded in `memory.md` with its reason (R6).*
