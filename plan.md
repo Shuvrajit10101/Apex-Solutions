@@ -658,9 +658,10 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   `voucher_types` + the `voucher_type_prefix` / `voucher_type_suffix` child tables + indexes, `MigrateV46ToV47`
   with `SchemaMigrationEquivalenceTests` parity and a `DowngradeV47ToV46`). The counterparty field (S5) rides
   its own additive migration on `vouchers` (`reference_no` / `reference_date`), ordered after v47 (design:
-  **v47 → v48**). **Version coordination — numbering owns v47:** a separately-planned **negative-stock** change
-  that had provisionally targeted v47 must **rebase to v48**; the two v48 claimants reconcile at build time by
-  whichever lands first. S1/S2 are schema-clean; ER-13 stays byte-identical for a never-configured type via
+  **v47 → v48**). **Version coordination — numbering owns v47 and v48 (corrected 2026-07-27):** S5 shipped as
+  **v48** (`636a104`) and the accounting-invoice flag then took **v49** (`5819fbf`), so the separately-planned
+  **negative-stock** change — which this note previously told to "rebase to v48" — targets **v50**
+  (**Phase 10.8**). S1/S2 are schema-clean; ER-13 stays byte-identical for a never-configured type via
   **conditional (omit-at-default) emit** — no golden regeneration.
 - **User gates (recommend-first; surface at the named slice — R12):**
   - **(S2) Digit-adjacent affix collision handling** — when an affix's own digits abut the padded numeric core
@@ -684,6 +685,105 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   **A10** three-lens review per slice; **A12** (GitHub Expert) commits & pushes small reviewed units (R4/R10);
   the real app run with evidence (**F12 opens the numbering config**); `memory.md` updated; then **user
   go/no-go** per R12.
+
+### Phase 10.8 — Allow negative stock
+- **Goals:** allow negative stock **everywhere, by DEFAULT, globally** — a sale, a consumption, a
+  **manufacturing journal** or a **stock journal** that over-draws an item **posts** instead of being
+  rejected. Add one company-level **`WarnOnNegativeStock`** toggle (default **ON**, the domain default synced
+  to `true`) that **only warns and never blocks** a posting, and make a negative — and a negative later
+  recovered by an inward — **value at a reference rate, never silently at ₹0**. Today's engine both blocks
+  the entry outright and, on recovery, values the item at a rate that never existed.
+- **Explicitly DEFERRED (orchestrator decision 2026-07-27 — do NOT build here):** the **`AverageCost`**
+  valuation path under negative stock is **NOT fixed in this phase** and stays **byte-for-byte at HEAD**.
+  *Rationale:* a moving average and a lot-based debt layer need **different repayment semantics**; the one
+  attempt that changed both at once made `AverageCost` — the **DEFAULT method for a new stock item** —
+  **unboundedly wrong** (sell 1,000 with nothing on hand, then buy 1,001 @ ₹100 ⇒ the surviving 1 unit valued
+  at **₹100,100**, where HEAD and FIFO both give ₹100), and the mirror case valued 20 units of genuine ₹240
+  stock at **₹0.00**. HEAD's moving average is **in band on every conservation trace measured**, so this is
+  deferred as **its own future slice — not abandoned**.
+- **Modules:** `StockValuationService` (the FIFO/LIFO layer machinery — `Consume` / `LayerValue`);
+  `InventoryPostingService` (the guard — `EnsureNoNegativeStockAnywhere` and its public wrapper); `Company`
+  (domain) + `Apex.Persistence.Sqlite`'s `Schema` + `Apex.Ledger.Io` (the new flag); `JobWorkService` and the
+  manufacturing-journal consumption path; plus a new **committed HEAD-oracle harness** under
+  `tools/HeadOracle/`.
+- **R7 fidelity — web-verified (A14):** negatives are **allowed by default** in Tally, with an optional
+  **non-blocking F12 warning** and **no per-item allow flag**. This verification **FALSIFIED an earlier
+  recommendation** of a per-item allow flag on the stock item: the control is **company-level and advisory
+  only**, which is exactly why this phase ships allow-by-default plus one warn toggle. **⚠️ The finding is
+  carried forward from a previous session and NO CITATION IS ON RECORD.** A14 must **re-verify and produce
+  the actual source** at S-B, before the toggle and its default ship — this project has been bitten
+  repeatedly by documentation that turned out to be a claim rather than a fact, and an uncited default is
+  exactly that.
+- **Work items (id — one-line):**
+  - **NS-1** **FIFO/LIFO over-draw as a debt quantity** — `Consume` silently **discards** whatever it cannot
+    draw and `LayerValue` **ignores real on-hand** (`_ = closingQty`), so a recovered negative is valued at a
+    rate that never existed: buy 10 @ ₹10 → oversell 15 → buy 20 @ ₹12 values 15 units at **₹240** (implied
+    ₹16/u) instead of **₹180** — **+₹60 straight onto Balance-Sheet Stock-in-Hand and P&L**. Carry the
+    over-draw as a **debt quantity**; a later inward **repays it at the incoming lot rate**. **An existing
+    debt is NEVER re-rated** — re-rating the balance is what produced a measured **18× overstatement**
+    (Stock-in-Hand ₹24,050 → ₹476,000 on an item with ₹26,100 ever spent).
+  - **NS-2** **HEAD-oracle harness (`tools/HeadOracle/`) — built FIRST, before any production change** — two
+    processes, two private engine copies, one corpus; diffs `ClosingValue` / `TotalClosingStockValue` /
+    `IssueValue`, plus an engine-independent **rate-band**, **total-spend-containment** and
+    **COGS-conservation** check. Runs on **every** change. It is **not a member of `Apex.slnx`**, so it stays
+    invisible to the gate and to CI.
+  - **NS-3** **Guard becomes a non-throwing detector** — `EnsureNoNegativeStockAnywhere` stops throwing,
+    postings **always persist**, and one **flag-gated `WarningsFor`** surface reports the negatives. Note that
+    the **three internal call sites call the private method directly**, so a gate placed only in the public
+    `EnsureNoNegativeStock` wrapper would be **bypassed**.
+  - **NS-4** **`WarnOnNegativeStock` + schema v50 + Io** — the `Company` column, `CreateV1` +
+    `MigrateV49ToV50` **parity**, a downgrade helper, **JSON + XML lossless** round-trip, and **ER-13
+    byte-identical** while the flag sits at its default.
+  - **NS-5** **Test-flip inventory + import-test rework** — every test that depends on the guard **THROWING**
+    is re-pointed. `CompanyImportRoundTripTests.Failed_apply_…` needs **real rework**: its rollback trigger
+    **IS** the guard being removed — use a **stock-journal imbalance** instead.
+  - **NS-6** **Manufacturing + job-work shortfall costing** — `JobWorkService` shortfall costing currently
+    **loses money on a location transfer**; the finished good must absorb **exactly** what the component's
+    stock loses.
+- **Slices (build order — dependency order; full rationale in `memory.md`):**
+  1. **S-A — HEAD oracle, then FIFO/LIFO recovery** (NS-2 **then** NS-1) — **harness first**, then the debt
+     quantity, **one method and one scenario at a time**. Schema-clean. **Surfaces USER GATE (a) —
+     FIFO/LIFO-only recovery.**
+  2. **S-B — Guard, flag, schema and the test flip** (NS-3, NS-4, NS-5) — the slice that actually makes a
+     negative postable; owns **v50** (see Schema below). **Surfaces USER GATE (b) — the `WarnOnNegativeStock`
+     default.**
+  3. **S-C — Manufacturing + job-work shortfall costing** (NS-6) — independent of the flag; rides on S-A's
+     valuation.
+- **Schema:** negative stock is **v49 → v50**, owned by **S-B** (the `Company` warn column, `CreateV1` +
+  `MigrateV49ToV50` with `SchemaMigrationEquivalenceTests` parity and a `DowngradeV50ToV49`). **This corrects
+  the stale coordination note in Phase 10.7**, which told negative stock to "rebase to **v48**": **v48** went
+  to numbering **S5** (`636a104`) and **v49** to the accounting-invoice flag (`5819fbf`), and `Schema.cs:124`
+  now reads `CurrentVersion = 49` — so negative stock targets **v50**. S-A is schema-clean; ER-13 must stay
+  byte-identical while the flag is at its default (the emit mechanism is S-B's to choose and prove, not
+  prescribed here). **⚠️ DEFAULT-TRUE ASYMMETRY — the trap in this slice:** every existing company flag
+  (`UseSeparateActualBilledQuantity`, `PayrollEnabled`, `EnableJobOrderProcessing`) defaults to **false**, so
+  a missing column / absent JSON attribute / absent XML attribute all coincide with the default.
+  `WarnOnNegativeStock` defaults to **true**, so absence and default **no longer coincide**: the SQLite
+  column needs `DEFAULT 1`, and an importer that reads a missing attribute as `false` would **silently flip
+  an upgraded book's warnings off**. Every read path (`Bool(...)` in `CanonicalXml`, the JSON DTO's default,
+  the migration's backfill, the downgrade round-trip) must be proven to yield **true** for data written
+  before v50 — with a test that fails if it does not.
+- **User gates (recommend-first; surface at the named slice — R12):**
+  - **(S-A) Ship FIFO/LIFO-only recovery, leaving `AverageCost` — the DEFAULT method for a new stock item — at
+    HEAD behaviour under negative stock?** *Recommend:* **YES** — the debt-quantity recovery is independently
+    **measured better on FIFO/LIFO** and HEAD's moving average is **in band**, whereas the one attempt to fix
+    both at once was **unboundedly wrong**. State plainly at the gate that **the default valuation method
+    therefore still mis-values a recovered negative**, and that its fix is a later slice of its own.
+  - **(S-B) The `WarnOnNegativeStock` default.** *Recommend:* **ON** — Tally-faithful (the warning exists but
+    **never blocks**) and the safer default for an existing book that has never been able to go negative
+    before.
+- **Agents:** per-feature pipeline (§2.2) — Requirements/Design (design of record in `memory.md`), **A14**
+  (Tally fidelity, R7), Test author, Implementer, **A10** review, **A12** GitHub Expert, run-app verifier.
+- **Deliverables:** an over-drawing sale, consumption, manufacturing journal and stock journal that all
+  **post**; a non-blocking negative-stock warning surface gated by `WarnOnNegativeStock`; the committed
+  `tools/HeadOracle/` harness with its rate-band / spend-containment / COGS-conservation checks; the v50
+  migration parity + downgrade; and regression tests locking the **₹180** recovery case, the
+  **never-re-rate-an-existing-debt** rule, the flipped guard tests, the reworked import-rollback test and the
+  job-work shortfall conservation (Robert & Bright unmoved).
+- **Exit gate:** R9 — tests green and **shown** (incl. Robert & Bright — they must not move); **A10**
+  three-lens review per slice; **A12** (GitHub Expert) commits & pushes small reviewed units (R4/R10); the
+  real app run with evidence (**a sale that over-draws stock now posts, warns, and values correctly on
+  recovery**); `memory.md` updated; then **user go/no-go** per R12.
 
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
@@ -858,4 +958,8 @@ A completeness critic audited §§4–9 against the catalog. These refinements c
 refinements §10 (C-1…C-9) folded in the same day from the plan critique. Amended 2026-07-20 (user-authorised,
 R6): stale status header corrected to the real state (Phases 0–9 + 10.5 merged, schema v46, 3321 tests green,
 Phases 10/11 excluded); **Phase 10.6 — Keyboard & input parity** added (KB-1…KB-4) with the WI-2 scope
-correction recorded above it. Any deviation during execution is recorded in `memory.md` with its reason (R6).*
+correction recorded above it. Amended 2026-07-27 (R6): **Phase 10.8 — Allow negative stock** added (NS-1…NS-6
+over slices S-A…S-C, allow-by-default globally + a warn-only `WarnOnNegativeStock` toggle, schema **v49 →
+v50**, `AverageCost` under negatives explicitly deferred), and the now-stale "rebase to v48" version-
+coordination note in Phase 10.7 corrected to **v50** (v48 went to numbering S5, v49 to the accounting-invoice
+flag). Any deviation during execution is recorded in `memory.md` with its reason (R6).*
