@@ -71,6 +71,13 @@ static int Emit(string outPath)
                 // poison which resurrects consumed units and binds every layer TRUTHFULLY to a real lot at
                 // that lot's real rate — which passes the entire rate binding 0/0/0/0.
                 Row(s.Id, item.Name, "-", d, "FactPostDryLots", Facts.PostDryLots(s, item, asOf));
+                // ROUND 10 — the quantity the ITEM-LEVEL cost-layer replay reaches (layers - debt),
+                // derived by Facts' own gated quantity walk. The reference's layer stack is measured
+                // against THIS, not against the reported closing quantity, because the reported
+                // quantity is replayed PER (item, godown, batch) and the two genuinely part company
+                // on a multi-key book carrying a physical count. That desync is a real engine
+                // property; it is reported below as a measured delta instead of being swallowed.
+                Row(s.Id, item.Name, "-", d, "FactFlatNetMicro", Facts.FlatNetMicro(s, item, asOf).ToString(CultureInfo.InvariantCulture));
 
                 // THE INVENTED POPULATION, DERIVED FROM THE SPEC (audit #5 finding [3]). CHECK 4c's
                 // coverage half used to iterate RefProvenance — a tag the reference emits ABOUT ITSELF —
@@ -84,6 +91,12 @@ static int Emit(string outPath)
                 // row is another pure QUANTITY walk; the comparator requires each golden's label to be
                 // TRUE of its subject and fails the HARNESS when it is not.
                 Row(s.Id, item.Name, "-", d, "FactDebtShape", Facts.DebtShape(s, item, asOf));
+
+                // ROUND 11 — THE SINGLE-KEY PREDICATE, the debt rule's whole scope. Spec-derived and
+                // IDENTITY-ONLY: does every event of this item's as-of-scoped stream sit on one and the
+                // same (godown, batch) key? CHECK 1M scopes byte identity by its COMPLEMENT — and does so
+                // ENGINE AGAINST ENGINE, so a mistake in this predicate cannot make CHECK 1M pass.
+                Row(s.Id, item.Name, "-", d, "FactSingleKey", Reference.SingleKeyFact(s, item, asOf) ? "1" : "0");
             }
 
             // The company-wide aggregate the TotalClosingStockValue row is judged against (audit H3).
@@ -432,27 +445,41 @@ static int Compare(string headPath, string livePath, string reportPath,
     if (specDiffs.Count > 0) harnessFailures.Add($"CORPUS INTEGRITY: {specDiffs.Count} spec-derived rows differ between arms.");
     W();
 
-    // ---- reference self-consistency: its layer stack must hold exactly its closing quantity.
+    // ---- reference self-consistency: its layer stack must hold exactly the quantity its OWN replay
+    // reaches (FactFlatNetMicro, clamped at 0 — a debt is the negative part and holds no layers).
     var refSelf = new List<string>();
+    var refDesync = new List<string>();
     var refSelfChecked = 0;
     foreach (var key in head.Keys.Where(k => Col(k, 4) == "RefLayerQtyMicro").OrderBy(k => k, StringComparer.Ordinal))
     {
-        var qtyKey = string.Join('\t', key.Split('\t')[..4]) + "\tRefClosingQtyMicro";
-        if (Dec(head, qtyKey) is not { } closing || Dec(head, key) is not { } layerQty) continue;
-        if (closing <= 0m) continue;
+        var p4 = key.Split('\t');
+        var flatKey = string.Join('\t', [p4[0], p4[1], "-", p4[3], "FactFlatNetMicro"]);
+        var qtyKey = string.Join('\t', p4[..4]) + "\tRefClosingQtyMicro";
+        if (Dec(head, flatKey) is not { } flatNet || Dec(head, key) is not { } layerQty) continue;
         refSelfChecked++;
-        if (layerQty != closing)
-            refSelf.Add($"{key}   layer qty={Num(layerQty)}   closing qty={Num(closing)}   delta={Num(layerQty - closing)}");
+        var heldQty = Math.Max(flatNet, 0m);
+        if (layerQty != heldQty)
+            refSelf.Add($"{key}   layer qty={Num(layerQty)}   replay net={Num(flatNet)}   delta={Num(layerQty - heldQty)}");
+        if (Dec(head, qtyKey) is { } closing && closing > 0m && heldQty != closing)
+            refDesync.Add($"{key}   layers hold {Num(heldQty)}   reported closing qty {Num(closing)}   delta={Num(heldQty - closing)}");
     }
-    W("REFERENCE SELF-CONSISTENCY — the reference's cost layers must hold exactly its closing quantity");
-    W("  A reference whose value comes from a different number of units than its quantity is not an");
-    W("  oracle, it is two answers. (An early draft of the debt rule topped a physical count up by");
+    W("REFERENCE SELF-CONSISTENCY — the reference's cost layers must hold exactly the quantity its replay reaches");
+    W("  A reference whose value comes from a different number of units than its own replay reached is not");
+    W("  an oracle, it is two answers. (An early draft of the debt rule topped a physical count up by");
     W("  (counted + debt) and valued 23 units while reporting 8; this invariant convicts that class.)");
+    W("  MEASURED AGAINST FactFlatNetMicro — Facts' OWN gated quantity walk of the flattened ITEM-LEVEL");
+    W("  stream — not against the reported closing quantity. The reported quantity is replayed PER");
+    W("  (item, godown, batch); valuation replays ONE flattened stream. On every single-key book, and on");
+    W("  every multi-key book with no physical count, the two are the same number and this is the same");
+    W("  assertion it always was. Where a per-key COUNT meets a flattened stack they genuinely differ, and");
+    W("  that DESYNC is a real pre-existing engine property, listed below rather than swallowed here.");
     W($"  subjects checked           : {refSelfChecked}");
     W($"  inconsistencies            : {refSelf.Count}   => {Verdict(refSelf.Count == 0)}");
     foreach (var m in refSelf.Take(40)) W($"    REF-INCONSISTENT  {m}");
+    W($"  ITEM-LEVEL/PER-KEY DESYNC (reported, not failed) : {refDesync.Count}");
+    foreach (var m in refDesync.Take(40)) W($"    DESYNC  {m}");
     if (refSelfChecked == 0) harnessFailures.Add("REFERENCE SELF-CONSISTENCY evaluated 0 subjects.");
-    if (refSelf.Count > 0) harnessFailures.Add($"REFERENCE SELF-CONSISTENCY: {refSelf.Count} subjects where layer qty != closing qty.");
+    if (refSelf.Count > 0) harnessFailures.Add($"REFERENCE SELF-CONSISTENCY: {refSelf.Count} subjects where layer qty != the replay net.");
     W();
 
     // ---- REFERENCE VALUE INVARIANT — the one PART A did not have. ----------------------------------
@@ -475,7 +502,7 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  that the audited code emits ABOUT ITSELF. Self-attestation is not evidence.");
     W("  Both are closed by binding each layer to A LOT IN THE SPEC (FactInwardLots, derived by Facts' own");
     W("  walk, never by Reference.BuildStack). So, for every Fifo/Lifo subject:");
-    W("    (a) SUM(layer qty)        == RefClosingQtyMicro");
+    W("    (a) SUM(layer qty)        == max(FactFlatNetMicro, 0)   [the quantity its own replay reached]");
     W("    (b) SUM(layer qty x rate) == RefClosingValuePaisa   (paisa-snapped)");
     W("    (c) ORIGIN BINDING — every layer names the LOT its units came from, and:");
     W("        * the lot must EXIST in the spec's lot table, and must have had at least that many units;");
@@ -826,6 +853,9 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  --- COVERAGE, ASSERTED (an unpinned INVENTED subject is the exposure this table closes) ---------");
     W($"  INVENTED subjects with no golden          : {gold.UncoveredInvented.Count}");
     foreach (var m in gold.UncoveredInvented.Take(30)) W($"    GOLDEN UNCOVERED  {m}");
+    W($"  MULTI-KEY INVENTED subjects with no golden (INFORMATIONAL, NO VERDICT) : {gold.UncoveredInventedInfo.Count}");
+    foreach (var m in gold.UncoveredInventedInfo.Take(30)) W($"    INFO-UNCOVERED  {m}");
+    if (gold.UncoveredInventedInfo.Count > 30) W($"    ... and {gold.UncoveredInventedInfo.Count - 30} more");
     W($"  debt families with no golden              : {gold.UncoveredFamilies.Count}");
     foreach (var m in gold.UncoveredFamilies) W($"    GOLDEN UNCOVERED  {m}");
     W($"  required debt clauses not exercised       : {gold.UnexercisedClauses.Count}");
@@ -966,6 +996,126 @@ static int Compare(string headPath, string livePath, string reportPath,
     if (check1.Count > 0) engineFailures.Add($"CHECK 1: {check1.Count} diffs on never-negative books.");
     W();
 
+    // ---- CHECK 1M — BYTE IDENTITY ON EVERY MULTI-KEY SUBJECT, NEGATIVE OR NOT.
+    // ROUND 11. The debt rule now applies ONLY where it is proven — to an item whose whole as-of-scoped
+    // movement history sits on ONE (godown, batch) key. The claim that buys is INERTNESS: on a multi-key
+    // item every debt clause is unreachable and the engine reduces to HEAD exactly. This check measures
+    // that claim DIRECTLY — head.tsv against live.tsv, two engines, no reference anywhere in the
+    // comparison. That matters: the round-10 review's finding [1] was that the byte-identity claim had
+    // been measured against the REFERENCE's own predicate, so the reference and the engine could agree
+    // about the wrong thing and no check could see it. Here the reference supplies only the SCOPE, and a
+    // scope that is wrong in the direction that matters (calling a multi-key subject single-key) SHRINKS
+    // this check rather than satisfying it — which CHECK 1M's population floor below then catches.
+    var mkSubjects = new HashSet<string>(StringComparer.Ordinal);   // scenario \t item \t asOf
+    var mkByScenarioDate = new Dictionary<string, bool>(StringComparer.Ordinal);
+    foreach (var k in head.Keys.Where(k => Col(k, 4) == "FactSingleKey"))
+    {
+        var sc = Col(k, 0); var it = Col(k, 1); var ao = Col(k, 3);
+        var multi = head[k] == "0";
+        if (multi) mkSubjects.Add(sc + "\t" + it + "\t" + ao);
+        var sd = sc + "\t" + ao;
+        mkByScenarioDate[sd] = mkByScenarioDate.TryGetValue(sd, out var prev) ? prev && multi : multi;
+    }
+    bool MultiKeyRow(string key)
+    {
+        var sc = Col(key, 0); var it = Col(key, 1); var ao = Col(key, 3);
+        if (ao == "-") return false;                        // scenario-level fact rows carry no as-of
+        if (it != "-") return mkSubjects.Contains(sc + "\t" + it + "\t" + ao);
+        // an aggregate row (TotalClosingStockValue and friends) qualifies only when EVERY item of the
+        // scenario is multi-key at that date, so a single-key item can never hide inside it.
+        return mkByScenarioDate.TryGetValue(sc + "\t" + ao, out var all) && all;
+    }
+    // ================================================================================================
+    // THE SCOPE OF THE REFERENCE'S AUTHORITY — WHICH SUBJECTS IT MAY CONVICT ON. (2026-07-29.)
+    // ================================================================================================
+    // The reference is a VALIDATED ORACLE ON SINGLE-KEY BOOKS AND NOWHERE ELSE. On a single-key item the
+    // cost replay and the quantity register walk the same key, so `Σ layers − debt == on-hand` holds and
+    // the debt rule is arithmetically sound; that scope carries an exhaustive 6,144-row sweep, 214
+    // hand-derived goldens, and two independent re-derivations.
+    //
+    // On a MULTI-KEY book it is NOT AN ORACLE, and that is proven rather than suspected. The per-key
+    // review showed the item-level model gives WRONG ANSWERS for transfers — re-deriving each key's pool
+    // independently stops cost flowing across a Stock Journal and prices transferred units off an EMPTY
+    // pool (Rs 5,000,002.37 of stock on Rs 1,000,003.73 ever spent), while flattening to item level loses
+    // the key distinction the quantity register keeps. Neither model is right there, so the reference has
+    // no standing to sentence those subjects.
+    //
+    // THEREFORE: the reference-backed checks (2, 3, 3b, 10, 9(b)) CONVICT ONLY on subjects PROVEN
+    // single-key. Multi-key subjects are still replayed, still compared and still PRINTED — as
+    // INFORMATIONAL lines carrying no verdict. Anything the predicate cannot classify (no FactSingleKey
+    // row, or an aggregate row mixing scopes) is treated as NOT JUDGED, the conservative direction.
+    // A harness that demands a number it cannot justify is the failure mode this exercise exists to
+    // prevent; the engine-vs-engine checks (1, 1M, 11, 6/7/8) and the spec-derived quantity oracle
+    // (CHECK 5) are unaffected, because none of them consults the reference's cost arithmetic.
+    var skSubjects = new HashSet<string>(StringComparer.Ordinal);
+    var skByScenarioDate = new Dictionary<string, bool>(StringComparer.Ordinal);
+    foreach (var k in head.Keys.Where(k => Col(k, 4) == "FactSingleKey"))
+    {
+        var sc = Col(k, 0); var it = Col(k, 1); var ao = Col(k, 3);
+        var single = head[k] == "1";
+        if (single) skSubjects.Add(sc + "\t" + it + "\t" + ao);
+        var sd = sc + "\t" + ao;
+        skByScenarioDate[sd] = skByScenarioDate.TryGetValue(sd, out var prevS) ? prevS && single : single;
+    }
+    // TRUE only where the reference is entitled to issue a verdict. An aggregate row (item "-") qualifies
+    // only when EVERY item of that scenario is single-key at that date, so a multi-key item can never
+    // hide inside a company total that gets convicted.
+    bool ReferenceMayJudge(string key)
+    {
+        var sc = Col(key, 0); var it = Col(key, 1); var ao = Col(key, 3);
+        if (ao == "-") return false;
+        if (it != "-") return skSubjects.Contains(sc + "\t" + it + "\t" + ao);
+        return skByScenarioDate.TryGetValue(sc + "\t" + ao, out var all) && all;
+    }
+    (List<string> Judged, List<string> Info) ScopeSplit(IEnumerable<string> lines)
+    {
+        var judged = new List<string>();
+        var info = new List<string>();
+        foreach (var l in lines) (ReferenceMayJudge(l) ? judged : info).Add(l);
+        return (judged, info);
+    }
+    // Prints a reference-backed check's outcome in TWO parts and fails the run on the judged part only.
+    void ScopedVerdict(string check, string tag, List<string> mismatches, string what, int show)
+    {
+        var (judged, info) = ScopeSplit(mismatches);
+        W($"  SINGLE-KEY mismatches (JUDGED) : {judged.Count}   => {Verdict(judged.Count == 0)}");
+        foreach (var m in judged.Take(show)) W($"    {tag}  {m}");
+        if (judged.Count > show) W($"    ... and {judged.Count - show} more");
+        W($"  MULTI-KEY mismatches (INFORMATIONAL, NO VERDICT) : {info.Count}");
+        W("    the reference is not a validated oracle for these books — measured and printed, never judged.");
+        foreach (var m in info.Take(show)) W($"    INFO-{tag}  {m}");
+        if (info.Count > show) W($"    ... and {info.Count - show} more");
+        if (judged.Count > 0) engineFailures.Add($"{check}: {judged.Count} {what}");
+    }
+
+    var check1mRows = keys.Where(MultiKeyRow).ToList();
+    var check1m = diffs.Where(d => MultiKeyRow(d.Key)).ToList();
+    var mkScenarios = mkSubjects.Select(x => x.Split('\t')[0]).Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
+    W("CHECK 1M — BYTE IDENTITY ON EVERY MULTI-KEY SUBJECT (the debt rule must be INERT there)");
+    W("  scope: FactSingleKey=0 — an item whose as-of-scoped movements touch more than one (godown, batch)");
+    W("  key. NOT scoped by negativity: a multi-key book that genuinely went short must ALSO equal HEAD.");
+    W("  measured ENGINE AGAINST ENGINE (head.tsv vs live.tsv); the reference supplies only the scope.");
+    W($"  scenarios with multi-key subjects : {string.Join(", ", mkScenarios)}");
+    W($"  multi-key subjects (scenario x item x asOf) : {mkSubjects.Count}");
+    W($"  rows compared              : {check1mRows.Count}");
+    W($"  diffs                      : {check1m.Count}   => {Verdict(check1m.Count == 0)}");
+    foreach (var d in check1m.Take(80)) W($"    DIFF {d.Key}   head={d.Head}   live={d.Live}");
+    if (check1m.Count > 80) W($"    ... and {check1m.Count - 80} more");
+    // POPULATION FLOOR. A predicate that quietly stopped classifying anything as multi-key would empty
+    // this check and it would pass on nothing. The corpus's multi-key families are N8, N9, N10, N11, G9,
+    // G12 and G16; the floor is asserted so shrinking the scope is a HARNESS failure, not a silent PASS.
+    var mkFamiliesExpected = new[] { "N8", "N9", "N10", "N11", "G9", "G12", "G16" };
+    var mkFamiliesSeen = mkScenarios.Select(x => x.Split('-')[0]).Distinct().ToHashSet(StringComparer.Ordinal);
+    foreach (var fam in mkFamiliesExpected)
+        if (!mkFamiliesSeen.Contains(fam))
+            harnessFailures.Add($"CHECK 1M: family {fam} has NO multi-key subject — the single-key predicate " +
+                                "has stopped seeing a corpus axis it must see.");
+    if (check1mRows.Count == 0) harnessFailures.Add("CHECK 1M evaluated 0 rows.");
+    if (check1m.Count > 0)
+        engineFailures.Add($"CHECK 1M: {check1m.Count} diffs on MULTI-KEY subjects. The debt rule is not inert " +
+                           "there, so the engine is not byte-identical to HEAD where it promises to be.");
+    W();
+
     // ---- CHECK 2 — THE AverageCost POINT ORACLE (INVERTED — see below).
     var avgRows = keys.Count(k => Col(k, 2) == "AverageCost");
     var avgRawDiffs = diffs.Where(d => Col(d.Key, 2) == "AverageCost").ToList();
@@ -988,15 +1138,14 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  Rs 11,996.40 phantom asset on G2-004 and the Rs 0.00 valuation of 8 physically counted units on");
     W("  G6-001 are now FAILURES, not a footnote.");
     W($"  subjects evaluated         : {check2Pt.Evaluated}");
-    W($"  live != debt-aware reference : {check2Pt.Mismatches.Count}   => {Verdict(check2Pt.Mismatches.Count == 0)}");
-    foreach (var m in check2Pt.Mismatches.Take(120)) W($"    POINT-ORACLE-AVG  {m}");
-    if (check2Pt.Mismatches.Count > 120) W($"    ... and {check2Pt.Mismatches.Count - 120} more");
+    W($"  live != debt-aware reference : {check2Pt.Mismatches.Count} (before scoping)");
+    ScopedVerdict("CHECK 2", "POINT-ORACLE-AVG", check2Pt.Mismatches,
+                  "AverageCost closing values disagree with the debt-aware reference on single-key books.", 120);
     W($"  (reporting only, no verdict) raw AverageCost head-vs-live row diffs : {avgRawDiffs.Count} of {avgRows} rows");
     foreach (var d in avgRawDiffs.Take(40)) W($"    AVG-DIFF {d.Key}   head={d.Head}   live={d.Live}");
     if (check2Pt.Evaluated == 0) harnessFailures.Add("CHECK 2 evaluated 0 subjects.");
     if (avgRows == 0) harnessFailures.Add("CHECK 2 saw 0 AverageCost rows.");
-    if (check2Pt.Mismatches.Count > 0)
-        engineFailures.Add($"CHECK 2: {check2Pt.Mismatches.Count} AverageCost closing values disagree with the debt-aware reference.");
+
     W();
 
     // ---- THE SECOND AverageCost OPINION — the MAGNITUDE behind CHECK 2. -----------------------------
@@ -1032,11 +1181,10 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  This is the check the absolute bands cannot replace. THE CRUX (G1-001) is overstated by 60% at");
     W("  HEAD and sits comfortably inside a 12.7x-wide rate band, so only a point comparison convicts it.");
     W($"  subjects evaluated         : {pt.Evaluated}");
-    W($"  live != reference          : {pt.Mismatches.Count}   => {Verdict(pt.Mismatches.Count == 0)}");
-    foreach (var m in pt.Mismatches.Take(200)) W($"    POINT-ORACLE  {m}");
-    if (pt.Mismatches.Count > 200) W($"    ... and {pt.Mismatches.Count - 200} more");
+    W($"  live != reference          : {pt.Mismatches.Count} (before scoping)");
+    ScopedVerdict("CHECK 3", "POINT-ORACLE", pt.Mismatches,
+                  "closing values disagree with the reference on single-key books.", 200);
     if (pt.Evaluated == 0) harnessFailures.Add("CHECK 3 evaluated 0 subjects.");
-    if (pt.Mismatches.Count > 0) engineFailures.Add($"CHECK 3: {pt.Mismatches.Count} closing values disagree with the reference.");
     W();
 
     // ---- CHECK 3b — THE POINT ORACLE ON THE FLAT METHODS.
@@ -1058,11 +1206,10 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  against the debt-aware column: it is COVERED, not excused. (This line said 'its reference echoes");
     W("  HEAD' until round 7 — false since round 4 made Reference.Value's AverageCost arm debt-aware.)");
     W($"  subjects evaluated         : {ptFlat.Evaluated}");
-    W($"  live != reference          : {ptFlat.Mismatches.Count}   => {Verdict(ptFlat.Mismatches.Count == 0)}");
-    foreach (var m in ptFlat.Mismatches.Take(120)) W($"    POINT-ORACLE-FLAT  {m}");
-    if (ptFlat.Mismatches.Count > 120) W($"    ... and {ptFlat.Mismatches.Count - 120} more");
+    W($"  live != reference          : {ptFlat.Mismatches.Count} (before scoping)");
+    ScopedVerdict("CHECK 3b", "POINT-ORACLE-FLAT", ptFlat.Mismatches,
+                  "flat-method closing values disagree with the reference on single-key books.", 120);
     if (ptFlat.Evaluated == 0) harnessFailures.Add("CHECK 3b evaluated 0 subjects.");
-    if (ptFlat.Mismatches.Count > 0) engineFailures.Add($"CHECK 3b: {ptFlat.Mismatches.Count} flat-method closing values disagree with the reference.");
     W();
 
     // ---- CHECK 5 — QUANTITY ORACLE.
@@ -1096,11 +1243,10 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  Audited by nothing in v1: a change with a correct Balance Sheet and a wrong P&L shipped clean.");
     W($"  distinct issue probes      : {issueMeasures.Count}");
     W($"  subjects evaluated         : {issueEvaluated}");
-    W($"  mismatches                 : {issueMismatch.Count}   => {Verdict(issueMismatch.Count == 0)}");
-    foreach (var m in issueMismatch.Take(120)) W($"    ISSUE-ORACLE  {m}");
-    if (issueMismatch.Count > 120) W($"    ... and {issueMismatch.Count - 120} more");
+    W($"  mismatches                 : {issueMismatch.Count} (before scoping)");
+    ScopedVerdict("CHECK 10", "ISSUE-ORACLE", issueMismatch,
+                  "issue values disagree with the reference on single-key books.", 120);
     if (issueEvaluated == 0) harnessFailures.Add("CHECK 10 evaluated 0 subjects.");
-    if (issueMismatch.Count > 0) engineFailures.Add($"CHECK 10: {issueMismatch.Count} issue values disagree with the reference.");
     W();
 
     // ---- CHECK 9 — TOTAL CLOSING STOCK VALUE (the actual Balance-Sheet figure).
@@ -1146,15 +1292,17 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("      (b) mismatches BY METHOD : " + (totalByMethod.Count == 0 ? "(none)"
         : string.Join("   ", totalByMethod.OrderBy(kv => kv.Key, StringComparer.Ordinal)
                                           .Select(kv => $"{kv.Key}={kv.Value}"))));
-    foreach (var m in totalPoint.Mismatches.Take(120)) W($"    TOTAL-ORACLE  {m}");
-    if (totalPoint.Mismatches.Count > 120) W($"    ... and {totalPoint.Mismatches.Count - 120} more");
     var multiItem = Corpus.Scenarios.Count(s => s.Items.Count > 1);
     W($"  multi-item scenarios in the corpus (so this is a real sum): {multiItem}");
-    W($"                             => {Verdict(totalSum.Mismatches.Count == 0 && totalPoint.Mismatches.Count == 0)}");
+    // (a) is arm-internal — the total against the sum of ITS OWN items — so it needs no reference and is
+    // judged on every scenario. (b) compares against the reference and is therefore SCOPED: a company
+    // total qualifies only where every item in that scenario is single-key at that date.
+    W($"  (a) => {Verdict(totalSum.Mismatches.Count == 0)}");
+    ScopedVerdict("CHECK 9(b)", "TOTAL-ORACLE", totalPoint.Mismatches,
+                  "company totals disagree with the reference on all-single-key scenarios.", 120);
     if (totalSum.Evaluated == 0 || totalPoint.Evaluated == 0) harnessFailures.Add("CHECK 9 evaluated 0 subjects.");
     if (multiItem == 0) harnessFailures.Add("CHECK 9 has no multi-item scenario — the total is a tautology.");
     if (totalSum.Mismatches.Count > 0) engineFailures.Add($"CHECK 9(a): {totalSum.Mismatches.Count} totals != sum of items.");
-    if (totalPoint.Mismatches.Count > 0) engineFailures.Add($"CHECK 9(b): {totalPoint.Mismatches.Count} totals disagree with the reference.");
     W();
 
     // ---- CHECKS 6/7/8 — the absolute, HEAD-independent oracles, with MAGNITUDE comparison (audit C2).
@@ -1583,9 +1731,11 @@ static int Compare(string headPath, string livePath, string reportPath,
     W($"TOTAL DIFFS (all families)                 : {diffs.Count}");
     W();
     W("  CHECK  1  never-negative byte identity   : " + Verdict(check1.Count == 0));
-    W("  CHECK  2  point oracle (AverageCost)     : " + Verdict(check2Pt.Mismatches.Count == 0) + "   [vs the CALIBRATED debt-aware reference]");
-    W("  CHECK  3  point oracle (FIFO/LIFO)       : " + Verdict(pt.Mismatches.Count == 0));
-    W("  CHECK  3b point oracle (flat methods)    : " + Verdict(ptFlat.Mismatches.Count == 0));
+    W("  CHECK  1M multi-key byte identity        : " + Verdict(check1m.Count == 0)
+      + "   [the INERTNESS claim, measured engine-vs-engine]");
+    W("  CHECK  2  point oracle (AverageCost)     : " + Verdict(ScopeSplit(check2Pt.Mismatches).Judged.Count == 0) + "   [single-key scope; vs the CALIBRATED debt-aware reference]");
+    W("  CHECK  3  point oracle (FIFO/LIFO)       : " + Verdict(ScopeSplit(pt.Mismatches).Judged.Count == 0) + "   [single-key scope]");
+    W("  CHECK  3b point oracle (flat methods)    : " + Verdict(ScopeSplit(ptFlat.Mismatches).Judged.Count == 0) + "   [single-key scope]");
     W("  CHECK  4  reference calibration          : " + Verdict(cal.Mismatches.Count == 0) + "   [HARNESS]");
     W("  CHECK  4b debt-aware AVG calibration     : " + Verdict(avgCal.Mismatches.Count == 0 && avgCal.Missing.Count == 0)
       + "   [HARNESS — never-negative books only; the debt clauses are DEAD CODE there]");
@@ -1602,8 +1752,8 @@ static int Compare(string headPath, string livePath, string reportPath,
     W("  CHECK  6  closing-rate band              : " + Verdict(!introduced.Any(v => v.StartsWith("6 ", StringComparison.Ordinal)) && !worsened.Any(v => v.StartsWith("6 ", StringComparison.Ordinal))));
     W("  CHECK  7  total-spend containment        : " + Verdict(!introduced.Any(v => v.StartsWith("7 ", StringComparison.Ordinal)) && !worsened.Any(v => v.StartsWith("7 ", StringComparison.Ordinal))));
     W("  CHECK  8  COGS conservation              : " + Verdict(!introduced.Any(v => v.StartsWith("8 ", StringComparison.Ordinal)) && !worsened.Any(v => v.StartsWith("8 ", StringComparison.Ordinal))));
-    W("  CHECK  9  TotalClosingStockValue         : " + Verdict(totalSum.Mismatches.Count == 0 && totalPoint.Mismatches.Count == 0));
-    W("  CHECK 10  issue value                    : " + Verdict(issueMismatch.Count == 0));
+    W("  CHECK  9  TotalClosingStockValue         : " + Verdict(totalSum.Mismatches.Count == 0 && ScopeSplit(totalPoint.Mismatches).Judged.Count == 0));
+    W("  CHECK 10  issue value                    : " + Verdict(ScopeSplit(issueMismatch).Judged.Count == 0) + "   [single-key scope]");
     W("  CHECK 11  exception asymmetry            : " + Verdict(exc11.Count == 0));
     W("  corpus integrity (spec rows identical)   : " + Verdict(specDiffs.Count == 0) + "   [HARNESS]");
     W();
@@ -1750,7 +1900,13 @@ static ValueInvariantResult ReferenceValueInvariant(Dictionary<string, string> r
         var stem = string.Join('\t', key.Split('\t')[..4]);
         if (!rows.TryGetValue(stem + "\tRefLayerRateSources", out var srcRaw)) continue;
         if (!rows.TryGetValue(stem + "\tRefAdmissibleRates", out var admRaw)) continue;
-        if (Dec(rows, stem + "\tRefClosingQtyMicro") is not { } closingMicro) continue;
+        // ROUND 10 — the layer stack is measured against the quantity the ITEM-LEVEL replay reached
+        // (Facts' own gated quantity walk), not against the PER-KEY reported closing quantity. Same
+        // number on every single-key book; see REFERENCE SELF-CONSISTENCY above for why they differ.
+        var pq = key.Split('\t');
+        if (Dec(rows, string.Join('\t', [pq[0], pq[1], "-", pq[3], "FactFlatNetMicro"])) is not { } flatNetMicro)
+            continue;
+        var closingMicro = Math.Max(flatNetMicro, 0m);
         if (Dec(rows, stem + "\tRefClosingValuePaisa") is not { } closingPaisa) continue;
 
         // The SPEC's lot table for this (scenario, item, as-of). It lives on the method-less "-" row
@@ -1943,7 +2099,7 @@ static ValueInvariantResult ReferenceValueInvariant(Dictionary<string, string> r
         }
 
         if (Math.Round(sumQty * 1_000_000m, 0, MidpointRounding.AwayFromZero) != closingMicro)
-            qtyFail.Add($"{stem}   layer qty {Num(sumQty)} != closing qty {Num(closingMicro / 1_000_000m)}");
+            qtyFail.Add($"{stem}   layer qty {Num(sumQty)} != replay net {Num(closingMicro / 1_000_000m)}");
 
         var decomposed = Math.Round(Math.Round(sumVal, 2, MidpointRounding.AwayFromZero) * 100m, 4);
         if (decomposed != Math.Round(closingPaisa, 4))
@@ -2252,29 +2408,50 @@ static GoldenResult HandDerivedGoldens(Dictionary<string, string> rows, Dictiona
     var pinnedClosing = new HashSet<string>(Goldens.All.Select(g => g.Stem), StringComparer.Ordinal);
     var pinnedIssue = new HashSet<string>(Goldens.Issue.Select(g => g.Stem), StringComparer.Ordinal);
 
+    // THE COVERAGE DEMAND IS SCOPED TO SINGLE-KEY SUBJECTS. (2026-07-29.)
+    // A golden is a HAND-DERIVED TRUTH the reference must reproduce, so DEMANDING one asserts that a
+    // correct answer for that subject is knowable. On a multi-key book where a debt fires, it is not:
+    // the item-level model the reference uses is known wrong there, and its per-key alternative broke
+    // ordinary godown transfers. Requiring a constant for such a subject would force someone to invent
+    // one and call it truth — the exact failure this harness exists to prevent. So multi-key INVENTED
+    // subjects are listed as INFORMATIONAL and do not fail the run; single-key ones still MUST be pinned,
+    // and that is where every debt clause the reference actually ships is exercised.
+    bool StemIsSingleKey(string scenario, string item, string asOf)
+        => rows.TryGetValue($"{scenario}\t{item}\t-\t{asOf}\tFactSingleKey", out var v) && v == "1";
+
     var uncoveredInvented = new List<string>();
+    var uncoveredInventedInfo = new List<string>();
     var debtFamilies = new SortedSet<string>(StringComparer.Ordinal);
     var debtDependent = 0;
     foreach (var kv in rows)
     {
         if (Col(kv.Key, 4) != "RefProvenance") continue;
-        if (kv.Value is RefProvenance.Brief or RefProvenance.Invented) { debtFamilies.Add(Family(kv.Key)); debtDependent++; }
+        var single = StemIsSingleKey(Col(kv.Key, 0), Col(kv.Key, 1), Col(kv.Key, 3));
+        if (kv.Value is RefProvenance.Brief or RefProvenance.Invented)
+        {
+            debtDependent++;
+            if (single) debtFamilies.Add(Family(kv.Key));   // only a JUDGEABLE subject obliges its family
+        }
         if (kv.Value != RefProvenance.Invented) continue;
         var stem = string.Join('\t', kv.Key.Split('\t')[..4]);
+        var sink = single ? uncoveredInvented : uncoveredInventedInfo;
+        var note = single ? "" : "  [MULTI-KEY: informational — the reference is not an oracle here, so no " +
+                                 "constant can be honestly derived; NOT a failure]";
         if (!pinnedClosing.Contains(stem))
-            uncoveredInvented.Add($"{stem}   is tagged INVENTED (a rule NOTHING calibrates) and carries NO " +
-                                  "hand-derived CLOSING-value golden.");
+            sink.Add($"{stem}   is tagged INVENTED (a rule NOTHING calibrates) and carries NO " +
+                     "hand-derived CLOSING-value golden." + note);
         if (!pinnedIssue.Contains(stem))
-            uncoveredInvented.Add($"{stem}   is tagged INVENTED (a rule NOTHING calibrates) and carries NO " +
-                                  "hand-derived ISSUE-value golden. A rule nothing calibrates must be pinned on " +
-                                  "the P&L as well as the Balance Sheet.");
+            sink.Add($"{stem}   is tagged INVENTED (a rule NOTHING calibrates) and carries NO " +
+                     "hand-derived ISSUE-value golden. A rule nothing calibrates must be pinned on " +
+                     "the P&L as well as the Balance Sheet." + note);
     }
     uncoveredInvented.Sort(StringComparer.Ordinal);
+    uncoveredInventedInfo.Sort(StringComparer.Ordinal);
 
     var goldenFamilies = new HashSet<string>(
         Goldens.All.Concat(Goldens.Issue).Select(g => Family(g.Scenario + "\t")), StringComparer.Ordinal);
     var uncoveredFamilies = debtFamilies.Where(f => !goldenFamilies.Contains(f))
-        .Select(f => $"family {f} has BRIEF/INVENTED subjects but NO hand-derived golden anywhere in it.")
+        .Select(f => $"family {f} has SINGLE-KEY BRIEF/INVENTED subjects but NO hand-derived golden anywhere in it.")
         .ToList();
 
     var exercised = new HashSet<string>(Goldens.All.Concat(Goldens.Issue).Select(g => g.Clause), StringComparer.Ordinal);
@@ -2415,7 +2592,7 @@ static GoldenResult HandDerivedGoldens(Dictionary<string, string> rows, Dictiona
         }
     }
 
-    return new GoldenResult(evaluated, lines, mismatches, missing, uncoveredInvented, uncoveredFamilies,
+    return new GoldenResult(evaluated, lines, mismatches, missing, uncoveredInvented, uncoveredInventedInfo, uncoveredFamilies,
                             unexercised, issueEvaluated, issueLines, working,
                             c2, c2p, c3, c3p, c10, c10p, debtDependent,
                             clauseChecked, clauseViolations, clauseNoFact,
@@ -2480,8 +2657,18 @@ static IssueStructureResult IssueStructure(Dictionary<string, string> rows)
     foreach (var (stem, probes) in byStem)
     {
         if (Dec(rows, stem + "\tRefClosingValuePaisa") is not { } closingValue) continue;
-        if (Dec(rows, stem + "\tRefClosingQtyMicro") is not { } closingQtyMicro) continue;
-        var closingQty = closingQtyMicro / 1_000_000m;
+        // ROUND 10 — THE BOUNDARY IS THE SURVIVING STACK, NOT THE REPORTED ON-HAND. The assertion is
+        // "a probe that reaches the whole stack must cost exactly what the stack is worth", and the
+        // stack's quantity is FactFlatNetMicro (Facts' own gated quantity walk of the flattened
+        // item-level stream), clamped at 0. On every single-key book that IS the reported closing
+        // quantity and this is the same assertion it always was; on a multi-key book carrying a
+        // physical count the two genuinely differ (the ITEM-LEVEL/PER-KEY DESYNC), and comparing a
+        // stack-walk against a register that counted different units convicts the reference for a
+        // divergence that lives in the engine's quantity model, not in its issue arm.
+        var p4 = stem.Split('\t');
+        if (Dec(rows, string.Join('\t', [p4[0], p4[1], "-", p4[3], "FactFlatNetMicro"])) is not { } flatNet)
+            continue;
+        var closingQty = Math.Max(flatNet, 0m) / 1_000_000m;
         subjects.Add(stem);
 
         foreach (var (probe, value) in probes)
@@ -2729,6 +2916,45 @@ static AuditResult Audit(Dictionary<string, string> rows)
     decimal? Val(string scenario, string item, string method, string asOf, string measure)
         => Dec(rows, $"{scenario}\t{item}\t{method}\t{asOf}\t{measure}");
 
+    // ---------------------------------------------------------------------------------------------
+    // THE ITEM-LEVEL / PER-KEY DESYNC, AS A SPEC-DERIVED PREDICATE (round 10).
+    //
+    // The engine replays cost layers over ONE flattened stream and replays QUANTITY per (item, godown,
+    // batch). A physical count is a per-key statement, so on a multi-key book carrying one the two walks
+    // legitimately reach DIFFERENT numbers of units: FactFlatNetMicro (the quantity the layer replay
+    // reached) can differ from ClosingQtyMicro (the quantity the register reports). Both figures are
+    // separately defensible; the PAIR is what does not describe one set of units. That divergence
+    // PRE-DATES the debt rule and is not repaired by it — it needs a per-key cost replay in which cost
+    // FLOWS ACROSS A TRANSFER, which is a separate piece of work.
+    //
+    // CHECK 6 divides the closing VALUE by the closing QUANTITY to get an implied unit rate. Where those
+    // two describe different unit counts that quotient is not a rate the item could have paid under ANY
+    // valuation, so the check has no discriminating power there — exactly the situation the
+    // STRUCTURALLY-UNSATISFIABLE bucket exists for. Such subjects are listed BY NAME with their measured
+    // desync and are neither passed nor failed. The predicate is derived from two SPEC walks (Facts'
+    // gated flattened walk and the quantity oracle) and touches no value, so a valuation defect cannot
+    // widen it: it is 0 subjects on every single-key book and on every multi-key book with no count.
+    decimal DesyncMicro(string scenario, string item, string method, string asOf)
+    {
+        var flat = Dec(rows, $"{scenario}\t{item}\t-\t{asOf}\tFactFlatNetMicro");
+        var qty = Val(scenario, item, method, asOf, "ClosingQtyMicro");
+        if (flat is not { } f || qty is not { } q) return 0m;
+        return Math.Max(f, 0m) - q;
+    }
+
+    decimal ScenarioDesyncMicro(string scenario, string method, string asOf)
+    {
+        var worst = 0m;
+        foreach (var qk in rows.Keys.Where(k =>
+                     Col(k, 0) == scenario && Col(k, 2) == method && Col(k, 3) == asOf &&
+                     Col(k, 4) == "ClosingQtyMicro" && Col(k, 1) != "-"))
+        {
+            var d = DesyncMicro(scenario, Col(qk, 1), method, asOf);
+            if (Math.Abs(d) > Math.Abs(worst)) worst = d;
+        }
+        return worst;
+    }
+
     // Subjects: every per-item closing value AND every company total (the total is judged too — check 9c).
     var subjects = rows.Keys
         .Where(k => Col(k, 4) is "ClosingValuePaisa" or "TotalClosingPaisa")
@@ -2824,6 +3050,21 @@ static AuditResult Audit(Dictionary<string, string> rows)
             // (highValue >= 0 whenever band1 >= 0), so check 6 always has a premise. Computed, not assumed.
             var sat6 = highValue >= 0m;
             if (!sat6) structural.Add($"6 closing-rate band | {subject} | band [{Num(band0)}, {Num(band1)}]p on qty {Num(qty)}");
+
+            // THE DESYNC PREMISE (round 10) — see DesyncMicro. Where the layer replay and the quantity
+            // register reached different unit counts, value / quantity is not an implied RATE at all and
+            // this check cannot discriminate. Reported by name, scored neither way.
+            var desync = isTotal ? ScenarioDesyncMicro(scenario, method, asOf)
+                                 : DesyncMicro(scenario, item, method, asOf);
+            if (desync != 0m)
+            {
+                sat6 = false;
+                structural.Add(
+                    $"6 closing-rate band | {subject} | the cost-layer replay holds " +
+                    $"{Num((qtyMicro.Value + desync) / 1_000_000m)} units while the quantity register " +
+                    $"reports {Num(qty)} (delta {Num(desync / 1_000_000m)}), so value / quantity is not " +
+                    $"an implied rate — the ITEM-LEVEL/PER-KEY DESYNC, pre-existing and not repaired here");
+            }
 
             if (outsideValue > 0m)
                 findings[new FindingKey("6 closing-rate band", family, method, subject, key)] = new Finding(
@@ -3033,6 +3274,9 @@ sealed record GoldenResult(
     List<string> Mismatches,
     List<string> Missing,
     List<string> UncoveredInvented,
+    /// <summary>MULTI-KEY INVENTED subjects with no golden — printed, never failed on: the reference is
+    /// not a validated oracle there, so no constant for them could be honestly hand-derived.</summary>
+    List<string> UncoveredInventedInfo,
     List<string> UncoveredFamilies,
     List<string> UnexercisedClauses,
     // ---- added 2026-07-27 for audit #5 findings [0], [1] and [4]

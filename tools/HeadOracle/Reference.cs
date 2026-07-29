@@ -44,14 +44,30 @@ namespace HeadOracle;
 //      the layers are drained, and any inward repays the debt before adding a layer). So "net book
 //      quantity" is always SumQty(layers) - debt, and at most one of the two is non-zero.
 //   5. A PHYSICAL COUNT reconciles to the counted total: it writes the debt off and tops the stack up
-//      to the counted quantity. The topped-up units are costed by the best-available-cost chain
-//      (running average -> standard cost -> last rated inward -> 0), which is the engine's own
-//      documented policy for units that carry no rate. HEAD instead uses the running average alone,
-//      which is 0 after an over-draw, so HEAD values those real units at Rs 0 — a wiped asset. On a
+//      to the counted quantity. WHEN THAT COUNT IS WRITING A DEBT OFF the topped-up units are costed by
+//      the best-available-cost chain (running average -> standard cost -> last rated inward -> 0), which
+//      is the engine's own documented policy for units that carry no rate; HEAD instead uses the running
+//      average alone, which is 0 after an over-draw, so HEAD values those real units at Rs 0 — a wiped
+//      asset. WHEN NO DEBT IS OUTSTANDING the count-up keeps HEAD's bare running average.
+//      ROUND 8 CORRECTION — THE PREMISE THAT USED TO SIT HERE WAS FALSE. This paragraph said "on a
 //      never-negative book the running average is positive and the two rules coincide exactly, which is
-//      why this difference cannot break calibration.
+//      why this difference cannot break calibration". A book that drains its layer stack to EXACTLY zero
+//      never goes negative and never creates a debt, yet its running average IS zero — so the chain fired
+//      on a book byte identity says must equal HEAD, and the two rules did NOT coincide. Corpus subject
+//      N4-003 is that book, added specifically to make the premise falsifiable. The user-settled rule the
+//      chain implements is scoped, in its own words, to "a debt settled by a movement carrying NO
+//      PURCHASE RATE"; a count on a book that never ran short settles no debt and is outside it. Whether
+//      HEAD's Rs 0.00 for genuinely-counted units on such a book is itself right is a SEPARATE and
+//      UNRATIFIED question, flagged in Corpus.cs beside N4-003; the reference takes no position on it and
+//      pins HEAD's answer so that a slice cannot change it silently.
 //   6. An issue larger than what the layers hold costs only what the layers hold (the rest has no cost
 //      to remove). Same as HEAD.
+//   7. THE CHAIN IS RESOLVED POINT-IN-TIME. A movement that consults the best-available-cost chain sees
+//      only the rated inwards that had landed BEFORE it. Reading "the last rated inward in the as-of
+//      window" — which is what this file did until round 8, and what the engine still does — prices units
+//      created on 15 Apr at a rate established on 18 Apr, so the same closing stock values differently at
+//      two report dates and posting an April purchase restates a March Balance Sheet. G6-003 and G7-003
+//      are the corpus subjects that separate the two readings; see Chain.At.
 //
 //   Worked, on THE CRUX (G1-001, FIFO, as of 2024-04-20):
 //     In 10 @ 100.13  -> layers [(10, 100.13)]                     debt 0
@@ -94,10 +110,58 @@ namespace HeadOracle;
 // so the decimal arithmetic matches the engine's to the last digit.
 //
 // QUANTITY. On-hand is replayed PER (item, godown, BATCH) key — a physical count checkpoints only its
-// own key. Valuation, by contrast, replays a single COMPANY-WIDE stream that is batch-blind. That
-// asymmetry is the engine's (InventoryLedger.Key is (item, godown, batch); StockValuationService merges
-// one stream), and the reference mirrors it deliberately: family G9 pins the godown axis and family G12
-// pins the batch axis.
+// own key.
+//
+// VALUATION, by contrast, replays a single COMPANY-WIDE stream that is batch-blind. That asymmetry is
+// the engine's (InventoryLedger.Key is (item, godown, batch); StockValuationService merges one stream),
+// and the reference mirrors it deliberately: family G9 pins the godown axis and family G12 pins the
+// batch axis.
+//
+// ===================================================================================================
+// THE DEBT RULE — STATED PLAINLY, AND UNGATED. (User decision, 2026-07-29: STOP; bank the harness.)
+// ===================================================================================================
+// WHAT THE REFERENCE SAYS. An outward takes what the cost-layer stack holds; ANY SHORTFALL BECOMES A
+// DEBT, unconditionally. A later inward REPAYS the debt first, at the incoming lot's rate, and repaid
+// units go to COGS rather than to a layer. A physical count is an absolute statement of what is on the
+// shelf, so it WRITES THE DEBT OFF and reconciles the stack to the counted quantity. Where a debt is
+// settled by a movement carrying no purchase rate, the point-in-time chain supplies the rate. That is
+// the whole of the intended semantics, and there are no predicates on it.
+//
+// WHY THE GATE THAT USED TO STAND HERE IS GONE. An earlier round confined the debt rule to items living
+// on exactly ONE (godown, batch) key. That scoping is correct where it applies and was measured inert
+// where it does not (a 20,736-row engine-vs-engine sweep: 0 of 15,552 two-key rows moved). It was
+// abandoned anyway, on a STRUCTURAL result rather than another bug: ANY PREDICATE-GATED SCOPE CREATES A
+// VALUATION CLIFF AT ITS BOUNDARY. One ordinary internal GODOWN TRANSFER — which moves nothing in or out
+// of the company, and leaves the destination empty — makes an item multi-key and so flips its WHOLE
+// history between the two models. Measured on probe family P-T, closing quantity 25 units on every arm,
+// destination godown empty at the end (`g2after=0`), Fifo and Lifo:
+//     lot rate 1,000,000.03 — base Rs 25,000,000.75 | with one transfer Rs 40,000,001.20 | jump 15,000,000.45
+//     lot rate    10,000.19 — base Rs    250,004.75 | with one transfer Rs    400,007.60 | jump    150,002.85
+//     lot rate         7.91 — base Rs        197.75 | with one transfer Rs        316.40 | jump        118.65
+// It is unbounded in the lot rate and SURVIVES A SAME-DAY ROUND TRIP (transfer out and back reports the
+// same Rs 40,000,001.20). It also moves closing stock against opening stock with no economic event:
+// P-ASOF at rate 1,000,000.03 reports 20 Apr = Rs 25,000,000.75 and 25 Apr = Rs 40,000,001.20, a delta of
+// Rs 15,000,000.45. HEAD IS CONTINUOUS ON ALL OF IT — `jump=0.00` and `delta=0.00` at every rate and
+// every method. The discontinuity was created by the change, not found in the product.
+//
+// SO WHAT IS THIS REFERENCE WORTH, AND WHERE? It is a VALIDATED ORACLE ON SINGLE-KEY BOOKS ONLY.
+// On an item that lives on exactly one (godown, batch) key, item-level IS per-key, arithmetically:
+// SumQty(layers) - debt == that key's on-hand at every point, so a layer shortfall IS a negative key and
+// the debt rule is sound. That scope carries the evidence: an exhaustive 6,144-row single-key sweep, 214
+// hand-derived goldens, independently re-derived by two reviewers.
+//
+// IT IS NOT A VALID ORACLE FOR MULTI-KEY BOOKS, and this is proven, not suspected. The per-key review
+// showed the item-level model gives WRONG ANSWERS for transfers: re-deriving each key's pool
+// independently makes cost stop flowing across a Stock Journal, pricing transferred units off an EMPTY
+// pool — Rs 5,000,002.37 of stock on Rs 1,000,003.73 ever spent — and books a count in a godown that has
+// never held stock at Rs 0.00. Flattening to item level instead loses the key distinction the quantity
+// register keeps. Neither model is right for multi-key, so the reference must not sentence one.
+//
+// THEREFORE THE COMPARATOR SCOPES ITS ENGINE VERDICT TO SINGLE-KEY SUBJECTS. Multi-key subjects are
+// still replayed, measured and PRINTED — they are INFORMATIONAL, never a verdict. `SingleKeyFact` is
+// published for exactly that purpose and for no other; it no longer gates any arithmetic below.
+// A harness that demands a number it cannot justify is the failure mode this exercise exists to prevent.
+// ===================================================================================================
 //
 // CANCELLED VOUCHERS. A cancelled voucher never counts, in either replay — the engine's own rule
 // (InventoryLedger.Counts / StockValuationService.Counts both return false on Cancelled). Family G14
@@ -196,8 +260,17 @@ public static class Reference
     /// movement's <c>Seq</c> (unique inside a scenario) for a voucher-borne inward or outward, and
     /// "CNT&lt;seq&gt;" for a physical count. It is carried onto every cost layer the event creates so the
     /// COMPARATOR can look the layer's rate up IN THE SPEC — see <see cref="LayerOrigins"/>.
+    /// <para><paramref name="Key"/> is the (godown, batch) the event belongs to — the SAME key the quantity
+    /// oracle uses. The cost-layer replay is NOT partitioned by it (that was round 9, reverted), and it no
+    /// longer gates the debt rule either (that was round 11, abandoned — see the header). It is carried for
+    /// ONE purpose: <see cref="SingleKeyFact"/>, which publishes the VALIDITY SCOPE of this reference so the
+    /// comparator can confine its engine verdict to the books the reference is an oracle for.
+    /// <paramref name="SeenRated"/> is the last rated inward rate ANYWHERE ON THE ITEM that had landed
+    /// STRICTLY BEFORE this event — rule 7, the point-in-time chain.</para>
     /// </summary>
-    private readonly record struct Ev(Kind What, decimal Qty, decimal? Rate, string Origin);
+    private readonly record struct Ev(
+        Kind What, decimal Qty, decimal? Rate, string Origin,
+        (int Godown, string Batch) Key, decimal? SeenRated);
 
     /// <summary>Base quantity of a movement (compound lines scale by numerator/denominator).</summary>
     private static decimal BaseQty(Movement m)
@@ -224,26 +297,80 @@ public static class Reference
 
         if (item.OpeningQty > 0m)
             tagged.Add((DateOnly.MinValue, 0, int.MinValue, int.MinValue,
-                new Ev(Kind.Inward, item.OpeningQty, item.OpeningRate, LotToken.Opening)));
+                new Ev(Kind.Inward, item.OpeningQty, item.OpeningRate, LotToken.Opening,
+                       (item.OpeningGodown, ""), null)));
 
         foreach (var m in s.MovementsOf(item))
         {
             if (m.Cancelled) continue;          // a cancelled voucher never counts, in either engine
             if (m.Date > asOf) continue;
+            var key = (m.Godown, m.Batch);
             var ev = m.Kind switch
             {
-                MoveKind.Inward => new Ev(Kind.Inward, BaseQty(m), BaseRate(m), LotToken.For(m)),
-                MoveKind.Outward => new Ev(Kind.Outward, BaseQty(m), BaseRate(m), LotToken.For(m)),
-                _ => new Ev(Kind.Count, m.Qty, null, LotToken.For(m)),   // a counted quantity is always in base units
+                MoveKind.Inward => new Ev(Kind.Inward, BaseQty(m), BaseRate(m), LotToken.For(m), key, null),
+                MoveKind.Outward => new Ev(Kind.Outward, BaseQty(m), BaseRate(m), LotToken.For(m), key, null),
+                // a counted quantity is always in base units
+                _ => new Ev(Kind.Count, m.Qty, null, LotToken.For(m), key, null),
             };
             tagged.Add((m.Date, m.Kind == MoveKind.Count ? 1 : 0, m.Number, m.Seq, ev));
         }
 
-        return tagged
+        var ordered = tagged
             .OrderBy(t => t.Date).ThenBy(t => t.PhysicalLast).ThenBy(t => t.Number).ThenBy(t => t.Seq)
             .Select(t => t.E)
             .ToList();
+
+        // Rule 7 — annotate each event with the point-in-time chain input: the last rated inward that had
+        // landed STRICTLY EARLIER, so a movement can never be priced by its own rate or by a later one.
+        decimal? seen = null;
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var e = ordered[i];
+            ordered[i] = e with { SeenRated = seen };
+            if (e.What == Kind.Inward && e.Rate is { } r) seen = r;
+        }
+        return ordered;
     }
+
+    // ------------------------------------------------- THE VALIDITY SCOPE OF THIS REFERENCE
+
+    /// <summary>
+    /// <b>THE VALIDITY SCOPE — the SPEC-DERIVED SINGLE-KEY PREDICATE.</b> Whether every event in this item's
+    /// as-of-scoped stream lives on ONE AND THE SAME (godown, batch) key — the same key the quantity oracle
+    /// replays. It reads the KEY and nothing else: no quantity, no rate, no cost, no layer, no valuation
+    /// method, no threshold, no heuristic.
+    /// <para>THIS IS NOT A GATE ON THE ARITHMETIC. It gates nothing in the replay below; the debt rule runs
+    /// unconditionally (see the file header for why the gate that used to live here was abandoned — a
+    /// predicate-gated scope puts a valuation cliff at its own boundary, and one internal godown transfer
+    /// crosses it). It is published so the COMPARATOR can decide which subjects this reference is entitled
+    /// to sentence.</para>
+    /// <para>WHY THE SCOPE IS EXACTLY THIS. The layer replay is per ITEM; the quantity register is per
+    /// (godown, batch). On a SINGLE-key book they are the same walk: <c>Σ layers − debt == on-hand</c> holds
+    /// identically, so a layer shortfall IS a negative key and the debt rule is arithmetically sound — and
+    /// that scope is where the evidence is (exhaustive 6,144-row sweep, 214 hand-derived goldens, twice
+    /// independently re-derived). On a MULTI-key book they are two different walks, so a shortfall in the
+    /// merged stack says nothing about whether the item is short. The item-level model is KNOWN WRONG there
+    /// — it is the model whose per-key alternative broke ordinary transfers — so the reference states an
+    /// answer for those books but is NOT AN ORACLE FOR THEM, and the comparator must not convict on it.</para>
+    /// <para>AS-OF SCOPED, deliberately: <see cref="Events"/> drops movements dated after the as-of date, so
+    /// a transfer posted later cannot retroactively change which scope an earlier report was judged in.</para>
+    /// </summary>
+    private static bool SingleKey(List<Ev> events)
+    {
+        (int Godown, string Batch)? only = null;
+        foreach (var e in events)
+        {
+            if (only is null) only = e.Key;
+            else if (!only.Value.Equals(e.Key)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The single-key predicate for a whole (scenario, item, as-of) — published as a spec-derived
+    /// fact so the comparator can scope its ENGINE VERDICT to the books this reference is an oracle for.
+    /// Multi-key subjects are measured and printed, but INFORMATIONAL ONLY.</summary>
+    public static bool SingleKeyFact(Scenario s, ItemSpec item, DateOnly asOf)
+        => SingleKey(Events(s, item, asOf));
 
     // ---------------------------------------------------------------- quantity oracle
 
@@ -383,9 +510,24 @@ public static class Reference
     /// <summary>
     /// The per-item cost fallbacks for a movement that carries no rate: the item's standard cost when it
     /// is strictly positive, and the most-recent rated inward anywhere in the as-of window.
+    /// <para><b>ROUND 8 — THE CHAIN IS RESOLVED POINT-IN-TIME, NOT OVER THE WHOLE WINDOW.</b> The
+    /// <see cref="LastRatedInward"/> carried by the value <see cref="ChainFor"/> builds is the last rated
+    /// inward in the ENTIRE as-of window, which is the right answer for
+    /// <see cref="LastPurchaseRate"/> (a report-date question) and the WRONG answer inside a replay: a
+    /// movement that consults the chain must see only the lots that had landed BEFORE it. Using the
+    /// whole-window value there prices units a physical count created on 15 Apr at a rate a purchase
+    /// established on 18 Apr — a look-ahead, and therefore a value that moves when a LATER voucher is
+    /// posted. <see cref="At"/> narrows the chain to a point in the replay; <see cref="BuildStack"/> and
+    /// <see cref="RunAverageDebtAwareTraced"/> thread it. Corpus subjects G6-003 and G7-003 exist to make
+    /// the difference measurable; no pre-existing subject reaches the
+    /// <see cref="RateSource.LastRatedInward"/> link with a rated inward after it, which is why the
+    /// harness could not see the defect before.</para>
     /// </summary>
     private readonly record struct Chain(decimal? PositiveStandardCost, decimal? LastRatedInward)
     {
+        /// <summary>The same chain as it stood at a point in the replay: only lots seen SO FAR count.</summary>
+        public Chain At(decimal? lastRatedSoFar) => this with { LastRatedInward = lastRatedSoFar };
+
         public decimal NoRateCost(decimal runningAverage) => NoRateCostTagged(runningAverage).Rate;
 
         /// <summary>The chain, plus WHICH link answered — so a surviving layer can be traced to the spec.</summary>
@@ -403,14 +545,53 @@ public static class Reference
         /// has no other link to reach (which is the only way <see cref="RateSource.Zero"/> can fire).
         /// A <see cref="RateSource.RunningAverage"/> layer is legitimately outside this set (it is a blend)
         /// and is excused BY ITS TAG, not by widening the set.
+        /// <para><paramref name="zeroCountUpReachable"/> is a SPEC-DERIVED quantity fact (see
+        /// <see cref="ZeroCountUpReachable"/>): on a book where a physical count tops the stack up from a
+        /// net of EXACTLY ZERO with no debt outstanding, the chain's FIRST link — the running average of an
+        /// empty pool — is legitimately 0, so a 0-rate layer is admissible there and only there. Corpus
+        /// subject N4-003 is the only one in the corpus with that shape. Without this the reference would
+        /// have to invent a rate for those units, which is exactly what the engine must NOT do on a
+        /// never-negative book.</para>
         /// </summary>
-        public SortedSet<decimal> Admissible(IEnumerable<decimal> ratedInwardRates)
+        public SortedSet<decimal> Admissible(IEnumerable<decimal> ratedInwardRates, bool zeroCountUpReachable)
         {
             var set = new SortedSet<decimal>(ratedInwardRates);
             if (PositiveStandardCost is { } sc) set.Add(sc);
+            if (zeroCountUpReachable) set.Add(0m);
             if (set.Count == 0) set.Add(0m);
             return set;
         }
+    }
+
+    /// <summary>
+    /// SPEC-DERIVED, PURE QUANTITY WALK: does this event stream contain a physical count that tops the
+    /// stack up from a net of EXACTLY ZERO? There, and only there, the best-available-cost chain's first
+    /// link (the running average of an empty pool) legitimately answers 0 on a book that never carried a
+    /// debt — so a 0-rate surviving layer is admissible. It reads quantities and the kind of each movement
+    /// and nothing else: no rate, no cost, no layer arithmetic.
+    /// </summary>
+    private static bool ZeroCountUpReachable(List<Ev> events)
+    {
+        // UNGATED, matching the replay: a shortfall always becomes a debt, so the net may go below zero.
+        var net = 0m;
+        foreach (var e in events)
+        {
+            if (e.What == Kind.Count && net == 0m && e.Qty > 0m) return true;
+            switch (e.What)
+            {
+                case Kind.Count: net = e.Qty; break;
+                case Kind.Inward: net += e.Qty; break;
+                default:
+                {
+                    var take = Math.Min(e.Qty, Math.Max(net, 0m));
+                    net -= take;
+                    var shortfall = e.Qty - take;
+                    if (shortfall > 0m) net -= shortfall;
+                    break;
+                }
+            }
+        }
+        return false;
     }
 
     private static Chain ChainFor(ItemSpec item, List<Ev> events)
@@ -446,7 +627,7 @@ public static class Reference
 
     /// <summary>
     /// Drains <paramref name="quantity"/> from the stack by the chosen order. Anything the layers cannot
-    /// satisfy becomes DEBT — the one rule the engine does not have, and the reason this file exists.
+    /// satisfy becomes DEBT — unconditionally; there is no predicate on the rule (see the file header).
     /// </summary>
     private static void Consume(Stack st, decimal quantity, bool lifo)
     {
@@ -462,24 +643,29 @@ public static class Reference
             if (take >= layer.Qty) st.Layers.RemoveAt(idx);
             else st.Layers[idx] = new Layer(layer.Qty - take, layer.Unit, layer.Src, layer.Origin);
         }
-        if (remaining > 0m) { st.Debt += remaining; st.DebtEverCreated = true; }   // <-- THE DEBT RULE
+        // <-- THE DEBT RULE
+        if (remaining > 0m) { st.Debt += remaining; st.DebtEverCreated = true; }
         if (st.RunQty <= 0m) { st.RunQty = 0m; st.RunCost = 0m; }
     }
 
     private static Stack BuildStack(List<Ev> events, bool lifo, Chain chain)
     {
         var st = new Stack();
-        foreach (var e in events)
+        // ROUND 8: the chain is resolved POINT-IN-TIME — `e.SeenRated` is the last rated inward that had
+        // ACTUALLY LANDED before this event; the whole-window value looks ahead.
+        for (var i = 0; i < events.Count; i++)
         {
+            var e = events[i];
+            var pit = chain.At(e.SeenRated);
             switch (e.What)
             {
                 case Kind.Inward:
                 {
-                    var (chained, chainSrc) = chain.NoRateCostTagged(RunningAverage(st.RunQty, st.RunCost));
+                    var (chained, chainSrc) = pit.NoRateCostTagged(RunningAverage(st.RunQty, st.RunCost));
                     var unit = e.Rate ?? chained;
                     var src = e.Rate is null ? chainSrc : RateSource.Explicit;
                     var qty = e.Qty;
-                    if (st.Debt > 0m)
+                    if (st.Debt > 0m)                              // <-- REPAY-FIRST
                     {
                         // Repay at the INCOMING lot's rate; repaid units go to COGS, never to a layer.
                         var repay = Math.Min(st.Debt, qty);
@@ -507,9 +693,23 @@ public static class Reference
                     // leave the layer stack holding more units than on-hand reports — the reference's
                     // own quantity and value would stop agreeing. (The on-hand replay writes the
                     // negative off at the count too, which is why this is the only consistent rule.)
-                    // On a never-negative book Debt is always 0, so this is a no-op there and
-                    // calibration is unaffected.
-                    if (st.Debt > 0m) st.CountWithDebtOutstanding = true;
+                    //
+                    // ROUND 8 — THE CHAIN IS SCOPED TO THE DEBT WRITE-OFF, AND THAT IS A CORRECTION.
+                    // The sentence that used to stand here said "on a never-negative book Debt is always 0,
+                    // so this is a no-op there and calibration is unaffected". The first clause is true; the
+                    // conclusion was FALSE, and corpus subject N4-003 is the counter-example: a book that
+                    // drains its layer stack to EXACTLY zero carries no debt and never goes negative, yet
+                    // the running average there is 0, so the chain fired and answered with a rate — on a
+                    // book the byte-identity contract says must equal HEAD. HEAD prices those units at the
+                    // bare running average (0). The USER-SETTLED rule this reference implements is scoped,
+                    // in its own words, to "a debt settled by a movement carrying NO PURCHASE RATE"; a count
+                    // on a book that never ran short settles no debt and is OUTSIDE it. So the chain fires
+                    // only when this count is writing a debt off, and a no-debt count-up keeps HEAD's bare
+                    // running average. (Whether HEAD's Rs 0.00 for physically-counted units on a
+                    // never-negative book is itself right is a SEPARATE, unratified question — see the
+                    // N4-003 comment in Corpus.cs. The reference deliberately takes no position on it.)
+                    var debtWrittenOff = st.Debt > 0m;             // <-- COUNT WRITE-OFF
+                    if (debtWrittenOff) st.CountWithDebtOutstanding = true;
                     st.Debt = 0m;
                     var current = SumQty(st.Layers);
                     if (e.Qty < current)
@@ -518,7 +718,10 @@ public static class Reference
                     }
                     else if (e.Qty > current)
                     {
-                        var (unit, src) = chain.NoRateCostTagged(RunningAverage(st.RunQty, st.RunCost));
+                        var ra = RunningAverage(st.RunQty, st.RunCost);
+                        var (unit, src) = debtWrittenOff
+                            ? pit.NoRateCostTagged(ra)
+                            : (ra, RateSource.RunningAverage);
                         var add = e.Qty - current;
                         st.Layers.Add(new Layer(add, unit, src, e.Origin));
                         st.RunQty += add;
@@ -606,15 +809,17 @@ public static class Reference
         var qty = 0m;
         var cost = 0m;
         var debt = 0m;
-        foreach (var e in events)
+        for (var i = 0; i < events.Count; i++)
         {
+            var e = events[i];
+            var pit = chain.At(e.SeenRated);        // ROUND 8: point-in-time chain, see Chain.At
             switch (e.What)
             {
                 case Kind.Inward:
                 {
-                    var unit = e.Rate ?? chain.NoRateCost(RunningAverage(qty, cost));
+                    var unit = e.Rate ?? pit.NoRateCost(RunningAverage(qty, cost));
                     var add = e.Qty;
-                    if (debt > 0m)
+                    if (debt > 0m)                                 // <-- REPAY-FIRST
                     {
                         var repay = Math.Min(debt, add);
                         debt -= repay;
@@ -634,6 +839,7 @@ public static class Reference
                     var unit = RunningAverage(qty, cost);
                     if (e.Qty > qty)
                     {
+                        // Ungated, exactly as the layer arm is.
                         debt += e.Qty - qty;
                         flags.DebtEverCreated = true;
                         qty = 0m;
@@ -649,10 +855,13 @@ public static class Reference
                 }
                 case Kind.Count:
                 {
-                    if (debt > 0m) flags.CountWithDebtOutstanding = true;
+                    // ROUND 8: the chain fires only when this count is WRITING A DEBT OFF — the same
+                    // correction as the layer arm above, for the same reason (corpus subject N4-003).
+                    var debtWrittenOff = debt > 0m;                // <-- COUNT WRITE-OFF
+                    if (debtWrittenOff) flags.CountWithDebtOutstanding = true;
                     debt = 0m;
                     var unit = RunningAverage(qty, cost);
-                    if (unit <= 0m) unit = chain.NoRateCost(0m);
+                    if (unit <= 0m && debtWrittenOff) unit = pit.NoRateCost(0m);
                     cost = e.Qty * unit;
                     qty = e.Qty;
                     break;
@@ -766,19 +975,23 @@ public static class Reference
     public static string LayerBreakdown(Scenario s, ItemSpec item, string method, DateOnly asOf)
     {
         if (method is not (Fifo or Lifo)) return "-";
+        var layers = SurvivingLayers(s, item, method, asOf);
+        if (layers.Count == 0) return "";
+        return string.Join(';', layers.Select(l => Plain(l.Qty) + "@" + Plain(l.Unit)));
+    }
+
+    /// <summary>The surviving layers of the ITEM-LEVEL replay, in arrival order.</summary>
+    private static List<Layer> SurvivingLayers(Scenario s, ItemSpec item, string method, DateOnly asOf)
+    {
         var events = Events(s, item, asOf);
-        var st = BuildStack(events, lifo: method == Lifo, ChainFor(item, events));
-        if (st.Layers.Count == 0) return "";
-        return string.Join(';', st.Layers.Select(l => Plain(l.Qty) + "@" + Plain(l.Unit)));
+        return BuildStack(events, lifo: method == Lifo, ChainFor(item, events)).Layers;
     }
 
     /// <summary>The rate SOURCE of each surviving layer, positionally aligned with the breakdown.</summary>
     public static string LayerRateSources(Scenario s, ItemSpec item, string method, DateOnly asOf)
     {
         if (method is not (Fifo or Lifo)) return "-";
-        var events = Events(s, item, asOf);
-        var st = BuildStack(events, lifo: method == Lifo, ChainFor(item, events));
-        return string.Join(';', st.Layers.Select(l => l.Src.ToString()));
+        return string.Join(';', SurvivingLayers(s, item, method, asOf).Select(l => l.Src.ToString()));
     }
 
     /// <summary>
@@ -791,9 +1004,7 @@ public static class Reference
     public static string LayerOrigins(Scenario s, ItemSpec item, string method, DateOnly asOf)
     {
         if (method is not (Fifo or Lifo)) return "-";
-        var events = Events(s, item, asOf);
-        var st = BuildStack(events, lifo: method == Lifo, ChainFor(item, events));
-        return string.Join(';', st.Layers.Select(l => l.Origin));
+        return string.Join(';', SurvivingLayers(s, item, method, asOf).Select(l => l.Origin));
     }
 
     /// <summary>The rates the SPEC permits a surviving layer to carry, ascending, joined by ';'.</summary>
@@ -801,7 +1012,8 @@ public static class Reference
     {
         var events = Events(s, item, asOf);
         var rated = events.Where(e => e.What == Kind.Inward && e.Rate is not null).Select(e => e.Rate!.Value);
-        return string.Join(';', ChainFor(item, events).Admissible(rated).Select(Plain));
+        return string.Join(';', ChainFor(item, events)
+            .Admissible(rated, ZeroCountUpReachable(events)).Select(Plain));
     }
 
     /// <summary>
@@ -844,20 +1056,19 @@ public static class Reference
             return Paisa(rate * quantity);
         }
 
-        var events = Events(s, item, asOf);
-        var st = BuildStack(events, lifo: method == Lifo, ChainFor(item, events));
+        var layers = SurvivingLayers(s, item, method, asOf);
 
         var remaining = quantity;
         var consumed = 0m;
-        while (remaining > 0m && st.Layers.Count > 0)
+        while (remaining > 0m && layers.Count > 0)
         {
-            var idx = method == Lifo ? st.Layers.Count - 1 : 0;
-            var layer = st.Layers[idx];
+            var idx = method == Lifo ? layers.Count - 1 : 0;
+            var layer = layers[idx];
             var take = Math.Min(layer.Qty, remaining);
             consumed += take * layer.Unit;
             remaining -= take;
-            if (take >= layer.Qty) st.Layers.RemoveAt(idx);
-            else st.Layers[idx] = new Layer(layer.Qty - take, layer.Unit, layer.Src, layer.Origin);
+            if (take >= layer.Qty) layers.RemoveAt(idx);
+            else layers[idx] = new Layer(layer.Qty - take, layer.Unit, layer.Src, layer.Origin);
         }
         return Paisa(consumed);
     }

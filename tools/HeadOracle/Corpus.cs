@@ -299,6 +299,40 @@ public static class Corpus
             [D(5), D(10), D(14), D(20)],
             [1.25m, 50.25m, 300m]),
 
+        // ---- ROUND 8 --------------------------------------------------------------------------------
+        // N4-003 — THE LAYER STACK DRAINS TO **EXACTLY ZERO**, AND IS THEN COUNTED **UP**.
+        //
+        // WHY IT EXISTS. Both N4-001 and N4-002 count from a POSITIVE stack, so the running average at
+        // every count is positive and the best-available-cost chain returns it unchanged. That made a
+        // sentence asserted in three places — the reference's rule 5, the production diff's type doc, and
+        // the count-arm comment in StockValuationService — untestable: "on a never-negative book the
+        // running average is positive, so the chain is inert there". IT IS FALSE. `Out 13.75` against
+        // `In 13.75` drains the stack to exactly zero: `Consume` reaches `remaining == 0`, so NO DEBT is
+        // created, no (item, godown, batch) on-hand ever goes negative, FactNeverNegative is 1 — and the
+        // running average is nonetheless 0, so a chain applied unconditionally at the count fires here and
+        // changes the value of a book CHECK 1 (byte identity) promises is untouched.
+        //
+        // WHAT EACH ARM SAYS. HEAD prices the 6.25 counted units at the bare running average, i.e. Rs 0.00.
+        // The S-A slice under gate prices them through the chain: no standard cost is set, so the chain
+        // reaches the last rated inward, 6.25 x 13.07 = Rs 81.69 — 81 rupees of Balance-Sheet asset
+        // appearing on a book that never went short. CHECK 1 and CHECK 3 both see it now; before this
+        // scenario existed, nothing in the harness could.
+        //
+        // >>> AN OPEN QUESTION THIS SCENARIO DELIBERATELY DOES NOT DECIDE. Rs 0.00 for units a storeman
+        //     physically counted is itself the wiped-asset shape this programme exists to prevent. But the
+        //     user's settled rule (2026-07-27) is scoped to "a debt settled by a movement carrying NO
+        //     PURCHASE RATE", and a count on a book that never ran short settles no debt: it is OUTSIDE the
+        //     ruling. So the reference pins HEAD's answer here, the harness convicts any engine that
+        //     changes it, and the question — should a no-debt count-up impute a cost? — goes to the user as
+        //     its own decision rather than riding in unannounced on a negative-stock slice.
+        //
+        // The standard cost is UNSET on purpose: with one set, the chain would stop at Rs 9.77 and the gap
+        // would be Rs 48.85 instead of Rs 81.69, which hides how far the chain can reach.
+        new Scenario("N4-003", "N4", false, One(StandardCostMode.Unset),
+            [In(1601, 5, 13.75m, 13.07m), Out(1602, 10, 13.75m), Count(1603, 15, 6.25m)],
+            [D(7), D(12), D(20)],
+            [1.25m, 6.25m, 300m]),
+
         // ============================================================ N5 — unrated inward
         // NoRateInwardCost fallback chain.
         new Scenario("N5-001", "N5", false, One(),
@@ -358,6 +392,110 @@ public static class Corpus
              Out(263, 14, 3.5m, godown: 1), In(264, 18, 8m, 41.03m, godown: 1)],
             [D(6), D(11), D(16), D(25)],
             [1.25m, 14.75m, 300m],
+            Godowns: 2),
+
+        // ============================================================ N10 — TWO GODOWNS **AND A COUNT**
+        // ROUND 9. THE GAP THAT LET THREE WRONG ENGINES THROUGH: before this family the corpus had NO
+        // scenario combining `Godowns: 2` with a `Count(` — `Godowns:` appeared at four line numbers and
+        // `Count(` at eight, and the two sets never overlapped. Every multi-godown book was count-free and
+        // every counted book was single-godown, so the interaction between an ITEM-LEVEL valuation replay
+        // and a PER-KEY physical count was measured by nothing. Three separate wrong answers came out of
+        // that interaction; the harness reported ENGINE VERDICT: ACCEPTED on all three.
+
+        // N10-001 — **THE BOOK THE DEBT GATE EXISTS FOR**. It matters most because CHECK 1 PROMISES it.
+        //
+        // Two godowns, six vouchers, EVERY ONE OF THEM POSTED THROUGH THE REAL
+        // InventoryPostingService.Post GUARD (GuardBypass is false). The minimum on-hand across g0, across
+        // g1 AND across the item is 0 on every date — NOTHING goes negative anywhere, so FactNeverNegative
+        // is 1 and byte identity is contractually promised.
+        //   d5   g0 In    30 @ 100.13
+        //   d6   g1 In    30 @ 100.13
+        //   d7   g0 Count 30            -> a PER-KEY NO-OP: g0 holds exactly 30
+        //   d8   g0 Out   30            -> g0 to exactly 0, drains its own layers exactly, NO debt
+        //   d9   g1 Out   20            -> g1 to 10, comfortably positive
+        //   d10  g1 In    20 @   7.91
+        // on-hand: g0 = 0, g1 = 30, item = 30.
+        //
+        // WHAT EACH MODEL SAYS AT d12.
+        //   THE HONEST PER-KEY FIGURE: g0 holds nothing; g1 holds 10 @ 100.13 + 20 @ 7.91 = Rs 1,159.50.
+        //     No model in this repository reaches it — a per-key cost replay in which cost FLOWS ACROSS A
+        //     TRANSFER would, and that is separate work (round 9 built a per-key replay WITHOUT that and
+        //     it broke ordinary transfers, so it was reverted).
+        //   THE UNGATED DEBT RULE: the d7 count sees a merged stack of 60 and truncates it to 30, throwing
+        //     away units the OTHER godown really holds; the d8 outward empties the truncated stack; the d9
+        //     outward manufactures a DEBT on a book that never went short; and the d10 inward is entirely
+        //     eaten repaying it. Closing Rs 0.00 on all three methods — a WIPED ASSET, and UNBOUNDED in
+        //     the surviving lot's rate (at 10,000.19 the honest figure is Rs 100,160.10 and it still says
+        //     Rs 0.00).
+        //   THE DEBT GATE (what ships): at the d9 outward g0 is 0 and g1 is 10 — NO key is negative — so
+        //     the shortfall is an artefact of flattening and is DISCARDED exactly as HEAD discards it. No
+        //     debt is ever created on this book, every debt clause is inert, and the answer is HEAD's own:
+        //     Rs 158.20 on Fifo/Lifo and Rs 237.30 on AverageCost. THIS SCENARIO IS THE EVIDENCE FOR THAT:
+        //     it is FactNeverNegative = 1, so CHECK 1 holds it to HEAD byte for byte.
+        //
+        // This is the scenario that makes the defect a HARNESS verdict instead of a paragraph in a review.
+        new Scenario("N10-001", "N10", false, One(),
+            [In(1701, 5, 30m, 100.13m, godown: 0), In(1702, 6, 30m, 100.13m, godown: 1),
+             Count(1703, 7, 30m, godown: 0), Out(1704, 8, 30m, godown: 0),
+             Out(1705, 9, 20m, godown: 1), In(1706, 10, 20m, 7.91m, godown: 1)],
+            [D(7), D(9), D(12)],
+            [1.25m, 30m, 400m],
+            Godowns: 2),
+
+        // N10-002 — PER-KEY AND ITEM-LEVEL DIFFER WITH **NO COUNT AND NO NEGATIVE ANYWHERE**.
+        //
+        // The point of this one is that the multi-key defect is NOT about physical counts at all. It is
+        // about WHICH LOT an outward consumes. An outward from godown 1 must eat godown 1's layers; an
+        // item-level replay lets it eat godown 0's, and on a book with different rates in the two godowns
+        // that is a different closing value with nothing unusual in the book whatsoever.
+        //   d5   g0 In  13.75 @ 100.13
+        //   d6   g1 In  20    @   7.91
+        //   d10  g1 Out  6.25
+        //   d12  g0 Out  6.25
+        // on-hand g0 = 7.5, g1 = 13.75, item = 21.25; never negative, guard-posted, no count.
+        //   THE HONEST PER-KEY FIGURE at d20 : 7.5 x 100.13 + 13.75 x 7.91 = 750.975 + 108.7625 = Rs 859.74.
+        //   ITEM-LEVEL FIFO (what ships): both outwards eat the OLDEST lot, which is g0's, so g1's cheap
+        //                    lot survives whole: 1.25 x 100.13 + 20 x 7.91 = Rs 283.36.
+        //   ITEM-LEVEL LIFO (what ships): both outwards eat the NEWEST lot, which is g1's: 13.75 x 100.13
+        //                    + 7.5 x 7.91 = Rs 1,436.11.
+        // ROUND 10 — no key is ever negative here, so no debt is possible and BOTH item-level answers are
+        // HEAD's own, byte for byte (CHECK 1). The Rs 1,152.75 FIFO/LIFO spread on a book with no negative
+        // stock, no count and no unusual voucher is a REAL, PRE-EXISTING property of the flattened replay;
+        // this scenario pins it rather than hiding it, and GT-91/GT-91L/GT-92/GT-93 state each figure.
+        new Scenario("N10-002", "N10", false, One(),
+            [In(1711, 5, 13.75m, 100.13m, godown: 0), In(1712, 6, 20m, 7.91m, godown: 1),
+             Out(1713, 10, 6.25m, godown: 1), Out(1714, 12, 6.25m, godown: 0)],
+            [D(7), D(11), D(20)],
+            [1.25m, 21.25m, 400m],
+            Godowns: 2),
+
+        // ============================================================ N11 — GODOWNS **AND** BATCHES
+        // The key is (item, godown, BATCH), so a corpus that only varied the godown would still have been
+        // blind to half of it. N11-001 varies both at once and holds THREE keys, one of which drains to
+        // exactly zero — the shape that used to make the item-level replay create a phantom debt.
+        //   keys: (g0, B-A) (g0, B-B) (g1, "")
+        //   d4   g0/B-A In  13.75 @ 100.13
+        //   d5   g0/B-B In  11    @   7.91
+        //   d6   g1     In   6.25 @  41.03
+        //   d10  g0/B-B Out 11              -> that key drains to EXACTLY zero: no debt, no negative
+        //   d12  g1     Out  3.5
+        // on-hand: B-A 13.75, B-B 0, g1 2.75, item 16.5; never negative anywhere; guard-posted.
+        //   THE HONEST PER-KEY FIGURE at d20 : 13.75 x 100.13 + 0 + 2.75 x 41.03 = Rs 1,489.62.
+        //   ITEM-LEVEL FIFO at d11 (before the g1 outward) eats the dear B-A lot with B-B's own outward:
+        //                    2.75 x 100.13 + 11 x 7.91 + 6.25 x 41.03 = Rs 618.81 against the honest
+        //                    Rs 1,633.23 — a Rs 1,014.42 hole in Stock-in-Hand on a book with no negative
+        //                    stock, no count and no unusual voucher of any kind.
+        // ROUND 10 — that hole is HEAD's too (no key is ever negative, so no debt is possible and CHECK 1
+        // holds this book to HEAD byte for byte). It is a pre-existing property of the flattened replay,
+        // pinned by GT-94/GT-94L/GT-95/GT-96, and it is what a per-key cost replay would repair.
+        new Scenario("N11-001", "N11", false, One(),
+            [InBatch(1721, 4, 13.75m, 100.13m, "B-A", godown: 0),
+             InBatch(1722, 5, 11m, 7.91m, "B-B", godown: 0),
+             In(1723, 6, 6.25m, 41.03m, godown: 1),
+             OutBatch(1724, 10, 11m, "B-B", godown: 0),
+             Out(1725, 12, 3.5m, godown: 1)],
+            [D(7), D(11), D(20)],
+            [1.25m, 16.5m, 300m],
             Godowns: 2),
 
         // ============================================================ G1 — over-draw, recover from ONE later lot
@@ -473,6 +611,82 @@ public static class Corpus
             [D(7), D(12), D(17), D(25)],
             [1.25m, 12m, 200m]),
 
+        // ---- ROUND 8 --------------------------------------------------------------------------------
+        // G6-003 — A RATED INWARD DATED **AFTER** A COUNT TAKEN WITH A DEBT OUTSTANDING, NO STANDARD COST.
+        //
+        // WHY IT EXISTS. In G6-001 and G6-002 the Count is the LAST movement, so nothing can arrive after
+        // it, and G6-001 sets a standard cost, which short-circuits the chain before the last-rated-inward
+        // link is ever reached. Between them those two facts made the whole look-ahead invisible: no
+        // subject in the corpus consulted the chain and then had a rated inward land later. Both the engine
+        // and (until round 8) the reference resolved "last rated inward" over the WHOLE as-of window, so
+        // the units a 15-Apr count created were priced by an 18-Apr purchase.
+        //
+        // THE BOOK, and it is the one the valuation review reproduced with:
+        //   d5   In  10 @   100.13
+        //   d10  Out 25              -> drains the 10, debt 15
+        //   d15  Count 8             -> debt written off, 8 units topped up by the chain
+        //   d18  In   1 @ 1,000,000.03
+        // Total ever spent on this item = 10 x 100.13 + 1 x 1,000,000.03 = Rs 1,001,001.33 on 9 units held.
+        // The point-in-time chain prices the 8 counted units at the only rate the item had paid WHEN THEY
+        // WERE COUNTED, Rs 100.13, so closing = 8 x 100.13 + 1,000,000.03 = Rs 1,000,801.07. An engine that
+        // looks ahead prices them at Rs 1,000,000.03 each and closes at Rs 9,000,000.27 — nine times
+        // everything the item ever cost, and unbounded in the later rate.
+        //
+        // THE TWO STRADDLING AS-OF DATES ARE THE POINT OF d16 AND d20. The book is IDENTICAL at both; only
+        // the report date moves. A look-ahead makes the same 8 counted units worth Rs 801.04 on a 16-Apr
+        // Balance Sheet and Rs 8,000,000.24 on a 20-Apr one, i.e. posting an 18-Apr purchase restates a
+        // closed period whose vouchers never changed. The reference holds them at Rs 801.04 on BOTH dates,
+        // so CHECK 3 sees the restatement as a disagreement on the later date alone.
+        new Scenario("G6-003", "G6", true, One(StandardCostMode.Unset),
+            [In(1611, 5, 10m, 100.13m, number: 1), Out(1612, 10, 25m, number: 1),
+             Count(1613, 15, 8m, number: 2), In(1614, 18, 1m, 1000000.03m, number: 2)],
+            [D(7), D(12), D(16), D(20)],
+            [1.25m, 9m, 500m]),
+
+        // G6-004 — THE `debt = 0m` COUNT WRITE-OFF, MADE FALSIFIABLE.
+        //
+        // WHY IT EXISTS. "A physical count WRITES THE DEBT OFF" is a named clause of the settled semantics
+        // and NOTHING could detect its removal: G6-001 and G6-002 both end at the Count, so a debt that
+        // survived it had no later inward to eat and could not manifest. Delete `debt = 0m` from either
+        // count arm of the engine and every check stayed green.
+        //   d5   In  10 @ 100.13
+        //   d10  Out 25            -> debt 15
+        //   d15  Count 8           -> debt written off; 8 units at the chain's STANDARD COST 9.77
+        //   d18  In  40 @   7.91   -> no debt to repay, so all 40 survive
+        // closing = 8 x 9.77 + 40 x 7.91 = 78.16 + 316.40 = Rs 394.56 on 48 units.
+        // WITH the write-off removed the surviving 15-unit debt eats 15 of the 40 and the answer becomes
+        // 78.16 + 25 x 7.91 = Rs 275.91 — Rs 118.65 of real asset gone, and the layer stack holds 33 units
+        // while the report prints 48. GT-63/GT-63L/GT-64 pin Rs 394.56, so that mutation is now convicted.
+        // The standard cost is SET here on purpose: it keeps this scenario about the WRITE-OFF and not
+        // about the chain's tail, which G6-003 covers.
+        new Scenario("G6-004", "G6", true, One(StandardCostMode.Set),
+            [In(1621, 5, 10m, 100.13m, number: 1), Out(1622, 10, 25m, number: 1),
+             Count(1623, 15, 8m, number: 2), In(1624, 18, 40m, 7.91m, number: 2)],
+            [D(7), D(12), D(25)],
+            [1.25m, 48m, 300m]),
+
+        // G6-005 — A COUNT TAKEN **DOWN TO ZERO** WHILE A DEBT IS OUTSTANDING.
+        //
+        // WHY IT EXISTS, and what is NOT here. The review asked for two count-with-debt shapes. One of them
+        // is STRUCTURALLY UNREACHABLE and is recorded as such rather than faked: a count taken with a debt
+        // outstanding CANNOT find a non-empty layer stack, because a debt is only ever created after the
+        // layers are drained and any inward repays it before adding a layer — at most one of (layers, debt)
+        // is non-zero, always. The other shape IS reachable, and this is it: with a debt outstanding the
+        // book quantity is negative, so every legal counted quantity (>= 0) raises it; the DOWNWARD end of
+        // that range is a count of EXACTLY ZERO, which asserts an empty shelf and must leave an empty stack.
+        //   d5   In  13.75 @ 100.13
+        //   d10  Out 31.25         -> drains the 13.75, debt 17.5
+        //   d15  Count 0           -> debt written off; nothing to top up; stack stays empty
+        //   d18  In  21.25 @  7.91 -> no debt to repay, so all 21.25 survive
+        // closing = 21.25 x 7.91 = Rs 168.09. With the write-off removed the debt 17.5 eats the lot and
+        // only 3.75 units survive: Rs 29.66. A second, independent pin on the same clause as G6-004, on the
+        // opposite end of the counted range.
+        new Scenario("G6-005", "G6", true, One(StandardCostMode.Set),
+            [In(1631, 5, 13.75m, 100.13m, number: 1), Out(1632, 10, 31.25m, number: 1),
+             Count(1633, 15, 0m, number: 2), In(1634, 18, 21.25m, 7.91m, number: 2)],
+            [D(7), D(12), D(25)],
+            [1.25m, 21.25m, 300m]),
+
         // ============================================================ G7 — over-draw then unrated inward
         new Scenario("G7-001", "G7", true, One(),
             [In(431, 5, 10m, 100.13m, number: 1), Out(432, 10, 25m, number: 1), InUnrated(433, 15, 40m, number: 2)],
@@ -484,6 +698,31 @@ public static class Corpus
             [In(441, 5, 10m, 100.13m, number: 1), Out(442, 10, 25m, number: 1), InUnrated(443, 15, 40m, number: 2)],
             [D(7), D(12), D(20)],
             [3.5m, 25m, 300m]),
+
+        // ---- ROUND 8 --------------------------------------------------------------------------------
+        // G7-003 — AN UNRATED INWARD REPAYS THE DEBT, AND THEN A RATED INWARD LANDS AT A WILDLY DIFFERENT
+        // RATE.
+        //
+        // WHY IT EXISTS. G7-001 and G7-002 stop at the unrated inward. Nothing follows it, so the chain's
+        // whole-window reading and its point-in-time reading give the same answer and the family passed
+        // while being blind to the difference. Add ONE later purchase and the whole-window reading prices
+        // the ENTIRE surplus of the unrated lot at a rate that did not exist when the lot arrived.
+        //   d5   In  10 @   100.13
+        //   d10  Out 25              -> drains the 10, debt 15
+        //   d15  In  40 UNRATED      -> priced by the chain; repays 15, 25 survive
+        //   d18  In   1 @ 9,999.99
+        // Total ever spent = 10 x 100.13 + 1 x 9,999.99 = Rs 11,001.29 on 26 units held. The point-in-time
+        // chain prices the unrated lot at the only rate the item had paid when it arrived, Rs 100.13, so
+        // closing = 25 x 100.13 + 9,999.99 = Rs 12,503.24. A whole-window chain prices all 25 surplus units
+        // at Rs 9,999.99 and holds Rs 259,999.74 — 23.6x everything the item ever cost, the same shape as
+        // this project's historical failure #2 (Rs 476,000 held on Rs 26,100 ever spent).
+        // As in G6-003, d16 and d20 straddle the later purchase so the restatement of the earlier date is
+        // visible as a disagreement on the later one alone.
+        new Scenario("G7-003", "G7", true, One(StandardCostMode.Unset),
+            [In(1641, 5, 10m, 100.13m, number: 1), Out(1642, 10, 25m, number: 1),
+             InUnrated(1643, 15, 40m, number: 2), In(1644, 18, 1m, 9999.99m, number: 3)],
+            [D(7), D(12), D(16), D(20)],
+            [1.25m, 26m, 500m]),
 
         // ============================================================ G8 — replenish cheaper / dearer
         // The SIGN of the error.
@@ -634,6 +873,11 @@ public static class Corpus
         //
         // G12-001 is the batch analogue of G9: NEGATIVE IN ONE BATCH, POSITIVE COMPANY-WIDE. The
         // company-wide layer stack never goes dry, so this scenario MUST NOT MOVE.
+        // ROUND 9 MOVED IT (Rs 39.55 -> Rs 79.10 on Fifo/Lifo, Rs 346.95 -> Rs 79.10 on AverageCost) by
+        // re-keying valuation per batch. ROUND 10 REVERTED that, and the sentence above is true again:
+        // batch B-A goes to -5 so the DEBT GATE is OPEN at the outward, but the merged stack held 30 units
+        // and the outward of 25 found its units, so NO debt was created. An open gate is a permission, not
+        // an instruction — this scenario is the corpus's pin on that distinction. GT-87B/GT-87C.
         //   keys: B-A = 20 - 25 = -5 ; B-B = +10 ; company +5
         //   layers: 20@100.13 + 10@7.91 -> out 25 drains all 20 and 5 of the 7.91 -> 5 @ 7.91 = Rs 39.55
         new Scenario("G12-001", "G12", true, One(),
@@ -742,6 +986,81 @@ public static class Corpus
              Out(1575, 22, 13m, number: 2)],
             [D(7), D(12), D(20), D(25)],
             [1.25m, 32m, 500m]),
+
+        // ============================================================ G16 — TWO GODOWNS, ONE SHORT, A COUNT
+        // ROUND 9. The NEGATIVE half of the multi-godown gap: one godown genuinely goes short and a
+        // physical count lands. Which godown is counted decides everything, and until now neither arm of
+        // that choice existed anywhere in the corpus.
+
+        // G16-001 — THE DESYNC, REPRODUCED VERBATIM FROM THE RE-REVIEW.
+        // A count on the godown that did **NOT** go short.
+        //   d5   g0 In    30 @ 100.13
+        //   d10  g1 Out   40             -> g1 to -40, item net -10
+        //   d15  g0 Count 30             -> the storeman counts g0 and finds exactly 30: a PER-KEY NO-OP
+        //   d18  g0 In    20 @  12.00
+        // on-hand: g0 = 50, g1 = -40, item = 10.
+        //
+        // PER KEY the book is unremarkable: g0 holds 30 @ 100.13 + 20 @ 12.00 = Rs 3,243.90 and g1 owes 40
+        // units it never paid for, which carry no rate and therefore no value. Layer quantity 50 minus
+        // debt 40 = 10 = the reported closing quantity, EXACTLY — which is the invariant the item-level
+        // replay could not state at all (it holds 50 units of cost while reporting 10).
+        //
+        // THE ENGINE UNDER GATE reaches Rs 3,243.90 too, but by a route that is wrong in three places at
+        // once: the item-level count writes off a debt the COUNTED key never owed, then tops the stack up
+        // 30 units at the point-in-time chain rate of 100.13. HEAD reported Rs 240.00 (it topped up at a
+        // running average of 0). AverageCost separates them cleanly and is where CHECK 2 convicts: the
+        // reference says Rs 3,243.90, the engine says Rs 648.78.
+        //
+        // ROUND 10 — THIS IS THE RESIDUAL THE DEBT GATE DOES NOT FIX, AND IT IS KEPT SO IT CANNOT MOVE
+        // AGAIN UNOBSERVED. g1 genuinely goes to -40, so the gate is OPEN and the debt of 10 is real. The
+        // d15 count then lands on g0 — a shelf that owes nothing — and writes off a debt the counted key
+        // never owed, then tops the emptied stack up through the point-in-time chain. The layers hold 50
+        // units worth Rs 3,243.90 while the register reports 10: an implied Rs 324.39/unit on an item
+        // whose dearest lot cost Rs 100.13. HEAD said Rs 240.00 (it priced the counted units at a running
+        // average of 0 — a wipe in the other direction). NEITHER is the book. Because value and quantity
+        // here describe DIFFERENT unit counts, CHECK 6's implied-unit-rate premise is false on this
+        // subject and the comparator records it as STRUCTURALLY-UNSATISFIABLE, by name, with the measured
+        // delta — see FactFlatNetMicro and the DESYNC list in PART A.
+        //
+        // THE Rs 12.00 RATE IS DELIBERATE AND IS THE ONE PLACE THIS CORPUS BREAKS ITS OWN ODD-PAISA RULE.
+        // The re-review measured Rs 3,243.90 on exactly this book, and reproducing the measured book
+        // verbatim is worth more here than an odd paisa: G16-002 alongside it is odd-paisa throughout.
+        new Scenario("G16-001", "G16", true, One(StandardCostMode.Unset),
+            [In(1731, 5, 30m, 100.13m, godown: 0, number: 1),
+             Out(1732, 10, 40m, godown: 1, number: 1),
+             Count(1733, 15, 30m, godown: 0, number: 2),
+             In(1734, 18, 20m, 12m, godown: 0, number: 2)],
+            [D(7), D(12), D(20)],
+            [1.25m, 10m, 300m],
+            Godowns: 2),
+
+        // G16-002 — A COUNT ON THE GODOWN THAT **DID** GO SHORT.
+        //   d5   g0 In    10 @ 100.13
+        //   d10  g1 Out   25            -> g1 to -25
+        //   d15  g1 Count  8            -> the SHORT key is counted: its debt is written off and 8 units
+        //                                  are topped up by the best-available-cost chain
+        // on-hand: g0 = 10, g1 = 8, item = 18.
+        //
+        // THE CHAIN IS THE INTERESTING PART. Godown 1 has never received a rated inward in its life, and
+        // the chain is resolved per ITEM and POINT-IN-TIME (rule 7), so it answers with the only rate the
+        // item had paid when those units were counted, Rs 100.13. (A chain resolved PER KEY would reach
+        // its last link and value eight physically-counted units at Rs 0.00 — the wiped-asset shape this
+        // programme exists to prevent, and one of the two CRITICALs that got the per-key replay reverted.)
+        //   THE HONEST PER-KEY FIGURE at d20 : 10 x 100.13 + 8 x 100.13 = Rs 1,802.34 on 18 units.
+        //   WHAT SHIPS (item-level + gate): Rs 801.04 on Fifo/Lifo — it keeps the 8 topped-up units and
+        //   LOSES godown 0's ten real ones, because the item-level count reconciled the whole merged stack
+        //   to 8. The OTHER DIRECTION of the same residual as G16-001, and pinned for the same reason.
+        //   AverageCost: Rs 1,802.34 (the pool's 100.13 x the netted 18).
+        //   HEAD: Rs 0.00.
+        // The StandardCost is UNSET on purpose so the chain has to reach its last link; with one set the
+        // gap would be 8 x 9.77 and would hide how far the chain reaches.
+        new Scenario("G16-002", "G16", true, One(StandardCostMode.Unset),
+            [In(1741, 5, 10m, 100.13m, godown: 0, number: 1),
+             Out(1742, 10, 25m, godown: 1, number: 1),
+             Count(1743, 15, 8m, godown: 1, number: 2)],
+            [D(7), D(12), D(20)],
+            [1.25m, 18m, 300m],
+            Godowns: 2),
 
         // ============================================================ E1 — equal-dated inwards, two orders
         // Same date AND same number on both inwards, so ONLY the Guid can break the tie. E1-002 inserts

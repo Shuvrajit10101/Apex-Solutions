@@ -184,6 +184,113 @@ public static class Facts
             TotalOutwardMicro: (long)decimal.Round(outwardBase * 1_000_000m, 0, MidpointRounding.AwayFromZero));
     }
 
+
+    // =============================================================================================
+    // THE FLATTENED ITEM-LEVEL REPLAY, AS A PURE QUANTITY WALK.
+    // =============================================================================================
+    // Three facts below (PostDryLots, InventedByRule, DebtShape) rest on ONE equivalence: "the
+    // reference's outstanding debt is positive at an event precisely when the ITEM-LEVEL net quantity
+    // before that event is negative". This walk re-derives that net from the SPEC and from QUANTITIES
+    // ONLY — no rate, no cost, no layer — which is what makes these facts able to audit the reference
+    // without sharing its arithmetic: they are a quantity walk, and it is a cost walk.
+    //
+    // UNGATED, matching the reference. An earlier round confined the debt rule to single-key items and
+    // this walk carried a copy of that predicate; the scoping was abandoned (a predicate-gated scope
+    // puts a valuation cliff at its own boundary — see Reference.cs's header), so the gate is gone from
+    // both. A shortfall in the flattened stream is ALWAYS owed.
+    //
+    // The flattened replay's net therefore obeys, exactly:
+    //     net == SUM(surviving layer qty) - outstanding debt
+    // at every point, because a debt can only exist once the layers are drained (an inward repays
+    // before it adds a layer, a count writes the debt off), so layers = max(net, 0) and
+    // debt = max(-net, 0) throughout.
+
+    /// <summary>One event of the flattened item-level stream, with the (godown, batch) key the QUANTITY
+    /// register uses and whether its rate is stated.</summary>
+    private readonly record struct FlatEv(
+        string Token, MoveKind Kind, decimal Qty, bool Rated, (int Godown, string Batch) Key);
+
+    /// <summary>The item's movements as of a date, flattened into ONE stream in the replay's order.</summary>
+    private static List<FlatEv> FlatStream(Scenario s, ItemSpec item, DateOnly asOf)
+    {
+        var stream = new List<(DateOnly Date, int CountLast, int Number, int Seq, FlatEv E)>();
+
+        if (item.OpeningQty > 0m)
+            stream.Add((DateOnly.MinValue, 0, int.MinValue, int.MinValue,
+                new FlatEv(LotToken.Opening, MoveKind.Inward, item.OpeningQty, true,
+                           (item.OpeningGodown, ""))));
+
+        foreach (var m in s.MovementsOf(item))
+        {
+            if (m.Cancelled) continue;
+            if (m.Date > asOf) continue;
+            var baseQty = m.Kind == MoveKind.Count
+                ? m.Qty                                     // a counted quantity is always in base units
+                : m.UseCompoundUnit
+                    ? m.Qty * Corpus.CompoundNumerator / Corpus.CompoundDenominator
+                    : m.Qty;
+            stream.Add((m.Date, m.Kind == MoveKind.Count ? 1 : 0, m.Number, m.Seq,
+                new FlatEv(LotToken.For(m), m.Kind, baseQty, m.Rate is not null, (m.Godown, m.Batch))));
+        }
+
+        return stream
+            .OrderBy(t => t.Date).ThenBy(t => t.CountLast).ThenBy(t => t.Number).ThenBy(t => t.Seq)
+            .Select(t => t.E)
+            .ToList();
+    }
+
+    /// <summary>
+    /// The flattened item-level replay's NET quantity BEFORE each event, plus the net it finishes at.
+    /// An outward can only draw what the stack holds (<c>max(net, 0)</c>); the shortfall goes to DEBT —
+    /// i.e. the net goes negative — unconditionally. A count is an absolute statement.
+    /// </summary>
+    private static (decimal[] Before, decimal Final) FlatNet(List<FlatEv> ev)
+    {
+        var before = new decimal[ev.Count];
+        var net = 0m;
+        for (var i = 0; i < ev.Count; i++)
+        {
+            before[i] = net;
+            switch (ev[i].Kind)
+            {
+                case MoveKind.Count:
+                    net = ev[i].Qty;
+                    break;
+                case MoveKind.Inward:
+                    net += ev[i].Qty;
+                    break;
+                default:
+                {
+                    var take = Math.Min(ev[i].Qty, Math.Max(net, 0m));
+                    net -= take;
+                    var shortfall = ev[i].Qty - take;
+                    if (shortfall > 0m) net -= shortfall;
+                    break;
+                }
+            }
+        }
+        return (before, net);
+    }
+
+    /// <summary>
+    /// SPEC-DERIVED: the quantity the ITEM-LEVEL cost-layer replay reaches — <c>layers - debt</c> — in
+    /// micro-units, signed.
+    /// <para>WHY THIS EXISTS, AND WHAT IT MAKES VISIBLE. The reference's self-consistency invariant used to
+    /// compare the layer stack against the REPORTED closing quantity, which the quantity oracle replays PER
+    /// (item, godown, batch). Those two agree on every single-key book and on every multi-key book without a
+    /// physical count — but a per-key COUNT applied to a flattened stack is exactly where they part company,
+    /// and that DESYNC is a real, pre-existing property of the engine, not a harness defect. Comparing the
+    /// layers against THIS number keeps the invariant sharp (it still convicts a replay that values a
+    /// different number of units than it holds) while the desync itself is reported as a measured delta
+    /// rather than swallowed as a harness failure.</para>
+    /// </summary>
+    public static long FlatNetMicro(Scenario s, ItemSpec item, DateOnly asOf)
+    {
+        var ev = FlatStream(s, item, asOf);
+        var (_, final) = FlatNet(ev);
+        return (long)decimal.Round(final * 1_000_000m, 0, MidpointRounding.AwayFromZero);
+    }
+
     /// <summary>
     /// THE SPEC'S LOT TABLE for one (item, as-of): every inward lot that exists, named by
     /// <see cref="LotToken"/>, with its BASE quantity and its BASE rate ("-" when the lot is unrated).
@@ -251,40 +358,17 @@ public static class Facts
     /// </summary>
     public static string PostDryLots(Scenario s, ItemSpec item, DateOnly asOf)
     {
-        var stream = new List<(DateOnly Date, int CountLast, int Number, int Seq, string Token, MoveKind Kind, decimal Qty)>();
+        // ROUND 10 — walked with THE DEBT GATE (see FlatNet): where no key is short, a shortfall is
+        // DISCARDED rather than owed, so the stack does not go below empty and the dry point is the
+        // outward that emptied it, not a later one. Unchanged on every single-key book.
+        var ordered = FlatStream(s, item, asOf);
+        var (before, final) = FlatNet(ordered);
 
-        if (item.OpeningQty > 0m)
-            stream.Add((DateOnly.MinValue, 0, int.MinValue, int.MinValue,
-                LotToken.Opening, MoveKind.Inward, item.OpeningQty));
-
-        foreach (var m in s.MovementsOf(item))
-        {
-            if (m.Cancelled) continue;
-            if (m.Date > asOf) continue;
-            var baseQty = m.Kind == MoveKind.Count
-                ? m.Qty                                     // a counted quantity is always in base units
-                : m.UseCompoundUnit
-                    ? m.Qty * Corpus.CompoundNumerator / Corpus.CompoundDenominator
-                    : m.Qty;
-            stream.Add((m.Date, m.Kind == MoveKind.Count ? 1 : 0, m.Number, m.Seq,
-                LotToken.For(m), m.Kind, baseQty));
-        }
-
-        var ordered = stream
-            .OrderBy(t => t.Date).ThenBy(t => t.CountLast).ThenBy(t => t.Number).ThenBy(t => t.Seq)
-            .ToList();
-
-        var net = 0m;
         var lastDry = -1;
         for (var i = 0; i < ordered.Count; i++)
         {
-            net = ordered[i].Kind switch
-            {
-                MoveKind.Count => ordered[i].Qty,           // a count is an ABSOLUTE statement of the total
-                MoveKind.Inward => net + ordered[i].Qty,
-                _ => net - ordered[i].Qty,
-            };
-            if (net <= 0m) lastDry = i;
+            var after = i + 1 < ordered.Count ? before[i + 1] : final;
+            if (after <= 0m) lastDry = i;
         }
 
         if (lastDry < 0) return "*";                        // never dry: the ordering rule constrains nothing
@@ -315,38 +399,14 @@ public static class Facts
     /// </summary>
     public static bool InventedByRule(Scenario s, ItemSpec item, DateOnly asOf)
     {
-        var stream = new List<(DateOnly Date, int CountLast, int Number, int Seq, MoveKind Kind, decimal Qty, bool Rated)>();
+        var ordered = FlatStream(s, item, asOf);
+        var (before, _) = FlatNet(ordered);
 
-        if (item.OpeningQty > 0m)
-            stream.Add((DateOnly.MinValue, 0, int.MinValue, int.MinValue, MoveKind.Inward, item.OpeningQty, true));
-
-        foreach (var m in s.MovementsOf(item))
-        {
-            if (m.Cancelled) continue;
-            if (m.Date > asOf) continue;
-            var baseQty = m.Kind == MoveKind.Count
-                ? m.Qty
-                : m.UseCompoundUnit
-                    ? m.Qty * Corpus.CompoundNumerator / Corpus.CompoundDenominator
-                    : m.Qty;
-            stream.Add((m.Date, m.Kind == MoveKind.Count ? 1 : 0, m.Number, m.Seq,
-                        m.Kind, baseQty, m.Rate is not null));
-        }
-
-        var net = 0m;
-        foreach (var e in stream
-                     .OrderBy(t => t.Date).ThenBy(t => t.CountLast).ThenBy(t => t.Number).ThenBy(t => t.Seq))
+        for (var i = 0; i < ordered.Count; i++)
         {
             // The test is on the state BEFORE the event — that is when the reference reads st.Debt > 0.
-            if (net < 0m && e.Kind == MoveKind.Count) return true;
-            if (net < 0m && e.Kind == MoveKind.Inward && !e.Rated) return true;
-
-            net = e.Kind switch
-            {
-                MoveKind.Count => e.Qty,
-                MoveKind.Inward => net + e.Qty,
-                _ => net - e.Qty,
-            };
+            if (before[i] < 0m && ordered[i].Kind == MoveKind.Count) return true;
+            if (before[i] < 0m && ordered[i].Kind == MoveKind.Inward && !ordered[i].Rated) return true;
         }
         return false;
     }
@@ -391,62 +451,43 @@ public static class Facts
     /// </summary>
     public static string DebtShape(Scenario s, ItemSpec item, DateOnly asOf)
     {
-        var stream = new List<(DateOnly Date, int CountLast, int Number, int Seq, MoveKind Kind, decimal Qty, bool Rated)>();
-
-        if (item.OpeningQty > 0m)
-            stream.Add((DateOnly.MinValue, 0, int.MinValue, int.MinValue, MoveKind.Inward, item.OpeningQty, true));
-
-        foreach (var m in s.MovementsOf(item))
-        {
-            if (m.Cancelled) continue;
-            if (m.Date > asOf) continue;
-            var baseQty = m.Kind == MoveKind.Count
-                ? m.Qty
-                : m.UseCompoundUnit
-                    ? m.Qty * Corpus.CompoundNumerator / Corpus.CompoundDenominator
-                    : m.Qty;
-            stream.Add((m.Date, m.Kind == MoveKind.Count ? 1 : 0, m.Number, m.Seq,
-                        m.Kind, baseQty, m.Rate is not null));
-        }
-
-        var net = 0m;
+        var ordered = FlatStream(s, item, asOf);
+        var (before, final) = FlatNet(ordered);
         var flags = new SortedSet<string>(StringComparer.Ordinal);
 
-        foreach (var e in stream
-                     .OrderBy(t => t.Date).ThenBy(t => t.CountLast).ThenBy(t => t.Number).ThenBy(t => t.Seq))
+        for (var i = 0; i < ordered.Count; i++)
         {
-            var before = net;                       // the state the reference reads as st.Debt
+            var e = ordered[i];
+            var b = before[i];                      // the state the reference reads as st.Debt
+            var after = i + 1 < ordered.Count ? before[i + 1] : final;
             switch (e.Kind)
             {
                 case MoveKind.Count:
-                    if (before < 0m) flags.Add("countWithDebt");
+                    if (b < 0m) flags.Add("countWithDebt");
                     else if (flags.Contains("everDebt")) flags.Add("countAfterRepay");
-                    net = e.Qty;
                     break;
 
                 case MoveKind.Inward:
-                    if (before < 0m)
+                    if (b < 0m)
                     {
                         flags.Add(e.Rated ? "repaidByRatedInward" : "repaidByUnratedInward");
                         // Swallowed whole: no surplus joined, so the surviving stock came from a LATER lot.
-                        if (before + e.Qty <= 0m) flags.Add("repaidAcrossMultipleInwards");
+                        if (b + e.Qty <= 0m) flags.Add("repaidAcrossMultipleInwards");
                     }
-                    net = before + e.Qty;
                     break;
 
                 default:
                     if (e.Qty > 0m)
                     {
-                        if (before == 0m) flags.Add("debtFromEmptyStack");
-                        if (before < 0m) flags.Add("twoSuccessiveOverdraws");
+                        if (b == 0m) flags.Add("debtFromEmptyStack");
+                        if (b < 0m) flags.Add("twoSuccessiveOverdraws");
                     }
-                    net = before - e.Qty;
                     break;
             }
-            if (net < 0m) flags.Add("everDebt");
+            if (after < 0m) flags.Add("everDebt");
         }
 
-        if (net < 0m) flags.Add("debtAtAsOf");
+        if (final < 0m) flags.Add("debtAtAsOf");
         return flags.Count == 0 ? "none" : string.Join(';', flags);
     }
 
