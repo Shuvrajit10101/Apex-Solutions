@@ -687,6 +687,29 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   go/no-go** per R12.
 
 ### Phase 10.8 — Allow negative stock
+- **▶ STATUS 2026-07-29 — STOPPED AND BANKED (R12 USER DECISION). `S-A` is NOT DONE; `S-B` and `S-C` stay
+  BLOCKED.** This status **governs the reading of every bullet below** — the goals, modules and deliverables
+  remain the intent, but **none of the valuation work has landed**. The engine is **reverted to HEAD
+  byte-for-byte** and the suite is back at the pre-session baseline **3491 green** (build 0W/0E, schema
+  **v49** — negative stock never reached its **v50**). **Eight attempts** (three in earlier sessions, five on
+  `claude/confident-ellis-dedef5`) **each passed the FULL TEST SUITE; four also passed the ORACLE** and were
+  then **convicted by adversarial review**. **What is BANKED:** the committed **HEAD-oracle harness**
+  (`275c395`, extended since — **198 hand-derived goldens**, audit chain closed at **TRUSTWORTHY**, now
+  correctly reporting **REJECTED against HEAD**), and a **precise specification of the unsolved prerequisite
+  (`NS-8`)**. Full narrative, the **eight measured failure modes** and the reproducing books:
+  **`tools/HeadOracle/README.md` (the HANDOVER DOCUMENT)** and the 2026-07-29 entry in `memory.md`.
+- **▶ THE STRUCTURAL FINDING — why this stopped, and why a ninth scoping attempt must NOT be made: ANY
+  PREDICATE-GATED SCOPE CREATES A VALUATION CLIFF AT ITS BOUNDARY.** The last candidate scoped the debt rule
+  to **single-key items**. That scoping is **correct where it applies** and **provably inert where it is not**
+  — a **20,736-row engine-vs-engine sweep**, key count computed **OUTSIDE the harness**, moves **0 of 15,552
+  two-key rows**, and is **discriminating, not vacuous** (forcing the predicate true moves **3,712**). **But
+  the predicate is a property of the BOOK, and an ordinary posting changes it:** **one ordinary internal
+  godown transfer** — moving nothing in or out of the company — **flips an item's whole history between the
+  two models**, **₹40,000,001.20 with the transfer vs ₹25,000,000.75 without**, **unbounded in the lot rate**,
+  **surviving a same-day round trip** (Store B ends empty and the item stays on the phantom model for ever),
+  and putting **₹15,000,000.45 between closing stock on 20 Apr and 25 Apr with NO ECONOMIC EVENT**. **HEAD is
+  CONTINUOUS here (`jump=0.00`) — the discontinuity is CREATED by the change.** ⇒ **Scoping by any predicate
+  (key count, method, item flag, date) is not the fix; it IS the failure mode.**
 - **Goals:** allow negative stock **everywhere, by DEFAULT, globally** — a sale, a consumption, a
   **manufacturing journal** or a **stock journal** that over-draws an item **posts** instead of being
   rejected. Add one company-level **`WarnOnNegativeStock`** toggle (default **ON**, the domain default synced
@@ -748,6 +771,15 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     (Stock-in-Hand ₹24,050 → ₹476,000 on an item with ₹26,100 ever spent); and **(ii) NO FLOORS AND NO CLAMPS**
     — a wrong value is never papered over by pinning it at ₹0, at cost, or inside a band. Repayment semantics
     differ per method and are proven **one method and one scenario at a time** against the oracle (NS-7).
+    **⚠️ SUPERSEDED 2026-07-29 — NS-1 IS NOT BUILDABLE AS WRITTEN; it is now GATED BEHIND `NS-8`.** Five
+    attempts to land exactly this item were reverted. The two invariants above (**never re-rate a debt**, **no
+    floors and no clamps**) **still hold and are still right** — what NS-1 got wrong is its **implicit
+    assumption that a debt can be carried at ITEM level**. It cannot: valuation is item-level while quantity
+    is **per (item, godown, batch) key**, so an item-level debt is repaid by an inward into **a godown that
+    never owed anything**. Repointing NS-1 at the per-key model **without** cost-flowing transfers **broke
+    ordinary transfers** (₹5,000,002.37 of Stock-in-Hand on ₹1,000,003.73 ever spent, where HEAD was exactly
+    right). **NS-1 is therefore re-sequenced AFTER `NS-8`, not deleted** — the debt rule is still the fix;
+    it simply has nowhere correct to live until the key model is fixed underneath it.
   - **NS-2** **HEAD-oracle harness (`tools/HeadOracle/`) — built FIRST, before any production change** — two
     processes, two private engine copies, one corpus; diffs `ClosingValue` / `TotalClosingStockValue` /
     `IssueValue`, plus an engine-independent **rate-band**, **total-spend-containment** and
@@ -775,17 +807,49 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     evidence**: an echo can only prove *"unchanged"*, never *"right"*, and presenting it as verification is
     what produced the refuted deferral above. Agreement between a reference and HEAD counts as evidence only
     where the reference was derived **independently** of HEAD's implementation.
+  - **NS-8** **THE VALUATION PREREQUISITE — per-key valuation + cost-flowing stock-journal transfers (added
+    2026-07-29; BLOCKS NS-1, and therefore blocks S-A, S-B and S-C).** The output of eight measured attempts.
+    **Two requirements, BOTH load-bearing, built TOGETHER:** **(i) value stock on the SAME (item, godown,
+    batch) key as QUANTITY** — today valuation is **item-level** while quantity is **per-key**, and that
+    desync is itself a measured defect (it made the FIFO recovery case **13.5× worse**, ₹240.00 → ₹3,243.90 on
+    10 units); and **(ii) make a Stock-Journal TRANSFER CARRY ITS COST LAYERS between keys** instead of
+    **re-deriving them at the destination**. **⚠️ (i) WITHOUT (ii) IS A REGRESSION, NOT A PARTIAL FIX** — it
+    was tried and it **broke ordinary transfers**: **₹5,000,002.37** of Stock-in-Hand on **₹1,000,003.73** ever
+    spent, **where HEAD was EXACTLY RIGHT**. **Do not attempt them separately, and do not scope either by a
+    predicate** (see THE STRUCTURAL FINDING above). Two **pre-existing HEAD defects** surface here and are to
+    be settled as part of NS-8, not before it: **`StockValuationService.MovementEvents` SKIPS
+    `Allocations`/`DestinationAllocations` on a Physical-Stock-typed voucher** (the `continue;` at
+    **`StockValuationService.cs:180`**, block **:175-181**) **while `InventoryLedger.ApplyToKey`
+    (`InventoryLedger.cs:193-207`) applies them for EVERY voucher type**, so quantity and value read the same
+    voucher differently; and the **item-level/per-key desync** itself. **Also binding on NS-8:** the debt gate
+    must use the product's **per-DATE** definition of negative stock, not a **per-EVENT** one — the per-event
+    gate let **one same-day dip in an UNRELATED THIRD GODOWN** take a valuation from **₹237.30 to ₹79.10**;
+    and the cost chain must **never look FORWARD** — a physical count priced by a *later* purchase produced
+    **₹9,000,000.27** on **9 units** against **₹1,001,001.33** ever spent. **All eight failure modes, with
+    reproducing books, are in `tools/HeadOracle/README.md` — a ninth attempt that has not read them will
+    rediscover them one at a time.**
 - **Slices (build order — dependency order; full rationale in `memory.md`):**
   1. **S-A — HEAD oracle, its inversion, then recovery on ALL THREE methods** (NS-2 → NS-7 → NS-1) —
      **harness first**, then **invert the `AverageCost` byte-identity check** so the fix is provable rather
      than forbidden, then the debt quantity across **FIFO, LIFO and the moving average**, **one method and one
      scenario at a time**. Schema-clean. **USER GATE (a) is RESOLVED** — see below; no gate remains on this
      slice.
+     **▶ STATUS 2026-07-29 — S-A is NOT DONE, and is RE-SEQUENCED to `NS-2` → `NS-7` → `NS-8` (NEW) → `NS-1`.**
+     **DONE:** **NS-2** (the harness — committed `275c395`, extended since, audit chain closed at
+     **TRUSTWORTHY**) and **NS-7** (the inversion — `AverageCost` is now a point-oracle subject and HEAD is
+     convicted). **NOT DONE:** **NS-1**, five reverted attempts, now blocked on the newly-specified **NS-8**.
+     The engine is **byte-identical to HEAD**. **The harness-trustworthiness precondition in the Exit gate is
+     SATISFIED; the valuation prerequisite is NOT.**
   2. **S-B — Guard, flag, schema and the test flip** (NS-3, NS-4, NS-5) — the slice that actually makes a
      negative postable; owns **v50** (see Schema below). **Surfaces USER GATE (b) — the `WarnOnNegativeStock`
      default.**
+     **▶ STATUS 2026-07-29 — BLOCKED on `NS-8`/`NS-1`, and the ordering is a SAFETY PROPERTY, not a
+     convenience.** Today's posting guard is the only thing making negative stock **unreachable**; S-B
+     **removes that guard**, so shipping S-B ahead of a correct valuation would take the measured
+     Balance-Sheet errors from **theoretical to LIVE** on the `AverageCost` default. **Do not reorder.**
   3. **S-C — Manufacturing + job-work shortfall costing** (NS-6) — independent of the flag; rides on S-A's
      valuation.
+     **▶ STATUS 2026-07-29 — BLOCKED.** It rides on S-A's valuation, and S-A has none.
 - **Schema:** negative stock is **v49 → v50**, owned by **S-B** (the `Company` warn column, `CreateV1` +
   `MigrateV49ToV50` with `SchemaMigrationEquivalenceTests` parity and a `DowngradeV50ToV49`). **This corrects
   the stale coordination note in Phase 10.7**, which told negative stock to "rebase to **v48**": **v48** went
@@ -814,7 +878,26 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     reusable lesson.
   - **(S-B) The `WarnOnNegativeStock` default.** *Recommend:* **ON** — Tally-faithful (the warning exists but
     **never blocks**) and the safer default for an existing book that has never been able to go negative
-    before.
+    before. **STILL OPEN** — S-B has not started.
+  - **▶ FURTHER USER RULINGS RECORDED 2026-07-27 / 2026-07-29 (R12) — recorded here WITH DATES because the
+    harness depends on them and nothing else in the repo evidences them:**
+    - **✅ (2026-07-27) Keep auditing the harness until an INDEPENDENT adversary returns TRUSTWORTHY** — both
+      that a reference-conformant engine is **ACCEPTED** and that **distinct wrong engines are REJECTED**.
+      **NOW SATISFIED:** the chain closed **NOT-READY → NOT-READY → TRUSTWORTHY-WITH-GAPS → NOT-READY →
+      TRUSTWORTHY-WITH-GAPS → TRUSTWORTHY**, over **six build rounds**, with **198 hand-derived golden
+      constants (133 closing + 65 issue) independently re-derived by TWO reviewers**.
+    - **✅ (2026-07-27) Shortfall valuation uses the engine's EXISTING best-available-cost chain**
+      (`CostContext.NoRateInwardCost`) — deliberately **no new policy**; it is the rule HEAD already applies
+      to any unrated inward. **Several of the harness goldens are valid ONLY under this ruling.**
+    - **⚠️ (2026-07-27, REVERSED ON EVIDENCE 2026-07-29) Fix the desync PER-KEY and report what moved.**
+      Per-key **broke ordinary transfers** (₹5,000,002.37 on ₹1,000,003.73 ever spent, HEAD exactly right), so
+      the ruling was withdrawn. **BOTH the ruling and its reversal were right when made** — per-key *is*
+      required (it is `NS-8` requirement (i)); what the original ruling could not know is that it is **inert,
+      and actively harmful, without cost-flowing transfers** (requirement (ii)). **Kept on record, not
+      deleted:** the reversal *is* the reusable lesson.
+    - **🔴 (2026-07-29) STOP AND BANK rather than attempt a NINTH scoping.** The decision that halts this
+      phase's current line of work: **revert the engine, keep the harness and the findings.** **Resuming
+      requires a fresh R12 go-ahead** — and the thing to resume with is **`NS-8`**, not another scoping.
 - **Agents:** per-feature pipeline (§2.2) — Requirements/Design (design of record in `memory.md`), **A14**
   (Tally fidelity, R7), Test author, Implementer, **A10** review, **A12** GitHub Expert, run-app verifier.
 - **Deliverables:** an over-drawing sale, consumption, manufacturing journal and stock journal that all
@@ -836,6 +919,18 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   (GitHub Expert) commits & pushes small reviewed units (R4/R10); the real app run with evidence (**a sale
   that over-draws stock now posts, warns, and values correctly on recovery — on the `AverageCost` default as
   well as FIFO/LIFO**); `memory.md` updated; then **user go/no-go** per R12.
+  - **▶ EXIT-GATE STATUS 2026-07-29.** The **harness-trustworthiness precondition is SATISFIED** (independent
+    adversary returned **TRUSTWORTHY**; a reference-conformant engine is **ACCEPTED** and **several distinct
+    wrong engines are REJECTED**) — **that precondition is now spent, and it did its job: it convicted every
+    one of the eight attempts before any of them shipped.** **Nothing else in the gate is met.** **Two
+    additions, both learned by measurement, bind any future attempt:**
+    - **CONTINUITY IS A GATE CONDITION, NOT A REVIEW OPINION.** No valuation change ships until it is shown
+      that **an ordinary internal godown transfer does not move an item's history** — with **HEAD's `jump=0.00`
+      as the reference**, and with the key count computed **OUTSIDE** the harness so the check cannot be graded
+      by its own predicate.
+    - **THE FULL SUITE IS NOT EVIDENCE HERE.** **Eight of eight** attempts passed it; **four of eight** also
+      passed the oracle. **"Green" is a floor for this phase, never a verdict** — the verdict comes from the
+      oracle **plus** an adversarial design review that is **shown the eight failure modes first**.
 
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
@@ -1027,5 +1122,27 @@ evidence, not deleted; gate (b) still open), and the Exit gate now requires an *
 return TRUSTWORTHY on the harness before production code is written**. **Modules** and **Deliverables** were
 realigned to the same three-method scope in the same amendment (`StockValuationService` now named as the
 lot machinery **and** the moving-average path; the `AverageCost` ₹11.10-vs-₹12,007.50 regression case and the
-NS-7 harness inversion added to the test list) so no bullet still describes the phase in FIFO/LIFO terms. Any deviation during execution is
+NS-7 harness inversion added to the test list) so no bullet still describes the phase in FIFO/LIFO terms. Amended
+2026-07-29 (R6, **user decision — STOP AND BANK**): **Phase 10.8 is STOPPED, the engine REVERTED to HEAD
+byte-for-byte and the suite back at the pre-session baseline 3491.** **S-A is NOT DONE** (its **NS-2** harness and
+**NS-7** inversion ARE done — the harness is committed and its audit chain closed at **TRUSTWORTHY**, satisfying
+the Exit gate's harness precondition; **NS-1** is not, after **eight** attempts that **each passed the full suite**
+and **four of which also passed the oracle** before adversarial review convicted them). **S-B and S-C are marked
+BLOCKED**, S-B with the note that its ordering is a **safety property** — it removes the guard that currently makes
+negative stock unreachable. A **STATUS** banner and **THE STRUCTURAL FINDING** were added at the head of the phase
+(**any predicate-gated scope creates a valuation cliff at its boundary**: an ordinary internal godown transfer flips
+an item's whole history, **₹40,000,001.20 vs ₹25,000,000.75**, unbounded, surviving a same-day round trip, where
+**HEAD is continuous at `jump=0.00`**). **NS-1 is marked SUPERSEDED-AND-GATED** — its invariants stand, its
+item-level debt assumption does not — behind a new **NS-8**, the precisely-specified valuation prerequisite:
+**per-(item, godown, batch)-key valuation AND cost-flowing stock-journal transfers, built TOGETHER** (re-keying
+alone **broke ordinary transfers**, ₹5,000,002.37 on ₹1,000,003.73 ever spent, where HEAD was exactly right), plus
+the per-**date** debt gate, the no-forward-look cost chain, and two **pre-existing HEAD defects** to settle inside
+it (`StockValuationService.cs:180` skipping allocations on a Physical-Stock voucher against
+`InventoryLedger.cs:193-207`; and the item-level/per-key desync). **Four further user rulings** were recorded with
+dates under User gates — including one (**fix the desync per-key**) **REVERSED ON EVIDENCE and KEPT ON RECORD**,
+because the reversal is the reusable lesson — and the **Exit gate** gained two measured conditions: **continuity
+across the boundary is a gate condition**, and **a green suite is a floor, never a verdict, in this phase** (eight
+of eight passed it). The eight measured failure modes and their reproducing books live in
+**`tools/HeadOracle/README.md`, the handover document**; the full narrative is the 2026-07-29 entry in `memory.md`.
+Any deviation during execution is
 recorded in `memory.md` with its reason (R6).*
