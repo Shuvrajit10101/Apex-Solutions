@@ -627,42 +627,49 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         Assert.DoesNotContain(g1.HsnSummary, h => h.HsnSac == "999998");   // the sales ledger's SAC never appears
     }
 
-    // ================================================================ (17) FIX-3: the PURCHASE side stays DEFERRED
+    // ================================================================ (17) G-7: the PURCHASE side is now REACHABLE
 
     /// <summary>
-    /// <b>FIX-3 (money + scope).</b> The purchase-side accounting invoice SHIPPED although the settled scope declared
-    /// it DEFERRED, and it silently dropped §194J TDS (<c>TdsPossible</c>/<c>DetectTdsShape</c> read <c>Lines</c>,
-    /// which is empty in accounting mode) and mis-evaluated RCM: a professional-fee purchase posted
-    /// <c>Consultant Co Cr 118000 | Professional Fees Dr 100000 | Input CGST 9000 | Input SGST 9000</c> with NO TDS
-    /// carve-out. Accounting mode is now gated to SALES ONLY; the purchase code path is dormant but UNREACHABLE.
-    /// <para>Note the direct <c>Mode</c> write: the gate lives in <see cref="VoucherEntryViewModel.IsAccountingInvoice"/>,
-    /// not merely in the cycle, so even forcing the enum cannot enter the mode.</para>
+    /// <b>G-7 — this test was inverted, deliberately.</b> It previously asserted that purchase-side accounting-invoice
+    /// mode was UNREACHABLE, because it had shipped once and silently dropped §194J TDS
+    /// (<c>TdsPossible</c>/<c>DetectTdsShape</c> read <c>Lines</c>, which is empty in accounting mode) and
+    /// mis-evaluated RCM the same way: a professional-fee purchase posted <c>Consultant Co Cr 118000 | Professional
+    /// Fees Dr 100000 | Input CGST 9000 | Input SGST 9000</c> with NO TDS carve-out.
+    ///
+    /// <para>The stated precondition for lifting the gate — "wire TDS/RCM to the Particulars lines first" — is now
+    /// met (<c>DetectAccountingTdsShape</c> / <c>DetectAccountingRcmShape</c> / <c>AssessableExGst</c>'s accounting
+    /// branch), and <c>PurchaseAccountingInvoiceTdsTests</c> is the standing regression guard for the carve-out
+    /// itself. This test now asserts reachability through BOTH affordances; the money behaviour is proved there,
+    /// not here.</para>
     /// </summary>
     [Fact]
-    public void PurchaseVoucher_accountingInvoiceMode_isUnreachable()
+    public void PurchaseVoucher_accountingInvoiceMode_isReachable()
     {
         var k = NewServiceKit("Svc PurchaseGate Co");
         k.Vm.OpenVoucher(VoucherBaseType.Purchase);
         var entry = k.Vm.VoucherEntry!;
-        Assert.True(entry.CanBeItemInvoice);            // Purchase IS invoiceable (Ctrl+I still works)…
-        Assert.False(entry.CanBeAccountingInvoice);     // …but the accounting mode is deferred here.
+        Assert.True(entry.CanBeItemInvoice);
+        Assert.True(entry.CanBeAccountingInvoice);
 
         entry.ToggleAccountingInvoice();                // the checkbox affordance
-        Assert.False(entry.IsAccountingInvoice);
+        Assert.True(entry.IsAccountingInvoice);
+        Assert.True(entry.ShowParticularsGrid);
+        Assert.False(entry.IsAsVoucherMode);
+        entry.ToggleAccountingInvoice();                // …and back
         Assert.True(entry.IsAsVoucherMode);
 
         entry.ChangeMode();                             // Ctrl+H: As Voucher -> Item Invoice
         Assert.True(entry.IsItemInvoice);
-        entry.ChangeMode();                             // …and straight back, never into Accounting
+        entry.ChangeMode();                             // -> Accounting Invoice (the arm that used to be skipped)
+        Assert.True(entry.IsAccountingInvoice);
+        entry.ChangeMode();                             // -> As Voucher
         Assert.True(entry.IsAsVoucherMode);
-        Assert.False(entry.IsAccountingInvoice);
 
-        // Even forcing the raw enum cannot arm the purchase path: the derived gate refuses.
+        // The three gates remain a total, mutually-exclusive partition (the defensive design worth preserving).
         entry.Mode = VoucherEntryMode.AccountingInvoice;
-        Assert.False(entry.IsAccountingInvoice);
-        Assert.False(entry.IsAccountingGstInvoice);
-        Assert.False(entry.ShowParticularsGrid);
-        Assert.True(entry.IsAsVoucherMode);             // it renders (and posts) as the plain Dr/Cr voucher
+        Assert.True(entry.IsAccountingInvoice);
+        Assert.False(entry.IsItemInvoice);
+        Assert.False(entry.IsAsVoucherMode);
     }
 
     // ================================================================ (18) FIX-4: Alt+C on the Particulars ledger field

@@ -4841,6 +4841,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsInvoiceableEntry =>
         CurrentScreen == Screen.VoucherEntry && VoucherEntry?.CanBeItemInvoice == true;
 
+    /// <summary>
+    /// True while a voucher-entry page has ANY alternative entry mode for Ctrl+H to change to — Purchase/Sales (the
+    /// three invoice modes) OR Contra/Payment/Receipt (Single ⟷ Double Entry, G-6).
+    /// <para>This exists because Ctrl+H was gated on <see cref="IsInvoiceableEntry"/>, which is Purchase/Sales only —
+    /// so Single Entry, though implemented, would have been unreachable from the keyboard on exactly the three
+    /// vouchers it belongs to. TallyPrime has ONE "Change Mode" key whose mode list varies by voucher type; this is
+    /// that key's gate.</para>
+    /// </summary>
+    public bool IsChangeModeEntry =>
+        CurrentScreen == Screen.VoucherEntry
+        && VoucherEntry is { } entry
+        && (entry.CanBeItemInvoice || entry.CanBeSingleEntry);
+
     /// <summary>True while a Memorandum voucher-entry page is the active screen (drives the Convert action).</summary>
     public bool IsMemorandumEntry =>
         CurrentScreen == Screen.VoucherEntry && VoucherEntry?.Type.BaseType == VoucherBaseType.Memorandum;
@@ -6498,6 +6511,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
         // Ctrl+I — enter a Purchase/Sales "as invoice" (item-invoice mode); enabled only on such an entry.
         ButtonBar.Add(new ButtonBarItem("Ctrl+I", "As Invoice", ToggleItemInvoice, IsInvoiceableEntry));
+        // Ctrl+H — TallyPrime's one "Change Mode" picker: the invoice modes on Purchase/Sales, Single ⟷ Double
+        // Entry on Contra/Payment/Receipt (G-6). Advertised only where there is another mode to change to.
+        ButtonBar.Add(new ButtonBarItem("Ctrl+H", "Change Mode", ChangeMode, IsChangeModeEntry));
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
         ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));

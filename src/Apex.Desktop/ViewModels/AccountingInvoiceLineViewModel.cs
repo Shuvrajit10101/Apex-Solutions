@@ -28,6 +28,16 @@ public enum VoucherEntryMode
 
     /// <summary>Accounting invoice — service/income ledger lines under Particulars, auto SAC-based GST, no stock.</summary>
     AccountingInvoice,
+
+    /// <summary>
+    /// Single Entry (G-6) — the Contra/Payment/Receipt layout the corpus teaches first: one <c>Account</c> field
+    /// (the cash/bank side) plus a <c>Particulars</c> list (the many side), with <b>no Dr/Cr labels</b>
+    /// (BOOK pp.26, 29, 31–32; SG pp.75–76).
+    /// <para><b>It is a DISPLAY mode only.</b> It re-renders the same <c>Lines</c> collection the classic Dr/Cr grid
+    /// uses, so it introduces no posting path, no validator change and no schema change — the balance rule,
+    /// bill-wise, cost, bank and forex sub-panels all continue to apply untouched.</para>
+    /// </summary>
+    SingleEntry,
 }
 
 /// <summary>

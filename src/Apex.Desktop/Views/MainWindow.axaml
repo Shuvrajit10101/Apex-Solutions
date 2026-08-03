@@ -2124,7 +2124,7 @@
 
                             <!-- Column header band -->
                             <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0"
-                                    IsVisible="{Binding IsAsVoucherMode}">
+                                    IsVisible="{Binding ShowPlainDrCrGrid}">
                               <Grid ColumnDefinitions="*,90,160,40">
                                 <TextBlock Grid.Column="0" Text="Particulars (Ledger)" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Dr/Cr" Classes="colHdr"/>
@@ -2143,7 +2143,7 @@
                                  on screen; the panels get their own bounded scroll region instead of taking it. -->
                             <ScrollViewer Grid.Row="3" Background="White" VerticalScrollBarVisibility="Auto"
                                           MinHeight="140"
-                                          IsVisible="{Binding IsAsVoucherMode}">
+                                          IsVisible="{Binding ShowPlainDrCrGrid}">
                               <ItemsControl ItemsSource="{Binding Lines}">
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:VoucherLineViewModel">
@@ -2401,14 +2401,14 @@
                             <Button Grid.Row="4" Content="+ Add line" HorizontalAlignment="Left"
                                     Margin="0,6" Padding="10,4"
                                     Background="{StaticResource Panel}"
-                                    IsVisible="{Binding IsAsVoucherMode}"
+                                    IsVisible="{Binding ShowPlainDrCrGrid}"
                                     Click="OnAddVoucherLineClick"/>
 
                             <!-- Live balance indicator -->
                             <Border Grid.Row="5" Background="{StaticResource Cream}"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10,6" Margin="0,2"
-                                    IsVisible="{Binding IsAsVoucherMode}">
+                                    IsVisible="{Binding ShowPlainDrCrGrid}">
                               <Grid ColumnDefinitions="Auto,*,Auto,Auto,40">
                                 <TextBlock Grid.Column="0" FontWeight="SemiBold" VerticalAlignment="Center">
                                   <Run Text="Difference: "/>
@@ -2426,6 +2426,176 @@
                                 </TextBlock>
                               </Grid>
                             </Border>
+
+                            <!-- SINGLE ENTRY OVERLAY (G-6; Ctrl+H on Contra/Payment/Receipt). The layout the corpus
+                                 teaches first: one "Account" field (the cash/bank side) above a "Particulars" list
+                                 (the many side), with NO Dr/Cr labels anywhere (BOOK pp.26, 29, 31-32; SG pp.75-76).
+                                 The Account AMOUNT is derived (Sigma Particulars) and read-only, so the voucher
+                                 balances by construction. This is a re-render of the SAME Lines collection the plain
+                                 Dr/Cr grid posts from — no separate posting path. -->
+                            <Grid Grid.Row="1" Grid.RowSpan="5" IsVisible="{Binding IsSingleEntry}"
+                                  RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="0,6,0,0">
+
+                              <!-- Account band — the one cash/bank side -->
+                              <Border Grid.Row="0" Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="10,8">
+                                <Grid ColumnDefinitions="Auto,*,Auto,160">
+                                  <TextBlock Grid.Column="0" Text="Account" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="200"
+                                            views:CreateField.Master="Ledger"
+                                            ItemsSource="{Binding Ledgers}"
+                                            SelectedItem="{Binding SingleEntryAccount, Mode=TwoWay}"
+                                            PlaceholderText="Select cash / bank ledger…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Amount" VerticalAlignment="Center"
+                                             Margin="12,0,8,0" Foreground="#6A6A6A" FontSize="11"/>
+                                  <TextBox Grid.Column="3" Width="150" IsReadOnly="True"
+                                           Text="{Binding TotalDebitText}" TextAlignment="Right"
+                                           Background="{StaticResource Panel}"/>
+                                </Grid>
+                              </Border>
+
+                              <!-- Particulars header — deliberately NO Dr/Cr column -->
+                              <Border Grid.Row="1" Background="{StaticResource BrandNavyDark}" Margin="0,6,0,0">
+                                <Grid ColumnDefinitions="*,160,40">
+                                  <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                  <TextBlock Grid.Column="1" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="2" Text="" Classes="colHdr"/>
+                                </Grid>
+                              </Border>
+
+                              <ScrollViewer Grid.Row="2" Background="White" VerticalScrollBarVisibility="Auto"
+                                            MinHeight="140">
+                                <ItemsControl ItemsSource="{Binding SingleEntryParticulars}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:VoucherLineViewModel">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                              Padding="6,4">
+                                        <StackPanel Spacing="0">
+                                          <Grid ColumnDefinitions="*,160,40">
+                                            <ComboBox Grid.Column="0" MinWidth="200"
+                                                      HorizontalAlignment="Stretch"
+                                                      views:CreateField.Master="Ledger"
+                                                      ItemsSource="{Binding Ledgers}"
+                                                      SelectedItem="{Binding SelectedLedger, Mode=TwoWay}"
+                                                      PlaceholderText="Select ledger…">
+                                              <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="ledger:Ledger">
+                                                  <TextBlock Text="{Binding Name}"/>
+                                                </DataTemplate>
+                                              </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                            <TextBox Grid.Column="1" Width="150"
+                                                     Text="{Binding AmountText, Mode=TwoWay}"
+                                                     TextAlignment="Right"
+                                                     PlaceholderText="0.00"/>
+                                          </Grid>
+
+                                          <!-- Bill-wise Details — the sub-screen the corpus places on Single-Entry
+                                               Payment/Receipt (SG p.91). Same line view model, same rows, same
+                                               exact-sum rule as the Dr/Cr grid. -->
+                                          <Border IsVisible="{Binding IsBillWise}"
+                                                  Background="#F4F7FB"
+                                                  BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                                  Margin="18,4,4,2" Padding="8,6">
+                                            <StackPanel Spacing="4">
+                                              <TextBlock Text="Bill-wise Details"
+                                                         FontWeight="SemiBold" FontSize="11"
+                                                         Foreground="{StaticResource BrandNavy}"/>
+                                              <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                                                <StackPanel Spacing="2" MinWidth="490">
+                                                  <Grid ColumnDefinitions="130,*,120,120">
+                                                    <TextBlock Grid.Column="0" Text="Type of Ref" FontSize="10.5"
+                                                               Foreground="#6A6A6A"/>
+                                                    <TextBlock Grid.Column="1" Text="Name" FontSize="10.5"
+                                                               Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                                    <TextBlock Grid.Column="2" Text="Due Date" FontSize="10.5"
+                                                               Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                                    <TextBlock Grid.Column="3" Text="Amount" FontSize="10.5"
+                                                               Foreground="#6A6A6A" TextAlignment="Right"/>
+                                                  </Grid>
+                                                  <ItemsControl ItemsSource="{Binding BillAllocations}">
+                                                    <ItemsControl.ItemTemplate>
+                                                      <DataTemplate x:DataType="vm:BillAllocationRowViewModel">
+                                                        <Grid ColumnDefinitions="130,*,120,120" Margin="0,1">
+                                                          <ComboBox Grid.Column="0" Width="124"
+                                                                    ItemsSource="{Binding RefTypes}"
+                                                                    SelectedItem="{Binding RefType, Mode=TwoWay}"
+                                                                    FontSize="11">
+                                                            <ComboBox.ItemTemplate>
+                                                              <DataTemplate>
+                                                                <TextBlock Text="{Binding Converter={StaticResource BillRefLabel}}"/>
+                                                              </DataTemplate>
+                                                            </ComboBox.ItemTemplate>
+                                                          </ComboBox>
+                                                          <TextBox Grid.Column="1" Margin="4,0,0,0"
+                                                                   Text="{Binding Name, Mode=TwoWay}"
+                                                                   IsEnabled="{Binding NameRequired}"
+                                                                   FontSize="11" PlaceholderText="Bill ref…"/>
+                                                          <TextBox Grid.Column="2" Width="114" Margin="4,0,0,0"
+                                                                   Text="{Binding DueDateText, Mode=TwoWay}"
+                                                                   FontSize="11" PlaceholderText="dd-MMM-yyyy"/>
+                                                          <TextBox Grid.Column="3" Width="114"
+                                                                   Text="{Binding AmountText, Mode=TwoWay}"
+                                                                   FontSize="11" TextAlignment="Right"
+                                                                   PlaceholderText="0.00"/>
+                                                        </Grid>
+                                                      </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                  </ItemsControl>
+                                                </StackPanel>
+                                              </ScrollViewer>
+                                              <Grid ColumnDefinitions="Auto,*">
+                                                <Button Grid.Column="0" Content="+ Add bill"
+                                                        FontSize="10.5" Padding="8,2"
+                                                        Background="{StaticResource Panel}"
+                                                        Click="OnAddBillAllocationClick"
+                                                        CommandParameter="{Binding}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding BillSummary}"
+                                                           FontSize="10.5" Foreground="#555555"
+                                                           VerticalAlignment="Center" TextAlignment="Right"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Margin="8,0,0,0"/>
+                                              </Grid>
+                                            </StackPanel>
+                                          </Border>
+                                        </StackPanel>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+
+                              <Button Grid.Row="3" Content="+ Add particular" HorizontalAlignment="Left"
+                                      Margin="0,6" Padding="10,4"
+                                      Background="{StaticResource Panel}"
+                                      Click="OnAddSingleEntryParticularClick"/>
+
+                              <!-- Total band. There is no "Difference" to show: the Account amount is derived from
+                                   the Particulars, so a Single-Entry voucher cannot be out of balance. -->
+                              <Border Grid.Row="4" Background="{StaticResource Cream}"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="10,6" Margin="0,2">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                  <TextBlock Grid.Column="0" Text="Total" FontWeight="SemiBold"
+                                             VerticalAlignment="Center"/>
+                                  <TextBlock Grid.Column="1" Text="{Binding SingleEntryModeHint}"
+                                             VerticalAlignment="Center" Margin="12,0" FontSize="11"
+                                             Foreground="#6A6A6A" TextTrimming="CharacterEllipsis"/>
+                                  <TextBlock Grid.Column="2" Text="{Binding TotalDebitText}"
+                                             VerticalAlignment="Center" FontWeight="Bold" FontSize="14"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                </Grid>
+                              </Border>
+                            </Grid>
 
                             <!-- INVOICE OVERLAY — Item Invoice (Ctrl+I) OR Accounting Invoice (Ctrl+H). Shares the
                                  party header, the line-grid row, the derived-summary line and the GST totals band;
@@ -2902,6 +3072,81 @@
                                    can never crowd out voucher entry — and the narration + Accept row below stay put. -->
                               <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="260">
                                 <StackPanel Spacing="6">
+
+                              <!-- Bill-wise Details on the INVOICE modes (G-1; SG p.79 step 7, p.80 step 6,
+                                   p.81 step 6, p.82 step 5). The party leg of an invoice is DERIVED at Accept, so
+                                   unlike the plain grid these allocations hang off the screen and foot to the
+                                   party total. Shown only when the selected party maintains balances bill-by-bill
+                                   and the voucher-screen "use default allocation" option is off. -->
+                              <Border IsVisible="{Binding ShowInvoiceBillWise}"
+                                      Background="#F4F7FB"
+                                      BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      Padding="10,8" Margin="0,0,0,2">
+                                <StackPanel Spacing="4">
+                                  <TextBlock Text="Bill-wise Details"
+                                             FontWeight="SemiBold" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="2" MinWidth="560">
+                                      <Grid ColumnDefinitions="130,*,120,120,70">
+                                        <TextBlock Grid.Column="0" Text="Type of Ref" FontSize="10.5"
+                                                   Foreground="#6A6A6A"/>
+                                        <TextBlock Grid.Column="1" Text="Name" FontSize="10.5"
+                                                   Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                        <TextBlock Grid.Column="2" Text="Due Date" FontSize="10.5"
+                                                   Foreground="#6A6A6A" Margin="4,0,0,0"/>
+                                        <TextBlock Grid.Column="3" Text="Amount" FontSize="10.5"
+                                                   Foreground="#6A6A6A" TextAlignment="Right"/>
+                                        <TextBlock Grid.Column="4" Text="" FontSize="10.5"/>
+                                      </Grid>
+                                      <ItemsControl ItemsSource="{Binding InvoiceBillAllocations}">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:BillAllocationRowViewModel">
+                                            <Grid ColumnDefinitions="130,*,120,120,70" Margin="0,1">
+                                              <ComboBox Grid.Column="0" Width="124"
+                                                        ItemsSource="{Binding RefTypes}"
+                                                        SelectedItem="{Binding RefType, Mode=TwoWay}"
+                                                        FontSize="11">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource BillRefLabel}}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
+                                              <TextBox Grid.Column="1" Margin="4,0,0,0"
+                                                       Text="{Binding Name, Mode=TwoWay}"
+                                                       IsEnabled="{Binding NameRequired}"
+                                                       FontSize="11" PlaceholderText="Bill ref…"/>
+                                              <TextBox Grid.Column="2" Width="114" Margin="4,0,0,0"
+                                                       Text="{Binding DueDateText, Mode=TwoWay}"
+                                                       FontSize="11" PlaceholderText="dd-MMM-yyyy"/>
+                                              <TextBox Grid.Column="3" Width="114"
+                                                       Text="{Binding AmountText, Mode=TwoWay}"
+                                                       FontSize="11" TextAlignment="Right"
+                                                       PlaceholderText="0.00"/>
+                                              <Button Grid.Column="4" Content="Remove" FontSize="10"
+                                                      Padding="6,2" Margin="4,0,0,0"
+                                                      Background="{StaticResource Panel}"
+                                                      Click="OnRemoveInvoiceBillAllocationClick"/>
+                                            </Grid>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                    </StackPanel>
+                                  </ScrollViewer>
+                                  <Grid ColumnDefinitions="Auto,*">
+                                    <Button Grid.Column="0" Content="+ Add bill"
+                                            FontSize="10.5" Padding="8,2"
+                                            Background="{StaticResource Panel}"
+                                            Click="OnAddInvoiceBillAllocationClick"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding InvoiceBillSummary}"
+                                               FontSize="10.5" Foreground="#555555"
+                                               VerticalAlignment="Center" TextAlignment="Right"
+                                               TextTrimming="CharacterEllipsis"
+                                               Margin="8,0,0,0"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
 
                               <!-- TDS withholding panel (Phase 7 slice 2) — shown only when a deductee party +
                                    expense line are on a TDS-enabled Payment/Journal/Purchase (ShowTdsPanel). The
