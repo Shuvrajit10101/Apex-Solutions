@@ -398,6 +398,83 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         return false;
     }
 
+    // =============================================================== batch allocation (G-5; BOOK pp.130–132)
+
+    /// <summary>
+    /// <b>Layer 4</b> of the batch gate — the voucher-screen knob "Use batch-wise details for item allocation".
+    /// TallyPrime abolished the single global "F12 &gt; Voucher Entry" page: configuration belongs to the screen
+    /// you are standing on (spec §2.6), so this is per-entry-screen state, defaulted <b>on</b> so a batch-enabled
+    /// company gets the corpus walkthrough (BOOK pp.131–132) without configuring anything. Turning it off
+    /// suppresses the batch sub-screen on THIS screen only; a value already committed to a line keeps acting
+    /// (C-15: a Yes feature that is then hidden stays Yes).
+    /// <para><b>Not bound to the F12 KEY.</b> Our entire F12 surface on a voucher screen is the voucher-numbering
+    /// config (spec §2.6 closing note; <c>MainWindowViewModel.IsVoucherNumberingContext</c>), so this knob is a
+    /// field on the invoice options panel beside its sibling company/type switches instead of stealing that
+    /// shipped screen.</para>
+    /// </summary>
+    [ObservableProperty] private bool _useBatchWiseDetails = true;
+
+    partial void OnUseBatchWiseDetailsChanged(bool value) => RecalculateItemInvoice();
+
+    /// <summary>True iff the layer-4 batch knob is worth showing at all — a Sales/Purchase item invoice on a
+    /// company that maintains batch-wise details (C-06). Off ⇒ the checkbox never appears (ER-13).</summary>
+    public bool CanUseBatchWiseDetails => CanBeItemInvoice && _company.MaintainBatchwiseDetails;
+
+    /// <summary>
+    /// Raised when the batch-allocation sub-screen should open for an item-invoice line whose item Maintains-in
+    /// Batches: item, godown, line quantity, whether the movement is OUTWARD (Sales — so the sub-screen seeds the
+    /// FEFO/FIFO issue plan, DP-1), and the callback that writes the committed allocations back to the line. The
+    /// shell (not this VM) owns opening the cascade column — the same contract the stock screens use.
+    /// </summary>
+    public event Action<StockItem, Godown, decimal, bool,
+        Action<IReadOnlyList<BatchAllocation>>>? BatchAllocationRequested;
+
+    /// <summary>
+    /// The full four-layer gate for the batch sub-screen on an item invoice (G-5, closing C-20):
+    /// <list type="number">
+    ///   <item><b>L1 — F11</b>: the company maintains batch-wise details (C-06);</item>
+    ///   <item><b>L2 — mode</b>: this is a Purchase/Sales entered <i>as an item invoice</i> (the only screens
+    ///     BOOK pp.131–132 walks);</item>
+    ///   <item><b>L3 — master</b>: the picked stock item has "Maintain in Batches" on, with a godown and a
+    ///     positive quantity known (the sub-screen allocates a real quantity, so it needs one);</item>
+    ///   <item><b>L4 — screen</b>: <see cref="UseBatchWiseDetails"/> permits the field here (spec §2.6).</item>
+    /// </list>
+    /// A stock item without batches fails L3 and the whole feature is invisible to it (ER-13).
+    /// </summary>
+    public bool LineWantsBatchAllocation(InventoryVoucherLineViewModel line) =>
+        _company.MaintainBatchwiseDetails
+        && UseBatchWiseDetails
+        && IsItemInvoice && CanBeItemInvoice
+        && line is { ShowsBatch: true, SelectedItem: { MaintainInBatches: true }, SelectedGodown: not null }
+        && line.ParsedQuantity > 0m;
+
+    /// <summary>
+    /// Alt+B / "⧉" on an item-invoice line — asks the shell for the batch-allocation sub-screen and writes the
+    /// accepted allocations back onto the line. Outward for a Sales invoice (stock leaves, so the sub-screen
+    /// seeds the FEFO/FIFO plan from existing batches), inward for a Purchase (nothing on hand to draw from, so
+    /// the operator types the received batch — BOOK p.131). A hard no-op unless
+    /// <see cref="LineWantsBatchAllocation"/>.
+    /// </summary>
+    public void RequestBatchAllocation(InventoryVoucherLineViewModel line)
+    {
+        if (line is null || !LineWantsBatchAllocation(line)) return;
+        BatchAllocationRequested?.Invoke(
+            line.SelectedItem!, line.SelectedGodown!, line.ParsedQuantity, !IsPurchaseInvoice,
+            line.SetBatchAllocations);
+    }
+
+    /// <summary>
+    /// Whole-screen Alt+B fallback (NFR-2): opens the sub-screen for the first line it applies to. Returns false
+    /// — a safe no-op — when no line currently qualifies.
+    /// </summary>
+    public bool RequestBatchAllocationForFirstEligibleLine()
+    {
+        var line = InventoryLines.FirstOrDefault(LineWantsBatchAllocation);
+        if (line is null) return false;
+        RequestBatchAllocation(line);
+        return true;
+    }
+
     // =============================================================== Price Levels (Book pp.34–35; catalog §11; slice 5)
 
     /// <summary>
@@ -3181,9 +3258,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             var sum = 0m;
             foreach (var l in InventoryLines)
                 // Value derives from the NET (after Price-Level discount) rate — equals the raw rate when no
-                // discount/column, so a non-price-level line is byte-identical (DP-A; ER-13).
-                if (l.IsComplete && l.EffectiveRate is { } rate)
-                    sum += Money.ForexBase(rate, l.ParsedBilledQuantity).Amount;
+                // discount/column, so a non-price-level line is byte-identical (DP-A; ER-13). LineValue is the
+                // ONE definition of a line's figure (ER-4) — rate × BILLED qty, whether or not the line is split
+                // across batches, because a split re-attributes the quantity and never revalues the line.
+                if (l.IsComplete && l.EffectiveRate is not null)
+                    sum += l.LineValue.Amount;
             return sum;
         }
     }
@@ -3225,7 +3304,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // GST taxable value derives from Billed, NOT Actual (RQ-23) — a short-billed line taxes only the
             // billed quantity, and a zero-valued (rate 0) free line is skipped above so it bears no GST. The
             // value uses the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
-            var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
+            // ER-4: the SAME LineValue the totals and the posting use, so a batch-split line's tax base is the
+            // Σ of its posted batch rows rather than a separately-rounded figure.
+            var lineValue = l.LineValue;
 
             // Phase 9 slice 1: resolve the rate AS OF the voucher Date so a supply before 22-Sep-2025 resolves the
             // legacy rate and one on/after resolves the GST 2.0 rate (the dated override only fires when the item's
@@ -3242,6 +3323,120 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection);
         return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
+    }
+
+    // =============================================================== batch allocation → posted lines (G-5)
+
+    /// <summary>
+    /// Expands ONE batch-split item line into one <see cref="VoucherInventoryLine"/> per batch (BOOK pp.130–132
+    /// <b>[verified-A1]</b>), so the stock genuinely moves lot by lot instead of hiding behind a "Multi (N)"
+    /// label. Returns false — with a friendly <see cref="Message"/> and nothing appended — when the split cannot
+    /// be posted safely:
+    /// <list type="bullet">
+    ///   <item>Σ batch qty ≠ the line's Actual qty (a stale split: the operator changed the quantity after
+    ///     allocating). Refusing beats posting a quantity that is not the one on screen.</item>
+    ///   <item>the Actual/Billed split is in play AND Billed ≠ Actual. TallyPrime carries Actual <i>and</i>
+    ///     Billed inside the batch grid; ours captures one quantity per batch, so there is no defensible way to
+    ///     decide WHICH lot was short-billed. Blocked explicitly rather than guessed at.</item>
+    ///   <item>the per-batch rows cannot foot to the line's own value
+    ///     (<see cref="InventoryVoucherLineViewModel.LineValue"/>) because each row snaps to the paisa
+    ///     separately. A split re-attributes the quantity; it must never change what the line is worth.</item>
+    /// </list>
+    /// </summary>
+    private bool TryAppendSplitBatchLines(
+        InventoryVoucherLineViewModel line, Money rate, StockDirection direction,
+        List<VoucherInventoryLine> into)
+    {
+        var itemName = line.SelectedItem!.Name;
+        var allocated = line.BatchAllocations.Sum(a => a.Quantity);
+        if (allocated != line.ParsedActualQuantity)
+        {
+            Message = $"Item '{itemName}': the batch allocation totals {allocated} but the line quantity is " +
+                      $"{line.ParsedActualQuantity}. Re-open the batch allocation (Alt+B) and re-balance it.";
+            return false;
+        }
+
+        if (line.ParsedBilledQuantity != line.ParsedActualQuantity)
+        {
+            Message = $"Item '{itemName}': a line split across several batches cannot also carry a Billed " +
+                      "quantity different from the Actual one — allocate it on separate lines instead.";
+            return false;
+        }
+
+        // A split RE-ATTRIBUTES the quantity across lots; it must never REVALUE the line (ER-4). Each posted row
+        // is valued independently — VoucherInventoryLine.Value = ForexBase(Rate, BilledQuantity) — so N rows snap
+        // to the paisa N times where the unsplit line snaps once, and Σ-of-rounded ≠ rounded-of-Σ as soon as a
+        // batch quantity is fractional (1.5 × ₹19.75 = ₹29.625 twice ⇒ ₹59.26 against the line's ₹59.25).
+        //
+        // There is no way to absorb that residual inside the posted shape: Value is DERIVED from Rate ×
+        // BilledQuantity, the rate is shared and must stay paisa-exact, and nudging a row's billed quantity would
+        // move StockValuationUnitRate — i.e. it would change what the units COST, which batch selection must
+        // never do. So the drift is refused here instead: posting it would either bill the customer a paisa they
+        // do not owe (the stock leg is Σ of the posted rows, which is what the pairing invariant enforces) or
+        // leave the screen's total, the GST base and the ledger disagreeing. The operator can re-cut the batch
+        // quantities, or enter the lots on separate lines — where two lines genuinely are two line values.
+        var lineValue = Money.ForexBase(rate, line.ParsedBilledQuantity);
+        var splitValue = Money.Zero;
+        foreach (var a in line.BatchAllocations) splitValue += Money.ForexBase(rate, a.Quantity);
+        if (splitValue != lineValue)
+        {
+            Message = $"Item '{itemName}': splitting this line across {line.BatchAllocations.Count} batches " +
+                      $"would value it at ₹{splitValue.Amount:0.00} instead of ₹{lineValue.Amount:0.00} — a " +
+                      "batch split may re-attribute the quantity but must never change what the line is worth. " +
+                      "Re-cut the batch quantities, or enter the lots on separate lines.";
+            return false;
+        }
+
+        foreach (var a in line.BatchAllocations)
+            into.Add(new VoucherInventoryLine(
+                line.SelectedItem!.Id, line.SelectedGodown!.Id, a.Quantity, rate,
+                direction: direction,
+                batchLabel: a.BatchNumber,
+                // Billed ≡ Actual here, and the foot-to-LineValue guard above has already PROVED that Σ of these
+                // rows is precisely LineValue — the figure the screen showed and GST taxed (ER-4).
+                billedQuantity: a.Quantity,
+                unitId: line.UnitId));
+
+        return true;
+    }
+
+    /// <summary>
+    /// Creates the <see cref="BatchMaster"/> for every batch the operator raised inline on the sub-screen
+    /// ("New Number" + Mfg Dt. + Expiry Date; BOOK p.131 <b>[verified-A1]</b>) that does not exist yet. A batch
+    /// number is unique WITHIN an item (RQ-1), so an inline number that already exists is simply reused — the
+    /// voucher stamps the existing lot rather than failing. Returns false with a friendly message if the master
+    /// cannot be created, so the voucher is never posted against a batch that was rejected.
+    /// </summary>
+    private bool TryCreateInlineBatchMasters(IReadOnlyList<InventoryVoucherLineViewModel> lines)
+    {
+        var service = new BatchService(_company);
+        var created = false;
+
+        foreach (var line in lines)
+        {
+            if (line.SelectedItem is not { MaintainInBatches: true } item) continue;
+            foreach (var a in line.BatchAllocations)
+            {
+                if (!a.IsNewBatch) continue;
+                if (_company.FindBatchByNumber(item.Id, a.BatchNumber) is not null) continue;
+                try
+                {
+                    service.CreateBatch(item.Id, a.BatchNumber,
+                        manufacturingDate: a.ManufacturingDate,
+                        expiryDate: a.ExpiryDate,
+                        godownId: line.SelectedGodown?.Id);
+                    created = true;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Message = ex.Message;
+                    return false;
+                }
+            }
+        }
+
+        if (created) _storage.Save(_company);
+        return true;
     }
 
     /// <summary>An empty (no-tax) <see cref="GstService.InvoiceTax"/> used when a line is unresolved.</summary>
@@ -3725,7 +3920,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             if (nature is null || !nature.IsSelectableOn(Date)) continue; // non-TCS line / legacy year-gated ⇒ skip
 
             if (!value.ContainsKey(nature.Id)) { order.Add(nature); value[nature.Id] = 0m; taxable[nature.Id] = new(); }
-            var lineValue = Money.ForexBase(l.EffectiveRate ?? new Money(rate), l.ParsedBilledQuantity);
+            // ER-4: the same LineValue the totals / GST / posting use (see ComputeItemInvoiceGst).
+            var lineValue = l.LineValue;
             value[nature.Id] += lineValue.Amount;
 
             // The GST attributable to this line (for the base-incl-GST natures) — only for a GST-taxable line.
@@ -3810,6 +4006,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // stamped values). Both are no-ops when the feature is off, so a non-price-level screen is unchanged.
         SyncPriceLevelOnLines();
         RefreshPriceLevelDefaults();
+
+        // G-5: keep each line's "⧉ Allocate batches" affordance in sync with the full four-layer gate, so it is
+        // shown only where it actually does something (the RQ-52 UI-leak discipline the stock screens already use).
+        foreach (var l in InventoryLines)
+            l.WantsBatchAllocation = LineWantsBatchAllocation(l);
 
         var total = ItemsTotal;
         ItemsTotalText = IndianFormat.AmountAlways(total);
@@ -4055,6 +4256,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             return false;
         }
 
+        // G-5: raise the batch masters the operator created inline on the sub-screen ("New Number", BOOK p.131)
+        // BEFORE the lines are built, so the Mfg Dt. / Expiry Date typed beside the number are actually recorded
+        // and the batch is a first-class master rather than a bare label. Done here — not when the sub-screen is
+        // accepted — so abandoning the voucher leaves no orphan masters behind.
+        if (!TryCreateInlineBatchMasters(complete)) return false;
+
         // Build the item-invoice stock lines. Each line normally needs a positive rate; a ₹0 rate is accepted only
         // when the voucher type allows zero-valued transactions (RQ-21) — a legitimate free-goods line that moves
         // stock (Actual qty) but posts ₹0. Without the flag a ₹0 line is still rejected with a friendly message.
@@ -4068,13 +4275,27 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                           "(enable 'Allow zero-valued transactions' to enter a free-goods line at ₹0).";
                 return false;
             }
+            var direction = IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward;
+            var postedRate = l.EffectiveRate ?? new Money(rate);
+
+            // G-5 — a line ALLOCATED ACROSS SEVERAL BATCHES posts as one item line PER BATCH, each carrying its
+            // own batch number and quantity, so the stock genuinely moves in and out of the right lots (BOOK
+            // pp.130–132). The sub-screen has already proved Σ batch qty = the line qty (C-29); this re-checks it
+            // at the boundary rather than trusting a stale split, and refuses instead of silently posting a
+            // different quantity from the one on screen.
+            if (l.HasBatchSplit)
+            {
+                if (!TryAppendSplitBatchLines(l, postedRate, direction, inventoryLines)) return false;
+                continue;
+            }
+
             // Actual (ParsedActualQuantity) moves stock; Billed (ParsedBilledQuantity) drives value + GST (RQ-23).
             // When the A/B column is off, Billed ≡ Actual so the line is byte-identical to today (ER-13). The
             // posted rate is the NET (after Price-Level discount) rate (DP-A); equals raw when no discount (ER-13).
             inventoryLines.Add(new VoucherInventoryLine(
-                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, l.EffectiveRate ?? new Money(rate),
+                l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, postedRate,
                 // Direction is stamped from the voucher nature by the posting service; a placeholder is fine.
-                direction: IsPurchaseInvoice ? StockDirection.Inward : StockDirection.Outward,
+                direction: direction,
                 batchLabel: l.Batch, billedQuantity: l.ParsedBilledQuantity,
                 // WI-10 Gap 2: the unit the typed quantity AND rate are stated in. l.UnitId is the gated field —
                 // it returns null unless the picker is actually shown AND a non-base unit is chosen, so a hidden
