@@ -48,8 +48,10 @@ public sealed class GatewayHierarchyTests : IDisposable
     {
         var vm = NewSeededCompany("Sections Co");
 
-        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there).
-        Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports" }, HeaderLabels(vm));
+        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there. "Data" is
+        // the backup/restore carve-out — a first-class section, because a safety net nobody can find is not a
+        // safety net).
+        Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports", "Data" }, HeaderLabels(vm));
 
         // Each section's items are present and reachable as selectable rows.
         var items = ItemLabels(vm);
@@ -61,6 +63,7 @@ public sealed class GatewayHierarchyTests : IDisposable
         Assert.Contains("Balance Sheet", items);       // Reports
         Assert.Contains("Profit & Loss A/c", items);   // Reports
         Assert.Contains("Trial Balance", items);       // Reports
+        Assert.Contains("Backup / Restore", items);    // Data
     }
 
     [Fact]

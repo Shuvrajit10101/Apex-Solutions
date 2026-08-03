@@ -55,9 +55,23 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         }.ToString();
 
         _connection = new SqliteConnection(connStr);
-        _connection.Open();
-        Exec("PRAGMA foreign_keys = ON;");
-        EnsureSchema();
+
+        // If anything after Open() throws, the caller never receives this object and can never dispose it — and
+        // SqliteConnection has no finaliser, so the file handle would stay open for the life of the PROCESS.
+        // That matters most in the one case where this constructor is most likely to throw: a corrupt or
+        // truncated company file, where EnsureSchema fails. The user's next move is to restore a backup over
+        // that very file, and a leaked handle would make the restore impossible.
+        try
+        {
+            _connection.Open();
+            Exec("PRAGMA foreign_keys = ON;");
+            EnsureSchema();
+        }
+        catch
+        {
+            _connection.Dispose();
+            throw;
+        }
     }
 
     // ------------------------------------------------------------------ schema / migrations

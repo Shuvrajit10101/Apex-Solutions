@@ -37,6 +37,11 @@ public enum Screen
     Export,
     ExportData,
     ImportData,
+
+    // Data -> Backup / Restore: the backup carve-out from the otherwise-excluded Phase 10, because plan.md names
+    // backup as the mitigation for its OWN top-ranked data-loss risk (R-7).
+    BackupCompany,
+    RestoreCompany,
     EmailCompose,
     SmtpSettings,
     VoucherEntry,
@@ -214,6 +219,10 @@ public enum GatewayMenu
     // Reports → Payroll Reports (Phase 8 slice 8): the payslip + pay sheet + payroll register + attendance register +
     // payment advice, a group under the Reports root shown only when Payroll is enabled.
     PayrollReports,
+
+    // Data -> Backup / Restore: the two data-safety screens, nested under a "Data" section on the Gateway root so
+    // backup is reachable through the ordinary cascade, not a hidden hotkey.
+    Data,
 }
 
 /// <summary>
@@ -549,6 +558,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The O / Alt+O "Import" (canonical/CSV company import, RQ-20..24) panel, non-null only while that column is open.</summary>
     [ObservableProperty] private ImportDataViewModel? _importDataPanel;
 
+    /// <summary>The Data -> "Backup Company" panel (the R-7 carve-out), non-null only while that column is open.</summary>
+    [ObservableProperty] private BackupCompanyViewModel? _backupCompanyPanel;
+
+    /// <summary>The Data -> "Restore Company" panel (the R-7 carve-out), non-null only while that column is open.</summary>
+    [ObservableProperty] private RestoreCompanyViewModel? _restoreCompanyPanel;
+
     /// <summary>The M / Ctrl+M "E-Mail" compose panel (RQ-25/26), non-null only while that column is open.</summary>
     [ObservableProperty] private EmailComposeViewModel? _emailCompose;
 
@@ -600,6 +615,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ReportSortFilter is null && AddComparisonColumn is null && AutoColumns is null
         && SaveView is null && SavedViews is null && PrintPreview is null && PrintConfigPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
+        && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && EmailCompose is null && SmtpSettings is null
         && LedgerVouchers is null && VoucherDetail is null;
 
@@ -695,6 +711,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBackupCompanyPanelChanged(BackupCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnRestoreCompanyPanelChanged(RestoreCompanyViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnEmailComposeChanged(EmailComposeViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnSmtpSettingsChanged(SmtpSettingsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnLedgerVouchersChanged(LedgerVouchersViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -945,6 +963,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || IsCompositionDealer || IsRegularGstDealer)
             col.Add(new MenuItemViewModel("Statutory Reports", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
 
+        // ---- DATA (the backup/restore carve-out from the otherwise-excluded Phase 10) ----
+        // plan.md names backup/restore as the mitigation for its OWN top-ranked data-loss risk (R-7) and then puts
+        // it in a phase that is excluded. It is surfaced here as a first-class Gateway section, not a hidden
+        // hotkey, because a safety net nobody can find is not a safety net. Only Backup/Restore is carved out —
+        // the rest of Phase 10 (security, roles, audit trail, vault) stays excluded.
+        col.Add(MenuItemViewModel.Header("Data"));
+        col.Add(new MenuItemViewModel("Backup / Restore", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+
         // ---- top-level action: change company ----
         col.Add(new MenuItemViewModel("Quit — Change Company", ShowCompanySelect, "F3", kind: MenuItemKind.Action));
 
@@ -1131,6 +1157,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(MenuItemViewModel.Header("Banking"));
         col.Add(new MenuItemViewModel("Bank Reconciliation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Import Bank Statement", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>
+    /// Builds the "Backup / Restore" submenu column (Data → Backup / Restore): the two data-safety pages. A backup
+    /// is a version-stamped snapshot of the company DATABASE taken through the SQLite Online Backup API — a
+    /// different thing from Export Data (which serialises the aggregate to JSON/XML for interchange), and the two
+    /// are deliberately not conflated in the menu.
+    /// </summary>
+    private GatewayColumn BuildDataColumn()
+    {
+        var col = new GatewayColumn("Backup / Restore");
+        col.Add(MenuItemViewModel.Header("Backup / Restore"));
+        col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -2752,6 +2793,83 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Ctrl+A / the Import button on the Import panel: read + parse + engine-routed apply. Returns success.</summary>
     public bool ApplyImport() => ImportDataPanel?.Apply() ?? false;
+
+    // =============================================================== screen: backup / restore company (R-7)
+
+    /// <summary>
+    /// Gateway → Data → Backup / Restore → <b>Backup Company</b>: opens the panel that writes a consistent,
+    /// version-stamped snapshot of the open company's DATABASE to a single <c>.apexbak</c> archive. A no-op
+    /// unless a company is open; re-opening while the panel is up is a no-op (one column, not a stack).
+    /// </summary>
+    public void OpenBackupCompany()
+    {
+        if (BackupCompanyPanel is not null) return;
+        if (Company is null) return;
+
+        var panel = new BackupCompanyViewModel(Company, _storage);
+        BackupCompanyPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.BackupCompany;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Backup button on the Backup panel: take the snapshot. Returns success.</summary>
+    public bool ApplyBackup() => BackupCompanyPanel?.Apply() ?? false;
+
+    /// <summary>
+    /// Opens the "Data → Backup / Restore" submenu column directly (Alt+Y, and the button-bar quick button).
+    /// Rebuilds the cascade to [root → Backup / Restore] and focuses the submenu, exactly as drilling would.
+    /// </summary>
+    public void ShowDataMenu()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+        SelectRootItem("Backup / Restore");
+        OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data,
+            "Gateway of Apex Solutions — Backup / Restore");
+    }
+
+    /// <summary>
+    /// Gateway → Data → Backup / Restore → <b>Restore Company</b>: opens the panel that puts an archive back over
+    /// a company's database. The panel is two-step (Examine, then a confirmed Restore) — restore is the one
+    /// genuinely destructive operation here (NFR-8). A no-op unless a company is open.
+    /// </summary>
+    public void OpenRestoreCompany()
+    {
+        if (RestoreCompanyPanel is not null) return;
+        if (Company is null) return;
+
+        var panel = new RestoreCompanyViewModel(Company, _storage, onRestored: ReopenRestoredCompany);
+        RestoreCompanyPanel = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.RestoreCompany;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+E / the Examine button on the Restore panel: read the manifest, arm nothing. Returns success.</summary>
+    public bool ExamineRestore() => RestoreCompanyPanel?.Examine() ?? false;
+
+    /// <summary>Ctrl+A / the Restore button on the Restore panel: replace the company database. Returns success.</summary>
+    public bool ApplyRestore() => RestoreCompanyPanel?.Apply() ?? false;
+
+    /// <summary>
+    /// After a successful restore the in-memory aggregate is the one that was just REPLACED, so every report and
+    /// every button-bar gate would still be answering from the overwritten data. Swap in the reloaded company and
+    /// refresh the derived shell state, keeping the panel visible so its success line stays readable.
+    /// </summary>
+    private void ReopenRestoredCompany(Company restored)
+    {
+        Company = restored;
+        StatusCompany = restored.Name;
+        StatusDate = ApexDate.Format(restored.FinancialYearStart);
+        Message = $"Restored '{restored.Name}' from backup.";
+        BuildButtonBar();
+    }
 
     // =============================================================== screen: voucher entry
 
@@ -4674,6 +4792,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ExportPanel = null;
         ExportDataPanel = null;
         ImportDataPanel = null;
+        BackupCompanyPanel = null;
+        RestoreCompanyPanel = null;
         EmailCompose = null;
         SmtpSettings = null;
         LedgerVouchers = null;
@@ -5985,6 +6105,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 "Gateway of Apex Solutions — Cost Centres"),
             "Budgets" => (BuildBudgetsColumn(), GatewayMenu.Budgets,
                 "Gateway of Apex Solutions — Budgets"),
+            // Data → Backup / Restore (the R-7 carve-out).
+            "Backup / Restore" => (BuildDataColumn(), GatewayMenu.Data,
+                "Gateway of Apex Solutions — Backup / Restore"),
             _ => (BuildCreateColumn(), GatewayMenu.Create, "Gateway of Apex Solutions"),
         };
 
@@ -6010,6 +6133,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         switch (item.Label)
         {
+            // Data → Backup / Restore (the R-7 carve-out).
+            case "Backup Company": OpenBackupCompany(); break;
+            case "Restore Company": OpenRestoreCompany(); break;
             case "Chart of Accounts": ShowChartOfAccounts(); break;
             case "Day Book": OpenReport(ReportKind.DayBook); break;
             case "Balance Sheet": OpenReport(ReportKind.BalanceSheet); break;
@@ -6372,6 +6498,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Outstandings" => GatewayMenu.Outstandings,
                     "Cost Centres" => GatewayMenu.CostCentres,
                     "Budgets" => GatewayMenu.Budgets,
+                    "Backup / Restore" => GatewayMenu.Data,
                     _ => GatewayMenu.Root,
                 };
         return GatewayMenu.Root;
@@ -6620,6 +6747,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("M", "E-Mail", OpenEmailCompose, IsPrintablePage));
         // SMTP — capture the outgoing-mail server profile (RQ-27; no password, nothing sent). Company-scoped.
         ButtonBar.Add(new ButtonBarItem("SMTP", "SMTP Settings", OpenSmtpSettings, hasCompany));
+
+        // Alt+Y — Data (Backup / Restore; the R-7 carve-out). A quick door to the data-safety menu from anywhere,
+        // alongside the Gateway → Data cascade. Bare Y is already Export Data on the Gateway root, so this one is
+        // Alt-modified and the badge says so.
+        ButtonBar.Add(new ButtonBarItem("Alt+Y", "Data", ShowDataMenu, hasCompany));
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));
