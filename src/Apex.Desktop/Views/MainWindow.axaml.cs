@@ -230,6 +230,12 @@ public partial class MainWindow : Window
                 vm.ApplyExportData();
             else if (vm.CurrentScreen == Screen.ImportData)
                 vm.ApplyImport();
+            // Data -> Backup / Restore (the R-7 carve-out). On the Restore panel Ctrl+A is the DESTRUCTIVE step,
+            // and the VM refuses it unless the archive has been examined AND the confirmation is ticked (NFR-8).
+            else if (vm.CurrentScreen == Screen.BackupCompany)
+                vm.ApplyBackup();
+            else if (vm.CurrentScreen == Screen.RestoreCompany)
+                vm.ApplyRestore();
             else if (vm.CurrentScreen == Screen.PrintPreview)
                 SavePrintPreviewToDocuments(vm);
             else if (vm.CurrentScreen == Screen.EmailCompose)
@@ -579,6 +585,26 @@ public partial class MainWindow : Window
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenImport();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+Y (Data → Backup / Restore; the R-7 carve-out) opens the data-safety submenu column from anywhere a
+        // company is open. This MUST be tested BEFORE the bare-Y Export-Data branch below, which only excludes
+        // Ctrl — an Alt+Y would otherwise fall into it and open the wrong screen.
+        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is not null && !IsTyping(e))
+        {
+            vm.ShowDataMenu();
+            e.Handled = true;
+            return;
+        }
+
+        // Ctrl+E on the Restore panel EXAMINES the chosen backup (reads its manifest; touches nothing). The
+        // destructive step stays on Ctrl+A, and the VM refuses that until this has passed and the tick is on.
+        if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.RestoreCompany)
+        {
+            vm.ExamineRestore();
             e.Handled = true;
             return;
         }
@@ -1340,6 +1366,17 @@ public partial class MainWindow : Window
 
     private void OnApplyImportDataClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyImport();
+
+    // ---- Data -> Backup / Restore (the R-7 carve-out) ----
+
+    private void OnApplyBackupClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyBackup();
+
+    private void OnExamineRestoreClick(object? sender, RoutedEventArgs e)
+        => Vm?.ExamineRestore();
+
+    private void OnApplyRestoreClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyRestore();
 
     private void OnSaveEmailClick(object? sender, RoutedEventArgs e)
     {

@@ -15340,6 +15340,157 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Data -> "Backup Company" panel (the R-7 carve-out — a version-stamped snapshot of
+                         the company DATABASE, taken through the SQLite Online Backup API; NOT the Export Data
+                         panel, which serialises the aggregate to JSON/XML for interchange) -->
+                    <ContentControl IsVisible="{Binding BackupCompanyPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BackupCompanyPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BackupCompanyViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle, StringFormat='Company: {0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding DocumentTitle}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <TextBlock Text="Writes a complete, consistent snapshot of this company's data file to a single backup archive. Safe to take while the company is open."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- What is being captured -->
+                                <TextBlock Text="Data file" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding SourcePath}" FontSize="11"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding SourcePath}"/>
+
+                                <TextBlock Text="{Binding DataFormatVersion, StringFormat='Data format stamped into the backup: v{0}'}"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- Destination -->
+                                <TextBlock Text="Save into folder" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <TextBox Text="{Binding Folder, Mode=TwoWay}"
+                                         FontFamily="Consolas,Menlo,monospace"
+                                         PlaceholderText="(full path to the destination folder)"/>
+
+                                <TextBlock Text="File name" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <TextBox Text="{Binding FileName, Mode=TwoWay}"
+                                         PlaceholderText="(base name, without extension)"/>
+
+                                <CheckBox Content="Add the date and time to the file name"
+                                          IsChecked="{Binding AppendTimestamp, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+
+                                <TextBlock Text="{Binding ResolvedFileName, StringFormat='Will be written as: {0}'}"
+                                           FontSize="11" Foreground="#8A8A8A"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding FullPath}"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Backup (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyBackupClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Data -> "Restore Company" panel (the R-7 carve-out). Two-step BY DESIGN: Examine
+                         reads the archive's manifest and touches nothing; Restore needs an explicit tick before
+                         it will replace a whole company file (NFR-8). -->
+                    <ContentControl IsVisible="{Binding RestoreCompanyPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding RestoreCompanyPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:RestoreCompanyViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding DocumentTitle, StringFormat='Into: {0}'}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding DocumentTitle}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <TextBlock Text="Replaces this company's data file with the contents of a backup archive. Examine it first — nothing is changed until the confirmation below is ticked."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <TextBlock Text="Backup file" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBox Text="{Binding FilePath, Mode=TwoWay}"
+                                         FontFamily="Consolas,Menlo,monospace"
+                                         PlaceholderText="(full path to the .apexbak backup file)"/>
+
+                                <TextBlock Text="Restore into" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <TextBlock Text="{Binding TargetPath}" FontSize="11"
+                                           FontFamily="Consolas,Menlo,monospace"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding TargetPath}"/>
+
+                                <Button Content="Examine backup (Ctrl+E)" Padding="14,6"
+                                        HorizontalAlignment="Left"
+                                        Click="OnExamineRestoreClick"/>
+
+                                <!-- What the examined archive holds — shown only once it has been read. -->
+                                <StackPanel Spacing="4" IsVisible="{Binding CanRestore}">
+                                  <TextBlock Text="{Binding BackupCompanyName, StringFormat='Company in backup: {0}'}"
+                                             FontSize="11" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBlock Text="{Binding BackupTakenAt, StringFormat='Taken: {0}'}"
+                                             FontSize="11" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBlock Text="{Binding BackupDataFormatVersion, StringFormat='Data format: v{0}'}"
+                                             FontSize="11" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <!-- The destructive-op confirmation (NFR-8). Arms only after a successful Examine. -->
+                                <CheckBox Content="I understand this replaces the whole company and cannot be undone"
+                                          IsChecked="{Binding Confirmed, Mode=TwoWay}"
+                                          IsEnabled="{Binding CanRestore}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Restore (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          IsEnabled="{Binding IsArmed}"
+                                          Click="OnApplyRestoreClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: M / Ctrl+M "E-Mail" compose panel (RQ-25/26 — offline .eml / mailto hand-off) -->
                     <ContentControl IsVisible="{Binding EmailCompose, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding EmailCompose}">
