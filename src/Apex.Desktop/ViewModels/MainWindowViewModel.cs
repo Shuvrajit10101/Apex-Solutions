@@ -2766,6 +2766,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             onSaved: onSaved ?? ShowGateway,
             onCancelled: BackFromPage,
             date: date);
+        // G-5 (BOOK pp.130–132): a batch-tracked line on a Purchase/Sales ITEM INVOICE opens the same real
+        // batch-allocation sub-screen the stock screens use — as a cascade column to the right, so the invoice
+        // stays beneath it and comes back intact on Esc. Wired here (not inside the entry VM) because the shell
+        // owns the cascade, exactly as OpenInventoryVoucher does.
+        entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
+            ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);

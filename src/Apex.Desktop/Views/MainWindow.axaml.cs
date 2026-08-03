@@ -461,6 +461,23 @@ public partial class MainWindow : Window
             return;
         }
 
+        // G-5 — the SAME Alt+B on a Purchase/Sales ITEM INVOICE (BOOK pp.130-132 walks batch entry through F9
+        // then F8). One key, one meaning, on every screen that carries batch-tracked item lines. Same resolution
+        // rule: the focused row if it qualifies, else the first eligible line; a safe no-op when none does.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.VoucherEntry
+            && vm.VoucherEntry is { } invoice)
+        {
+            var focused = FocusedInventoryLine(e);
+            if (focused is not null && invoice.LineWantsBatchAllocation(focused))
+                invoice.RequestBatchAllocation(focused);
+            else
+                invoice.RequestBatchAllocationForFirstEligibleLine();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+T toggles the in-progress voucher as post-dated (post-dated cheque handling).
         if (e.Key == Key.T && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -1135,6 +1152,17 @@ public partial class MainWindow : Window
     {
         if (sender is Control { DataContext: ViewModels.InventoryVoucherLineViewModel line })
             Vm?.InventoryVoucherEntry?.RequestBatchAllocation(line);
+    }
+
+    /// <summary>
+    /// G-5 — opens the batch-allocation sub-screen for the ITEM-INVOICE (Purchase F9 / Sales F8) line the button
+    /// sits on. A separate handler from the stock-screen one because the two grids are hosted by different entry
+    /// view models; the line type is shared.
+    /// </summary>
+    private void OnOpenItemInvoiceBatchAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ViewModels.InventoryVoucherLineViewModel line })
+            Vm?.VoucherEntry?.RequestBatchAllocation(line);
     }
 
     private void OnApplyGstClick(object? sender, RoutedEventArgs e)

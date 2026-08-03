@@ -20,6 +20,13 @@ public sealed class BatchPickOption
     /// <summary>The label shown in the picker.</summary>
     public string Display { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The quantity of this batch actually available to issue from the sub-screen's godown as of its date
+    /// (RQ-5) — what BOOK pp.131–132 shows beside a batch when the operator picks one on an outward voucher.
+    /// 0 for the "New Number" entry (a batch that does not exist yet has no balance).
+    /// </summary>
+    public decimal AvailableQuantity { get; init; }
+
     /// <summary>True for the "New Number" option (the operator types a fresh batch number).</summary>
     public bool IsNew => Batch is null;
 }
@@ -54,6 +61,17 @@ public sealed partial class BatchAllocationLineViewModel : ViewModelBase
     /// <summary>True while the warning marks an already-EXPIRED batch (drives the distinct red flag vs the amber near-expiry).</summary>
     [ObservableProperty] private bool _isExpired;
 
+    /// <summary>
+    /// Whether the <c>Mfg Dt.</c> editor applies to this row — the item's "Track date of Manufacturing" switch
+    /// (BOOK p.130). Off ⇒ the editor is not shown and no manufacturing date is ever captured, so an item that
+    /// does not track manufacturing is untouched by this feature (ER-13). The column TRACK is fixed-width and
+    /// stays, so hiding the editor shifts no other column.
+    /// </summary>
+    public bool ShowManufacturingDate { get; init; } = true;
+
+    /// <summary>Whether the <c>Expiry</c> editor applies — the item's "Use Expiry dates" switch (BOOK p.130).</summary>
+    public bool ShowExpiryDate { get; init; } = true;
+
     public BatchAllocationLineViewModel(IReadOnlyList<BatchPickOption> batchOptions, Action onChanged)
     {
         BatchOptions = batchOptions ?? throw new ArgumentNullException(nameof(batchOptions));
@@ -87,6 +105,28 @@ public sealed partial class BatchAllocationLineViewModel : ViewModelBase
 
     /// <summary>The parsed quantity (0 when blank/unparsable).</summary>
     public decimal ParsedQuantity => TryParse(QuantityText, out var q) ? q : 0m;
+
+    /// <summary>True when this row creates a brand-new batch ("New Number", BOOK p.131) rather than picking one.</summary>
+    public bool IsNewBatch => SelectedBatch is null or { IsNew: true };
+
+    /// <summary>
+    /// The typed manufacturing date, or null when blank. <c>false</c> from <paramref name="ok"/> means the text
+    /// was typed but is NOT a readable day-first date — the caller must reject, never silently discard it.
+    /// </summary>
+    public DateOnly? ParseManufacturingDate(DateOnly context, out bool ok) =>
+        ParseOptionalDate(ManufacturingDateText, context, out ok);
+
+    /// <summary>The typed expiry date, or null when blank; see <see cref="ParseManufacturingDate"/> for <paramref name="ok"/>.</summary>
+    public DateOnly? ParseExpiry(DateOnly context, out bool ok) =>
+        ParseOptionalDate(ExpiryText, context, out ok);
+
+    private static DateOnly? ParseOptionalDate(string? text, DateOnly context, out bool ok)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { ok = true; return null; }
+        if (ApexDate.TryParse(text, context, out var d)) { ok = true; return d; }
+        ok = false;
+        return null;
+    }
 
     /// <summary>True once the row has been touched at all (any field) — a wholly blank trailing row is ignored.</summary>
     public bool IsBlank =>
@@ -132,6 +172,22 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
 
     /// <summary>The batch pick options (existing batches of this item + a leading "New Number" entry).</summary>
     private readonly List<BatchPickOption> _batchOptions = new();
+
+    /// <summary>
+    /// The batch pick options this sub-screen offers: a leading "◦ New Number…" entry (BOOK p.131) then every
+    /// existing batch of the item, each stating the balance available to issue from this godown (RQ-5).
+    /// </summary>
+    public IReadOnlyList<BatchPickOption> BatchOptions => _batchOptions;
+
+    /// <summary>
+    /// True when the <c>Mfg Dt.</c> field applies to this item — its "Track date of Manufacturing" switch is on
+    /// (BOOK p.130). Off ⇒ the column is not offered and a new batch is created without a manufacturing date, so
+    /// an item that does not track manufacturing behaves exactly as it did (ER-13).
+    /// </summary>
+    public bool ShowManufacturingDate => _item.TrackManufacturingDate;
+
+    /// <summary>True when the <c>Expiry Date</c> field applies — the item's "Use Expiry dates" switch (BOOK p.130).</summary>
+    public bool ShowExpiryDate => _item.UseExpiryDates;
 
     /// <summary>The repeatable batch-allocation lines (always one blank trailing row for the next entry).</summary>
     public ObservableCollection<BatchAllocationLineViewModel> Lines { get; } = new();
@@ -183,25 +239,54 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
 
         BuildBatchOptions();
         SeedDefaultSelection();
+        // DEFECT (found by the G-5 item-invoice tests): each seeded row's fields are set BEFORE the row is added
+        // to Lines, so the per-row warning pass that those setters trigger cannot see the row it was raised for —
+        // the LAST seeded row therefore never got a warning, and a single-batch FEFO default (the commonest case
+        // of all) showed NO expiry flag whatsoever. Re-derive once the whole seeded plan is in place.
+        RefreshWarnings();
         Recompute();
     }
 
-    /// <summary>Builds the batch picker options: a leading "New Number" entry, then the item's existing batches.</summary>
+    /// <summary>
+    /// Builds the batch picker options: a leading "New Number" entry, then the item's existing batches, each
+    /// stamped with the balance actually available to issue from THIS godown as of the voucher date (RQ-5) so the
+    /// operator picks against a real figure rather than a bare number.
+    /// </summary>
     private void BuildBatchOptions()
     {
         _batchOptions.Clear();
         _batchOptions.Add(new BatchPickOption { Batch = null, Display = "◦ New Number…" });
+
+        // Per-(godown, batch) on-hand for this item as of the voucher date — the same projection the FEFO/FIFO
+        // default selection draws from, so the displayed balance and the seeded plan can never disagree (ER-4).
+        var onHand = _batches.BatchOnHands(_item.Id, _asOf)
+            .Where(b => b.GodownId == _godown.Id)
+            .ToDictionary(b => b.Batch, b => b.Quantity, StringComparer.OrdinalIgnoreCase);
+
         foreach (var b in _company.BatchesFor(_item.Id)
                      .OrderBy(b => b.BatchNumber, StringComparer.OrdinalIgnoreCase))
-            _batchOptions.Add(new BatchPickOption { Batch = b, Display = BatchLabel(b) });
+        {
+            var available = onHand.TryGetValue(b.BatchNumber, out var q) ? q : 0m;
+            _batchOptions.Add(new BatchPickOption
+            {
+                Batch = b,
+                Display = BatchLabel(b, available, UnitSymbol),
+                AvailableQuantity = available,
+            });
+        }
     }
 
-    private static string BatchLabel(BatchMaster b)
+    /// <summary>The item's base-unit symbol (blank when the unit is missing) — used in the picker/header text.</summary>
+    private string UnitSymbol => _company.FindUnit(_item.BaseUnitId)?.Symbol ?? string.Empty;
+
+    private static string BatchLabel(BatchMaster b, decimal available, string unit)
     {
         var expiry = b.ResolvedExpiryDate is { } e
             ? "  (exp " + ApexDate.Format(e) + ")"
             : string.Empty;
-        return b.BatchNumber + expiry;
+        var balance = "  bal " + available.ToString("0.######", CultureInfo.InvariantCulture)
+                      + (unit.Length > 0 ? " " + unit : string.Empty);
+        return b.BatchNumber + expiry + balance;
     }
 
     /// <summary>
@@ -236,7 +321,11 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
     public void AddBlankLine() => Lines.Add(NewLine());
 
     private BatchAllocationLineViewModel NewLine() =>
-        new(_batchOptions, OnLineChanged);
+        new(_batchOptions, OnLineChanged)
+        {
+            ShowManufacturingDate = ShowManufacturingDate,
+            ShowExpiryDate = ShowExpiryDate,
+        };
 
     private void OnLineChanged()
     {
@@ -299,7 +388,15 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
     /// </summary>
     public IReadOnlyList<BatchAllocation> Allocations => Lines
         .Where(l => !l.IsBlank && l.BatchNumber is not null && l.ParsedQuantity > 0m)
-        .Select(l => new BatchAllocation(l.BatchNumber!, l.ParsedQuantity, ParseRate(l.RateText)))
+        .Select(l => new BatchAllocation(
+            l.BatchNumber!, l.ParsedQuantity, ParseRate(l.RateText),
+            // Mfg / Expiry are carried back ONLY for a batch the operator is creating here ("New Number",
+            // BOOK p.131). For an existing batch the fields are a read-only echo of the master, so re-emitting
+            // them could only ever silently ALTER a master from a voucher screen — which this slice never does.
+            ManufacturingDate: l.IsNewBatch && ShowManufacturingDate
+                ? l.ParseManufacturingDate(_asOf, out _) : null,
+            ExpiryDate: l.IsNewBatch && ShowExpiryDate ? l.ParseExpiry(_asOf, out _) : null,
+            IsNewBatch: l.IsNewBatch))
         .ToList();
 
     private static Money? ParseRate(string? text)
@@ -355,6 +452,33 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
                     return false;
                 }
             }
+
+            // Mfg Dt. / Expiry Date (BOOK pp.130–132) — validated only on a NEW batch, where they are captured;
+            // on an existing batch they are a read-only echo of the master. A typed-but-unreadable date is
+            // REJECTED with a message, never silently discarded (the ApexDate contract).
+            if (l.IsNewBatch)
+            {
+                var mfg = l.ParseManufacturingDate(_asOf, out var mfgOk);
+                if (!mfgOk)
+                {
+                    Message = $"Batch '{l.BatchNumber}': '{l.ManufacturingDateText}' is not a readable " +
+                              $"manufacturing date (use {ApexDate.Canonical} or dd/MM/yyyy).";
+                    return false;
+                }
+                var exp = l.ParseExpiry(_asOf, out var expOk);
+                if (!expOk)
+                {
+                    Message = $"Batch '{l.BatchNumber}': '{l.ExpiryText}' is not a readable expiry date " +
+                              $"(use {ApexDate.Canonical} or dd/MM/yyyy).";
+                    return false;
+                }
+                if (mfg is { } m && exp is { } e && e < m)
+                {
+                    Message = $"Batch '{l.BatchNumber}' expires ({ApexDate.Format(e)}) before it was " +
+                              $"manufactured ({ApexDate.Format(m)}).";
+                    return false;
+                }
+            }
         }
 
         Recompute();
@@ -372,6 +496,18 @@ public sealed partial class BatchAllocationViewModel : ViewModelBase
 
 /// <summary>
 /// One committed batch allocation carried back from the sub-screen to the owning voucher line (Phase 6
-/// Cluster 1; RQ-3): the batch/lot number, the quantity allocated to it, and an optional per-unit rate.
+/// Cluster 1; RQ-3): the batch/lot number, the quantity allocated to it, an optional per-unit rate, and — for a
+/// batch the operator is creating inline ("New Number", BOOK p.131 <b>[verified-A1]</b>) — the
+/// <see cref="ManufacturingDate"/> / <see cref="ExpiryDate"/> typed beside it, so the receiving screen can raise
+/// the batch master with the dates the operator actually keyed instead of dropping them.
+///
+/// <para>The three trailing members are optional with defaults, so every pre-existing
+/// <c>new BatchAllocation(number, qty, rate)</c> call site is unchanged (ER-13).</para>
 /// </summary>
-public sealed record BatchAllocation(string BatchNumber, decimal Quantity, Money? Rate);
+public sealed record BatchAllocation(
+    string BatchNumber,
+    decimal Quantity,
+    Money? Rate,
+    DateOnly? ManufacturingDate = null,
+    DateOnly? ExpiryDate = null,
+    bool IsNewBatch = false);

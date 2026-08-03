@@ -2661,6 +2661,17 @@
                                             <TextBox Grid.Column="5" Width="84" HorizontalAlignment="Left"
                                                      Text="{Binding BatchLabel, Mode=TwoWay}"
                                                      PlaceholderText="—"/>
+                                            <!-- G-5 (BOOK pp.130-132): the batch-allocation sub-screen affordance on the
+                                                 ITEM INVOICE — the screens where a pharma/FMCG user actually buys and
+                                                 sells batched goods. Shown ONLY where the four-layer gate is satisfied
+                                                 (F11 batches on, item Maintains-in-Batches, item-invoice mode, and the
+                                                 screen batch knob), so a non-batch item's row is untouched. It occupies
+                                                 the already-reserved 36px column 6, so no column width changes and the
+                                                 D7 layout lock still holds. Alt+B is the keyboard equivalent. -->
+                                            <Button Grid.Column="6" Width="30" Padding="0" Content="⧉"
+                                                    ToolTip.Tip="Allocate batches (Alt+B)"
+                                                    IsVisible="{Binding WantsBatchAllocation}"
+                                                    Click="OnOpenItemInvoiceBatchAllocationClick"/>
                                             <!-- Read-only landed (effective) rate + value from the apportionment engine
                                                  (ER-4). Auto columns collapse to 0 when ShowLanded is off. -->
                                             <TextBlock Grid.Column="7" Width="90" Margin="6,0,0,0"
@@ -2704,6 +2715,18 @@
                                   <CheckBox Content="Use separate Actual &amp; Billed Quantity columns in invoices"
                                             IsChecked="{Binding UseSeparateActualBilledQuantity, Mode=TwoWay}"
                                             IsVisible="{Binding CanUseSeparateActualBilled}"
+                                            FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
+                                            Foreground="{StaticResource BrandNavy}"/>
+
+                                  <!-- G-5 layer 4 — the voucher-SCREEN batch knob (spec §2.6: TallyPrime configures the
+                                       screen you are standing on). On by default so a batch-enabled company gets the
+                                       corpus walkthrough (BOOK pp.131-132) with no configuring; off suppresses the batch
+                                       sub-screen on THIS screen only. Shown only when the company maintains batches.
+                                       It lives here rather than behind the F12 key because our whole voucher-screen F12
+                                       surface is the voucher-numbering config (spec §2.6). -->
+                                  <CheckBox Content="Use batch-wise details for item allocation"
+                                            IsChecked="{Binding UseBatchWiseDetails, Mode=TwoWay}"
+                                            IsVisible="{Binding CanUseBatchWiseDetails}"
                                             FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
                                             Foreground="{StaticResource BrandNavy}"/>
 
@@ -6495,10 +6518,16 @@
                                               </ComboBox>
                                               <TextBox Grid.Column="1" Text="{Binding NewBatchNumber, Mode=TwoWay}"
                                                        Margin="2,0" PlaceholderText="new no."/>
+                                              <!-- Mfg Dt. / Expiry are gated on the ITEM's own switches (BOOK p.130:
+                                                   "Track date of Manufacturing" / "Use Expiry dates"), so an item
+                                                   that tracks neither never offers them. The fixed 92px tracks stay,
+                                                   so hiding an editor shifts no neighbouring column. -->
                                               <TextBox Grid.Column="2" Text="{Binding ManufacturingDateText, Mode=TwoWay}"
-                                                       Margin="2,0" FontSize="11"/>
+                                                       Margin="2,0" FontSize="11"
+                                                       IsVisible="{Binding ShowManufacturingDate}"/>
                                               <TextBox Grid.Column="3" Text="{Binding ExpiryText, Mode=TwoWay}"
-                                                       Margin="2,0" FontSize="11"/>
+                                                       Margin="2,0" FontSize="11"
+                                                       IsVisible="{Binding ShowExpiryDate}"/>
                                               <TextBox Grid.Column="4" Text="{Binding QuantityText, Mode=TwoWay}"
                                                        Margin="2,0" TextAlignment="Right"/>
                                               <TextBox Grid.Column="5" Text="{Binding RateText, Mode=TwoWay}"

@@ -232,13 +232,32 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     {
         // A new item starts a fresh, un-dirtied line so the Price-Level auto-fill can supply its rate.
         ClearPriceAutoFill();
+        // …and a fresh item cannot keep the previous item's batch allocation: a batch number is unique WITHIN an
+        // item (RQ-1), so carrying it over would stamp another item's lot onto this one.
+        ClearBatchAllocations();
         RefreshUnitOptions();
         _onChanged();
     }
 
     partial void OnSelectedUnitChanged(Unit? value) => _onChanged();
-    partial void OnSelectedGodownChanged(Godown? value) => _onChanged();
-    partial void OnQuantityTextChanged(string value) => _onChanged();
+
+    partial void OnSelectedGodownChanged(Godown? value)
+    {
+        // Batch balances are per godown (spec §4.3), so moving the line to another godown invalidates the split.
+        ClearBatchAllocations();
+        _onChanged();
+    }
+
+    partial void OnQuantityTextChanged(string value)
+    {
+        // The sub-screen guarantees Σ batch qty = the line qty at the moment it was accepted (C-29). Editing the
+        // quantity afterwards breaks that, so the stale split is dropped rather than left to post a quantity the
+        // operator can no longer see — re-open the sub-screen to re-allocate.
+        if (_batchAllocations.Count > 0 && _batchAllocations.Sum(a => a.Quantity) != ParsedQuantity)
+            ClearBatchAllocations();
+        _onChanged();
+    }
+
     partial void OnBilledQuantityTextChanged(string value) => _onChanged();
 
     partial void OnRateTextChanged(string value)
@@ -254,7 +273,20 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
         _onChanged();
     }
 
-    partial void OnBatchLabelChanged(string value) => _onChanged();
+    partial void OnBatchLabelChanged(string value)
+    {
+        // Typing over the label the sub-screen wrote is an explicit override: the committed allocation no longer
+        // describes what the operator wants, so it is dropped rather than posted behind the new text. Suppressed
+        // while the sub-screen is writing the label itself (or it would erase the allocation it just committed).
+        if (!_writingBatchLabel && _batchAllocations.Count > 0)
+        {
+            _batchLabelFromAllocation = false;
+            _batchAllocations = Array.Empty<BatchAllocation>();
+            OnPropertyChanged(nameof(BatchAllocations));
+            OnPropertyChanged(nameof(HasBatchSplit));
+        }
+        _onChanged();
+    }
 
     /// <summary>
     /// Writes the Price-Level auto-fill values (RQ-30) WITHOUT marking the line dirty. The parent calls this only
@@ -326,6 +358,104 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     /// <summary>The trimmed batch label, or null when blank / not a batch-carrying kind.</summary>
     public string? Batch =>
         ShowsBatch && !string.IsNullOrWhiteSpace(BatchLabel) ? BatchLabel.Trim() : null;
+
+    // --------------------------------------------------------------- batch allocation (G-5; BOOK pp.130–132)
+
+    private IReadOnlyList<BatchAllocation> _batchAllocations = Array.Empty<BatchAllocation>();
+
+    /// <summary>
+    /// True while <see cref="BatchLabel"/> was WRITTEN BY the sub-screen rather than typed by the operator. It is
+    /// what makes dropping a stale allocation safe: the derived label — which may be the summary "Multi (N)",
+    /// not a real batch number — is cleared with it, so a discarded split can never leave "Multi (2)" behind to
+    /// be posted as if it were a batch. An operator-typed label is never touched.
+    /// </summary>
+    private bool _batchLabelFromAllocation;
+
+    /// <summary>Suppresses the "operator retyped the label" reaction while the sub-screen writes it itself.</summary>
+    private bool _writingBatchLabel;
+
+    /// <summary>
+    /// The batch allocations committed for this line by the batch-allocation sub-screen (G-5; BOOK pp.130–132
+    /// <b>[verified-A1]</b>). <b>Empty</b> for every line that never opened the sub-screen — which is every line
+    /// on a non-batch item — so such a line posts exactly as it did before this feature existed (ER-13).
+    ///
+    /// <para>Their quantities are guaranteed by the sub-screen to sum to <see cref="ParsedQuantity"/> (C-29), so
+    /// splitting a line across several batches never invents or loses stock.</para>
+    /// </summary>
+    public IReadOnlyList<BatchAllocation> BatchAllocations => _batchAllocations;
+
+    /// <summary>
+    /// True when this line was allocated across MORE THAN ONE batch — the only case in which the posted shape
+    /// differs from a pre-slice line (one grid line becomes one posted item line per batch). A single-batch
+    /// allocation posts as exactly one line carrying that batch number, identical in shape to a hand-typed label.
+    /// </summary>
+    public bool HasBatchSplit => _batchAllocations.Count > 1;
+
+    /// <summary>
+    /// Writes the sub-screen's committed allocations onto this line and reflects them in the grid's Batch/Lot
+    /// cell — one batch shows its number, several show a "Multi (N)" summary (the same convention the stock
+    /// screens already use). Passing an empty list clears the allocation back to the free-text label.
+    /// </summary>
+    public void SetBatchAllocations(IReadOnlyList<BatchAllocation> allocations)
+    {
+        _batchAllocations = allocations ?? Array.Empty<BatchAllocation>();
+        if (_batchAllocations.Count > 0)
+        {
+            _writingBatchLabel = true;
+            try
+            {
+                BatchLabel = _batchAllocations.Count == 1
+                    ? _batchAllocations[0].BatchNumber
+                    : $"Multi ({_batchAllocations.Count})";
+            }
+            finally
+            {
+                _writingBatchLabel = false;
+            }
+            _batchLabelFromAllocation = true;
+        }
+        OnPropertyChanged(nameof(BatchAllocations));
+        OnPropertyChanged(nameof(HasBatchSplit));
+        _onChanged();
+    }
+
+    /// <summary>
+    /// Drops any committed batch allocation (a fresh item / godown, or a quantity the split no longer matches),
+    /// along with the label the sub-screen derived from it — never a label the operator typed themselves.
+    /// </summary>
+    public void ClearBatchAllocations()
+    {
+        if (_batchAllocations.Count == 0) return;
+        _batchAllocations = Array.Empty<BatchAllocation>();
+        OnPropertyChanged(nameof(BatchAllocations));
+        OnPropertyChanged(nameof(HasBatchSplit));
+        if (_batchLabelFromAllocation)
+        {
+            _batchLabelFromAllocation = false;
+            BatchLabel = string.Empty;      // raises its own change notification
+        }
+    }
+
+    /// <summary>
+    /// The <b>one</b> definition of this line's extended value (ER-4 — one source per figure), used by the live
+    /// totals, by GST/TCS and by the posting so they can never disagree: <c>rate × Billed qty</c>, snapped to the
+    /// paisa. <see cref="Money.Zero"/> when no rate is typed.
+    ///
+    /// <para><b>A batch split deliberately does NOT enter here.</b> Allocating the line across lots decides WHICH
+    /// units move, never what they are worth — the goods and the rate are the same either way, so the customer
+    /// must be billed the same figure split or unsplit. Valuing a split as Σ (rate × each batch quantity) breaks
+    /// that: <see cref="Money.ForexBase"/> snaps every product to the paisa, so N batch rows round N times where
+    /// the line rounds once, and Σ-of-rounded ≠ rounded-of-Σ the moment a batch quantity is fractional (1.5 ×
+    /// ₹19.75 = ₹29.625 twice ⇒ ₹59.26 against the line's own ₹59.25). Keeping the ONE definition on the Billed
+    /// basis also keeps a short-billed line honest (RQ-23): the batch rows always carry the ACTUAL quantity, so
+    /// summing them would put the invoice total and the GST/TCS base on the Actual basis.</para>
+    ///
+    /// <para>The posted rows are held to this figure at the posting boundary — see
+    /// <c>VoucherEntryViewModel.TryAppendSplitBatchLines</c>, which refuses a split whose rows cannot foot to it
+    /// rather than letting the two diverge.</para>
+    /// </summary>
+    public Money LineValue =>
+        EffectiveRate is { } rate ? Money.ForexBase(rate, ParsedBilledQuantity) : Money.Zero;
 
     /// <summary>
     /// True once the row has been touched at all (any field). A wholly blank row is ignored by the parent so
