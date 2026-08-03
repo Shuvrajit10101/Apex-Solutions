@@ -1495,9 +1495,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
         // Vouchers: re-post through the engine (real posting path). The stored number is preserved
         // because Post only assigns a number when the voucher's number is unset (≤ 0).
+        // G-2 migration: cost allocations are validated with LEGACY strictness HERE AND ON IMPORT ONLY.
+        // This project first shipped the wrong (partition) cost-allocation rule, so a company saved before
+        // that fix can hold a line whose axes foot only when added together. Re-posting is what OPENS a
+        // company — under the strict rule such a file would throw and the whole company would be
+        // unopenable. Legacy keeps it loading, byte-for-byte as stored (nothing is rescaled or dropped);
+        // CostAllocationDiagnostics.FindLegacyCrossCategoryLines lists what needs a human to re-allocate.
         var service = new LedgerService(company);
         foreach (var v in ReadVouchers(companyId))
-            service.Post(v);
+            service.Post(v, CostAllocationStrictness.Legacy);
 
         // Budgets (catalog §7): masters that reference groups/ledgers already loaded above.
         foreach (var b in ReadBudgets(companyId))

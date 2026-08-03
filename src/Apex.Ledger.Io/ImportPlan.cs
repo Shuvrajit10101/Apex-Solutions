@@ -893,7 +893,13 @@ internal sealed class ImportPlan
             var domain = BuildVoucher(v, ledgerId, voucherTypeId, stockItemId, godownId,
                 costCategoryId, costCentreId, currencyId, tdsNatureId, tcsNatureId, employeeId, payHeadId,
                 unitId, t);
-            posting.Post(domain);
+            // G-2: LEGACY cost-allocation strictness. A company-import file is a rehydration of books this
+            // product already accepted — including under the superseded partition rule (see
+            // CostAllocationStrictness) — so refusing to re-import our own export of an older company would
+            // be data loss. Every other invariant still runs at full strength, and an allocation that foots
+            // under NEITHER rule is still rejected. Lines admitted only by the legacy clause are listed by
+            // CostAllocationDiagnostics.FindLegacyCrossCategoryLines after the import.
+            posting.Post(domain, CostAllocationStrictness.Legacy);
             journal.RecordVoucher(domain);
             voucherId[v.Id] = domain.Id;
             posted++;

@@ -327,21 +327,41 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         _onChanged();
     }
 
-    /// <summary>Σ of the cost-allocation row magnitudes on this line.</summary>
-    public decimal CostAllocatedTotal
+    // NOTE: there is deliberately no cross-category "CostAllocatedTotal" here. Summing the rows across
+    // categories is exactly the check rule C-27 forbids: on a parallel set it is a MULTIPLE of the line
+    // amount, and comparing it to the line is what made the corpus entry impossible. Use
+    // CostAllocatedTotalFor(categoryId) — one axis at a time. (The domain twin
+    // EntryLine.CostAllocationTotal survives only because rehydration still recognises the superseded
+    // partition rule via CostAllocationStrictness.Legacy; nothing in the UI has that excuse.)
+
+    /// <summary>Σ of the complete rows' magnitudes under one cost category — i.e. one allocation axis.</summary>
+    public decimal CostAllocatedTotalFor(Guid categoryId)
     {
-        get
-        {
-            var sum = 0m;
-            foreach (var a in CostAllocations) sum += a.ParsedAmount;
-            return sum;
-        }
+        var sum = 0m;
+        foreach (var a in CostAllocations)
+            if (a.IsComplete && a.SelectedCategory!.Id == categoryId)
+                sum += a.ParsedAmount;
+        return sum;
+    }
+
+    /// <summary>The distinct categories the complete rows use, in first-appearance order.</summary>
+    private List<CostCategory> UsedCostCategories()
+    {
+        var seen = new List<CostCategory>();
+        foreach (var a in CostAllocations)
+            if (a.IsComplete && !seen.Any(c => c.Id == a.SelectedCategory!.Id))
+                seen.Add(a.SelectedCategory!);
+        return seen;
     }
 
     /// <summary>
     /// True when the cost split is valid: not cost-applicable (no constraint), OR the user left it fully
-    /// blank (cost allocation is OPTIONAL), OR the touched rows are all complete and their amounts sum
-    /// EXACTLY to the line amount (the split, enforced by the engine too).
+    /// blank (cost allocation is OPTIONAL), OR the touched rows are all complete and — <b>within each cost
+    /// category independently</b> — their amounts sum EXACTLY to the line amount.
+    /// <para>Cost categories are parallel allocation axes, not a partition (spec §4.2 rule C-27): the
+    /// corpus allocates one ₹5,000 expense in full to Branch → Kolkata AND in full to Department →
+    /// Marketing. Requiring the cross-category sum to equal the line — which this used to do — makes that
+    /// entry impossible. The engine enforces the same per-axis rule, so this stays a faithful mirror.</para>
     /// </summary>
     public bool CostSplitOk
     {
@@ -351,9 +371,10 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             // Optional: an untouched panel (every row blank) posts no cost allocations — valid.
             if (CostAllocations.All(a => a.IsBlank)) return true;
             if (CostAllocations.Any(a => !a.IsBlank && !a.IsComplete)) return false;
-            var complete = CostAllocations.Where(a => a.IsComplete).ToList();
-            if (complete.Count == 0) return false;
-            return complete.Sum(a => a.ParsedAmount) == ParsedAmount && ParsedAmount > 0m;
+            var categories = UsedCostCategories();
+            if (categories.Count == 0) return false;
+            if (ParsedAmount <= 0m) return false;
+            return categories.All(cat => CostAllocatedTotalFor(cat.Id) == ParsedAmount);
         }
     }
 
@@ -363,19 +384,42 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
 
         if (CostAllocations.All(a => a.IsBlank))
         {
-            CostSummary = "Cost allocation is optional — leave blank or split the amount across centres.";
+            CostSummary = "Cost allocation is optional — leave blank, or allocate the amount in full under each cost category.";
             return;
         }
 
-        var allocated = CostAllocatedTotal;
         var line = ParsedAmount;
+        var categories = UsedCostCategories();
+        if (categories.Count == 0)
+        {
+            CostSummary = $"Allocated {Fmt(0m)} of {Fmt(line)}  —  {Fmt(line)} unallocated";
+            return;
+        }
+
+        // Single axis — the wording every existing book sees, unchanged.
+        if (categories.Count == 1)
+        {
+            CostSummary = $"Allocated {AxisState(categories[0].Id, line)}";
+            return;
+        }
+
+        // Parallel axes: report each on its own. They are never added together.
+        var parts = categories.Select(cat => $"{cat.Name}: {AxisState(cat.Id, line)}");
+        CostSummary = string.Join("   |   ", parts) +
+                      "   (each cost category is allocated in full — categories are parallel, not a split)";
+    }
+
+    /// <summary>"₹x of ₹y — fully allocated / n unallocated / over-allocated by n" for one axis.</summary>
+    private string AxisState(Guid categoryId, decimal line)
+    {
+        var allocated = CostAllocatedTotalFor(categoryId);
         var diff = line - allocated;
-        if (diff == 0m && line > 0m)
-            CostSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  fully allocated";
-        else if (diff > 0m)
-            CostSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  {Fmt(diff)} unallocated";
-        else
-            CostSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  over-allocated by {Fmt(-diff)}";
+        var state = diff == 0m && line > 0m
+            ? "fully allocated"
+            : diff > 0m
+                ? $"{Fmt(diff)} unallocated"
+                : $"over-allocated by {Fmt(-diff)}";
+        return $"{Fmt(allocated)} of {Fmt(line)}  —  {state}";
     }
 
     /// <summary>
