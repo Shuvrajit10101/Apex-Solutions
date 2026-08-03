@@ -22,6 +22,15 @@ public static class VoucherValidator
     /// known-ledger references, date within books, and the balanced-voucher invariant.
     /// </summary>
     public static void EnsureValid(Voucher v, Company c)
+        => EnsureValid(v, c, CostAllocationStrictness.Strict);
+
+    /// <summary>
+    /// <see cref="EnsureValid(Voucher, Company)"/> with an explicit cost-allocation invariant (see
+    /// <see cref="CostAllocationStrictness"/>). Every other check is identical. Only the two rehydration
+    /// paths — <c>SqliteCompanyStore.Load</c> and company import — pass anything but
+    /// <see cref="CostAllocationStrictness.Strict"/>.
+    /// </summary>
+    public static void EnsureValid(Voucher v, Company c, CostAllocationStrictness costAllocationStrictness)
     {
         ArgumentNullException.ThrowIfNull(v);
         ArgumentNullException.ThrowIfNull(c);
@@ -81,7 +90,7 @@ public static class VoucherValidator
                 EnsureBillAllocationsValid(line, ledger);
 
             if (line.HasCostAllocations)
-                EnsureCostAllocationsValid(line, ledger, c);
+                EnsureCostAllocationsValid(line, ledger, c, costAllocationStrictness);
 
             if (line.HasBankAllocation)
                 EnsureBankAllocationValid(line, ledger, c);
@@ -301,10 +310,25 @@ public static class VoucherValidator
     /// <summary>
     /// §6 cost-centre integrity for one line: cost allocations are only permitted on a ledger with cost
     /// centres applicable, every allocation must reference a known category and a known centre that
-    /// belongs to that category, and their magnitudes must <b>sum exactly to the line amount</b>
-    /// ("split across centres"). Throws otherwise.
+    /// belongs to that category, and — <b>within each cost category independently</b> — their magnitudes
+    /// must sum exactly to the line amount. Throws otherwise.
+    /// <para><b>Parallel sets, not a partition (spec §4.2 rule C-27; gap G-2).</b> Cost categories are
+    /// independent allocation <i>axes</i>. The corpus's worked example allocates one ₹5,000 travelling
+    /// expense in full to Branch → Kolkata <i>and</i> in full to Department → Marketing <i>and</i> in full
+    /// to Executive → Sales Executive 1 (TALLY PRIME STUDY GUIDE pp.101–102). Summing across categories and
+    /// comparing that to the line — which this validator used to do — rejects the reference product's own
+    /// example and makes multi-category cost accounting impossible. Within one axis the split behaviour is
+    /// unchanged: ₹5,000 may still be split ₹3,000 Kolkata + ₹2,000 Delhi.</para>
     /// </summary>
     public static void EnsureCostAllocationsValid(Domain.EntryLine line, Domain.Ledger ledger, Company c)
+        => EnsureCostAllocationsValid(line, ledger, c, CostAllocationStrictness.Strict);
+
+    /// <summary>
+    /// <see cref="EnsureCostAllocationsValid(Domain.EntryLine, Domain.Ledger, Company)"/> with an explicit
+    /// invariant (see <see cref="CostAllocationStrictness"/>).
+    /// </summary>
+    public static void EnsureCostAllocationsValid(
+        Domain.EntryLine line, Domain.Ledger ledger, Company c, CostAllocationStrictness strictness)
     {
         if (!ClassificationRules.CostCentresApplicableFor(ledger, c))
             throw new InvalidVoucherException(
@@ -323,10 +347,35 @@ public static class VoucherValidator
                     $"Cost centre '{centre.Name}' does not belong to category '{category.Name}'.");
         }
 
-        if (line.CostAllocationTotal != line.Amount)
-            throw new InvalidVoucherException(
-                $"Cost allocations on the line for '{ledger.Name}' sum to {line.CostAllocationTotal} " +
-                $"but the line amount is {line.Amount}; they must be equal (split across centres).");
+        // The per-category (per-axis) invariant: each category the line uses must itself total the line.
+        // Reported on the FIRST short axis in first-appearance order, so the message is deterministic.
+        Guid? shortCategoryId = null;
+        var shortAllocated = Money.Zero;
+        foreach (var categoryId in line.CostAllocationCategoryIds)
+        {
+            var allocated = line.CostAllocationTotalFor(categoryId);
+            if (allocated == line.Amount) continue;
+            shortCategoryId = categoryId;
+            shortAllocated = allocated;
+            break;
+        }
+
+        if (shortCategoryId is null) return;   // every axis foots — valid under both rules
+
+        // Rehydration tolerance: books written under the superseded partition rule "split" one amount
+        // ACROSS axes, so no single axis foots but the cross-axis sum does. Those vouchers were legitimately
+        // accepted once and must keep loading — SqliteCompanyStore.Load re-posts every stored voucher
+        // through this engine, so rejecting them would make the whole company unopenable. Never granted on
+        // an entry path; CostAllocationDiagnostics lists what a human still needs to re-allocate.
+        if (strictness == CostAllocationStrictness.Legacy && line.CostAllocationTotal == line.Amount)
+            return;
+
+        // C-27: the corpus's own failure text names the ledger AND the category.
+        var shortCategoryName = c.FindCostCategory(shortCategoryId.Value)?.Name ?? shortCategoryId.Value.ToString();
+        throw new InvalidVoucherException(
+            $"Cost allocations on the line for '{ledger.Name}' total {shortAllocated} under cost category " +
+            $"'{shortCategoryName}' but the line amount is {line.Amount}; each cost category must be " +
+            "allocated in full (categories are parallel axes, not a split of the line).");
     }
 
     /// <summary>

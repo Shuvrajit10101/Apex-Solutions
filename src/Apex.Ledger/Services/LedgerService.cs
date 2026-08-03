@@ -27,13 +27,22 @@ public sealed class LedgerService
     /// (DP-7). If the stock effect is invalid (e.g. a Sales item-invoice would drive an on-hand negative), the
     /// ENTIRE post fails — the voucher is removed and nothing (no accounting leg, no stock movement) persists.</para>
     /// </summary>
-    public Voucher Post(Voucher voucher)
+    public Voucher Post(Voucher voucher) => Post(voucher, CostAllocationStrictness.Strict);
+
+    /// <summary>
+    /// <see cref="Post(Voucher)"/> with an explicit cost-allocation invariant.
+    /// <para><paramref name="costAllocationStrictness"/> is <see cref="CostAllocationStrictness.Strict"/>
+    /// for every entry path. The two rehydration paths (<c>SqliteCompanyStore.Load</c> and company import)
+    /// pass <see cref="CostAllocationStrictness.Legacy"/> so books written under the superseded partition
+    /// rule still open — see that enum for why.</para>
+    /// </summary>
+    public Voucher Post(Voucher voucher, CostAllocationStrictness costAllocationStrictness)
     {
         // Item-invoice mode: stamp the voucher-nature-implied direction on every item line BEFORE validating,
         // so the pairing check and the on-hand engine both read the canonical direction.
         StampInventoryLineDirections(voucher);
 
-        VoucherValidator.EnsureValid(voucher, _company);
+        VoucherValidator.EnsureValid(voucher, _company, costAllocationStrictness);
 
         var type = _company.FindVoucherType(voucher.TypeId)!;
         if (type.Numbering == NumberingMethod.Automatic && voucher.Number <= 0)

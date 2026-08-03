@@ -15,16 +15,27 @@ public sealed record CategorySummaryReport(
     DateOnly To,
     IReadOnlyList<CostCategoryTotal> Categories)
 {
-    /// <summary>Σ of every category total (== Σ of all cost allocations in the window).</summary>
-    public Money GrandTotal
-    {
-        get
-        {
-            var s = 0m;
-            foreach (var t in Categories) s += t.Total.Amount;
-            return new Money(s);
-        }
-    }
+    /// <summary>
+    /// The cost actually allocated in the window, <b>counted once per entry line</b>.
+    /// <para>It is deliberately NOT Σ of the category totals. Cost categories are parallel allocation axes
+    /// (spec §4.2 rule C-27): a ₹5,000 travelling expense classified by Branch, Department and Executive
+    /// appears in full under all three, so adding the axes would report ₹15,000 of cost for one ₹5,000
+    /// expense. On books that only ever use one axis per line the two definitions coincide, which is why
+    /// this figure is unchanged for every existing single-category company.</para>
+    /// </summary>
+    public Money GrandTotal { get; init; }
+
+    /// <summary>
+    /// True when the category totals in this window <b>overlap</b> — i.e. some line carries the same money
+    /// under more than one category, so Σ of the rows exceeds <see cref="GrandTotal"/> and the rows must not
+    /// be read as addends.
+    /// <para>Note what this is NOT: it is not "some line names two categories". A book saved under the
+    /// superseded partition rule also names two categories on one line (₹3,000.19 Branch + ₹2,000.18
+    /// Department on a ₹5,000.37 line) yet its rows add up to the total exactly — nothing is double-counted
+    /// and nothing on screen has changed for that user, so this flag is FALSE there. The flag fires on the
+    /// arithmetic fact (cross-category allocation exceeds the line amount), never on the shape.</para>
+    /// </summary>
+    public bool CategoryTotalsOverlap { get; init; }
 }
 
 /// <summary>
@@ -51,16 +62,21 @@ public sealed record CostCentreBreakupReport(
     DateOnly To,
     IReadOnlyList<CostCentreLine> Centres)
 {
-    /// <summary>Σ of the OWN totals of every centre (== Σ of all cost allocations in the window).</summary>
-    public Money GrandTotal
-    {
-        get
-        {
-            var s = 0m;
-            foreach (var c in Centres) s += c.OwnTotal.Amount;
-            return new Money(s);
-        }
-    }
+    /// <summary>
+    /// The cost actually allocated in the window, <b>counted once per entry line</b> — the same figure the
+    /// Category Summary reports. It is NOT Σ of the centres' own totals: under parallel categories one
+    /// amount is carried in full by one centre per axis, so summing centres across categories would
+    /// double-count. On single-axis books the two definitions coincide.
+    /// </summary>
+    public Money GrandTotal { get; init; }
+
+    /// <summary>
+    /// True when the centres' own totals in this window <b>overlap</b> — i.e. some line's money is carried
+    /// in full by one centre in each of two or more categories, so Σ of the own totals exceeds
+    /// <see cref="GrandTotal"/>. See <see cref="CategorySummaryReport.CategoryTotalsOverlap"/> for why this
+    /// is an arithmetic test and not "some line names two categories".
+    /// </summary>
+    public bool CategoryTotalsOverlap { get; init; }
 }
 
 /// <summary>One (centre, ledger) total in the Ledger Break-up (catalog §6).</summary>
@@ -83,6 +99,22 @@ public sealed record LedgerBreakupReport(
     /// <summary>The (centre, ledger) totals for one centre.</summary>
     public IReadOnlyList<CostCentreLedgerTotal> ForCentre(Guid centreId) =>
         Rows.Where(r => r.CentreId == centreId).ToList();
+
+    /// <summary>
+    /// The cost actually allocated in the window, <b>counted once per entry line</b> — the same figure the
+    /// other two cost reports carry. Deliberately NOT Σ of <see cref="Rows"/>: a line classified under three
+    /// categories produces three (centre, ledger) rows each carrying the whole amount, so summing them would
+    /// report ₹15,000 of cost for one ₹5,000 expense (spec §4.2 rule C-27).
+    /// </summary>
+    public Money GrandTotal { get; init; }
+
+    /// <summary>
+    /// True when the rows overlap — same meaning and same computation as
+    /// <see cref="CategorySummaryReport.CategoryTotalsOverlap"/>. Carried here so the three reports of this
+    /// family cannot drift apart: whoever adds a footer to the Ledger Break-up gets the correct total and
+    /// the warning without having to rediscover why Σ of the rows is the wrong number.
+    /// </summary>
+    public bool CategoryTotalsOverlap { get; init; }
 }
 
 /// <summary>
@@ -113,6 +145,42 @@ public static class CostReports
         }
     }
 
+    /// <summary>
+    /// The window's cost totalled <b>once per allocated line</b> (not once per axis), plus whether the
+    /// per-category row totals <b>overlap</b>. Same voucher filter as <see cref="Allocations"/>. See
+    /// <see cref="CategorySummaryReport.GrandTotal"/> for why the naive Σ over allocations is wrong once
+    /// categories are parallel sets.
+    /// <para>The overlap test is arithmetic, not structural: a line double-counts iff its allocations
+    /// across all categories exceed the line amount. A conforming parallel set of N axes allocates N ×
+    /// amount and therefore overlaps; a line saved under the superseded partition rule allocates exactly
+    /// amount across its categories and therefore does NOT — its rows really do add up to the total, so no
+    /// report may tell the reader otherwise. Testing <c>CostAllocationCategoryIds.Count &gt; 1</c> instead
+    /// would conflate the two, and would fire on precisely the pre-fix books whose numbers did not
+    /// change.</para>
+    /// </summary>
+    private static (Money AllocatedBase, bool CategoryTotalsOverlap) AllocatedBase(
+        Company company, DateOnly from, DateOnly to)
+    {
+        var total = 0m;
+        var overlaps = false;
+
+        foreach (var v in company.Vouchers)
+        {
+            // CountsAsOf(to) applies the Cancelled/Optional/PostDated + date≤to filter; then bound below.
+            if (!LedgerBalances.CountsAsOf(v, to)) continue;
+            if (v.Date < from) continue;
+
+            foreach (var line in v.Lines)
+            {
+                if (!line.HasCostAllocations) continue;
+                total += line.Amount.Amount;
+                if (line.CostAllocationTotal.Amount > line.Amount.Amount) overlaps = true;
+            }
+        }
+
+        return (new Money(total), overlaps);
+    }
+
     /// <summary>Category Summary — total allocated amount per cost category (catalog §6).</summary>
     public static CategorySummaryReport BuildCategorySummary(Company company, DateOnly from, DateOnly to)
     {
@@ -125,7 +193,12 @@ public static class CostReports
             if (totals.TryGetValue(cat.Id, out var sum) && sum != 0m)
                 rows.Add(new CostCategoryTotal(cat.Id, cat.Name, new Money(sum)));
 
-        return new CategorySummaryReport(from, to, rows);
+        var (allocatedBase, overlaps) = AllocatedBase(company, from, to);
+        return new CategorySummaryReport(from, to, rows)
+        {
+            GrandTotal = allocatedBase,
+            CategoryTotalsOverlap = overlaps,
+        };
     }
 
     /// <summary>
@@ -176,7 +249,12 @@ public static class CostReports
                 if (centre.CategoryId == cat.Id && centre.IsPrimary)
                     Emit(centre, 0);
 
-        return new CostCentreBreakupReport(from, to, lines);
+        var (allocatedBase, overlaps) = AllocatedBase(company, from, to);
+        return new CostCentreBreakupReport(from, to, lines)
+        {
+            GrandTotal = allocatedBase,
+            CategoryTotalsOverlap = overlaps,
+        };
     }
 
     /// <summary>
@@ -200,6 +278,11 @@ public static class CostReports
                     rows.Add(new CostCentreLedgerTotal(
                         centre.Id, centre.Name, ledger.Id, ledger.Name, new Money(sum)));
 
-        return new LedgerBreakupReport(from, to, rows);
+        var (allocatedBase, overlaps) = AllocatedBase(company, from, to);
+        return new LedgerBreakupReport(from, to, rows)
+        {
+            GrandTotal = allocatedBase,
+            CategoryTotalsOverlap = overlaps,
+        };
     }
 }
