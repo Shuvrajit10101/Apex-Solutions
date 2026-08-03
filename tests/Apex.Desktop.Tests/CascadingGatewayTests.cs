@@ -67,7 +67,7 @@ public sealed class CascadingGatewayTests : IDisposable
     // ---------------------------------------------------------------- drill into a GROUP
 
     [Fact]
-    public void Selecting_Vouchers_opens_a_submenu_column_with_the_six_types_root_stays_visible()
+    public void Selecting_Vouchers_opens_a_submenu_column_with_the_eight_types_root_stays_visible()
     {
         var vm = NewSeededCompany("Vouchers Cascade Co");
         SelectRootItem(vm, "Vouchers");
@@ -82,12 +82,13 @@ public sealed class CascadingGatewayTests : IDisposable
         Assert.Equal(1, vm.ActiveColumnIndex);
         Assert.Equal(GatewayMenu.Vouchers, vm.CurrentGatewayMenu);
 
-        // The submenu lists the six accounting voucher types, the two inventory groups (Order Vouchers /
-        // Inventory Vouchers), and an "Other Vouchers" group (Reversing Journal / Memorandum nest under
-        // it — professional hierarchy).
+        // The submenu lists the eight accounting voucher types (Credit Note and Debit Note included — they had
+        // no menu row anywhere before), the two inventory groups (Order Vouchers / Inventory Vouchers), and an
+        // "Other Vouchers" group (Reversing Journal / Memorandum nest under it — professional hierarchy).
         var items = vm.Columns[1].Items.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
         Assert.Equal(
             new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase",
+                    "Credit Note", "Debit Note",
                     "Order Vouchers", "Inventory Vouchers", "Other Vouchers" },
             items);
 

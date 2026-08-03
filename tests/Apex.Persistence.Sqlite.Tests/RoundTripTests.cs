@@ -35,7 +35,7 @@ public sealed class RoundTripTests
 
             // Sanity: the seeded masters are present before we persist anything.
             Assert.Equal(28, original.Groups.Count);
-            Assert.Equal(24, original.VoucherTypes.Count);
+            Assert.Equal(23, original.VoucherTypes.Count);   // 23, not 24: the dead Attendance seed row was dropped
             var originalLedgerCount = original.Ledgers.Count;
             var originalVoucherCount = original.Vouchers.Count;
             var originalLineCount = original.Vouchers.Sum(v => v.Lines.Count);
@@ -68,7 +68,7 @@ public sealed class RoundTripTests
             Assert.Equal(original.Id, reloaded.Id);
             Assert.Equal(original.Name, reloaded.Name);
             Assert.Equal(28, reloaded.Groups.Count);
-            Assert.Equal(24, reloaded.VoucherTypes.Count);
+            Assert.Equal(23, reloaded.VoucherTypes.Count);   // 23, not 24: the dead Attendance seed row was dropped
             Assert.Equal(originalLedgerCount, reloaded.Ledgers.Count);
             Assert.NotNull(reloaded.ProfitAndLossHead);
 
@@ -132,14 +132,14 @@ public sealed class RoundTripTests
 
             Assert.Equal(28, reloaded.Groups.Count);
             Assert.Equal(2, reloaded.Ledgers.Count);
-            Assert.Equal(24, reloaded.VoucherTypes.Count);
+            Assert.Equal(23, reloaded.VoucherTypes.Count);   // 23, not 24: the dead Attendance seed row was dropped
             Assert.Empty(reloaded.Vouchers);
             Assert.NotNull(reloaded.ProfitAndLossHead);
 
             // Master repository accessors read the same rows.
             Assert.Equal(28, readStore.GetGroups(company.Id).Count);
             Assert.Equal(2, readStore.GetLedgers(company.Id).Count);
-            Assert.Equal(24, readStore.GetVoucherTypes(company.Id).Count);
+            Assert.Equal(23, readStore.GetVoucherTypes(company.Id).Count);   // 23, not 24: the dead Attendance seed row was dropped
         }
         finally
         {

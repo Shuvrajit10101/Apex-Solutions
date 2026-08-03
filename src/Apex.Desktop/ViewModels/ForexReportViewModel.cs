@@ -183,12 +183,14 @@ public sealed partial class ForexReportViewModel : ViewModelBase
             return null;
         }
 
-        var journalType = _company.VoucherTypes.FirstOrDefault(t =>
-            t.BaseType == VoucherBaseType.Journal && t.IsActive)
-            ?? _company.VoucherTypes.FirstOrDefault(t => t.BaseType == VoucherBaseType.Journal);
+        // Resolve through the SAME rule as every other route and writing path (VoucherTypeResolver): only an
+        // ACTIVE, non-specialised type is ever used. The shape that stood here fell back to a DEACTIVATED Journal
+        // series and then POSTED a real adjusting journal under it — the operator could not have keyed that entry
+        // by hand, so the report must not book it for them either.
+        var journalType = VoucherTypeResolver.ResolveForEntry(_company, VoucherBaseType.Journal);
         if (journalType is null)
         {
-            Message = "No Journal voucher type is configured to book the adjustment.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(_company, VoucherBaseType.Journal);
             return null;
         }
 

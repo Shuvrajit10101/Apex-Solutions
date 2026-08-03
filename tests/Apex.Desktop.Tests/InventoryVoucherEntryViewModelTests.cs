@@ -399,7 +399,7 @@ public sealed class InventoryVoucherEntryViewModelTests : IDisposable
         var orderLabels = k.Vm.Menu.Where(x => x.IsSelectable).Select(x => x.Label).ToArray();
         Assert.Equal(new[] { "Purchase Order", "Sales Order" }, orderLabels);
 
-        // Inventory Vouchers group → the six stock-moving pages incl. Physical Stock (F10 menu path).
+        // Inventory Vouchers group → the six stock-moving pages incl. Physical Stock (Ctrl+F7).
         k.Vm.ShowInventoryVouchersMenu();
         Assert.Equal(GatewayMenu.InventoryVouchers, k.Vm.CurrentGatewayMenu);
         var invLabels = k.Vm.Menu.Where(x => x.IsSelectable).Select(x => x.Label).ToArray();
