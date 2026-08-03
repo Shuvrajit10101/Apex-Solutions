@@ -126,52 +126,101 @@ public sealed class ServiceAccountingInvoiceKeyboardTests
     }
 
     /// <summary>
-    /// Ctrl+H off an invoiceable entry must change nothing AND must NOT be consumed — the b8c617e guarantee that a
-    /// new accelerator does not swallow a key app-wide.
-    /// <para><b>This test now bites.</b> The previous version asserted only <c>IsAsVoucherMode</c>, which
-    /// <c>ChangeMode()</c> guards on its own — removing <c>&amp;&amp; vm.IsInvoiceableEntry</c> from the tunnel block
-    /// left it GREEN. Observing <c>e.Handled</c> is what actually locks the non-swallowing behaviour.</para>
+    /// Ctrl+H must not swallow the key app-wide — the b8c617e guarantee. The gate widened for G-6 (Single Entry now
+    /// lives on Ctrl+H for Contra/Payment/Receipt), so the negative case moved to a <b>Journal</b>: it has no
+    /// alternative entry mode at all, so the key must fall through UNHANDLED there.
+    /// <para><b>This test bites on <c>e.Handled</c>, deliberately.</b> An earlier version asserted only
+    /// <c>IsAsVoucherMode</c>, which <c>ChangeMode()</c> guards on its own — so deleting the gate from the tunnel
+    /// block left it GREEN. Observing consumption is what actually locks the behaviour.</para>
     /// </summary>
     [AvaloniaFact]
-    public void CtrlH_is_a_noop_on_a_non_invoiceable_entry()
+    public void CtrlH_is_unhandled_on_a_voucher_with_no_alternative_mode()
     {
         var (window, vm, _) = NewWindow();
-        vm.OpenVoucher(VoucherBaseType.Payment);
+        vm.OpenVoucher(VoucherBaseType.Journal);
         var entry = vm.VoucherEntry!;
         Assert.False(entry.CanBeItemInvoice);
-        Assert.False(vm.IsInvoiceableEntry);
+        Assert.False(entry.CanBeSingleEntry);
+        Assert.False(vm.IsChangeModeEntry);
 
         Assert.False(KeyWasHandled(window, Key.H, KeyModifiers.Control));  // NOT swallowed — falls through
         Assert.True(entry.IsAsVoucherMode);                                // and nothing changed
 
-        // Contrast: on an invoiceable entry the SAME key IS consumed (so the guard above is not vacuous).
+        // Contrast 1: on an invoiceable entry the SAME key IS consumed (so the guard above is not vacuous).
         vm.OpenVoucher(VoucherBaseType.Sales);
-        Assert.True(vm.IsInvoiceableEntry);
+        Assert.True(vm.IsChangeModeEntry);
         Assert.True(KeyWasHandled(window, Key.H, KeyModifiers.Control));
         Assert.True(vm.VoucherEntry!.IsItemInvoice);
     }
 
     /// <summary>
-    /// FIX-3 — the PURCHASE-side accounting invoice is DEFERRED scope (it silently dropped §194J TDS and
-    /// mis-evaluated RCM). Ctrl+H on a Purchase must cycle As Voucher ↔ Item Invoice only and never reach
-    /// Accounting mode.
+    /// <b>G-6 end-to-end through the real key tunnel.</b> The view-model change alone was not enough: Ctrl+H was
+    /// gated on <c>IsInvoiceableEntry</c> (Purchase/Sales only), so Single Entry — though implemented and unit
+    /// tested — was unreachable from the keyboard on the three vouchers it belongs to. This asserts the key really
+    /// arrives, on a Payment, and that the rendered tree swaps to the Single-Entry grid.
     /// </summary>
     [AvaloniaFact]
-    public void CtrlH_on_a_purchase_never_enters_accounting_mode()
+    public void CtrlH_on_a_payment_enters_single_entry_mode()
+    {
+        var (window, vm, _) = NewWindow();
+        vm.OpenVoucher(VoucherBaseType.Payment);
+        var entry = vm.VoucherEntry!;
+        Assert.True(entry.CanBeSingleEntry);
+        Assert.True(vm.IsChangeModeEntry);
+        Pump(window);
+        Assert.Contains("Particulars (Ledger)", ShownText(window));   // the Dr/Cr grid header, in Double Entry
+
+        Assert.True(KeyWasHandled(window, Key.H, KeyModifiers.Control));
+        Assert.True(entry.IsSingleEntry);
+        Assert.False(entry.ShowPlainDrCrGrid);
+        Pump(window);
+
+        // The realised tree really swapped: the Account field is up and the Dr/Cr grid header is gone.
+        var shown = ShownText(window);
+        Assert.Contains("Account", shown);
+        Assert.DoesNotContain("Particulars (Ledger)", shown);
+
+        // Payment polarity, surfaced to the operator (BOOK p.32).
+        Assert.Contains("Account is credited", entry.SingleEntryModeHint);
+
+        // …and Ctrl+H flips straight back.
+        Assert.True(KeyWasHandled(window, Key.H, KeyModifiers.Control));
+        Assert.False(entry.IsSingleEntry);
+        Assert.True(entry.ShowPlainDrCrGrid);
+    }
+
+    /// <summary>
+    /// <b>G-7 — this test was inverted, deliberately.</b> It previously asserted that Ctrl+H on a Purchase could
+    /// NEVER reach Accounting mode, because the purchase-side accounting invoice was deferred scope: it silently
+    /// dropped the §194J TDS carve-out and mis-evaluated RCM, both because the detectors read the (empty) plain
+    /// <c>Lines</c> collection.
+    ///
+    /// <para>That precondition has been met — TDS and RCM detection now read the Particulars lines
+    /// (<c>DetectAccountingTdsShape</c> / <c>DetectAccountingRcmShape</c>), and
+    /// <c>PurchaseAccountingInvoiceTdsTests</c> proves §194J still fires, still rounds to the rupee, still records a
+    /// below-threshold assessment and still honours the decline sentinel. So the correct assertion is now the
+    /// opposite: Ctrl+H on a Purchase cycles all THREE modes, exactly as on a Sales (BOOK p.33; SG p.80).</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void CtrlH_on_a_purchase_cycles_all_three_modes()
     {
         var (window, vm, _) = NewWindow();
         vm.OpenVoucher(VoucherBaseType.Purchase);
         var entry = vm.VoucherEntry!;
         Assert.True(entry.CanBeItemInvoice);
-        Assert.False(entry.CanBeAccountingInvoice);
+        Assert.True(entry.CanBeAccountingInvoice);
 
-        for (var i = 0; i < 6; i++)
-        {
-            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
-            Assert.False(entry.IsAccountingInvoice);       // never, at any point in the cycle
-            Assert.False(entry.ShowParticularsGrid);
-        }
-        // The 2-way Purchase cycle is even-length, so six presses land back on As Voucher.
+        Assert.True(entry.IsAsVoucherMode);
+        window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+        Assert.True(entry.IsItemInvoice);
+        window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+        Assert.True(entry.IsAccountingInvoice);
+        Assert.True(entry.ShowParticularsGrid);
+        window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+        Assert.True(entry.IsAsVoucherMode);
+
+        // The 3-way Purchase cycle now has period 3, so six presses still land back on As Voucher.
+        for (var i = 0; i < 6; i++) window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
         Assert.True(entry.IsAsVoucherMode);
     }
 

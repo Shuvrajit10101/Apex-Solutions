@@ -496,7 +496,9 @@ public partial class MainWindow : Window
         // entry (Purchase/Sales) so the key is not swallowed app-wide; a no-op — and unhandled, falling through —
         // everywhere else. Additive: it consumes a key the keystroke arbiter does not otherwise route, and touches no
         // dropdown/Tab/arrow ownership, so the b8c617e arbitration and the numbering config are untouched.
-        if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsInvoiceableEntry)
+        // G-6 widened the gate from IsInvoiceableEntry (Purchase/Sales only) to IsChangeModeEntry, which also admits
+        // Contra/Payment/Receipt so Ctrl+H reaches Single Entry on the three vouchers that have it.
+        if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsChangeModeEntry)
         {
             vm.ChangeMode();
             e.Handled = true;
@@ -1039,6 +1041,24 @@ public partial class MainWindow : Window
         if (sender is Control { DataContext: VoucherLineViewModel line })
             Vm?.AddCostAllocation(line);
     }
+
+    /// <summary>
+    /// G-1 — "+ Add bill" on the INVOICE-mode Bill-wise panel. Unlike the plain-grid sibling above, the allocations
+    /// belong to the screen (the party leg is derived at Accept), so the row is added to the entry view model itself.
+    /// </summary>
+    private void OnAddInvoiceBillAllocationClick(object? sender, RoutedEventArgs e) =>
+        Vm?.VoucherEntry?.AddInvoiceBillAllocation();
+
+    /// <summary>G-1 — "Remove" on an invoice-mode Bill-wise row (keeps at least one while the panel is on).</summary>
+    private void OnRemoveInvoiceBillAllocationClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: BillAllocationRowViewModel row })
+            Vm?.VoucherEntry?.RemoveInvoiceBillAllocation(row);
+    }
+
+    /// <summary>G-6 — "+ Add particular" on the Single-Entry grid (the many side).</summary>
+    private void OnAddSingleEntryParticularClick(object? sender, RoutedEventArgs e) =>
+        Vm?.VoucherEntry?.AddSingleEntryParticular();
 
     private void OnCreateCostCategoryClick(object? sender, RoutedEventArgs e)
         => Vm?.CostCategoryMaster?.Create();
