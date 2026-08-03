@@ -195,7 +195,7 @@ public sealed class InventoryVoucherRoundTripTests
                 // A migrated v9 DB has no inventory-voucher rows until re-saved (the v10 tables start empty).
                 Assert.Empty(loaded.InventoryVouchers);
                 // Voucher types exist; their effect flags default to off until re-saved.
-                Assert.Equal(24, loaded.VoucherTypes.Count);
+                Assert.Equal(23, loaded.VoucherTypes.Count);   // 23, not 24: the dead Attendance seed row was dropped
             }
 
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));

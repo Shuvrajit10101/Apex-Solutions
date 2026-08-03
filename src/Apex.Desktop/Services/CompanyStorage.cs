@@ -6,6 +6,7 @@ using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
 using Apex.Ledger.Persistence;
 using Apex.Ledger.Reports;
+using Apex.Ledger.Services;
 using Apex.Persistence.Sqlite;
 
 namespace Apex.Desktop.Services;
@@ -81,8 +82,16 @@ public sealed class CompanyStorage
         var companies = store.ListCompanies();
         if (companies.Count == 0)
             throw new InvalidOperationException($"No company found in '{entry.DatabasePath}'.");
-        return store.Load(companies[0].Id)
+        var company = store.Load(companies[0].Id)
             ?? throw new InvalidOperationException($"Failed to load company from '{entry.DatabasePath}'.");
+
+        // A seeded voucher-type shortcut that has since been CORRECTED is still stored verbatim on a company
+        // created before the correction, and the Day-Book Alt+A picker renders that stored string — so the
+        // company would be shown one key on its authored menu row and a different, LIVE-but-wrong key beside the
+        // same type in the picker. Repair the superseded value on the way in (idempotent, predefined rows only);
+        // it persists on the next save. This is the whole reason no v50 schema migration was cut for it.
+        VoucherTypeResolver.RepairSupersededSeedShortcuts(company);
+        return company;
     }
 
     /// <summary>

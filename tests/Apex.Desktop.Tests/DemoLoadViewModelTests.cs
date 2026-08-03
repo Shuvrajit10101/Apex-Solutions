@@ -105,10 +105,11 @@ public sealed class DemoLoadViewModelTests : IDisposable
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
         Assert.NotNull(vm.Company);
         Assert.Equal("Acme Traders", vm.Company!.Name);
-        // Seed contract: exactly 28 groups + 2 ledgers + 24 voucher types.
+        // Seed contract: exactly 28 groups + 2 ledgers + 23 voucher types (23, not 24 — the dead Attendance
+        // row was dropped; nothing in the product ever posted a voucher of that base kind).
         Assert.Equal(28, vm.Company.Groups.Count);
         Assert.Equal(2, vm.Company.Ledgers.Count);
-        Assert.Equal(24, vm.Company.VoucherTypes.Count);
+        Assert.Equal(23, vm.Company.VoucherTypes.Count);
     }
 
     [Fact]

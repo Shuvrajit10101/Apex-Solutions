@@ -104,7 +104,11 @@ public class StockMovementTests
             (VoucherBaseType.RejectionOut,  "Ctrl+F5"),
             (VoucherBaseType.RejectionIn,   "Ctrl+F6"),
             (VoucherBaseType.StockJournal,  "Alt+F7"),
-            (VoucherBaseType.PhysicalStock, "F10"),
+            // Physical Stock is Ctrl+F7, NOT F10 — TallyPrime's official keyboard-shortcut reference gives
+            // "To open Physical Stock | Ctrl+F7", and reserves F10 for the voucher/master list. The seed said
+            // "F10", which in this app opens the Other Vouchers menu: an advertised key that did something else,
+            // while Ctrl+F7 was bound to nothing (decision X1).
+            (VoucherBaseType.PhysicalStock, "Ctrl+F7"),
         };
         foreach (var (bt, sc) in expected)
             Assert.Equal(sc, c.VoucherTypes.First(t => t.BaseType == bt).DefaultShortcut);

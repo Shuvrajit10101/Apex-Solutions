@@ -31,10 +31,14 @@ public class SeedTests
     }
 
     [Fact]
-    public void Fresh_company_has_exactly_24_voucher_types()
+    public void Fresh_company_has_exactly_23_voucher_types()
     {
         var c = Fresh();
-        Assert.Equal(24, c.VoucherTypes.Count);
+        Assert.Equal(23, c.VoucherTypes.Count);
+        // 23, not 24. The catalog lists an Attendance type, but nothing in the product ever posted a Voucher of
+        // that base kind — the Attendance / Production screen writes AttendanceEntry rows — so the seed row was
+        // master data nothing read, propping up a completeness claim that was not true (decision D24 option B).
+        Assert.DoesNotContain(c.VoucherTypes, t => t.BaseType == VoucherBaseType.Attendance);
     }
 
     [Fact]
@@ -137,7 +141,8 @@ public class SeedTests
     {
         var c = Fresh();
         Assert.False(c.FindVoucherTypeByName("Payroll")!.IsActive);
-        Assert.False(c.FindVoucherTypeByName("Attendance")!.IsActive);
+        // No "Attendance" type is seeded at all any more (see Fresh_company_has_exactly_23_voucher_types).
+        Assert.Null(c.FindVoucherTypeByName("Attendance"));
         Assert.False(c.FindVoucherTypeByName("Material In")!.IsActive);
         Assert.True(c.FindVoucherTypeByName("Payment")!.IsActive);
         Assert.True(c.FindVoucherTypeByName("Memorandum")!.IsActive);
@@ -149,7 +154,7 @@ public class SeedTests
         Assert.Equal(SeedGroups.Count, CompanyFactory.SeedGroupSet().Count);
         Assert.Equal(SeedVoucherTypes.Count, CompanyFactory.SeedVoucherTypeSet().Count);
         Assert.Equal(28, SeedGroups.Count);
-        Assert.Equal(24, SeedVoucherTypes.Count);
+        Assert.Equal(23, SeedVoucherTypes.Count);   // 23, not 24: the dead Attendance row was dropped
         Assert.Equal(2, SeedLedgers.Count);
     }
 }

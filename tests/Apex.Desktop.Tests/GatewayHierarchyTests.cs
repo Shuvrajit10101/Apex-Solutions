@@ -101,7 +101,7 @@ public sealed class GatewayHierarchyTests : IDisposable
     // ---------------------------------------------------------------- Vouchers submenu
 
     [Fact]
-    public void Vouchers_leads_to_the_six_voucher_types()
+    public void Vouchers_leads_to_the_eight_accounting_voucher_types()
     {
         var vm = NewSeededCompany("Vouchers Co");
 
@@ -110,18 +110,21 @@ public sealed class GatewayHierarchyTests : IDisposable
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
         Assert.Equal(GatewayMenu.Vouchers, vm.CurrentGatewayMenu);
 
-        // The six accounting voucher types are listed under the VOUCHERS header, then an "Inventory"
-        // section with the Order/Inventory voucher groups, then an "Other Vouchers" group (Reversing
-        // Journal / Memorandum nest under it).
+        // The eight accounting voucher types are listed under the VOUCHERS header — Credit Note and Debit Note
+        // included, in the corpus's ordering (Book p.24 lists them at #11 and #12 of the 24) — then an
+        // "Inventory" section with the Order/Inventory voucher groups, then an "Other Vouchers" group
+        // (Reversing Journal / Memorandum nest under it).
         Assert.Equal(new[] { "Vouchers", "Inventory", "Other Vouchers" }, HeaderLabels(vm));
         Assert.Equal(
             new[] { "Contra", "Payment", "Receipt", "Journal", "Sales", "Purchase",
+                    "Credit Note", "Debit Note",
                     "Order Vouchers", "Inventory Vouchers", "Other Vouchers" },
             ItemLabels(vm));
 
-        // The six accounting types carry their F-key hint (F4..F9); each row is a submenu child.
-        var hints = vm.Menu.Where(m => m.IsSelectable).Take(6).Select(m => m.Hint).ToArray();
-        Assert.Equal(new[] { "F4", "F5", "F6", "F7", "F8", "F9" }, hints);
+        // The eight accounting types carry their key hint (F4..F9, then Alt+F6 / Alt+F5); each row is a
+        // submenu child.
+        var hints = vm.Menu.Where(m => m.IsSelectable).Take(8).Select(m => m.Hint).ToArray();
+        Assert.Equal(new[] { "F4", "F5", "F6", "F7", "F8", "F9", "Alt+F6", "Alt+F5" }, hints);
         Assert.All(vm.Menu.Where(m => m.IsSelectable), m => Assert.True(m.IsSubItem));
     }
 

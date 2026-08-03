@@ -133,11 +133,18 @@ public sealed partial class OutstandingsViewModel : ViewModelBase
 
         // The settlement side uses Receipt for receivables (money in) and Payment for payables (money out).
         var wantType = Kind == OutstandingsKind.Receivables ? VoucherBaseType.Receipt : VoucherBaseType.Payment;
-        var vType = _company.VoucherTypes.FirstOrDefault(t => t.BaseType == wantType && t.IsActive)
-                    ?? _company.VoucherTypes.FirstOrDefault(t => t.BaseType == wantType);
+        // Resolve through the SAME rule as every navigation route (VoucherTypeResolver): only an ACTIVE,
+        // non-specialised type is ever used, and the seeded predefined series wins. The shape that stood here —
+        // `FirstOrDefault(BaseType == want && IsActive) ?? FirstOrDefault(BaseType == want)` — let its second arm
+        // POST under a DEACTIVATED type, which is strictly worse than the navigation sites that carried the same
+        // bug: F6 merely opened a screen, this writes a real settlement voucher and knocks the bill off. A company
+        // that had switched its Receipt series off could not OPEN the type yet could still be made to post under
+        // it. A settlement is an ordinary Receipt/Payment the operator could have keyed by hand, so if they could
+        // not have keyed it, we must not post it for them.
+        var vType = VoucherTypeResolver.ResolveForEntry(_company, wantType);
         if (vType is null)
         {
-            Message = $"No '{wantType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(_company, wantType);
             return false;
         }
 

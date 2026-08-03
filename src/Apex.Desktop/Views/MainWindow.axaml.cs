@@ -614,8 +614,7 @@ public partial class MainWindow : Window
         }
 
         // Inventory/order voucher shortcuts (modifier + F-key). Checked before the plain F-key switch so a
-        // modified F-key never falls through to its bare-key report/voucher action. Physical Stock is
-        // menu-only (F10 has no standalone modifier hotkey), matching the seed.
+        // modified F-key never falls through to its bare-key report/voucher action.
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
         {
             switch (e.Key)
@@ -627,6 +626,14 @@ public partial class MainWindow : Window
                 case Key.F8: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.SalesOrder); e.Handled = true; return;
                 case Key.F6: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionIn); e.Handled = true; return;
                 case Key.F5: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.RejectionOut); e.Handled = true; return;
+                // Ctrl+F7 Physical Stock — TallyPrime's official key ("To open Physical Stock | Ctrl+F7"). The type
+                // was seeded and rendered as "F10", which in this app opens the Other Vouchers menu, while Ctrl+F7
+                // was bound to nothing: the UI advertised a route that did not exist. Ctrl+F7 was free — this block
+                // previously handled only F5/F6/F8/F9, and Key.F7 appears nowhere else under Control — so nothing is
+                // shadowed. (F10 deliberately stays Apex's Other Vouchers menu: it is the only route to Memorandum,
+                // Reversing Journal and the four Job Work types, and re-cutting it to TallyPrime's voucher/master
+                // list would break a working, discoverable route to chase a label. Decision D7 option A / X6.)
+                case Key.F7: vm.OpenInventoryVoucher(Apex.Ledger.Domain.VoucherBaseType.PhysicalStock); e.Handled = true; return;
             }
         }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control))

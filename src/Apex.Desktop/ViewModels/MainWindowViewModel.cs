@@ -7,6 +7,9 @@ using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
+// Aliased rather than importing Apex.Ledger.Services wholesale: this file deliberately fully-qualifies engine
+// services (ManufacturingJournalService, …) so that namespace cannot start shadowing Apex.Desktop.Services.
+using VoucherTypeResolver = Apex.Ledger.Services.VoucherTypeResolver;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -949,8 +952,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Builds the "Vouchers" submenu column (Transactions → Vouchers): the six accounting voucher
-    /// types, each a page item under its F-key.
+    /// Builds the "Vouchers" submenu column (Transactions → Vouchers): the eight accounting voucher types —
+    /// Contra/Payment/Receipt/Journal/Sales/Purchase under F4–F9, then Credit Note (Alt+F6) and Debit Note
+    /// (Alt+F5) — each a page item under its key.
     /// </summary>
     private GatewayColumn BuildVouchersColumn()
     {
@@ -962,6 +966,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Journal", () => { }, "F7", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Sales", () => { }, "F8", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Purchase", () => { }, "F9", isSubItem: true, kind: MenuItemKind.Page));
+        // Credit Note / Debit Note (Alt+F6 / Alt+F5). Two of the predefined types had NO menu row anywhere in the
+        // app — reachable only by their accelerator or the Day-Book Alt+A picker, so an operator who did not
+        // already know the key could not find them at all. They belong here beside the sales they reverse (Book
+        // p.24 lists Credit Note at #11 and Debit Note at #12), nested under this same VOUCHERS header rather
+        // than buried under "Other Vouchers" with the provisional kinds — they are ordinary weekly accounting
+        // vouchers (decision D9 option A). The hints are TallyPrime's keys, and the keys this app already binds,
+        // so neither row can advertise a dead key.
+        col.Add(new MenuItemViewModel("Credit Note", () => { }, "Alt+F6", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Debit Note", () => { }, "Alt+F5", isSubItem: true, kind: MenuItemKind.Page));
 
         // Inventory (stock/order) voucher kinds under their own groups (professional hierarchy):
         // Order Vouchers [PO, SO]; Inventory Vouchers [GRN, Delivery, Rejection In/Out, Stock Journal, Physical Stock].
@@ -1018,7 +1031,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Builds the "Inventory Vouchers" submenu column (Transactions → Vouchers → Inventory Vouchers): the six
     /// stock-moving kinds — <b>Receipt Note (GRN)</b> (Alt+F9), <b>Delivery Note</b> (Alt+F8),
     /// <b>Rejection In</b> (Ctrl+F6), <b>Rejection Out</b> (Ctrl+F5), <b>Stock Journal</b> (Alt+F7) and
-    /// <b>Physical Stock</b> (F10 menu) — each a page item. They move stock only (no accounting entry, DP-5).
+    /// <b>Physical Stock</b> (Ctrl+F7) — each a page item. They move stock only (no accounting entry, DP-5).
     /// </summary>
     private GatewayColumn BuildInventoryVouchersColumn()
     {
@@ -1029,7 +1042,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Rejection In", () => { }, "Ctrl+F6", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Rejection Out", () => { }, "Ctrl+F5", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Stock Journal", () => { }, "Alt+F7", isSubItem: true, kind: MenuItemKind.Page));
-        col.Add(new MenuItemViewModel("Physical Stock", () => { }, "F10", isSubItem: true, kind: MenuItemKind.Page));
+        // Physical Stock is Ctrl+F7 (TallyPrime's official key). This row printed "F10", which in this app opens
+        // the Other Vouchers menu — an advertised key that did something else, while Ctrl+F7 was bound to nothing.
+        col.Add(new MenuItemViewModel("Physical Stock", () => { }, "Ctrl+F7", isSubItem: true, kind: MenuItemKind.Page));
         // Manufacturing Journal (Phase 6 Cluster 2; RQ-11/RQ-53) — a Stock-Journal-derived type reached under
         // Inventory Vouchers via Alt+F7 (the manufacturing shortcut), surfaced only when the F12 config
         // "Set Components (BOM)" is on (RQ-10/RQ-52), so a non-BOM company is unaffected.
@@ -2753,13 +2768,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return;
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        // Resolve by RULE (active only, seeded series first, never a specialised variant) — not by "whatever came
+        // first, and if nothing is active open a deactivated one anyway". See VoucherTypeResolver for why that
+        // shape was wrong three ways.
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
+
+        OpenVoucher(type, date, onSaved);
+    }
+
+    /// <summary>
+    /// Opens the voucher-entry screen for an EXACT voucher type — the identity-preserving overload. A caller that
+    /// knows which series the operator chose (the Day-Book Alt+A picker row, a report drill-down) must come
+    /// through here: resolving that choice back down to its base kind would silently substitute a different
+    /// series, with a different name and a different number sequence.
+    /// </summary>
+    public void OpenVoucher(VoucherType type, DateOnly? date = null, Action? onSaved = null)
+    {
+        if (Company is null) return;
+        ArgumentNullException.ThrowIfNull(type);
 
         var entry = new VoucherEntryViewModel(
             Company, type, _storage,
@@ -2790,13 +2821,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
+
+        OpenInventoryVoucher(type, date, onSaved);
+    }
+
+    /// <summary>
+    /// Opens the stock/order voucher-entry screen for an EXACT voucher type — the identity-preserving overload
+    /// (see <see cref="OpenVoucher(VoucherType, DateOnly?, Action?)"/> for why base-kind resolution is not good
+    /// enough for a caller that already knows the series).
+    /// </summary>
+    public void OpenInventoryVoucher(VoucherType type, DateOnly? date = null, Action? onSaved = null)
+    {
+        if (Company is null) return;
+        ArgumentNullException.ThrowIfNull(type);
 
         var entry = new InventoryVoucherEntryViewModel(
             Company, type, _storage,
@@ -2837,12 +2880,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // mid-word red letter on a name nobody at build time has seen, so a bare letter FILTERS here instead.
         var picker = new GatewayColumn("Add Voucher") { Kind = GatewayColumnKind.DataDriven };
         picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
-        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive))
+        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive && CanAddFromDayBook(t)))
         {
-            var baseType = type.BaseType;
+            // Capture the TYPE, not its base kind: these rows are the company's own voucher types, and two of
+            // them can share a base (a second Sales series, a Manufacturing Journal over Stock Journal, a POS
+            // till). Passing the base kind sent the choice through resolution again and opened a DIFFERENT type
+            // than the row the operator was standing on.
+            var chosen = type;
             picker.Add(new MenuItemViewModel(
                 type.Name,
-                () => PickAddVoucherType(baseType, seedDate),
+                () => PickAddVoucherType(chosen, seedDate),
                 type.DefaultShortcut ?? string.Empty,
                 isSubItem: true,
                 kind: MenuItemKind.Action));
@@ -2860,13 +2907,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
-    /// the Day Book's place — one page column, honouring the cascade invariant) and opens that type's entry seeded
-    /// with <paramref name="seedDate"/>, wiring the post-save action to re-run the Day Book so the new voucher
-    /// appears. Routes inventory/order kinds to the inventory entry and the Job-Work / Material kinds to their own
-    /// dedicated screens (they carry no date/refresh override, matching their existing menu route).
+    /// WI-12 — whether a voucher type can be offered as something to ADD from the Day Book, i.e. whether choosing
+    /// it actually produces a voucher on the screen the operator is looking at.
+    /// <list type="bullet">
+    /// <item><b>Attendance</b> never can. Nothing in the product posts a <c>Voucher</c> of that base kind — the
+    /// Attendance / Production screen writes <c>AttendanceEntry</c> rows — so offering it would advertise an entry
+    /// that cannot be made. The seed row is gone (see <c>SeedVoucherTypes</c>), but a company created before that
+    /// still carries a stored Attendance row that a data migration has not removed, so the guard stays.</item>
+    /// <item>A <b>Manufacturing Journal</b> type is offered only while the F12 "Set Components (BOM)" config is
+    /// on, exactly like its menu row — its screen is gated on that config and would silently not open.</item>
+    /// </list>
     /// </summary>
-    private void PickAddVoucherType(VoucherBaseType baseType, DateOnly? seedDate)
+    private bool CanAddFromDayBook(VoucherType type) =>
+        type.BaseType != VoucherBaseType.Attendance
+        && (!type.IsManufacturingJournal || Company is { SetComponentsBom: true });
+
+    /// <summary>
+    /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
+    /// the Day Book's place — one page column, honouring the cascade invariant) and opens THAT TYPE's entry seeded
+    /// with <paramref name="seedDate"/>, wiring the post-save action to re-run the Day Book so the new voucher
+    /// appears. Routes inventory/order kinds to the inventory entry and the Job-Work / Material / Payroll /
+    /// Manufacturing-Journal / POS kinds to their own dedicated screens (those carry no date/refresh override,
+    /// matching their existing menu route).
+    /// <para>The parameter is the chosen <see cref="VoucherType"/>, not its base kind: two types can share a base
+    /// (a second Sales series; a Manufacturing Journal over Stock Journal; a POS Sales type), and re-resolving the
+    /// base opened whichever one the resolver preferred rather than the row the operator picked.</para>
+    /// </summary>
+    private void PickAddVoucherType(VoucherType type, DateOnly? seedDate)
     {
         // Drop the picker menu column so OpenPageColumn's trim leaves exactly one page column (the new voucher,
         // in the Day Book's place). Without this the picker (a menu column) would survive the trim.
@@ -2876,17 +2943,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // On save, return to a freshly-built Day Book (its projection now includes the just-posted voucher).
         Action refreshDayBook = () => OpenReport(ReportKind.DayBook);
 
-        switch (baseType)
+        // Types whose identity means a DIFFERENT SCREEN, not just a different series — checked before the base
+        // switch, because each of these shares its base kind with an ordinary type.
+        if (type.IsManufacturingJournal) { OpenManufacturingJournal(); return; }
+        if (type.IsPosSales) { OpenPosBilling(); return; }
+
+        switch (type.BaseType)
         {
             case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In); break;
             case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out); break;
             case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
             case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            // A Payroll voucher is computed on its own screen (period + employees + Compute), never keyed as a
+            // bare Dr/Cr grid — which is what routing it through the accounting entry would have given.
+            case VoucherBaseType.Payroll: ShowPayrollVoucher(); break;
             default:
-                if (VoucherEffects.IsInventoryBaseType(baseType))
-                    OpenInventoryVoucher(baseType, seedDate, refreshDayBook);
+                if (VoucherEffects.IsInventoryBaseType(type.BaseType))
+                    OpenInventoryVoucher(type, seedDate, refreshDayBook);
                 else
-                    OpenVoucher(baseType, seedDate, refreshDayBook);
+                    OpenVoucher(type, seedDate, refreshDayBook);
                 break;
         }
     }
@@ -3308,11 +3383,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var baseType = direction == JobWorkDirection.In
             ? VoucherBaseType.JobWorkInOrder
             : VoucherBaseType.JobWorkOutOrder;
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
 
@@ -3337,11 +3411,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
         if (baseType is not (VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut)) return;
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType && t.IsActive)
-                   ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == baseType);
+        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
-            Message = $"No '{baseType}' voucher type is configured for this company.";
+            Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
 
@@ -4857,11 +4930,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         if (Company is null) return null;
 
-        var target = Company.VoucherTypes.FirstOrDefault(t => t.BaseType == targetBaseType && t.IsActive)
-                     ?? Company.VoucherTypes.FirstOrDefault(t => t.BaseType == targetBaseType);
+        // Same rule as every other route: an INACTIVE type is never the target of a conversion either — a
+        // provisional voucher must not silently become a real one under a series the operator switched off.
+        var target = VoucherTypeResolver.ResolveForEntry(Company, targetBaseType);
         if (target is null)
         {
-            Message = $"No '{targetBaseType}' voucher type is configured to convert into.";
+            Message = $"No active '{VoucherTypeResolver.DisplayName(Company, targetBaseType)}' "
+                      + "voucher type is configured to convert into.";
             return null;
         }
 
@@ -6075,6 +6150,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Journal": OpenVoucher(VoucherBaseType.Journal); break;
             case "Sales": OpenVoucher(VoucherBaseType.Sales); break;
             case "Purchase": OpenVoucher(VoucherBaseType.Purchase); break;
+            // The §34 Credit / Debit Note entries — their new menu rows (Transactions → Vouchers) route here, to
+            // the same screens Alt+F6 / Alt+F5 already opened.
+            case "Credit Note": OpenVoucher(VoucherBaseType.CreditNote); break;
+            case "Debit Note": OpenVoucher(VoucherBaseType.DebitNote); break;
             case "Reversing Journal": OpenVoucher(VoucherBaseType.ReversingJournal); break;
             case "Memorandum": OpenVoucher(VoucherBaseType.Memorandum); break;
             case "Purchase Order": OpenInventoryVoucher(VoucherBaseType.PurchaseOrder); break;

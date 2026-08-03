@@ -15,7 +15,7 @@ namespace Apex.Desktop.ViewModels;
 /// <summary>
 /// The reusable stock/order voucher-entry screen — one view model for all eight inventory voucher kinds:
 /// Purchase Order (Ctrl+F9), Sales Order (Ctrl+F8), Receipt Note/GRN (Alt+F9), Delivery Note (Alt+F8),
-/// Rejection In (Ctrl+F6), Rejection Out (Ctrl+F5), Stock Journal (Alt+F7) and Physical Stock (F10 menu). It
+/// Rejection In (Ctrl+F6), Rejection Out (Ctrl+F5), Stock Journal (Alt+F7) and Physical Stock (Ctrl+F7). It
 /// mirrors <see cref="VoucherEntryViewModel"/> (the accounting Dr/Cr entry) but posts to the <b>separate</b>
 /// <see cref="InventoryVoucher"/> aggregate through <see cref="InventoryPostingService"/> — there is NO Dr/Cr
 /// balancing (a stock/order voucher posts no accounting entry, DP-5), and a stock movement's direction is
