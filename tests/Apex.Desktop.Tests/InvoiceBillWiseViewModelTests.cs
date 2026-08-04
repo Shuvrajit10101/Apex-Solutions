@@ -148,16 +148,30 @@ public sealed class InvoiceBillWiseViewModelTests : IDisposable
         FillItemLine(entry, k, "3", "1234.57");
         entry.RecalculateItemInvoice();
 
+        // The Bill-wise SUB-SCREEN is opt-in — TallyPrime ships "Use default Bill-wise details for Bill Allocation"
+        // at Yes and allocates silently (see DefaultBillAllocationTests). Clearing it is exactly what Tally-Book p.81
+        // does to make the sub-screen appear.
+        entry.UseDefaultBillWiseAllocation = false;
+
         // The panel is on (layer 3: the ledger says Maintain balances bill-by-bill) and pre-seeded to the total.
         Assert.True(entry.ShowInvoiceBillWise);
         Assert.Single(entry.InvoiceBillAllocations);
         Assert.Equal(3703.71m, entry.InvoicePartyTotal);
         Assert.Equal(3703.71m, entry.InvoiceBillAllocations[0].ParsedAmount);
 
-        // A New Ref needs a bill reference name (SG p.90) — until one is typed the split is incomplete and Accept
-        // is gated. This is the corpus contract, not an accident: an unnamed New Ref would open an unmatchable bill.
+        // The seeded row opens PRE-FILLED with the voucher number as its reference (SG p.92), so it is already valid.
+        // Blanking that field does not un-name the bill — the row is still screen-owned, so the default comes back.
+        Assert.Equal(entry.FormattedVoucherNumber, entry.InvoiceBillAllocations[0].Name);
+        entry.InvoiceBillAllocations[0].Name = string.Empty;
+        Assert.Equal(entry.FormattedVoucherNumber, entry.InvoiceBillAllocations[0].Name);
+
+        // A New Ref still needs a bill reference name (SG p.90) — an unnamed New Ref would open an unmatchable bill.
+        // The rule bites on an OPERATOR-owned row, which the auto-fill never restamps.
+        var unnamed = entry.AddInvoiceBillAllocation(BillRefType.NewRef);
+        unnamed.AmountText = "1.00";
         Assert.False(entry.InvoiceBillSplitOk);
         Assert.False(entry.CanAccept);
+        entry.RemoveInvoiceBillAllocation(unnamed);
 
         entry.InvoiceBillAllocations[0].Name = "INV-Beta-001";
         Assert.True(entry.InvoiceBillSplitOk);
@@ -205,6 +219,7 @@ public sealed class InvoiceBillWiseViewModelTests : IDisposable
         line.AmountText = "8765.43";
         entry.RecalculateAccountingInvoice();
 
+        entry.UseDefaultBillWiseAllocation = false;   // the sub-screen is opt-in; this test names the bill by hand
         Assert.True(entry.ShowInvoiceBillWise);
         Assert.Equal(8765.43m, entry.InvoicePartyTotal);
         entry.InvoiceBillAllocations[0].Name = "SVC-2026-07";
@@ -237,6 +252,7 @@ public sealed class InvoiceBillWiseViewModelTests : IDisposable
         FillItemLine(entry, k, "7", "987.65");
         entry.RecalculateItemInvoice();
 
+        entry.UseDefaultBillWiseAllocation = false;   // the sub-screen is opt-in; this test names the bill by hand
         Assert.True(entry.ShowInvoiceBillWise);
         Assert.Equal(6913.55m, entry.InvoicePartyTotal);
         entry.InvoiceBillAllocations[0].Name = "ACME/4471";

@@ -3096,6 +3096,19 @@
                               <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="260">
                                 <StackPanel Spacing="6">
 
+                              <!-- Layer 4 — the voucher-screen knob "Use default Bill-wise details for Bill
+                                   Allocation" (spec C-41). Checked (the SHIPPED default, per official TallyPrime and
+                                   Tally-Book p.81) ⇒ the bill is allocated silently from the voucher number and the
+                                   panel below never appears; clear it to review and change the split. Shown whenever
+                                   bill-wise applies, so the panel is always reachable. It lives here rather than
+                                   behind the F12 key because our whole voucher-screen F12 surface is the
+                                   voucher-numbering config (spec §2.6) — the same call made for the batch knob. -->
+                              <CheckBox Content="Use default Bill-wise details for Bill Allocation"
+                                        IsChecked="{Binding UseDefaultBillWiseAllocation, Mode=TwoWay}"
+                                        IsVisible="{Binding InvoiceBillWiseApplies}"
+                                        FontSize="12.5" FontWeight="SemiBold" Margin="0,2,0,0"
+                                        Foreground="{StaticResource BrandNavy}"/>
+
                               <!-- Bill-wise Details on the INVOICE modes (G-1; SG p.79 step 7, p.80 step 6,
                                    p.81 step 6, p.82 step 5). The party leg of an invoice is DERIVED at Accept, so
                                    unlike the plain grid these allocations hang off the screen and foot to the

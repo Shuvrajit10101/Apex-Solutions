@@ -210,24 +210,65 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     ///   <item><b>The master's own field value</b> — <see cref="Ledger.MaintainBillByBill"/> on the SELECTED PARTY.
     ///     This is the operative gate and is enforced here.</item>
     ///   <item><b>F12 on the voucher screen</b> — <see cref="UseDefaultBillWiseAllocation"/> (spec C-41, "Use
-    ///     default Bill-wise details for Bill Allocation"): Yes ⇒ the screen does NOT appear. Transient screen
-    ///     state, default No, so the panel shows exactly as TallyPrime's default does.</item>
+    ///     default Bill-wise details for Bill Allocation"): Yes (the SHIPPED default) ⇒ the screen does NOT appear
+    ///     and the allocation is derived silently. This layer governs <b>visibility only</b> — see
+    ///     <see cref="InvoiceBillWiseApplies"/>.</item>
     /// </list>
     /// Plus the structural precondition that we are actually in an invoice mode (the plain grid keeps its own
     /// per-line panel).
     /// </summary>
-    public bool ShowInvoiceBillWise =>
+    public bool ShowInvoiceBillWise => InvoiceBillWiseApplies && !UseDefaultBillWiseAllocation;
+
+    /// <summary>
+    /// Whether bill-wise allocation <b>applies</b> to this invoice at all — the structural precondition (an invoice
+    /// mode) plus the operative master gate (<see cref="Ledger.MaintainBillByBill"/> on the selected party).
+    ///
+    /// <para><b>Why this is separate from <see cref="ShowInvoiceBillWise"/>.</b> The allocation and the SUB-SCREEN are
+    /// different things. TallyPrime's default bill allocation posts a real bill-wise allocation while showing the
+    /// operator nothing: with "Use default Bill-wise details for Bill Allocation" set to Yes, "you will not see any
+    /// difference in the voucher … On saving the sales transaction, the bill gets linked to the party as default bill
+    /// allocation. The voucher number appears as the bill reference" (official TallyPrime, <i>How to Manage
+    /// Outstanding Receivables in TallyPrime</i> → Change Bill Allocation). So THIS property gates the allocation —
+    /// seeding, validation and posting — and <see cref="UseDefaultBillWiseAllocation"/> gates only whether the
+    /// operator gets to see and edit it. One seeding path serves both, which is why the revealed panel opens
+    /// pre-filled rather than blank.</para>
+    /// </summary>
+    public bool InvoiceBillWiseApplies =>
         ShowInvoiceOverlay
-        && !UseDefaultBillWiseAllocation
         && SelectedParty?.Ledger is { MaintainBillByBill: true };
 
     /// <summary>
-    /// Voucher-screen F12 "Use default Bill-wise details for Bill Allocation" (spec C-41) — Yes ⇒ auto-allocate and
-    /// the Bill-wise screen never appears. Transient screen state (never persisted), default <c>false</c> so the
-    /// panel shows, matching TallyPrime's own default. It is the single most common "bill-wise not showing" support
-    /// case, so it is modelled explicitly rather than being an unnamed hard-coded truth.
+    /// Voucher-screen F12 "Use default Bill-wise details for Bill Allocation" (spec C-41) — Yes ⇒ the allocation is
+    /// derived automatically and the Bill-wise screen never appears; No ⇒ the screen appears, pre-filled with that
+    /// same derivation, for the operator to change.
+    ///
+    /// <para><b>Default Yes, because that is what TallyPrime ships.</b> Official TallyPrime (Change Bill Allocation):
+    /// with it Yes "you will not see any difference in the voucher"; set it to No and "you can select the bill
+    /// references in the Bill-wise Details screen". The corpus shows the same default from the other side —
+    /// <c>719244897-Tally-Book.pdf</c> p.81 has the author explicitly set "F12: Use default bill-wise details for bill
+    /// allocation — No" precisely IN ORDER to make the sub-screen appear for teaching. This flag previously defaulted
+    /// to No with a comment claiming that matched TallyPrime; it was backwards, and the symptom was an extra column
+    /// demanding a bill reference that TallyPrime fills in silently.</para>
+    ///
+    /// <para>Transient screen state, never persisted. Switching it back ON abandons any hand-made split and returns
+    /// to the single derived allocation — "default" means default.</para>
     /// </summary>
-    [ObservableProperty] private bool _useDefaultBillWiseAllocation;
+    [ObservableProperty] private bool _useDefaultBillWiseAllocation = true;
+
+    partial void OnUseDefaultBillWiseAllocationChanged(bool value)
+    {
+        // Back to the DEFAULT allocation ⇒ discard whatever the operator built by hand, so the hidden state is always
+        // the derived one. Leaving a stale multi-row split behind would post a split the operator can no longer see.
+        if (value)
+        {
+            _invoiceBillDirty = false;
+            InvoiceBillAllocations.Clear();
+            _autoBillName = string.Empty;
+            _autoBillDueDateText = string.Empty;
+        }
+        OnPropertyChanged(nameof(ShowInvoiceBillWise));
+        Recalculate();
+    }
 
     /// <summary>Σ of the invoice allocation row magnitudes.</summary>
     public decimal InvoiceBillAllocatedTotal
@@ -241,15 +282,20 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// True when the invoice bill split is valid: the panel is off (no constraint), or every touched row is
+    /// True when the invoice bill split is valid: bill-wise does not apply (no constraint), or every touched row is
     /// complete and the complete rows sum EXACTLY to <see cref="InvoicePartyTotal"/> — the same exact-sum rule the
     /// plain grid and <c>VoucherValidator</c> already enforce (spec C-28, SG p.92).
+    ///
+    /// <para>The gate is deliberately keyed on <see cref="InvoiceBillWiseApplies"/>, not on panel visibility, so the
+    /// DEFAULT (hidden) allocation is held to the identical exact-sum rule. It is exact by construction there — the
+    /// row is stamped from the party total the Accept path just computed — but a silent path is exactly the kind that
+    /// must not be exempt from the invariant that stops a mis-footed allocation posting.</para>
     /// </summary>
     public bool InvoiceBillSplitOk
     {
         get
         {
-            if (!ShowInvoiceBillWise) return true;
+            if (!InvoiceBillWiseApplies) return true;
             if (InvoiceBillAllocations.Any(a => !a.IsBlank && !a.IsComplete)) return false;
             var complete = InvoiceBillAllocations.Where(a => a.IsComplete).ToList();
             if (complete.Count == 0) return false;
@@ -260,6 +306,57 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>Set once the operator has touched the split themselves — after which the auto-fill stops restamping
     /// the single seeded row from the running total, so a deliberate split is never silently overwritten.</summary>
     private bool _invoiceBillDirty;
+
+    /// <summary>The bill reference this screen last auto-stamped. A row still carrying it is still OURS to restamp
+    /// (so capturing the Supplier Invoice No. after the party replaces the provisional voucher-number reference);
+    /// anything else was typed by the operator and is never clobbered.</summary>
+    private string _autoBillName = string.Empty;
+
+    /// <summary>The due date this screen last auto-stamped — same ownership rule as <see cref="_autoBillName"/>.</summary>
+    private string _autoBillDueDateText = string.Empty;
+
+    /// <summary>
+    /// The bill reference TallyPrime fills in for you (SG p.92 field spec; official TallyPrime "the voucher number
+    /// appears as the bill reference"). Per base type:
+    /// <list type="bullet">
+    ///   <item><b>Purchase</b> ⇒ the <b>Supplier Invoice No.</b> when one has been captured — the counterparty's own
+    ///     document number is the bill (<c>719244897-Tally-Book.pdf</c> p.81 works it end to end: Supplier Invoice No.
+    ///     311 ⇒ <c>New Ref | Name: 311 | 30 days | 25,000 Cr</c>).</item>
+    ///   <item><b>Sales</b> ⇒ our own <b>rendered</b> voucher number: a sale has no counterparty document number, and
+    ///     the number we render (prefix/pad/suffix and all, via <see cref="FormattedVoucherNumber"/>) IS the document
+    ///     number this app prints on the invoice, so the bill reference must be the same string.</item>
+    /// </list>
+    /// <para><b>INFERENCE (not sourced):</b> a Purchase whose Supplier Invoice No. was left blank falls back to our
+    /// own rendered voucher number. The corpus only covers the case where the number IS captured; the fallback is
+    /// this codebase's choice, made because the alternative — an unnamed New Ref — opens a payable that can never be
+    /// matched by a later Agst Ref.</para>
+    /// <para>The last resort (<see cref="VoucherNumber"/> as plain digits) exists only for a voucher type numbered
+    /// <see cref="NumberingMethod.None"/>, where the render is legitimately empty: without it the derived allocation
+    /// would be nameless, hence incomplete, and Accept would refuse behind a panel the operator cannot see.</para>
+    /// </summary>
+    private string AutoBillReferenceName()
+    {
+        if (IsPurchaseInvoice && !string.IsNullOrWhiteSpace(ReferenceNo))
+            return ReferenceNo.Trim();
+
+        var rendered = FormattedVoucherNumber;
+        if (!string.IsNullOrWhiteSpace(rendered)) return rendered;
+
+        return VoucherNumber > 0
+            ? VoucherNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// The due date TallyPrime fills in for you — SG p.92: "Due Date, or Credit Days: reflected automatically as per
+    /// the given credit period specified for the party ledger". Blank when the party specifies no credit period,
+    /// which is also what a blank field already means downstream
+    /// (<see cref="BillAllocation.EffectiveDueDate"/> derives it), so the two agree to the day.
+    /// </summary>
+    private string AutoBillDueDateText()
+        => SelectedParty?.Ledger?.DefaultCreditPeriodDays is { } days && days > 0
+            ? ApexDate.Format(Date.AddDays(days))
+            : string.Empty;
 
     /// <summary>Re-entrancy guard: stamping a row's amount raises its change notification, which re-enters the sync.</summary>
     private bool _syncingInvoiceBills;
@@ -303,15 +400,19 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// Keeps the invoice Bill-wise panel in step with the running party total. Called by BOTH invoice recalcs with
-    /// the total the party leg will carry.
+    /// Keeps the invoice Bill-wise allocation in step with the running party total. Called by BOTH invoice recalcs
+    /// with the total the party leg will carry. It runs whenever <see cref="InvoiceBillWiseApplies"/> — panel shown or
+    /// not — because the DEFAULT allocation is derived by exactly the same code that pre-fills the visible panel.
     /// <list type="bullet">
-    ///   <item>Panel off ⇒ the rows are cleared, so switching party or mode never leaves stray allocations behind
-    ///     (the posted voucher is then byte-identical to one entered before this feature existed — ER-13).</item>
-    ///   <item>Panel on and the operator has NOT touched the split ⇒ the single seeded New-Ref row tracks the total
-    ///     and takes its Name from the captured counterparty reference (SG p.90: New Ref auto-fills its name from
-    ///     the Supplier Invoice No.), so the common single-bill case needs no typing.</item>
-    ///   <item>Panel on and the operator HAS split it ⇒ nothing is restamped; only the summary refreshes.</item>
+    ///   <item>Bill-wise does not apply ⇒ the rows are cleared, so switching party or mode never leaves stray
+    ///     allocations behind (the posted voucher is then byte-identical to one entered before this feature existed —
+    ///     ER-13).</item>
+    ///   <item>It applies and the operator has NOT touched the split ⇒ the single New-Ref row is stamped with the
+    ///     full party total, the derived reference (<see cref="AutoBillReferenceName"/>) and the derived due date
+    ///     (<see cref="AutoBillDueDateText"/>) — SG p.92's field spec, all three "captured automatically". With the
+    ///     panel hidden this IS TallyPrime's default bill allocation; with it shown it is the pre-fill the operator
+    ///     corrects.</item>
+    ///   <item>It applies and the operator HAS split it ⇒ nothing is restamped; only the summary refreshes.</item>
     /// </list>
     /// </summary>
     private void SyncInvoiceBillWise(decimal partyTotal)
@@ -321,12 +422,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         try
         {
             InvoicePartyTotal = partyTotal;
+            OnPropertyChanged(nameof(InvoiceBillWiseApplies));
             OnPropertyChanged(nameof(ShowInvoiceBillWise));
 
-            if (!ShowInvoiceBillWise)
+            if (!InvoiceBillWiseApplies)
             {
                 if (InvoiceBillAllocations.Count > 0) InvoiceBillAllocations.Clear();
                 _invoiceBillDirty = false;
+                _autoBillName = string.Empty;
+                _autoBillDueDateText = string.Empty;
                 InvoiceBillSummary = string.Empty;
                 return;
             }
@@ -341,8 +445,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             {
                 var row = InvoiceBillAllocations[0];
                 row.AmountText = partyTotal.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-                if (string.IsNullOrWhiteSpace(row.Name) && !string.IsNullOrWhiteSpace(ReferenceNo))
-                    row.Name = ReferenceNo.Trim();
+
+                // Restamp only while the field is still ours: blank, or still carrying what we last put there. A value
+                // the operator typed is a deliberate override and outlives every later recalculation.
+                var autoName = AutoBillReferenceName();
+                if (row.NameRequired && (string.IsNullOrWhiteSpace(row.Name) || row.Name == _autoBillName))
+                {
+                    row.Name = autoName;
+                    _autoBillName = autoName;
+                }
+
+                var autoDue = AutoBillDueDateText();
+                if (string.IsNullOrWhiteSpace(row.DueDateText) || row.DueDateText == _autoBillDueDateText)
+                {
+                    row.DueDateText = autoDue;
+                    _autoBillDueDateText = autoDue;
+                }
             }
         }
         finally
@@ -369,13 +487,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
-    /// The domain <see cref="BillAllocation"/>s to stamp on the derived party leg, or <c>null</c> when the panel is
-    /// off — <c>null</c> (not an empty list) so the built <see cref="EntryLine"/> is byte-identical to one built
-    /// before this feature existed (ER-13).
+    /// The domain <see cref="BillAllocation"/>s to stamp on the derived party leg, or <c>null</c> when bill-wise does
+    /// not apply — <c>null</c> (not an empty list) so the built <see cref="EntryLine"/> is byte-identical to one built
+    /// before this feature existed (ER-13). Keyed on <see cref="InvoiceBillWiseApplies"/>, so the DEFAULT (hidden)
+    /// allocation posts exactly as the visible one does: "on saving … the bill gets linked to the party as default
+    /// bill allocation" (official TallyPrime).
     /// </summary>
     private IReadOnlyList<BillAllocation>? ToInvoiceBillAllocations()
     {
-        if (!ShowInvoiceBillWise) return null;
+        if (!InvoiceBillWiseApplies) return null;
         var rows = InvoiceBillAllocations.Where(a => a.IsComplete).Select(a => a.ToAllocation()).ToList();
         return rows.Count > 0 ? rows : null;
     }
@@ -387,7 +507,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private bool InvoiceBillAllocationsOk(decimal partyTotal)
     {
-        if (!ShowInvoiceBillWise) return true;
+        if (!InvoiceBillWiseApplies) return true;
         SyncInvoiceBillWise(partyTotal);
         if (InvoiceBillSplitOk) return true;
 
@@ -395,6 +515,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             ? "Every bill-wise row needs a positive amount and (except On Account) a bill reference name."
             : $"The bill-wise allocation must total {InvoicePartyTotal.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture)} " +
               $"— the party's invoice total. Currently allocated {InvoiceBillAllocatedTotal.ToString("#,##0.00", System.Globalization.CultureInfo.InvariantCulture)}.";
+
+        // The derived allocation is exact by construction, so this branch means something upstream desynced. With the
+        // panel hidden the operator has nothing to correct, so name the switch that reveals it rather than stranding
+        // them behind a refusal with no visible cause.
+        if (!ShowInvoiceBillWise)
+            Message += " Clear \"Use default Bill-wise details for Bill Allocation\" to review the split.";
         return false;
     }
 

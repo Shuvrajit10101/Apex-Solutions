@@ -398,6 +398,10 @@ public sealed class PurchaseAccountingInvoiceTdsTests : IDisposable
 
         var e = OpenAccountingPurchase(k, k.FeesId, k.VendorId, "87654.32");
 
+        // The Bill-wise SUB-SCREEN is opt-in: "Use default Bill-wise details for Bill Allocation" ships Yes, which
+        // allocates the whole invoice silently. This test hand-cuts a split, so it clears the knob first.
+        e.UseDefaultBillWiseAllocation = false;
+
         // The panel targets the NET the party will actually be owed — the figure Accept reconciles against.
         Assert.True(e.ShowInvoiceBillWise);
         Assert.Equal(78889.32m, e.InvoicePartyTotal);

@@ -251,6 +251,11 @@ public sealed class CrossStreamInteractionTests : IDisposable
         FillLine(entry, k.BatchItem, k.Main, 7m, "1234.57");
         entry.RecalculateItemInvoice();
 
+        // The Bill-wise SUB-SCREEN is opt-in: TallyPrime ships "Use default Bill-wise details for Bill Allocation"
+        // set to Yes, which allocates the whole invoice to the voucher number silently. This test hand-cuts a
+        // two-reference split, so it clears the knob exactly as Tally-Book p.81 does before showing the sub-screen.
+        entry.UseDefaultBillWiseAllocation = false;
+
         // Both panels are live on ONE screen — the combination neither stream's fixture could produce.
         Assert.True(entry.ShowInvoiceBillWise);
         Assert.Equal("8,641.99", entry.ItemsTotalText);
@@ -583,6 +588,8 @@ public sealed class CrossStreamInteractionTests : IDisposable
         Assert.Contains("194J(b)", e.TdsSectionText);
 
         // THE JOIN: the bill-wise target is the CARVED NET, to the paisa — not the ₹1,23,456.70 gross.
+        // The sub-screen is opt-in (default allocation ships ON), and this test hand-cuts a two-reference split.
+        e.UseDefaultBillWiseAllocation = false;
         Assert.True(e.ShowInvoiceBillWise);
         Assert.Equal(111110.70m, e.InvoicePartyTotal);
         Assert.Equal(111110.70m, e.InvoiceBillAllocations[0].ParsedAmount);
@@ -736,6 +743,7 @@ public sealed class CrossStreamInteractionTests : IDisposable
         SelectParty(entry, k.CustomerId);
         FillLine(entry, k.BatchItem, k.Main, 7m, "1234.57");
         entry.RecalculateItemInvoice();
+        entry.UseDefaultBillWiseAllocation = false;   // the sub-screen is opt-in; this test names the bill by hand
         Assert.True(entry.ShowInvoiceBillWise);
         Assert.Equal(8641.99m, entry.InvoicePartyTotal);
 
