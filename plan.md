@@ -9,10 +9,21 @@
 > Avalonia (cross-platform: Windows + Linux + macOS) + SQLite**, pixel-level UI fidelity, config-driven GST
 > slabs. The domain model, phases, tests, and gates are stack-agnostic and unchanged.
 > **Phases 0–9 and Phase 10.5 (CA-audit remediation, slices S1–S9) are COMPLETE and merged** (PRs #19–#25);
-> the UI-defect campaign that followed is also merged (PRs #26–#33). Schema **v46**; suite **3321 tests
-> green** (Ledger 1239 · Io 349 · Sqlite 173 · Desktop 1560); `origin/main` = `c655dc2`.
-> **Phase 10 and Phase 11 are EXCLUDED by standing user decision** and are not scheduled.
-> **Current work: Phase 10.6 — Keyboard & input parity** (§5).
+> the UI-defect campaign that followed is also merged (PRs #26–#33). `origin/main` = `c655dc2`, schema **v46**
+> there. **Everything since lives UNPUSHED on `claude/confident-ellis-dedef5` — no PR, no upstream:**
+> Phase 10.7 (voucher numbering S1–S5) and the service-invoicing work carried the schema **v46 → v49**;
+> **Phase 10.8 is STOPPED AND BANKED** (2026-07-29, R12); and **Phase 10.9 — Tally-gap remediation is BUILT,
+> reviewed and MERGED onto that branch** (2026-08-03 — five parallel streams, cross-stream interaction tests
+> and the Tally version/voucher-entry audit). Suite **3651 tests green — Ledger 1281 · Io 361 · Sqlite 210 ·
+> Desktop 1799**; build **0W/0E**; schema **v49** (Phase 10.9 is schema-clean). **Quote the FOUR numbers, never
+> the total alone — a green total with the wrong per-project counts is a CONTAMINATED RUN, not a pass** (§6.2).
+> **Phase 11 and the REST of Phase 10 — TallyVault, Security Control / roles, Edit Log / Tally Audit,
+> split-by-FY, group company, repair/rewrite — remain EXCLUDED by standing user decision.**
+> **`backup/restore` was CARVED OUT of Phase 10 and is BUILT** (user decision 2026-08-02) — this closes the
+> contradiction where the plan named it as the mitigation for its own top-ranked data-loss risk **R-7** (§9.1)
+> while placing it inside an excluded phase.
+> **Current work: the Phase 10.9 R9 real-app run** (§5) — nine merged features have never been seen working
+> outside a test harness.
 >
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
@@ -418,13 +429,25 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **Exit gate:** R9.
 
 ### Phase 10 — Security/roles/audit + data management
+- **▶ STATUS 2026-08-02 — EXCLUDED, WITH ONE CARVE-OUT (R12 USER DECISION). This bullet governs the reading
+  of every bullet below.** The phase stays **EXCLUDED and unscheduled** — **TallyVault encryption, Security
+  Control + user roles + password policy, Edit Log / Tally Audit, split-by-FY, group-company consolidation and
+  repair/rewrite are NOT being built.** **`backup/restore` is the sole exception:** the user carved it out as a
+  standalone slice and it is **BUILT, reviewed and merged** on `claude/confident-ellis-dedef5` (`e90a169`),
+  specified under **Phase 10.9 / GAP-3**. *Why it was carved out:* **§9.1 R-7 — the plan's top-ranked
+  data-loss risk — named backup/restore as its own mitigation while parking it inside an excluded phase**, so
+  the mitigation for the highest-ranked risk did not exist. **That contradiction is now resolved** (R-7 amended
+  in the same pass). Deciding record: `docs/tally-gap-decisions.md` **D12 = A** (and **D13 = leave excluded**).
 - **Goals:** administration & data safety.
 - **Modules (catalog §18, §19):** TallyVault encryption, Security Control + user roles + password policy,
-  **Edit Log/Tally Audit**, backup/restore, **split-by-FY**, **group company** consolidation, repair/rewrite.
+  **Edit Log/Tally Audit**, backup/restore *(**DONE** — see the status bullet and Phase 10.9 / GAP-3)*,
+  **split-by-FY**, **group company** consolidation, repair/rewrite.
 - **Agents:** per-feature pipeline (+ security review; superpowers:security-review where relevant).
-- **Deliverables:** encrypted company; role-gated access; lossless backup/restore; a split & a consolidated
+- **Deliverables:** encrypted company; role-gated access; lossless backup/restore *(**DELIVERED** by GAP-3,
+  version-stamped against schema v49 with a restore round-trip test)*; a split & a consolidated
   group-company statement.
-- **Exit gate:** R9; no secrets in repo (R13); audit trail verified.
+- **Exit gate:** R9; no secrets in repo (R13); audit trail verified. **Not applicable while the phase is
+  excluded** — GAP-3 was gated under **Phase 10.9's** exit gate instead, not this one.
 
 ### Phase 10.5 — CA-audit remediation
 - **Goals:** implement the Chartered-Accountant audit backlog — **WI-1 … WI-14** per
@@ -690,7 +713,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **▶ STATUS 2026-07-29 — STOPPED AND BANKED (R12 USER DECISION). `S-A` is NOT DONE; `S-B` and `S-C` stay
   BLOCKED.** This status **governs the reading of every bullet below** — the goals, modules and deliverables
   remain the intent, but **none of the valuation work has landed**. The engine is **reverted to HEAD
-  byte-for-byte** and the suite is back at the pre-session baseline **3491 green** (build 0W/0E, schema
+  byte-for-byte** and the suite is back at the pre-session baseline **3491 green — Ledger 1261 · Io 359 ·
+  Sqlite 184 · Desktop 1687** (build 0W/0E, schema
   **v49** — negative stock never reached its **v50**). **Eight attempts** (three in earlier sessions, five on
   `claude/confident-ellis-dedef5`) **each passed the FULL TEST SUITE; four also passed the ORACLE** and were
   then **convicted by adversarial review**. **What is BANKED:** the committed **HEAD-oracle harness**
@@ -932,6 +956,157 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
       passed the oracle. **"Green" is a floor for this phase, never a verdict** — the verdict comes from the
       oracle **plus** an adversarial design review that is **shown the eight failure modes first**.
 
+### Phase 10.9 — Tally-gap remediation: voucher entry, voucher-type reachability, cost sets, batches & backup
+- **▶ STATUS 2026-08-03 — BUILT, REVIEWED AND MERGED on `claude/confident-ellis-dedef5`; the R9 real-app run
+  is the ONLY outstanding gate item.** Twelve commits above `bc95728`: five feature streams (`aed9a50`,
+  `7bfc2c6`, `e90a169`, `828fc9f`, `374b221`), their five merges, the cross-stream interaction tests
+  (`688ccd2`) and the Tally audit (`6124a25`). Suite **3651 green — Ledger 1281 · Io 361 · Sqlite 210 ·
+  Desktop 1799** (confirmed **identical across three separate runs** — one `--blame-crash`, two
+  solution-level); build **0W/0E**; schema **v49 UNCHANGED** (this phase is schema-clean end to end).
+  **NOT pushed, NO PR, no upstream** — A12 has not run (R4).
+- **Goals:** close the defects the 2026-08-01 Tally version/voucher-entry audit found — the ones that **cost
+  money or hide it**. In one sentence each: cost centres could not be allocated along more than one
+  **category**; two of the 24 voucher types had **no menu row at all** and a third advertised a **dead key**;
+  a normally-invoicing company had an **empty Receivables report** because neither invoice Accept path built
+  bill allocations; batch allocation was a **free-text string** on the two screens where batched goods are
+  actually bought and sold; and there was **no backup or restore** while §9.1 named it as the mitigation for
+  the top-ranked data-loss risk. Grounding documents, all committed in `6124a25`:
+  **`docs/tally-version-and-voucher-gap-audit.md`** (what the audit found, cited),
+  **`docs/voucher-entry-specification.md`** (TallyPrime's four-layer field gating: F11 capability →
+  F12-on-master visibility → the master's own value → F12-on-voucher visibility, a field appearing only when
+  **all four** permit it) and **`docs/tally-gap-decisions.md`** (the 24-question decision set, **D1…D24**).
+- **Modules:** `VoucherValidator` + the cost-allocation rehydration path and the cost reports;
+  `MainWindowViewModel` voucher-type menu rows / shortcut table / type resolution and the six call sites that
+  posted by base type; a new backup–restore service over the SQLite store (version-stamped, with the file-swap
+  and destination guards); `VoucherEntryViewModel` — the item- and accounting-invoice Accept paths, Single
+  Entry on Contra/Payment/Receipt, Purchase Accounting Invoice and its TDS/RCM detection over the Particulars
+  lines; and the existing batch sub-screen, re-wired to item-invoice line entry.
+- **R7 fidelity — corpus- and web-verified (A14):** cost allocation follows the **Study Guide's own worked
+  example** (₹5,000 travel booked to **Branch → Kolkata AND Department → Marketing** simultaneously,
+  `[CORPUS-SG pp.101-102]`) — TallyPrime allocates the same amount along **each category independently**, so
+  a cost allocation is a **set of parallel per-category allocations, not a partition of the line**. Physical
+  Stock's real shortcut is **Ctrl+F7**; **official TallyPrime help assigns F10 to "view list of all
+  vouchers"**, which is what the app was advertising. Credit/Debit Note entry modes and the four-layer field
+  gating are corpus-sourced in `docs/voucher-entry-specification.md`.
+- **Work items (id — one-line; the branch names each was built on are recorded for traceability):**
+  - **GAP-1** **Voucher-entry core** (`claude/gap-1` → `828fc9f`) — **bill-wise allocations on BOTH invoice
+    Accept paths** (item- and accounting-invoice), **Single Entry mode** on Contra / Payment / Receipt
+    (Receipt/Contra **Account = Dr**, Payment **Account = Cr**), and **Purchase Accounting Invoice** enabled
+    with TDS/RCM detection reading the **Particulars** lines it was previously blind to. Decisions **D4**,
+    **D5**, **D8**.
+  - **GAP-2** **Cost centres as parallel sets** (`claude/gap-2` → `aed9a50`) — enforce the allocation total
+    **per category** instead of summing across all categories, plus **legacy-book rehydration** so vouchers
+    saved under the old rule still load, and corrected cost-report labelling.
+  - **GAP-3** **Backup and restore** (`claude/gap-3` → `e90a169`) — **the Phase-10 carve-out** (D12 = A).
+    Version-stamped against schema **v49** and **refuses a restore the running build cannot handle**;
+    destination guard so a backup cannot silently overwrite a live company database; connection disposal on a
+    failed store construction; **restore round-trip test**.
+  - **GAP-4** **Voucher-type reachability** (`claude/gap-4` → `7bfc2c6`) — **menu rows for Credit Note and
+    Debit Note** (D9), **Physical Stock repointed from the dead F10 to Ctrl+F7** (D7), and voucher-type
+    selection **resolved by identity** instead of `?? FirstOrDefault(BaseType == x)` — which silently opened
+    **deactivated** types and made a second Sales series unreachable — with a clear message when no active
+    type exists; the sixth unconverted call site (bill settlement) converted.
+  - **GAP-5** **Real batch allocation on the item-invoice screens** (`claude/gap-5` → `374b221`) — the
+    existing batch sub-screen re-wired to item-invoice line entry (picker, available balance, expiry capture,
+    split across batches, reconciliation), **gated so an item that does not maintain batches behaves exactly
+    as before**; **stock valuation deliberately untouched and byte-identical**.
+  - **GAP-6** **Cross-stream interaction tests** (`688ccd2`) — 12 tests, odd paisa throughout, covering what
+    **no single stream could test because until the merge those combinations did not exist**: a batch-split
+    line and a two-reference bill split reconciling to the same total (and the refusal at one paisa of
+    difference); short-billing moving the bill-wise target onto the **billed** basis; bill-wise on a
+    TDS-carved purchase accounting invoice; an invoice under a **second, non-predefined Sales type** carrying
+    both behaviours, and a **deactivated** type being neither listed nor openable; a voucher carrying both a
+    parallel cost set and a bill split; and a **backup round-trip carrying all of it**.
+- **Slices (AS BUILT — this is a record, not a forward plan):** each stream was built in an **isolated
+  worktree cut from `bc95728`**, individually gated, **adversarially reviewed, fixed**, then merged **one at a
+  time with a full gate after each merge**. **Predicted-then-observed, four exact PER-PROJECT predictions in a
+  row** — recorded as all four counts, per §6.2, because the total alone cannot detect a truncated run:
+
+  | after | commit | Ledger | Io | Sqlite | Desktop | total |
+  |---|---|---|---|---|---|---|
+  | base | `bc95728` | 1261 | 359 | 184 | 1687 | **3491** |
+  | GAP-2 + GAP-4 | `014f3ca` | 1281 | 361 | 188 | 1718 | **3548** |
+  | GAP-3 + GAP-1 | `6580da9` | 1281 | 361 | 210 | 1767 | **3619** |
+  | GAP-5 | `9688235` | 1281 | 361 | 210 | 1787 | **3639** |
+  | interaction tests | `688ccd2` | 1281 | 361 | 210 | 1799 | **3651** |
+
+  The final row is **confirmed identical across three separate runs** — one `--blame-crash`, two
+  solution-level. **One conflict, hand-resolved and gated before commit** — `VoucherEntryViewModel.cs`,
+  where GAP-1's 227-line bill-wise block and GAP-5's 75-line batch block both inserted immediately after the
+  `InventoryLines` declaration (add/add at one point). **A plain concatenation would have been malformed:**
+  each side ended mid-method and the single brace below the conflict could only close whichever side landed
+  last, leaving `InvoiceBillAllocationsOk` unterminated with every batch member parsed as a local inside it.
+  Resolution kept both plus one brace at the seam; whole-file balance verified **584/584**.
+- **▶ WHAT THE ADVERSARIAL REVIEWS CAUGHT — pre-commit, and the justification for the per-stream review gate
+  (R10):**
+  - **GAP-1 — CRITICAL.** A **reverse-charge purchase credited the supplier ₹15,777.78 of tax it never
+    charged and claimed input GST TWICE**, on a voucher that **balanced perfectly**, so nothing caught it.
+  - **GAP-3.** A restore failing at the swap had **already deleted the target's `-wal` / `-shm` / `-journal`**,
+    leaving the live company **unrecoverable**. The original is now never degraded until the replacement is
+    verified in place.
+  - **GAP-5 — two money defects.** Splitting a line across batches **changed the posted invoice total** and
+    the party-ledger amount; and short-billing computed the live total **and the GST/TCS base** on the
+    **Actual** rather than the **Billed** quantity.
+- **Schema:** **NONE — v49 throughout.** Every stream is schema-clean; backup/restore **reads** the version
+  stamp rather than adding one. (Negative stock still owns the unclaimed **v50** — Phase 10.8.)
+- **User decisions (R12) — recorded with dates, because nothing else in the repo evidences them:**
+  1. **(2026-08-01) TallyPrime is the fidelity target; Tally 7.2 is a CHECKLIST ONLY.** Settles
+     `docs/tally-gap-decisions.md` **D1**. The user evaluates against a 2005 product roughly five product
+     generations behind the corpus, and **all ten `tally/` PDFs are TallyPrime documents — there is no 7.2,
+     Tally 9 or ERP 9 primary material at all**. 7.2 feedback is triaged through the audit's known
+     divergences before anything is logged as a defect; things the user "knows" Tally does (Ctrl+V / Alt+I as
+     separate mode keys, Credit Note on Ctrl+F8, the 1990s menu tree) are **7.2 behaviours TallyPrime
+     deliberately removed**, and Apex is correct not to have them. **The installed 7.2 copy is out of bounds
+     and was not opened, listed or launched** for the audit or the decision set.
+  2. **(2026-08-01) OPTIMISE FOR COMPLETENESS OF VOUCHER ENTRY.** The prioritisation rule for this phase and
+     the next: voucher entry is where the audit found the defects that cost money, so breadth-of-entry beats
+     polish elsewhere. This is why **GAP-1 and GAP-5** were scheduled ahead of report and master work.
+  3. **(2026-08-02) Goods-return STOCK PARITY on Credit / Debit Note is APPROVED — but BEHIND AN ORACLE, and
+     it is NOT YET BUILT.** Settles **D3**. **`ItemInvoiceStock.Counts()` still ends with
+     `type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales`**, so a Credit Note **cannot carry
+     inventory lines at all** — a sales return credits the customer but leaves the goods off the books, a
+     purchase return debits the supplier but leaves phantom goods on hand, and **the drift compounds with
+     every return**. GAP-1 **deliberately excluded** it for exactly this reason. See **NEXT-1** below.
+  4. **(2026-08-02) Backup/restore is CARVED OUT of Phase 10 and built now; the rest of Phase 10 stays
+     EXCLUDED.** Settles **D12 = A** and **D13 = leave excluded**. **DONE** — GAP-3.
+- **Agents:** per-feature pipeline (§2.2) — **A1** (the audit + the decision set), **A14** (Tally fidelity,
+  R7 — corpus and official help), Requirements/Design, Test author, Implementer, **A10** adversarial review
+  **per stream, pre-merge**, **A12** GitHub Expert, run-app verifier.
+- **Deliverables:** a voucher carrying **parallel per-category cost allocations** that posts and reports;
+  **every one of the 24 voucher types reachable by menu AND by its real shortcut**, with deactivated types
+  neither listed nor openable; a **populated Receivables report and ageing** from an ordinary invoice, with
+  bills to settle; **Single Entry** on Contra/Payment/Receipt and a working **Purchase Accounting Invoice**
+  incl. TDS/RCM; **real batch selection** with available balance, expiry and split-across-batches on the
+  item-invoice screens, with the invoice total unmoved; a **version-stamped backup and a verified restore**;
+  and the 12 cross-stream interaction tests.
+- **Exit gate:** R9 — tests green and **shown** (**3651 — Ledger 1281 · Io 361 · Sqlite 210 · Desktop 1799**,
+  all four counts per §6.2; incl. Robert & Bright unmoved); **A10** review per
+  stream (**done, pre-merge, and it caught the four defects above**); **A12** (GitHub Expert) commits &
+  pushes small reviewed units (R4/R10) — **commits DONE, push and PR OUTSTANDING**; **the real app run with
+  evidence — OUTSTANDING, and it is the wide one:** it now has to cover **nine newly-merged features plus the
+  previous session's numbering and service invoicing, NONE of which has ever been seen working outside a test
+  harness**; `memory.md` updated (done); then **user go/no-go** per R12.
+- **▶ CARRY-FORWARDS — open after this phase:**
+  - **NEXT-1 — Credit/Debit Note stock parity (D3, approved 2026-08-02, NOT BUILT).** Touches the posting
+    validator, `ItemInvoiceStock.Counts()`, inventory replay ordering, stock valuation and the existing GST
+    CN/DN linkage; Robert & Bright must stay byte-identical. **Approved behind an oracle** — treat the
+    Phase-10.8 harness discipline as the precedent, not the exception.
+  - **NEXT-2 — the unresolved test-host crash.** The first full-suite run after `CrossStreamInteractionTests.cs`
+    **crashed the Desktop test host** (`Xunit.Sdk.TestPipelineException`, exit **-1**, after **340 of 1799**
+    tests) and **has not reproduced in three subsequent clean runs**. **Recorded, not resolved — expect
+    recurrence in CI.** The two obvious explanations were checked and **do not hold**: assembly
+    parallelisation is **already disabled** in `AssemblyInfo.cs`, and each test project runs in its **own
+    process**, so a process-global `ClearAllPools()` cannot cross assemblies. The likelier mechanism is that
+    the test deliberately overwrites a live SQLite database with 40 KB of `X` and asserts a read throws — but
+    a **corrupted-page read may abort the process rather than raise a managed exception**, which depends on
+    what SQLite touches first and would explain the flakiness.
+  - **NEXT-3 — Phase 10.8's `NS-8` valuation prerequisite is STILL UNSOLVED** and remains the blocker for
+    allow-negative-stock. Nothing in this phase touched stock valuation (GAP-5 is byte-identical there by
+    design).
+  - **NEXT-4 — the remaining decisions in `docs/tally-gap-decisions.md` are UNANSWERED** (D2, D6, D8, D10,
+    D11, D14–D24). They are the backlog this phase drew from; **nothing is built from them without an R6
+    plan amendment first.**
+
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
 - **Modules:** performance passes (NFR-4), end-to-end system/acceptance tests, docs completion (user manual,
@@ -972,6 +1147,12 @@ Grounded in `testing.md` (levels, 7 principles, TDD, coverage limits) — R8.
 - **Coverage** is a **floor and guide, not a target** (testing.md limits): chase meaningful paths/edge cases,
   set a threshold in Phase 0, gate on it in CI — but never treat % as proof of correctness (Principle 1).
 - **Defensive tests** for the fail-fast boundaries (unbalanced voucher rejected, invalid GSTIN rejected).
+- **▶ A GATE IS THE FOUR PER-PROJECT COUNTS, NEVER THE TOTAL ALONE (standing rule — recorded 2026-08-03).**
+  Every gate is reported as **Ledger · Io · Sqlite · Desktop = total**, and **a green total carrying the wrong
+  per-project counts is a CONTAMINATED RUN, not a pass.** *Why the rule exists:* a **truncated Desktop run once
+  reported "Passed! 610" against a real 1635** and **looked identical to success** — the total is the one field
+  that cannot detect it. **The four numbers ARE the check**, so a future session cannot apply the rule against a
+  bare total; wherever a suite size is written down in `plan.md` or `memory.md`, write all four.
 
 ### 6.3 The two deterministic fixtures (R8) — ledger-engine regression baselines
 - **"Robert"** — transport business, **accounts-only, 13 deterministic vouchers**; exact expected Trial
@@ -1038,7 +1219,7 @@ inventory · M7 TDS/TCS · M8 payroll · M9 GST-advanced · M10 security/data-mg
 | R-4 | **Scope creep** across 24 catalog sections | Phase gates + user go/no-go (R9/R12); backlog tied to plan items; no work outside plan.md without updating it (R6). |
 | R-5 | **Keyboard-first single-window UX is hard to reproduce faithfully** | Build a central shortcut/focus manager early (Phase 1); system tests drive by keyboard (Playwright); design tokens enforce look-and-feel. |
 | R-6 | **Offline constraint vs online-only Tally features** (Connected GST, IMS, live IRN) | Explicitly out of scope (§1.3); implement **offline JSON** paths only; revisit with user if online round-trips are wanted. |
-| R-7 | **Data-loss / migration risk** (SQLite schema changes) | Versioned migrations from Phase 0; backup/restore (Phase 10) round-trip-tested; no destructive op without confirmation (NFR-8). |
+| R-7 | **Data-loss / migration risk** (SQLite schema changes) | Versioned migrations from Phase 0; **backup/restore BUILT 2026-08-03 (Phase 10.9 / GAP-3, `e90a169`)** — version-stamped against schema v49, refusing a restore the running build cannot handle, with a **restore round-trip test**; no destructive op without confirmation (NFR-8). **Amendment (R6, 2026-08-02):** this row previously read "backup/restore (Phase 10) round-trip-tested" while **Phase 10 was excluded** — the plan's top-ranked data-loss risk was mitigated by a feature the plan had also cancelled. The user carved the item out of Phase 10 (D12 = A) and it now exists; the rest of Phase 10 stays excluded. |
 | R-8 | **Third-party IP** (`tally/` PDFs) | Never committed — git-ignored (R4); referenced, never reproduced verbatim (recorded IP-leak lesson). |
 | R-9 | **Agent/orchestration overhead** (main-loop bloat) | Token-lean main loop; delegate to agents; detail in memory.md/plan.md (R2/R14). |
 
@@ -1103,7 +1284,8 @@ A completeness critic audited §§4–9 against the catalog. These refinements c
 
 *Change log: initial master plan drafted 2026-07-02 via `/software` from the study corpus; coverage
 refinements §10 (C-1…C-9) folded in the same day from the plan critique. Amended 2026-07-20 (user-authorised,
-R6): stale status header corrected to the real state (Phases 0–9 + 10.5 merged, schema v46, 3321 tests green,
+R6): stale status header corrected to the real state (Phases 0–9 + 10.5 merged, schema v46, 3321 tests green —
+Ledger 1239 · Io 349 · Sqlite 173 · Desktop 1560,
 Phases 10/11 excluded); **Phase 10.6 — Keyboard & input parity** added (KB-1…KB-4) with the WI-2 scope
 correction recorded above it. Amended 2026-07-27 (R6): **Phase 10.8 — Allow negative stock** added (NS-1…NS-6
 over slices S-A…S-C, allow-by-default globally + a warn-only `WarnOnNegativeStock` toggle, schema **v49 →
@@ -1124,7 +1306,8 @@ realigned to the same three-method scope in the same amendment (`StockValuationS
 lot machinery **and** the moving-average path; the `AverageCost` ₹11.10-vs-₹12,007.50 regression case and the
 NS-7 harness inversion added to the test list) so no bullet still describes the phase in FIFO/LIFO terms. Amended
 2026-07-29 (R6, **user decision — STOP AND BANK**): **Phase 10.8 is STOPPED, the engine REVERTED to HEAD
-byte-for-byte and the suite back at the pre-session baseline 3491.** **S-A is NOT DONE** (its **NS-2** harness and
+byte-for-byte and the suite back at the pre-session baseline 3491 — Ledger 1261 · Io 359 · Sqlite 184 · Desktop
+1687.** **S-A is NOT DONE** (its **NS-2** harness and
 **NS-7** inversion ARE done — the harness is committed and its audit chain closed at **TRUSTWORTHY**, satisfying
 the Exit gate's harness precondition; **NS-1** is not, after **eight** attempts that **each passed the full suite**
 and **four of which also passed the oracle** before adversarial review convicted them). **S-B and S-C are marked
@@ -1144,5 +1327,32 @@ because the reversal is the reusable lesson — and the **Exit gate** gained two
 across the boundary is a gate condition**, and **a green suite is a floor, never a verdict, in this phase** (eight
 of eight passed it). The eight measured failure modes and their reproducing books live in
 **`tools/HeadOracle/README.md`, the handover document**; the full narrative is the 2026-07-29 entry in `memory.md`.
+Amended 2026-08-03 (R6 — **the plan was contradicting the repository, which is what R6 exists to prevent**):
+**Phase 10.9 — Tally-gap remediation** added as the record of twelve commits above `bc95728` that were **built,
+reviewed and merged with no plan entry at all** (five parallel streams **GAP-1…GAP-5** — voucher-entry core,
+parallel cost sets, backup/restore, voucher-type reachability, real batch allocation — plus **GAP-6** twelve
+cross-stream interaction tests and the committed Tally audit `6124a25`; the gate recorded as a **per-project
+table**, **3491 → 3548 → 3619 → 3639 → 3651** closing at **Ledger 1281 · Io 361 · Sqlite 210 · Desktop 1799**,
+build 0W/0E, **schema v49 unchanged**, and the hand-resolved `VoucherEntryViewModel.cs` add/add conflict
+recorded). **§6.2 gained a standing rule** in the same pass: **a gate is the FOUR per-project counts, never the
+total alone** — a green total with the wrong per-project counts is a **contaminated run, not a pass**, the
+failure it exists to catch being a **truncated Desktop run that reported "Passed! 610" against a real 1635 and
+looked identical to success**; every suite size written into `plan.md` or `memory.md` now carries all four. **The backup/restore CONTRADICTION is corrected explicitly:** the plan simultaneously listed
+backup/restore as an **excluded** Phase-10 module **and** as the mitigation for its own **top-ranked data-loss
+risk R-7**, while the feature was in fact **built and committed** — **Phase 10** now carries a **carve-out status
+banner** (backup/restore built as Phase 10.9 / GAP-3; **TallyVault, Security Control / roles, Edit Log / Tally
+Audit, split-by-FY, group company and repair/rewrite remain EXCLUDED by standing user decision**), and **R-7's
+mitigation cell** was rewritten to name the shipped feature and to state the contradiction it replaces. **Four
+user decisions recorded with dates** under Phase 10.9: **(2026-08-01)** TallyPrime is the fidelity target and
+**Tally 7.2 is a checklist only** (D1 — all ten corpus PDFs are TallyPrime; the installed 7.2 was never opened),
+and **optimise for completeness of voucher entry**; **(2026-08-02)** goods-return **stock parity on Credit/Debit
+Note is APPROVED BEHIND AN ORACLE and is NOT YET BUILT** (D3 — `ItemInvoiceStock.Counts()` still admits only
+Purchase/Sales carriers, so returns silently drift the books), and **backup/restore carved out of Phase 10**
+(D12 = A, D13 = leave excluded). **Four carry-forwards** opened — **NEXT-1** CN/DN stock parity, **NEXT-2** the
+unreproduced Desktop test-host crash (recorded, not resolved — expect recurrence in CI), **NEXT-3** the still
+unsolved `NS-8` valuation prerequisite, **NEXT-4** the unanswered decisions D2/D6/D8/D10/D11/D14–D24 — and the
+**status header** was corrected to the real state (unpushed branch `claude/confident-ellis-dedef5`, **no PR**,
+**3651 green — Ledger 1281 · Io 361 · Sqlite 210 · Desktop 1799**, schema v49, current work = the **outstanding
+R9 real-app run** across nine merged features never yet seen outside a test harness).
 Any deviation during execution is
 recorded in `memory.md` with its reason (R6).*
