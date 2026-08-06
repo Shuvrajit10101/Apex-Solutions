@@ -4350,6 +4350,39 @@
                                   </ComboBox>
                                 </Grid>
 
+                                <!-- Opening Balance (Study Guide pp.65–66: "Enter the Opening Balance (if required)
+                                     along with Dr/Cr depending on the nature"). Sits directly under "Under" because
+                                     that is the corpus field order — Name, alias, Under, Opening Balance — and the
+                                     Dr/Cr picker sits beside the amount, not on its own row, because the corpus
+                                     treats them as ONE field. Never feature-gated: no F11 capability and no F12
+                                     toggle stands between the operator and it, so unlike the blocks below it
+                                     carries no IsVisible. Blank = nil. -->
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LedTopL"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Opening Balance" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding OpeningBalanceText, Mode=TwoWay}"
+                                           PlaceholderText="e.g. 41237.53 — blank for nil" TextAlignment="Right"/>
+                                  <!-- Dr/Cr picked exactly as it is on a voucher line — a ComboBox over DrCr through
+                                       the shared DrCrLabel converter — so the one accounting choice in this app has
+                                       one control everywhere. Width matches the voucher line's side combo.
+                                       Defaults from the group's nature; see OpeningSide. -->
+                                  <ComboBox Grid.Column="2" Margin="10,0,0,0" Width="80"
+                                            VerticalAlignment="Center"
+                                            ItemsSource="{Binding OpeningSides}"
+                                            SelectedItem="{Binding OpeningSide, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource DrCrLabel}}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+
                                 <!-- Currency of ledger (base ₹/INR, or a created foreign currency) -->
                                 <Grid>
                                   <Grid.ColumnDefinitions>
