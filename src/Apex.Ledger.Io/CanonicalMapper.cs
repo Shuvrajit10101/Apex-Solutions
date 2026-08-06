@@ -77,6 +77,7 @@ public static class CanonicalMapper
         UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity,
         EnableMultiplePriceLevels = c.EnableMultiplePriceLevels,
         EnableJobOrderProcessing = c.EnableJobOrderProcessing,
+        WarnOnNegativeStock = c.WarnOnNegativeStock,
         PayrollEnabled = c.PayrollEnabled,
         PayrollStatutoryEnabled = c.PayrollStatutoryEnabled,
         SalaryTdsEnabled = c.SalaryTdsEnabled,

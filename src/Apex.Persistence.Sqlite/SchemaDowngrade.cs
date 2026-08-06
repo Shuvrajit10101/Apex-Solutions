@@ -234,6 +234,50 @@ public static class SchemaDowngrade
         Exec(connection, "UPDATE schema_version SET version = 48;");
     }
 
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV49ToV50"/>: removes the negative-stock warning column
+    /// (<see cref="Schema.V50NegativeStockColumns"/> — <c>warn_on_negative_stock</c>) from <c>companies</c> and
+    /// stamps <c>schema_version</c> back to 49. Nothing else is touched; v50 added no tables, indexes or constraints.
+    ///
+    /// <para>⚠️ <b>The default-TRUE asymmetry makes this downgrade's round-trip a real assertion, not a formality.</b>
+    /// For every previous flag the column defaulted 0, so dropping it and re-migrating restored the same value the
+    /// row already had — the round-trip could not fail. Here the column defaults <b>1</b>, so a company that had the
+    /// flag OFF loses that setting on the way down and comes back up ON. That is the correct meaning of a downgrade
+    /// (the information genuinely no longer exists in a v49 database), and it is exactly what makes the re-migration
+    /// worth testing: it proves the back-fill hands a pre-v50 book warnings-ON rather than <c>default(bool)</c>.</para>
+    ///
+    /// <para><c>companies</c> is rebuilt from <c>PRAGMA table_info</c> minus the v50 column via the same plain
+    /// <c>CREATE … AS SELECT</c> idiom <see cref="V49ToV48"/> uses, for the same reasons (SQLite's
+    /// <c>DROP COLUMN</c> chokes on our commented DDL; a hand-written prior-version <c>CREATE TABLE</c> would rot).
+    /// Foreign keys are switched off for the swap. <b>KNOWN (F6), unchanged deliberately:</b> like every other
+    /// downgrade here, the rebuild reproduces columns and data but not the PRIMARY KEY / NOT NULLs — see
+    /// <see cref="V49ToV48"/> for why that is tolerated and why fixing it is a separate change.</para>
+    /// </summary>
+    public static void V50ToV49(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        var all = ColumnNames(connection, "companies");
+        var keep = all
+            .Where(c => !Schema.V50NegativeStockColumns.Contains(c, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        if (keep.Count > 0 && keep.Count < all.Count)
+        {
+            var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+
+            Exec(connection, "PRAGMA foreign_keys=OFF;");
+            Exec(connection, $"""
+                CREATE TABLE companies_v49 AS SELECT {columnList} FROM companies;
+                DROP TABLE companies;
+                ALTER TABLE companies_v49 RENAME TO companies;
+                """);
+            Exec(connection, "PRAGMA foreign_keys=ON;");
+        }
+
+        Exec(connection, "UPDATE schema_version SET version = 49;");
+    }
+
     private static List<string> ColumnNames(SqliteConnection connection, string table)
     {
         using var cmd = connection.CreateCommand();

@@ -183,12 +183,16 @@ public class CompanyImportRoundTripTests
     //                                         back EVERYTHING it touched and leaves the pre-existing data 100% intact.
 
     /// <summary>
-    /// The critical rollback-correctness gate. Unlike the pre-flight-rejected corruptions above (which never mutate
-    /// the target), this batch is fully well-formed at pre-flight — it resolves, balances, and pairs — so
+    /// The critical rollback-correctness gate — and the ONLY test that exercises
+    /// <see cref="ApplyJournal.Rollback"/> at all. Unlike the pre-flight-rejected corruptions above (which never
+    /// mutate the target), this batch is fully well-formed at pre-flight — it resolves and pairs — so
     /// <see cref="ImportPlan.Execute"/> DOES run and DOES mutate the company (company header, then the import's
-    /// masters + vouchers) before the engine rejects the very last voucher: an over-delivery Delivery Note whose
-    /// no-negative-stock guard (DP-7) throws only at post time. The import must therefore exercise the true
-    /// <see cref="ApplyJournal.Rollback"/> path. The target it imports into is NON-EMPTY and already has GST enabled
+    /// masters + vouchers) before the engine rejects the very last voucher: an <b>unbalanced Stock Journal</b>
+    /// (source 10, destination 7) whose ER-13 balance rule throws only at post time.
+    /// <b>⚠️ See <see cref="BuildUnbalancedStockJournalBatch"/> for why the trigger is an imbalance and no longer an
+    /// over-delivery — NS-3 removed the no-negative block this test used to ride on, and a straight "flip" here
+    /// would have left the rollback path with zero coverage while the test still went green.</b>
+    /// The target it imports into is NON-EMPTY and already has GST enabled
     /// (its 6 auto-created tax ledgers + Round Off + a live GST config + custom ledgers with opening balances). The
     /// gate asserts that after the rolled-back import <b>none</b> of that pre-existing data moved: the GST config is
     /// the same instance, every tax ledger + Round Off still exists with its original group/opening, the custom
@@ -216,9 +220,10 @@ public class CompanyImportRoundTripTests
         var priorInvVoucherCount = target.InventoryVouchers.Count;
 
         // Build a NEW, self-contained import batch (fresh Guids, no collision with the target's masters) that adds a
-        // brand-new item with a small opening, then over-DELIVERS it. Everything resolves & balances at pre-flight,
-        // so Execute runs and mutates the company; the Delivery Note's outward over-draw is only caught by the engine.
-        var model = BuildOverDeliveryBatch();
+        // brand-new item with a large opening, then transfers it with an UNBALANCED Stock Journal. Everything
+        // resolves and pairs at pre-flight, so Execute runs and mutates the company; the source ≠ destination
+        // imbalance is only caught by the engine at Post time.
+        var model = BuildUnbalancedStockJournalBatch();
 
         var result = new CompanyImportService(target).Apply(model, DuplicatePolicy.Skip);
 
@@ -661,44 +666,65 @@ public class CompanyImportRoundTripTests
     /// draws out more stock than the batch put in — is rejected by the engine's no-negative-stock guard only at post
     /// time. Importing this into ANY seeded company therefore drives the true rollback path.
     /// </summary>
-    private static CanonicalModel BuildOverDeliveryBatch()
+    /// <summary>
+    /// A well-formed-at-pre-flight import batch whose LAST inventory voucher the engine rejects at Post time, so
+    /// <see cref="ImportPlan.Execute"/> genuinely runs, genuinely mutates the company, and the true
+    /// <see cref="ApplyJournal.Rollback"/> path is exercised. It also creates a brand-new stock item and a
+    /// brand-new ledger, so the rollback has real masters to un-create.
+    ///
+    /// <para>⚠️ <b>RE-ARMED at plan.md NS-3, not merely renamed.</b> The trigger used to be an over-DELIVERY (3 on
+    /// hand, deliver 10) relying on the no-negative-stock guard throwing. That guard is now a non-throwing detector,
+    /// so the old batch would simply APPLY — and this test, the ONLY one that exercises <c>ApplyJournal.Rollback</c>,
+    /// would have gone green while silently testing nothing at all. The trigger is now an <b>unbalanced Stock
+    /// Journal</b> (source 10, destination 7): the ER-13 balance rule still rejects at Post time and is deliberately
+    /// untouched by NS-3. Both quantities and the rate are odd so the imbalance cannot be an artefact of rounding.
+    /// If a future change ever makes an unbalanced Stock Journal postable, THIS is the test that must be re-armed
+    /// again — do not let it pass by weakening it.</para>
+    /// </summary>
+    private static CanonicalModel BuildUnbalancedStockJournalBatch()
     {
-        var src = CompanyFactory.CreateSeeded("Delivery Source", From, From);
+        var src = CompanyFactory.CreateSeeded("Journal Source", From, From);
         var inv = new InventoryService(src);
         var sg = inv.CreateStockGroup("Gadgets");
         var nos = inv.CreateSimpleUnit("Nos", "Numbers", decimalPlaces: 0);
         var main = src.MainLocation!;
+        var spare = inv.CreateGodown("Spare Store");
         var gadget = inv.CreateStockItem("Gadget", sg.Id, nos.Id);
-        inv.AddOpeningBalance(gadget.Id, main.Id, 3m, Money.FromRupees(100m));
+        // Plenty on hand — the rejection must come from the IMBALANCE, not from a shortfall (which no longer
+        // rejects anything). ₹101.37 is odd-paisa so the opening value is not a round number.
+        inv.AddOpeningBalance(gadget.Id, main.Id, 500m, Money.FromRupees(101.37m));
 
         // A harmless custom ledger, so the batch also creates a fresh accounting master that rollback must remove.
         src.AddLedger(new Domain.Ledger(Guid.NewGuid(), "Some New Ledger",
             src.FindGroupByName("Indirect Expenses")!.Id, Money.Zero, openingIsDebit: true));
 
-        // Over-deliver: only 3 Gadgets on hand, deliver 10 ⇒ the engine's DP-7 guard throws at Post time.
-        var deliveryType = src.VoucherTypes.First(t => t.BaseType == VoucherBaseType.DeliveryNote);
-        var voucher = new InventoryVoucher(Guid.NewGuid(), deliveryType.Id, new DateOnly(2021, 4, 10),
-            new[] { new InventoryAllocation(gadget.Id, main.Id, 10m, StockDirection.Outward,
-                rate: Money.FromRupees(100m)) },
-            number: 99, narration: "Over-delivery that must be rejected at post time");
-
         // The domain would reject Post here too — so inject the voucher into the exported model directly rather than
-        // posting it into the source. Export the (valid) source, then append the over-delivery inventory voucher DTO.
+        // posting it into the source. Export the (valid) source, then append the unbalanced Stock-Journal DTO.
         var (model, errors) = CanonicalJson.Parse(CanonicalJson.Export(src));
         Assert.Empty(errors);
+        var journalType = src.VoucherTypes.First(t => t.BaseType == VoucherBaseType.StockJournal);
+        const long RatePaisa = 10_137L;   // ₹101.37
         var ivDto = new InventoryVoucherDto
         {
-            Id = voucher.Id,
-            TypeId = deliveryType.Id,
+            Id = Guid.NewGuid(),
+            TypeId = journalType.Id,
             Number = 99,
             Date = "2021-04-10",
-            Narration = "Over-delivery that must be rejected at post time",
+            Narration = "Unbalanced stock journal that must be rejected at post time",
             Allocations = new[]
             {
                 new InventoryAllocationDto
                 {
                     StockItemId = gadget.Id, GodownId = main.Id, Quantity = 10m,
-                    Direction = nameof(StockDirection.Outward), RatePaisa = 10_000L,
+                    Direction = nameof(StockDirection.Outward), RatePaisa = RatePaisa,
+                },
+            },
+            DestinationAllocations = new[]
+            {
+                new InventoryAllocationDto
+                {
+                    StockItemId = gadget.Id, GodownId = spare.Id, Quantity = 7m,   // ≠ 10 ⇒ ER-13 rejection
+                    Direction = nameof(StockDirection.Inward), RatePaisa = RatePaisa,
                 },
             },
         };

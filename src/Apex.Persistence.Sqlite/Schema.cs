@@ -97,7 +97,12 @@ namespace Apex.Persistence.Sqlite;
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v49</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v50</b> is the latest bump
+    /// (the <b>negative-stock warning toggle</b>: one <c>warn_on_negative_stock INTEGER NOT NULL <b>DEFAULT 1</b></c>
+    /// column on <c>companies</c>. ⚠️ <b>The ONLY company flag in this schema that defaults TRUE.</b> Every other one
+    /// defaults 0, so "column absent" and "flag off" coincide and a missed read path is harmless; here they do not
+    /// coincide, and a read path that treats an absent value as <c>false</c> silently switches warnings OFF on every
+    /// upgraded book. See <see cref="MigrateV49ToV50"/>). v49 was
     /// (the <b>accounting-invoice flag</b>: one <c>INTEGER NOT NULL DEFAULT 0</c> column on <c>vouchers</c>
     /// (<c>is_accounting_invoice</c>) recording that a Sales voucher was posted from the Accounting Invoice
     /// (service-invoice) entry mode, so the printed document type is a PERSISTED FACT rather than an inference from
@@ -121,7 +126,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 49;
+    public const int CurrentVersion = 50;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -275,7 +280,13 @@ public static class Schema
             bonus_rate_bp                  INTEGER NOT NULL DEFAULT 833, -- bonus rate basis points (833 = 8.33%), clamped [833,2000]
             bonus_calc_ceiling_paisa       INTEGER NOT NULL DEFAULT 700000, -- §12 calc ceiling, paisa (₹7,000)
             bonus_minimum_wage_paisa       INTEGER NOT NULL DEFAULT 0,  -- state minimum wage, paisa (0 = fall back to ₹7,000)
-            bonus_prorate                  INTEGER NOT NULL DEFAULT 1   -- 0/1 (prorate mid-year joiner by months worked)
+            bonus_prorate                  INTEGER NOT NULL DEFAULT 1,  -- 0/1 (prorate mid-year joiner by months worked)
+            -- v50 (plan.md NS-4): "Warn on Negative Stock Balance" — a pure persisted, ADVISORY toggle. Negative
+            -- stock is never blocked (NS-3); this decides only whether the operator is warned about it.
+            -- ⚠️ DEFAULT 1 — the ONLY company flag here that defaults TRUE. "Column absent" and "flag off" are
+            -- therefore NOT the same thing, unlike every 0-defaulted flag above: MigrateV49ToV50 must also use
+            -- DEFAULT 1 (it does), or every upgraded book comes up with warnings silently switched off.
+            warn_on_negative_stock         INTEGER NOT NULL DEFAULT 1   -- 0/1 (advisory only; default ON)
         );
 
         CREATE TABLE nature_of_payment (
@@ -3680,4 +3691,37 @@ public static class Schema
     /// <c>SchemaDowngrade.V49ToV48</c> removes. Named once so the two can never disagree.</summary>
     public static readonly IReadOnlyList<string> V49AccountingInvoiceColumns =
         new[] { "is_accounting_invoice" };
+
+    /// <summary>
+    /// v49 → v50 (plan.md NS-4 — the <b>negative-stock warning toggle</b>): additive — one
+    /// <c>warn_on_negative_stock INTEGER NOT NULL DEFAULT 1</c> column on <c>companies</c>, recording the
+    /// company-level "Warn on Negative Stock Balance" setting. The setting is <b>advisory only</b>: negative stock
+    /// itself is always permitted (NS-3 turned the posting guard into a non-throwing detector), and this flag decides
+    /// nothing more than whether the operator is told.
+    ///
+    /// <para>⚠️ <b>THE DEFAULT-TRUE ASYMMETRY — the reason this migration is not boilerplate.</b> Every other flag
+    /// column in this schema is <c>DEFAULT 0</c>, so "the column is absent" and "the flag is off" mean the same thing
+    /// and a read path that forgets the column still produces the right answer. This column is <c>DEFAULT 1</c>, so
+    /// they mean OPPOSITE things. <c>ALTER TABLE … ADD COLUMN … NOT NULL DEFAULT 1</c> back-fills every existing v49
+    /// row with 1, which is the intended upgrade behaviour: a book that predates the setting gets warnings ON,
+    /// matching the reference application's own default and matching a fresh company. A migration that used
+    /// <c>DEFAULT 0</c>, or a loader that read a missing value as <c>default(bool)</c>, would silently disable
+    /// warnings on every upgraded book — invisible until someone oversells. The same asymmetry binds the canonical
+    /// XML attribute read, the JSON DTO's property initialiser and the downgrade round-trip; all four paths are
+    /// pinned by tests.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 50. <b>No row rewrites</b> beyond the
+    /// column's own default back-fill; no new tables, no indexes. The <c>ALTER … ADD COLUMN</c> is byte-identical to
+    /// its counterpart in <see cref="CreateV1"/> — the migration-equivalence test compares <c>PRAGMA table_info</c>
+    /// (name/type/notnull/<b>default</b>/pk), so the <c>INTEGER</c>/NOT NULL/<c>DEFAULT 1</c> contract MUST match on
+    /// both sides.</para>
+    /// </summary>
+    public const string MigrateV49ToV50 = """
+        ALTER TABLE companies ADD COLUMN warn_on_negative_stock INTEGER NOT NULL DEFAULT 1;
+        """;
+
+    /// <summary>The single <c>companies</c> column v50 adds — the exact set <see cref="MigrateV49ToV50"/> creates and
+    /// <c>SchemaDowngrade.V50ToV49</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V50NegativeStockColumns =
+        new[] { "warn_on_negative_stock" };
 }

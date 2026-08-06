@@ -50,22 +50,11 @@ public sealed class LedgerService
 
         _company.AddVoucherInternal(voucher);
 
-        // Atomic accounts↔stock: with the voucher provisionally appended (so its item-invoice movements are now
-        // visible to the inventory engine), verify no key ever goes negative; roll the whole voucher back on
-        // violation so neither the accounting leg nor the stock movement is persisted.
-        if (voucher.HasInventoryLines)
-        {
-            try
-            {
-                new InventoryPostingService(_company).EnsureNoNegativeStock();
-            }
-            catch
-            {
-                _company.RemoveVoucherInternal(voucher);
-                throw;
-            }
-        }
-
+        // ⚠️ NS-3: this used to append the voucher provisionally, run the no-negative guard over the book and
+        // roll the WHOLE voucher back (accounting leg included) when an item-invoice Sales over-drew on-hand.
+        // Negative stock is no longer blocked anywhere, so the append simply stands — an over-drawing sale posts,
+        // and InventoryPostingService.DetectNegativeStock reports the shortfall. Atomicity is unaffected: there
+        // is no longer a rejection here to be atomic about.
         return voucher;
     }
 
@@ -93,35 +82,26 @@ public sealed class LedgerService
     }
 
     /// <summary>Alt+X — mark cancelled; keeps the number in sequence, zero effect on balances.
-    /// For an item-invoice voucher, cancelling reverses its stock effect; if that would retro-drive a later
-    /// movement's on-hand negative (e.g. cancelling the purchase that a later delivery drew from), the cancel is
-    /// blocked and rolled back (the same DP-7 guard the pure-stock side uses).</summary>
+    /// ⚠️ NS-3: cancelling an item-invoice voucher reverses its stock effect, and that used to be BLOCKED when it
+    /// retro-drove a later movement's on-hand negative (e.g. cancelling the purchase a later delivery drew from).
+    /// It no longer is — the cancel always applies, and the shortfall is reported by
+    /// <see cref="InventoryPostingService.DetectNegativeStock"/>.</summary>
     public void Cancel(Guid voucherId)
     {
         var v = _company.FindVoucher(voucherId)
             ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
-        var was = v.Cancelled;
         v.Cancelled = true;
-        if (v.HasInventoryLines)
-        {
-            try { new InventoryPostingService(_company).EnsureNoNegativeStock(); }
-            catch { v.Cancelled = was; throw; }
-        }
     }
 
-    /// <summary>Alt+D — remove entirely; may leave a gap in numbering. For an item-invoice voucher, deleting
-    /// reverses its stock effect; if that would retro-drive a later movement's on-hand negative, the delete is
-    /// blocked and the voucher restored (the same DP-7 guard the pure-stock side uses).</summary>
+    /// <summary>Alt+D — remove entirely; may leave a gap in numbering.
+    /// ⚠️ NS-3: deleting an item-invoice voucher reverses its stock effect, and that used to be BLOCKED when it
+    /// retro-drove a later movement's on-hand negative. It no longer is — the delete always applies, and the
+    /// shortfall is reported by <see cref="InventoryPostingService.DetectNegativeStock"/>.</summary>
     public void Delete(Guid voucherId)
     {
         var v = _company.FindVoucher(voucherId)
             ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
         _company.RemoveVoucherInternal(v);
-        if (v.HasInventoryLines)
-        {
-            try { new InventoryPostingService(_company).EnsureNoNegativeStock(); }
-            catch { _company.AddVoucherInternal(v); throw; }
-        }
     }
 
     /// <summary>

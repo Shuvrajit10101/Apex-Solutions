@@ -78,6 +78,17 @@ public sealed record CompanyDto
     /// <summary>F11 "Enable Job Order Processing" (Phase 6 slice 8; RQ-45). Default false.</summary>
     public bool EnableJobOrderProcessing { get; init; }
 
+    /// <summary>
+    /// "Warn on Negative Stock Balance" (plan.md NS-4; schema v50) — advisory only; negative stock is never blocked.
+    ///
+    /// <para>⚠️ <b>Default TRUE, and the initialiser below is load-bearing.</b> Every other flag on this DTO defaults
+    /// false, so a document written before the property existed deserialises to the right value for free. This one
+    /// does not: <see cref="System.Text.Json"/> leaves a property absent from the JSON at whatever the initialiser
+    /// set, so <c>= true</c> here is the ONLY thing that stops a pre-v50 export from importing with negative-stock
+    /// warnings silently switched off. Removing it looks like a harmless tidy-up and is not.</para>
+    /// </summary>
+    public bool WarnOnNegativeStock { get; init; } = true;
+
     /// <summary>F11 "Maintain Payroll" (Phase 8 slice 1; RQ-1). Default false.</summary>
     public bool PayrollEnabled { get; init; }
 

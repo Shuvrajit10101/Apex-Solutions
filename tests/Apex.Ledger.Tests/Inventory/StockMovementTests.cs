@@ -283,49 +283,69 @@ public class StockMovementTests
             new PhysicalStockLine(k.ItemId, k.MainGodownId, -1m, null));
     }
 
-    // ---------------------------------------------------------------- No negative stock (ER-5 / DP-7)
+    // ---------------------------------------------------------------- Negative stock: DETECTED, never blocked (NS-3)
+    //
+    // ⚠️ These tests previously asserted a HARD BLOCK (ER-5/DP-7). That block was removed at plan.md NS-3 —
+    // TallyPrime has no built-in block anywhere; its only reaction is an advisory F12 warning after which the
+    // voucher still saves (official TallyHelp, "Configuring an Invoice" + the Sales FAQ; the licensed corpus is
+    // SILENT — 0 hits across all ten PDFs). They are re-pointed rather than deleted, because the guard's genuinely
+    // hard-won mechanics — batch-awareness and pre-count (DP-3) sampling — moved into the DETECTOR and would
+    // otherwise lose all coverage silently.
 
     [Fact]
-    public void Delivery_that_would_drive_on_hand_negative_is_hard_blocked()
+    public void Delivery_that_drives_on_hand_negative_now_posts_and_is_detected()
     {
         var k = NewKit(openingQty: 3m);
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
-                new[] { Line(k.ItemId, k.MainGodownId, 5m, StockDirection.Outward) })));
-        Assert.Contains("negative", ex.Message, StringComparison.OrdinalIgnoreCase);
-        // Rejected voucher never persisted: on-hand unchanged.
-        Assert.Equal(3m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
+            new[] { Line(k.ItemId, k.MainGodownId, 5m, StockDirection.Outward) }));
+
+        Assert.Equal(-2m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
+        var s = Assert.Single(k.Posting.DetectNegativeStock());
+        Assert.Equal(-2m, s.OnHand);
+        Assert.Contains("negative", s.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void Rejection_out_over_the_on_hand_is_hard_blocked()
+    public void Rejection_out_over_the_on_hand_now_posts_and_is_detected()
     {
         var k = NewKit(openingQty: 1m);
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.RejectionOut), D1,
-                new[] { Line(k.ItemId, k.MainGodownId, 2m, StockDirection.Outward) })));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.RejectionOut), D1,
+            new[] { Line(k.ItemId, k.MainGodownId, 2m, StockDirection.Outward) }));
+
+        Assert.Equal(-1m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
+        Assert.Equal(-1m, Assert.Single(k.Posting.DetectNegativeStock()).OnHand);
     }
 
     [Fact]
-    public void Stock_journal_source_over_the_on_hand_is_hard_blocked()
+    public void Stock_journal_source_over_the_on_hand_now_posts_and_is_detected()
     {
         var k = NewKit(openingQty: 2m);
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(InventoryVoucher.StockJournal(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.StockJournal), D1,
-                source: new[] { Line(k.ItemId, k.MainGodownId, 3m, StockDirection.Outward) },
-                destination: new[] { Line(k.ItemId, k.SecondGodownId, 3m, StockDirection.Inward) })));
+        k.Posting.Post(InventoryVoucher.StockJournal(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.StockJournal), D1,
+            source: new[] { Line(k.ItemId, k.MainGodownId, 3m, StockDirection.Outward) },
+            destination: new[] { Line(k.ItemId, k.SecondGodownId, 3m, StockDirection.Inward) }));
+
+        Assert.Equal(-1m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
+        Assert.Equal(3m, k.Ledger.OnHand(k.ItemId, k.SecondGodownId, D1));
+        // Only the SOURCE key is short — the destination gained stock and must not be reported.
+        var s = Assert.Single(k.Posting.DetectNegativeStock());
+        Assert.Equal(k.MainGodownId, s.GodownId);
     }
 
     [Fact]
-    public void Negative_guard_is_batch_aware()
+    public void Negative_detection_is_batch_aware()
     {
         var k = NewKit(openingQty: 0m);
-        // Two batches at Main: A has 5, B has 0. Delivering 1 from batch B must be blocked though the
-        // item/godown total (5) is positive.
+        // Two batches at Main: A has 5, B has 0. Delivering 1 from batch B goes negative in B even though the
+        // item/godown TOTAL (5) is positive — the detector must key on the batch, not net it away.
         k.Masters.AddOpeningBalance(k.ItemId, k.MainGodownId, 5m, Money.FromRupees(100m), batchLabel: "A");
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
-                new[] { Line(k.ItemId, k.MainGodownId, 1m, StockDirection.Outward, batch: "B") })));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
+            new[] { Line(k.ItemId, k.MainGodownId, 1m, StockDirection.Outward, batch: "B") }));
+
+        var s = Assert.Single(k.Posting.DetectNegativeStock());
+        Assert.Equal("B", s.Batch);
+        Assert.Equal(-1m, s.OnHand);
+        Assert.Equal(5m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, "A", D1));   // batch A untouched
+
         // Delivering from batch A is fine.
         k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
             new[] { Line(k.ItemId, k.MainGodownId, 1m, StockDirection.Outward, batch: "A") }));
@@ -370,89 +390,95 @@ public class StockMovementTests
     // ---------------------------------------------------------------- Delete re-negativity guard
 
     [Fact]
-    public void Physical_count_then_over_draw_is_hard_blocked()
+    public void Physical_count_then_over_draw_now_posts_and_is_detected()
     {
         var k = NewKit(openingQty: 10m);
-        // Count on D1 resets to 2; a D2 delivery of 3 would drive the bucket to −1 → blocked.
+        // Count on D1 resets to 2; a D2 delivery of 3 drives the bucket to −1. Both post.
         k.Posting.Post(InventoryVoucher.PhysicalStock(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PhysicalStock), D1,
             new[] { new PhysicalStockLine(k.ItemId, k.MainGodownId, 2m, null) }));
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D2,
-                new[] { Line(k.ItemId, k.MainGodownId, 3m, StockDirection.Outward) })));
-        Assert.Equal(2m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D2));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D2,
+            new[] { Line(k.ItemId, k.MainGodownId, 3m, StockDirection.Outward) }));
+
+        Assert.Equal(-1m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D2));
+        var s = Assert.Single(k.Posting.DetectNegativeStock());
+        Assert.Equal(D2, s.AsOf);           // NOT D1 — the count date itself was never short
+        Assert.Equal(-1m, s.OnHand);
     }
 
-    // ---------------------------------------------------------------- Same-date Physical-Stock guard bypass (DP-3 vs DP-7)
+    // ---------------------------------------------------------------- Same-date Physical-Stock masking (DP-3)
 
-    // A Physical-Stock count is applied LAST within its date (DP-3 checkpoint) and SETS on-hand to the
-    // counted quantity, so end-of-date sampling alone masks any outward movement on that same date that drove
-    // true on-hand negative. The guard must evaluate the running balance BEFORE the same-date count checkpoint.
+    // A Physical-Stock count is applied LAST within its date (DP-3 checkpoint) and SETS on-hand to the counted
+    // quantity, so END-OF-DATE sampling alone masks any outward movement on that same date that drove true
+    // on-hand negative. The DETECTOR must read the running balance BEFORE the same-date count checkpoint —
+    // exactly the property the old hard guard needed, and the reason these four tests survive NS-3 rather than
+    // being deleted with the block. A detector that sampled end-of-date would report NOTHING in any of them.
 
     [Fact]
-    public void Same_date_delivery_after_physical_count_that_over_draws_pre_count_stock_is_hard_blocked()
+    public void Same_date_delivery_after_a_physical_count_that_over_draws_pre_count_stock_is_still_detected()
     {
         // Opening 10 → Physical count 5 on D1 (legal, 10→5) → Delivery 100 on D1.
-        // Pre-count running before the count is 10 − 100 = −90 → must HARD-BLOCK; nothing persisted.
+        // Pre-count running before the count is 10 − 100 = −90; end-of-date on-hand is the count's 5.
         var k = NewKit(openingQty: 10m);
         k.Posting.Post(InventoryVoucher.PhysicalStock(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PhysicalStock), D1,
             new[] { new PhysicalStockLine(k.ItemId, k.MainGodownId, 5m, null) }));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
+            new[] { Line(k.ItemId, k.MainGodownId, 100m, StockDirection.Outward) }));
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
-                new[] { Line(k.ItemId, k.MainGodownId, 100m, StockDirection.Outward) })));
-        Assert.Contains("negative", ex.Message, StringComparison.OrdinalIgnoreCase);
-
-        // Rejected voucher never persisted: the count checkpoint stands, on-hand still reports 5 (DP-3 intact).
+        Assert.Equal(-90m, Assert.Single(k.Posting.DetectNegativeStock()).OnHand);
+        // DP-3 is untouched: the count checkpoint still SETS reported on-hand to 5.
         Assert.Equal(5m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
     }
 
     [Fact]
-    public void Same_date_delivery_then_count_then_over_drawing_delivery_is_hard_blocked()
+    public void Same_date_delivery_then_count_then_over_drawing_delivery_is_still_detected()
     {
         // Opening 10 → Delivery 8 (D1) [running 2] → Physical count 5 (D1) → Delivery 50 (D1).
-        // Pre-count running before the count = 10 − 8 − 50 = −48 → must HARD-BLOCK.
+        // Pre-count running before the count = 10 − 8 − 50 = −48.
         var k = NewKit(openingQty: 10m);
         k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
             new[] { Line(k.ItemId, k.MainGodownId, 8m, StockDirection.Outward) }));
         k.Posting.Post(InventoryVoucher.PhysicalStock(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PhysicalStock), D1,
             new[] { new PhysicalStockLine(k.ItemId, k.MainGodownId, 5m, null) }));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
+            new[] { Line(k.ItemId, k.MainGodownId, 50m, StockDirection.Outward) }));
 
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D1,
-                new[] { Line(k.ItemId, k.MainGodownId, 50m, StockDirection.Outward) })));
-        // Count checkpoint intact after the rejection.
+        Assert.Equal(-48m, Assert.Single(k.Posting.DetectNegativeStock()).OnHand);
         Assert.Equal(5m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
     }
 
     [Fact]
-    public void Same_date_rejection_out_over_pre_count_stock_on_a_count_date_is_hard_blocked()
+    public void Same_date_rejection_out_over_pre_count_stock_on_a_count_date_is_still_detected()
     {
-        // Opening 10 → Physical count 5 (D1) → Rejection Out 40 (D1). Pre-count 10 − 40 = −30 → blocked.
+        // Opening 10 → Physical count 5 (D1) → Rejection Out 40 (D1). Pre-count 10 − 40 = −30.
         var k = NewKit(openingQty: 10m);
         k.Posting.Post(InventoryVoucher.PhysicalStock(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PhysicalStock), D1,
             new[] { new PhysicalStockLine(k.ItemId, k.MainGodownId, 5m, null) }));
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.RejectionOut), D1,
-                new[] { Line(k.ItemId, k.MainGodownId, 40m, StockDirection.Outward) })));
+        k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.RejectionOut), D1,
+            new[] { Line(k.ItemId, k.MainGodownId, 40m, StockDirection.Outward) }));
+
+        Assert.Equal(-30m, Assert.Single(k.Posting.DetectNegativeStock()).OnHand);
         Assert.Equal(5m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
     }
 
     [Fact]
-    public void Same_date_stock_journal_source_over_pre_count_stock_on_a_count_date_is_hard_blocked()
+    public void Same_date_stock_journal_source_over_pre_count_stock_on_a_count_date_is_still_detected()
     {
-        // Opening 10 → Physical count 5 (D1) → Stock-Journal source 40 (D1). Pre-count 10 − 40 = −30 → blocked.
+        // Opening 10 → Physical count 5 (D1) → Stock-Journal source 40 (D1). Pre-count 10 − 40 = −30.
         var k = NewKit(openingQty: 10m);
         k.Posting.Post(InventoryVoucher.PhysicalStock(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PhysicalStock), D1,
             new[] { new PhysicalStockLine(k.ItemId, k.MainGodownId, 5m, null) }));
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Posting.Post(InventoryVoucher.StockJournal(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.StockJournal), D1,
-                source: new[] { Line(k.ItemId, k.MainGodownId, 40m, StockDirection.Outward) },
-                destination: new[] { Line(k.ItemId, k.SecondGodownId, 40m, StockDirection.Inward) })));
+        k.Posting.Post(InventoryVoucher.StockJournal(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.StockJournal), D1,
+            source: new[] { Line(k.ItemId, k.MainGodownId, 40m, StockDirection.Outward) },
+            destination: new[] { Line(k.ItemId, k.SecondGodownId, 40m, StockDirection.Inward) }));
+
+        var s = Assert.Single(k.Posting.DetectNegativeStock());
+        Assert.Equal(k.MainGodownId, s.GodownId);
+        Assert.Equal(-30m, s.OnHand);
         Assert.Equal(5m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D1));
     }
 
-    // Guard against over-correction: legitimate same-date count patterns must STILL be accepted, and the
-    // DP-3 checkpoint (on-hand reporting/carry-forward) must be unchanged — a count still SETS on-hand.
+    // No false positives: legitimate same-date count patterns must report NOTHING, and the DP-3 checkpoint
+    // (on-hand reporting/carry-forward) must be unchanged — a count still SETS on-hand.
 
     [Fact]
     public void Same_date_count_with_no_outward_is_accepted_and_sets_on_hand()
@@ -500,7 +526,7 @@ public class StockMovementTests
     }
 
     [Fact]
-    public void Deleting_a_receipt_that_would_retro_negative_a_later_delivery_is_blocked()
+    public void Deleting_a_receipt_that_retro_negatives_a_later_delivery_now_succeeds_and_is_detected()
     {
         var k = NewKit(openingQty: 0m);
         var grn = new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.ReceiptNote), D1,
@@ -508,9 +534,16 @@ public class StockMovementTests
         k.Posting.Post(grn);
         k.Posting.Post(new InventoryVoucher(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.DeliveryNote), D2,
             new[] { Line(k.ItemId, k.MainGodownId, 5m, StockDirection.Outward) }));
-        // Removing the GRN would leave the D2 delivery driving on-hand to −5 → blocked.
-        Assert.Throws<InvalidOperationException>(() => k.Posting.Delete(grn.Id));
-        // Still deletable in the other order.
         Assert.Equal(0m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D3));
+
+        // Removing the GRN leaves the D2 delivery driving on-hand to −5. That used to be BLOCKED (NS-3);
+        // the delete now applies and the retro-shortfall is reported instead.
+        k.Posting.Delete(grn.Id);
+
+        Assert.Null(k.Company.FindInventoryVoucher(grn.Id));
+        Assert.Equal(-5m, k.Ledger.OnHand(k.ItemId, k.MainGodownId, D3));
+        var s = Assert.Single(k.Posting.DetectNegativeStock());
+        Assert.Equal(D2, s.AsOf);
+        Assert.Equal(-5m, s.OnHand);
     }
 }

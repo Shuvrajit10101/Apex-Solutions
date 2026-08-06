@@ -1210,6 +1210,32 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 49;
         }
 
+        // v49 → v50: add the negative-stock warning toggle (warn_on_negative_stock INTEGER NOT NULL DEFAULT 1 on
+        // companies), then bump the marker. ⚠️ The DEFAULT is 1, not 0 — unlike every other flag column in this
+        // schema. ALTER … ADD COLUMN back-fills every existing v49 company row with 1, so an upgraded book comes up
+        // with negative-stock warnings ON, exactly as a freshly created company does. That IS the intended upgrade:
+        // the flag is advisory (it changes nothing about what posts), and defaulting it off would silently take the
+        // warning away from every existing user without them ever having asked for that.
+        if (version == 49)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV49ToV50;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 50);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 50;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1244,7 +1270,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
                    gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
                    eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
-                   recon_value_tolerance_paisa, recon_date_window_days
+                   recon_value_tolerance_paisa, recon_date_window_days,
+                   warn_on_negative_stock
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1280,6 +1307,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v30 (Phase 8 slice 1): Payroll F11 toggles — plain persisted flags, read verbatim (default 0 — ER-13).
                 PayrollEnabled = r.GetInt64(38) != 0,
                 PayrollStatutoryEnabled = r.GetInt64(39) != 0,
+                // v50 (NS-4): "Warn on Negative Stock Balance" — a plain persisted toggle, read verbatim. ⚠️ Unlike
+                // every flag above it, this one DEFAULTS TRUE: the column is NOT NULL DEFAULT 1, so a pre-v50 book
+                // that the migration back-filled reads 1 here and comes up with warnings ON. Reading it as
+                // "!= 0" is only safe BECAUSE the column can never be NULL — do not relax that NOT NULL.
+                WarnOnNegativeStock = r.GetInt64(82) != 0,
             };
             plHeadId = r.IsDBNull(15) ? null : Guid.Parse(r.GetString(15));
 
@@ -4484,7 +4516,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  einvoice_applicability_override, einvoice_exemption_classes, einvoice_reporting_age_applies,
                  gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
                  eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
-                 recon_value_tolerance_paisa, recon_date_window_days)
+                 recon_value_tolerance_paisa, recon_date_window_days,
+                 warn_on_negative_stock)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -4503,7 +4536,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $eien, $eifrom, $eiaato, $eioverride, $eiexempt, $eiage,
                  $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee,
                  $ewayen, $ewayfrom, $ewaythresh, $ewaybasis, $ewayintra,
-                 $reconval, $recondays);
+                 $reconval, $recondays,
+                 $warnnegstock);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -4623,6 +4657,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // company that never sets it (ER-13). A matching parameter only — never a posted figure (ER-14; finding #5).
         cmd.Parameters.AddWithValue("$reconval", Paisa.FromMoney(gst?.ReconValueTolerance ?? Money.Zero));
         cmd.Parameters.AddWithValue("$recondays", gst?.ReconDateWindowDays ?? 0);
+        // v50 (NS-4): the negative-stock warning toggle, written verbatim. ⚠️ The DOMAIN default is TRUE, so a
+        // company nobody has configured writes 1 here — matching the column's own DEFAULT 1 and the value a
+        // migrated pre-v50 book gets. There is no "unset" state to encode.
+        cmd.Parameters.AddWithValue("$warnnegstock", c.WarnOnNegativeStock ? 1 : 0);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company

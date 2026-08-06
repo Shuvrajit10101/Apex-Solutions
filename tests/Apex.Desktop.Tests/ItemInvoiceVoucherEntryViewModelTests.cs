@@ -202,31 +202,42 @@ public sealed class ItemInvoiceVoucherEntryViewModelTests : IDisposable
         Assert.Equal(k.SalesLedgerId, rPosted.Lines.Single(l => l.Side == DrCr.Credit).LedgerId);
     }
 
+    /// <summary>
+    /// ⚠️ NS-3 — was <c>Item_invoice_sales_that_would_drive_stock_negative_is_blocked_and_nothing_persists</c>.
+    /// Overselling used to roll the WHOLE voucher back (accounting leg included). It no longer does; the sale posts
+    /// both arms and the stock goes negative — "deliver now, book the purchase bill next week" is the commonest real
+    /// trading sequence there is, and TallyPrime accepts it.
+    ///
+    /// <para><b>Deferred (see <c>notDone</c>):</b> the entry-screen advisory warning. This asserts what the screen
+    /// does today and makes no claim about <c>entry.Message</c>.</para>
+    /// </summary>
     [Fact]
-    public void Item_invoice_sales_that_would_drive_stock_negative_is_blocked_and_nothing_persists()
+    public void Item_invoice_sales_beyond_on_hand_is_accepted_and_both_arms_persist()
     {
         var k = NewKit("Item Invoice Oversell Co", openingQty: 10m);   // only 10 on hand
-        var before = OnHand(k.Vm.Company!, k.ItemId, k.MainGodownId);
 
         k.Vm.OpenVoucher(VoucherBaseType.Sales);
         var entry = k.Vm.VoucherEntry!;
         k.Vm.ToggleItemInvoice();
         SelectParty(entry, k.CustomerId);
 
-        // Sell 25 — more than the 10 on hand.
-        FillItemLine(entry, k, 25m, "80.00");
-        Assert.True(entry.CanAccept);                       // shape is valid; the engine is the authority
+        // Sell 25 @ ₹80.13 = ₹2,003.25 — more than the 10 on hand, and odd-paisa so the accounting leg asserts
+        // something about the money path rather than about a round number.
+        FillItemLine(entry, k, 25m, "80.13");
+        Assert.True(entry.CanAccept);
 
-        // Accept returns false and surfaces the engine's no-negative message — never crashes.
-        Assert.False(entry.Accept());
-        Assert.Contains("negative", entry.Message!, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(Screen.VoucherEntry, k.Vm.CurrentScreen);
+        Assert.True(entry.Accept());
+        Assert.NotEqual(Screen.VoucherEntry, k.Vm.CurrentScreen);      // the screen closed on a real save
 
-        // Nothing persisted — no accounting leg, no stock movement.
+        // Persisted through storage: stock at −15, and BOTH accounting legs at ₹2,003.25.
         var reloaded = Reload(k.CompanyName);
-        Assert.Equal(before, OnHand(reloaded, k.ItemId, k.MainGodownId));
+        Assert.Equal(-15m, OnHand(reloaded, k.ItemId, k.MainGodownId));
         var rType = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive);
-        Assert.DoesNotContain(reloaded.Vouchers, v => v.TypeId == rType.Id);
+        var rPosted = reloaded.Vouchers.Single(v => v.TypeId == rType.Id);
+        Assert.Equal(Money.FromRupees(2_003.25m), rPosted.Lines.Single(l => l.Side == DrCr.Debit).Amount);
+        Assert.Equal(Money.FromRupees(2_003.25m), rPosted.Lines.Single(l => l.Side == DrCr.Credit).Amount);
+        Assert.Contains(new InventoryPostingService(reloaded).DetectNegativeStock(),
+            s => s.StockItemId == k.ItemId && s.OnHand == -15m);
     }
 
     // ---------------------------------------------------------------- (3) plain mode unchanged

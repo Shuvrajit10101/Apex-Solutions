@@ -183,6 +183,6 @@ public sealed class LegacyCostAllocationLoadTests
         // G-2 is a validation-contract change, NOT a storage change: cost_allocations already stores one row
         // per (category, centre, amount) with no uniqueness constraint across categories, so a parallel set
         // is simply two rows. Nothing to migrate, no version bump.
-        Assert.Equal(49, Schema.CurrentVersion);
+        Assert.Equal(50, Schema.CurrentVersion);
     }
 }
