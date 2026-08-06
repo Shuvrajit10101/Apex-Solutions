@@ -1193,6 +1193,10 @@ internal sealed class ImportPlan
         t.UseSeparateActualBilledQuantity = c.UseSeparateActualBilledQuantity;   // slice 4 (RQ-22)
         t.EnableMultiplePriceLevels = c.EnableMultiplePriceLevels;               // slice 5 (RQ-26)
 
+        // v50 (NS-4) "Warn on Negative Stock Balance" — a plain flag, captured by the header snapshot for rollback.
+        // The DTO's own initialiser is what makes a pre-v50 document arrive here as TRUE rather than false.
+        t.WarnOnNegativeStock = c.WarnOnNegativeStock;
+
         // Phase 8 slice 1 Payroll F11 toggles — plain flags, captured by the header snapshot for rollback.
         t.PayrollEnabled = c.PayrollEnabled;
         t.PayrollStatutoryEnabled = c.PayrollStatutoryEnabled;

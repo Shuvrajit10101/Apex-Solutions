@@ -335,25 +335,32 @@ public class ManufacturingJournalTests
         Assert.Equal(Money.FromRupees(2000m), k.Valuation.ClosingValue(fg, D3).Value);
     }
 
+    /// <summary>
+    /// ⚠️ NS-3 — was <c>Manufacture_is_blocked_when_a_batch_tracked_component_is_short_across_all_batches</c>. The
+    /// consumption path inherited the no-negative block from the posting engine; that block is gone everywhere, so a
+    /// short manufacture now RUNS and the component's residual goes negative. Asserts quantities and the detector
+    /// only — <b>no value</b>, because how a negative on-hand is valued is unresolved (plan.md NS-1/NS-8) and
+    /// <c>StockValuationService</c> is untouched by this slice.
+    /// </summary>
     [Fact]
-    public void Manufacture_is_blocked_when_a_batch_tracked_component_is_short_across_all_batches()
+    public void Manufacture_with_a_batch_tracked_component_short_across_all_batches_now_runs_and_is_detected()
     {
-        // ER-7 still applies to batch-tracked components: 60 on hand across two lots, consume 100 ⇒ rejected,
-        // nothing persisted (the residual line over-draws and the no-negative guard fires — as it must).
         var k = NewKit();
         var fg = Item(k, "Widget");
         var a = BatchItem(k, "Comp A");
         ReceiveBatch(k, a, D1, 40m, Money.FromRupees(10m), "B1");
         ReceiveBatch(k, a, D2, 20m, Money.FromRupees(20m), "B2");
 
+        // 60 on hand across two lots; the BOM consumes 100.
         var bom = k.Boms.CreateBom(fg, "Std", 1m, new[] { new BomLine(BomLineType.Component, a, 100m) });
         var mjType = k.Mfg.CreateManufacturingJournalType("Mfg");
 
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Mfg.Manufacture(mjType.Id, bom.Id, 1m, D3, k.GodownId, k.GodownId));
-        Assert.Equal(40m, k.OnHand.OnHand(a, k.GodownId, "B1", D3)); // untouched
-        Assert.Equal(20m, k.OnHand.OnHand(a, k.GodownId, "B2", D3));
-        Assert.Equal(0m, k.OnHand.OnHand(fg, D3));
+        k.Mfg.Manufacture(mjType.Id, bom.Id, 1m, D3, k.GodownId, k.GodownId);
+
+        Assert.Equal(1m, k.OnHand.OnHand(fg, D3));                          // the finished good was produced
+        Assert.Equal(-40m, k.OnHand.OnHand(a, D3));                         // 60 on hand, 100 consumed
+        Assert.Contains(new InventoryPostingService(k.Company).DetectNegativeStock(),
+            s => s.StockItemId == a && s.OnHand < 0m);
     }
 
     // ================================================================ RQ-14 inter-godown movement
@@ -620,10 +627,15 @@ public class ManufacturingJournalTests
 
     // ================================================================ posting-path guards (RQ-15 / ER-7)
 
+    /// <summary>
+    /// ⚠️ NS-3 — was <c>Manufacture_is_blocked_when_a_component_is_short</c>. The consumption path used to inherit
+    /// the no-negative block from the posting engine exactly as a Delivery Note did. The block is gone everywhere,
+    /// so a short manufacture now runs and the component goes negative. Quantities and the detector only —
+    /// <b>no value</b> (plan.md NS-1/NS-8 unresolved; <c>StockValuationService</c> untouched by this slice).
+    /// </summary>
     [Fact]
-    public void Manufacture_is_blocked_when_a_component_is_short()
+    public void Manufacture_with_a_short_component_now_runs_and_is_detected()
     {
-        // No-negative-stock guard (DP-7/ER-7) applies on the consumption path exactly like a Delivery Note.
         var k = NewKit();
         var fg = Item(k, "Widget");
         var a = Item(k, "Comp A");
@@ -632,11 +644,13 @@ public class ManufacturingJournalTests
         var bom = k.Boms.CreateBom(fg, "Std", 1m, new[] { new BomLine(BomLineType.Component, a, 2m) });
         var mjType = k.Mfg.CreateManufacturingJournalType("Mfg");
 
-        // Producing 5 needs 10 A, but only 5 exist ⇒ rejected, nothing persisted.
-        Assert.Throws<InvalidOperationException>(() =>
-            k.Mfg.Manufacture(mjType.Id, bom.Id, 5m, D2, k.GodownId, k.GodownId));
-        Assert.Equal(5m, k.OnHand.OnHand(a, D2)); // untouched
-        Assert.Equal(0m, k.OnHand.OnHand(fg, D2));
+        // Producing 5 needs 10 A, but only 5 exist.
+        k.Mfg.Manufacture(mjType.Id, bom.Id, 5m, D2, k.GodownId, k.GodownId);
+
+        Assert.Equal(5m, k.OnHand.OnHand(fg, D2));      // produced
+        Assert.Equal(-5m, k.OnHand.OnHand(a, D2));      // 5 − 10
+        Assert.Contains(new InventoryPostingService(k.Company).DetectNegativeStock(),
+            s => s.StockItemId == a && s.OnHand == -5m);
     }
 
     [Fact]

@@ -59,6 +59,10 @@ public static class CanonicalXml
             Attr("useSeparateActualBilledQuantity", c.UseSeparateActualBilledQuantity),
             Attr("enableMultiplePriceLevels", c.EnableMultiplePriceLevels),
             Attr("enableJobOrderProcessing", c.EnableJobOrderProcessing),
+            // v50 (NS-4). ALWAYS written, in both states — an "omit when default" optimisation would be a bug here,
+            // because the reader's default is TRUE and an omitted attribute would then be indistinguishable from
+            // "warnings on" for a company that deliberately turned them off.
+            Attr("warnOnNegativeStock", c.WarnOnNegativeStock),
             Attr("payrollEnabled", c.PayrollEnabled),
             Attr("payrollStatutoryEnabled", c.PayrollStatutoryEnabled),
             Attr("salaryTdsEnabled", c.SalaryTdsEnabled));
@@ -1005,6 +1009,11 @@ public static class CanonicalXml
             UseSeparateActualBilledQuantity = Bool(e, "useSeparateActualBilledQuantity"),
             EnableMultiplePriceLevels = Bool(e, "enableMultiplePriceLevels"),
             EnableJobOrderProcessing = Bool(e, "enableJobOrderProcessing"),
+            // ⚠️ v50 (NS-4) — the ONE attribute here read with a TRUE default. A pre-v50 document carries no
+            // warnOnNegativeStock attribute at all, and the plain Bool(...) overload above would read that absence
+            // as false, silently switching negative-stock warnings off on every imported legacy book. Do not
+            // "simplify" this to the two-argument overload — NegativeStockDefaultTrueTests fails if you do.
+            WarnOnNegativeStock = Bool(e, "warnOnNegativeStock", whenAbsent: true),
             PayrollEnabled = Bool(e, "payrollEnabled"),
             PayrollStatutoryEnabled = Bool(e, "payrollStatutoryEnabled"),
             SalaryTdsEnabled = Bool(e, "salaryTdsEnabled"),
@@ -1928,6 +1937,15 @@ public static class CanonicalXml
         int.TryParse(e.Attribute(name)?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
 
     private static bool Bool(XElement e, string name) => e.Attribute(name)?.Value == "true";
+
+    /// <summary>
+    /// <see cref="Bool(XElement,string)"/> with an explicit value for the ABSENT case. Needed only where a flag's
+    /// default is <c>true</c> (schema v50's <c>warnOnNegativeStock</c>), because there "attribute missing" and
+    /// "attribute false" mean opposite things — everywhere else the plain overload's implicit false is correct.
+    /// An attribute that IS present is read verbatim, so an explicit <c>"false"</c> always survives the round-trip.
+    /// </summary>
+    private static bool Bool(XElement e, string name, bool whenAbsent) =>
+        e.Attribute(name)?.Value is { } s ? s == "true" : whenAbsent;
 
     private static bool? OptBool(XElement e, string name) =>
         e.Attribute(name)?.Value is { } s ? s == "true" : null;

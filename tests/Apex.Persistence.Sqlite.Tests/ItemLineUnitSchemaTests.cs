@@ -112,6 +112,7 @@ public sealed class ItemLineUnitSchemaTests
             //    v47→v46 drops the numbering config, v46→v45 drops unit_id, stamping version 45).
             using (var conn = Open(dbPath))
             {
+                SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
                 SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);
                 SchemaDowngrade.V47ToV46(conn);

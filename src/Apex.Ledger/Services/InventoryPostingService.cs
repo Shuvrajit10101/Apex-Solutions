@@ -3,13 +3,50 @@ using Apex.Ledger.Domain;
 namespace Apex.Ledger.Services;
 
 /// <summary>
+/// One detected negative-stock shortfall (plan.md NS-3): an (item, godown, batch) key whose running on-hand went
+/// below zero, reported with the <b>earliest</b> date it did so and the on-hand at that date, plus the
+/// operator-facing <see cref="Message"/>. Purely descriptive — producing one never rejects, alters or rolls back
+/// anything.
+/// </summary>
+/// <param name="StockItemId">The stock item that went short.</param>
+/// <param name="ItemName">Its name at detection time (resolved once, so callers need no company reference).</param>
+/// <param name="GodownId">The godown the shortfall is in.</param>
+/// <param name="GodownName">Its name at detection time.</param>
+/// <param name="Batch">The batch label, or <see cref="string.Empty"/> for a non-batch key.</param>
+/// <param name="AsOf">The EARLIEST date at which this key's on-hand was negative.</param>
+/// <param name="OnHand">The (negative) on-hand at <paramref name="AsOf"/> — not the worst it later reaches.</param>
+/// <param name="Message">The operator-facing text, naming item, godown, batch and shortfall.</param>
+public sealed record NegativeStockShortfall(
+    Guid StockItemId,
+    string ItemName,
+    Guid GodownId,
+    string GodownName,
+    string Batch,
+    DateOnly AsOf,
+    decimal OnHand,
+    string Message);
+
+/// <summary>
 /// The stock/order-voucher posting service (catalog §10; phase3-inventory-requirements RQ-8..RQ-15,
-/// ER-5/ER-10, DP-3/DP-5/DP-7). It validates an <see cref="InventoryVoucher"/> against its type, applies the
-/// <b>no-negative-stock hard block</b> on every outward path (DP-7), enforces the <b>Stock-Journal balance</b>
-/// rule (source total = destination total, in the base unit), then appends the voucher — assigning an
-/// automatic number per type. It is the inventory analogue of <see cref="LedgerService"/> for the accounting
-/// side, and it is the <b>only</b> path that mutates the company's stock/order voucher set, so no movement
-/// can bypass the guard. Framework- and DB-agnostic — unit-tested exactly like the accounting core.
+/// ER-5/ER-10, DP-3/DP-5). It validates an <see cref="InventoryVoucher"/> against its type, enforces the
+/// <b>Stock-Journal balance</b> rule (source total = destination total, in the base unit), then appends the
+/// voucher — assigning an automatic number per type. It is the inventory analogue of <see cref="LedgerService"/>
+/// for the accounting side, and it is the <b>only</b> path that mutates the company's stock/order voucher set.
+/// Framework- and DB-agnostic — unit-tested exactly like the accounting core.
+///
+/// <para><b>⚠️ Negative stock is NOT blocked (plan.md NS-3; changed at schema v50).</b> What was the
+/// "no-negative-stock hard block" (DP-7) is now a <b>non-throwing detector</b>: every posting persists, and
+/// <see cref="DetectNegativeStock"/> reports the resulting shortfalls. This matches the reference application,
+/// which has no built-in block anywhere — its only reaction is an advisory F12 warning after which the voucher
+/// still saves (official TallyHelp, <i>Configuring an Invoice</i> + the Sales FAQ; <b>the licensed corpus is
+/// silent — 0 hits for "negative stock"/"negative balance" across all ten PDFs</b>, so this is docs-sourced).
+/// The most common real Indian trading sequence — deliver today, book the supplier's bill next week — was
+/// un-postable under the old block.</para>
+///
+/// <para><b>What this did NOT change.</b> The Stock-Journal balance rule still <b>rejects</b> and still rolls
+/// back; a Physical-Stock count of a negative quantity is still rejected (a count is a statement of fact about
+/// the shelf); and <b>how a negative on-hand is VALUED is untouched</b> — <see cref="StockValuationService"/> is
+/// deliberately not modified by this slice (plan.md NS-1/NS-8 remain open).</para>
 /// </summary>
 public sealed class InventoryPostingService
 {
@@ -24,8 +61,9 @@ public sealed class InventoryPostingService
 
     /// <summary>
     /// Validates then posts a stock/order voucher. Rejects (never persists) a voucher whose content does not
-    /// match its type, whose Stock-Journal sides do not balance, or that would drive any (item, godown[,
-    /// batch]) on-hand negative as of any date (DP-7). Returns the posted voucher.
+    /// match its type or whose Stock-Journal sides do not balance. A voucher that drives an (item, godown[,
+    /// batch]) on-hand <b>negative is accepted and persisted</b> (NS-3) — call
+    /// <see cref="DetectNegativeStock"/> afterwards to surface the shortfall. Returns the posted voucher.
     /// </summary>
     public InventoryVoucher Post(InventoryVoucher voucher)
     {
@@ -73,38 +111,31 @@ public sealed class InventoryPostingService
                 }
         }
 
-        // Apply provisionally, then verify no key ever goes negative across the whole timeline; roll back on
-        // violation so a rejected voucher is never persisted (guards every outward path — DP-7/ER-5).
+        // ⚠️ NS-3 — CALL SITE 1 of 4. This used to apply the voucher provisionally, run the negative guard and
+        // roll back on violation. The guard no longer throws, so the posting simply STANDS. Kept as a plain
+        // append (no try/catch) rather than a detector call whose result is discarded: the caller decides when
+        // to ask for shortfalls, and running a whole-book scan on every post would be pure cost.
         _company.AddInventoryVoucherInternal(voucher);
-        try
-        {
-            EnsureNoNegativeStockAnywhere();
-        }
-        catch
-        {
-            _company.RemoveInventoryVoucherInternal(voucher);
-            throw;
-        }
         return voucher;
     }
 
     /// <summary>
-    /// Cancels a stock/order voucher (Alt+X): its effect drops to zero but its number is retained. Blocked if
-    /// removing its effect would retro-drive a later movement negative (the same DP-7 guard).
+    /// Cancels a stock/order voucher (Alt+X): its effect drops to zero but its number is retained. ⚠️ NS-3 —
+    /// CALL SITE 2 of 4: this used to be BLOCKED when removing the effect retro-drove a later movement negative.
+    /// It no longer is; the cancel always applies, and the resulting shortfall (if any) is reported by
+    /// <see cref="DetectNegativeStock"/>.
     /// </summary>
     public void Cancel(Guid voucherId)
     {
         var v = _company.FindInventoryVoucher(voucherId)
             ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
-        var was = v.Cancelled;
         v.Cancelled = true;
-        try { EnsureNoNegativeStockAnywhere(); }
-        catch { v.Cancelled = was; throw; }
     }
 
     /// <summary>
-    /// Deletes a stock/order voucher (Alt+D). Blocked when removing its (inward) effect would retro-drive a
-    /// later movement's on-hand negative — mirroring the no-negative guard on the forward path (ER-5).
+    /// Deletes a stock/order voucher (Alt+D). ⚠️ NS-3 — CALL SITE 3 of 4: this used to be BLOCKED when removing
+    /// its (inward) effect retro-drove a later movement's on-hand negative. It no longer is; the delete always
+    /// applies, and the resulting shortfall (if any) is reported by <see cref="DetectNegativeStock"/>.
     /// </summary>
     public void Delete(Guid voucherId)
     {
@@ -112,15 +143,6 @@ public sealed class InventoryPostingService
             ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
 
         _company.RemoveInventoryVoucherInternal(v);
-        try
-        {
-            EnsureNoNegativeStockAnywhere();
-        }
-        catch
-        {
-            _company.AddInventoryVoucherInternal(v); // restore — the delete would corrupt on-hand
-            throw;
-        }
     }
 
     /// <summary>Next automatic number for an inventory voucher type = max existing + 1 (per type).</summary>
@@ -134,13 +156,33 @@ public sealed class InventoryPostingService
     }
 
     /// <summary>
-    /// Runs the centralised no-negative-stock guard (DP-7/ER-5) across the whole company timeline — including
-    /// item-invoice (Purchase/Sales) movements. <see cref="LedgerService"/> calls this <b>after</b> it has
-    /// provisionally appended an item-invoice accounting voucher, so a Sales item-invoice that would over-draw
-    /// on-hand is rejected and the whole voucher rolled back atomically (no accounting leg, no stock movement
-    /// persisted). Throws a clean domain exception naming the item and godown on violation.
+    /// The negative-stock <b>detector</b> (NS-3) — what the old hard block became, and its single entry point.
+    ///
+    /// <para>⚠️ <b>There were FOUR call sites into the old guard, and all four had to be un-blocked together.</b>
+    /// <see cref="Post"/>, <see cref="Cancel"/> and <see cref="Delete"/> called the PRIVATE
+    /// <c>EnsureNoNegativeStockAnywhere</c> directly, while <see cref="LedgerService"/> (Post/Cancel/Delete of an
+    /// item-invoice voucher) went through a PUBLIC <c>EnsureNoNegativeStock</c> wrapper — so a change applied to
+    /// only one of the two would have left the other half of the engine still hard-blocking, invisibly. That public
+    /// wrapper is now <b>deleted</b> rather than aliased to this method: a method named "Ensure…" that returns a
+    /// list and never throws is a trap for the next reader, and with all four sites un-blocked it had no callers
+    /// left to keep.</para>
+    ///
+    /// <para>Scans the whole company timeline (pure-stock movements AND item-invoice Purchase/Sales stock lines)
+    /// and returns one row per (item, godown, batch) key whose running on-hand went below zero, carrying the
+    /// <b>earliest</b> date it did so. <b>Unconditional</b>: it ignores <see cref="Company.WarnOnNegativeStock"/>,
+    /// because that flag governs whether the operator is told, never what the books contain. Never throws, never
+    /// mutates. Rows are ordered by item name, then godown name, then batch — deterministic, framework-agnostic.</para>
     /// </summary>
-    public void EnsureNoNegativeStock() => EnsureNoNegativeStockAnywhere();
+    public IReadOnlyList<NegativeStockShortfall> DetectNegativeStock() => DetectNegativeStockAnywhere();
+
+    /// <summary>
+    /// The flag-gated <b>warning surface</b> (NS-3/NS-4): <see cref="DetectNegativeStock"/> when the company's
+    /// <see cref="Company.WarnOnNegativeStock"/> is on, an empty list when it is off. This is the ONLY place the
+    /// flag is consulted — turning it off silences warnings and changes nothing else, which is exactly what
+    /// "warn-only" has to mean.
+    /// </summary>
+    public IReadOnlyList<NegativeStockShortfall> NegativeStockWarnings() =>
+        _company.WarnOnNegativeStock ? DetectNegativeStock() : [];
 
     // ------------------------------------------------------------------ validation
 
@@ -336,16 +378,20 @@ public sealed class InventoryPostingService
     }
 
     /// <summary>
-    /// The centralised no-negative-stock guard (ER-5/DP-7): across every (item, godown, batch) touched by any
-    /// posted movement, on-hand must be ≥ 0 at every voucher date where the key is affected. A Physical-Stock
-    /// count is applied LAST within its date and <b>sets</b> on-hand to the counted quantity (DP-3), so
-    /// end-of-date sampling would mask a same-date outward line that over-drew pre-count stock. The guard
-    /// therefore validates the running balance <b>before</b> that date's count checkpoint is applied
-    /// (<see cref="InventoryLedger.PreCountOnHandForKey"/>) — on non-count dates this equals end-of-date
-    /// on-hand. DP-3 reporting/carry-forward is unchanged (a count still sets on-hand). Throws a clean domain
-    /// exception naming the item and godown.
+    /// The centralised negative-stock <b>scan</b> (NS-3; formerly the ER-5/DP-7 hard guard): across every
+    /// (item, godown, batch) touched by any posted movement, sample on-hand at every voucher date where the key
+    /// is affected and collect the keys that go below zero. A Physical-Stock count is applied LAST within its
+    /// date and <b>sets</b> on-hand to the counted quantity (DP-3), so end-of-date sampling would mask a
+    /// same-date outward line that over-drew pre-count stock; the scan therefore reads the running balance
+    /// <b>before</b> that date's count checkpoint (<see cref="InventoryLedger.PreCountOnHandForKey"/>) — on
+    /// non-count dates this equals end-of-date on-hand. DP-3 reporting/carry-forward is unchanged.
+    ///
+    /// <para><b>One row per key, at the EARLIEST negative date.</b> A key that goes short stays short across
+    /// every later voucher date in the book, so sampling every (key, date) pair would re-report one shortfall
+    /// dozens of times and bury the others. The first date is the actionable one — it is the posting that
+    /// caused it.</para>
     /// </summary>
-    private void EnsureNoNegativeStockAnywhere()
+    private IReadOnlyList<NegativeStockShortfall> DetectNegativeStockAnywhere()
     {
         // Every affected key.
         var keys = new HashSet<InventoryLedger.Key>();
@@ -384,24 +430,35 @@ public sealed class InventoryPostingService
             }
         }
 
+        var shortfalls = new List<NegativeStockShortfall>();
         foreach (var key in keys)
         {
             foreach (var date in dates)
             {
-                // Validate the running balance BEFORE the same-date Physical-Stock checkpoint (DP-7): on a
-                // count date this exposes an intra-day over-draw the checkpoint would otherwise hide; on a
-                // non-count date it is identical to end-of-date on-hand.
+                // Read the running balance BEFORE the same-date Physical-Stock checkpoint: on a count date this
+                // exposes an intra-day over-draw the checkpoint would otherwise hide; on a non-count date it is
+                // identical to end-of-date on-hand.
                 var onHand = _ledger.PreCountOnHandForKey(key, date);
-                if (onHand < 0m)
-                {
-                    var item = _company.FindStockItem(key.ItemId)?.Name ?? key.ItemId.ToString();
-                    var godown = _company.FindGodown(key.GodownId)?.Name ?? key.GodownId.ToString();
-                    var batch = string.IsNullOrEmpty(key.Batch) ? "" : $" (batch '{key.Batch}')";
-                    throw new InvalidOperationException(
-                        $"Movement would drive '{item}' at '{godown}'{batch} negative (on-hand {onHand} as of {date:yyyy-MM-dd}). Negative stock is not allowed.");
-                }
+                if (onHand >= 0m) continue;
+
+                var item = _company.FindStockItem(key.ItemId)?.Name ?? key.ItemId.ToString();
+                var godown = _company.FindGodown(key.GodownId)?.Name ?? key.GodownId.ToString();
+                var batch = string.IsNullOrEmpty(key.Batch) ? "" : $" (batch '{key.Batch}')";
+                shortfalls.Add(new NegativeStockShortfall(
+                    key.ItemId, item, key.GodownId, godown, key.Batch, date, onHand,
+                    $"'{item}' at '{godown}'{batch} is negative: on-hand {onHand} as of {date:yyyy-MM-dd}."));
+                break;   // earliest negative date only — `dates` is a SortedSet, so this is the first one
             }
         }
+
+        shortfalls.Sort((a, b) =>
+        {
+            var byItem = string.Compare(a.ItemName, b.ItemName, StringComparison.OrdinalIgnoreCase);
+            if (byItem != 0) return byItem;
+            var byGodown = string.Compare(a.GodownName, b.GodownName, StringComparison.OrdinalIgnoreCase);
+            return byGodown != 0 ? byGodown : string.Compare(a.Batch, b.Batch, StringComparison.Ordinal);
+        });
+        return shortfalls;
     }
 
     private static string Batch(string? batch) => string.IsNullOrWhiteSpace(batch) ? string.Empty : batch.Trim();

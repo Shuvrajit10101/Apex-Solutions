@@ -351,8 +351,15 @@ public sealed class BomManufacturingViewModelTests : IDisposable
         Assert.Equal(270.00m, fgClosing.Value.Amount);
     }
 
+    /// <summary>
+    /// ⚠️ NS-3 — was <c>Manufacture_short_of_components_is_rejected_without_posting</c>. The consumption path
+    /// inherited the no-negative block from the posting engine; that block is gone, so a short manufacture now
+    /// posts and the component's on-hand goes negative. Quantities only — <b>no value assertion</b>, because how a
+    /// negative on-hand is valued is unresolved (plan.md NS-1/NS-8) and <c>StockValuationService</c> is untouched
+    /// by this slice. The entry-screen advisory warning is deferred (see <c>notDone</c>).
+    /// </summary>
     [Fact]
-    public void Manufacture_short_of_components_is_rejected_without_posting()
+    public void Manufacture_short_of_components_now_posts_and_drives_the_component_negative()
     {
         var vm = NewSeededCompany("Short Co");
         EnableBomFeature(vm);
@@ -376,11 +383,16 @@ public sealed class BomManufacturingViewModelTests : IDisposable
         e.ConsumptionGodown = vm.Company!.MainLocation!;
         e.ProductionGodown = vm.Company!.MainLocation!;
 
-        Assert.False(e.Accept());
-        Assert.NotNull(e.Message);
-        // Nothing posted.
-        Assert.DoesNotContain(vm.Company!.InventoryVouchers,
+        Assert.True(e.Accept());
+        // The journal posted: 10 Panels produced, and Resin drawn 20 from an on-hand of 5.
+        Assert.Contains(vm.Company!.InventoryVouchers,
             v => v.DestinationAllocations.Any(a => a.StockItemId == fg.Id));
+        var onHand = new InventoryLedger(vm.Company!);
+        var asOf = vm.Company!.InventoryVouchers.Max(v => v.Date);
+        Assert.Equal(10m, onHand.OnHand(fg.Id, asOf));
+        Assert.Equal(-15m, onHand.OnHand(comp.Id, asOf));
+        Assert.Contains(new InventoryPostingService(vm.Company!).DetectNegativeStock(),
+            s => s.StockItemId == comp.Id && s.OnHand == -15m);
     }
 
     [Fact]

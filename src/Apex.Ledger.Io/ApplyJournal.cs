@@ -324,7 +324,7 @@ internal sealed class ApplyJournal
         string Name, string MailingName, string? Address, string Country, string? State, string? Pin,
         DateOnly FinancialYearStart, DateOnly BooksBeginFrom, string BaseCurrencySymbol, string BaseCurrencyName,
         int DecimalPlaces, string DecimalUnitName,
-        bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels,
+        bool UseSeparateActualBilledQuantity, bool EnableMultiplePriceLevels, bool WarnOnNegativeStock,
         bool PayrollEnabled, bool PayrollStatutoryEnabled, bool SalaryTdsEnabled,
         PfConfig? PfConfig, EsiConfig? EsiConfig, PtConfig? PtConfig,
         GratuityConfig? GratuityConfig, BonusConfig? BonusConfig)
@@ -333,7 +333,7 @@ internal sealed class ApplyJournal
             t.Name, t.MailingName, t.Address, t.Country, t.State, t.Pin,
             t.FinancialYearStart, t.BooksBeginFrom, t.BaseCurrencySymbol, t.BaseCurrencyName,
             t.DecimalPlaces, t.DecimalUnitName,
-            t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels,
+            t.UseSeparateActualBilledQuantity, t.EnableMultiplePriceLevels, t.WarnOnNegativeStock,
             t.PayrollEnabled, t.PayrollStatutoryEnabled, t.SalaryTdsEnabled, t.PfConfig, t.EsiConfig, t.PtConfig,
             t.GratuityConfig, t.BonusConfig);
 
@@ -353,6 +353,7 @@ internal sealed class ApplyJournal
             t.DecimalUnitName = DecimalUnitName;
             t.UseSeparateActualBilledQuantity = UseSeparateActualBilledQuantity;
             t.EnableMultiplePriceLevels = EnableMultiplePriceLevels;
+            t.WarnOnNegativeStock = WarnOnNegativeStock;
             t.PayrollEnabled = PayrollEnabled;
             t.PayrollStatutoryEnabled = PayrollStatutoryEnabled;
             t.SalaryTdsEnabled = SalaryTdsEnabled;

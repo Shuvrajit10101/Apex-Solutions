@@ -247,6 +247,27 @@ public sealed class Company
     public bool EnableJobOrderProcessing { get; set; }
 
     /// <summary>
+    /// Company configuration <b>"Warn on Negative Stock Balance"</b> (plan.md NS-4; schema v50). When on, a posting
+    /// that leaves an (item, godown, batch) on-hand below zero produces an operator WARNING — it never rejects the
+    /// posting. Negative stock itself is always permitted: TallyPrime has no built-in block anywhere, and its own
+    /// F12 option is advisory only ("a warning message of negative stock with quantity details will be displayed",
+    /// after which the voucher still saves — official TallyHelp, <i>Configuring an Invoice</i> and the Sales FAQ;
+    /// <b>the licensed corpus is silent — 0 hits across all ten PDFs</b>, so this is docs-sourced, not
+    /// corpus-sourced). The engine's <see cref="Services.InventoryPostingService.DetectNegativeStock"/> is
+    /// unconditional; only <see cref="Services.InventoryPostingService.NegativeStockWarnings"/> consults this flag.
+    ///
+    /// <para><b>⚠️ THIS FLAG DEFAULTS TRUE — the only company flag that does.</b> Every other one defaults false, so
+    /// "column absent" and "default" coincide and a missing value is harmless. Here they do NOT coincide: the
+    /// <c>companies.warn_on_negative_stock</c> column is <c>INTEGER NOT NULL <b>DEFAULT 1</b></c>, and every read
+    /// path that could see a pre-v50 document must yield <c>true</c> rather than <c>default(bool)</c> — the
+    /// canonical-XML attribute read, the JSON DTO's own initialiser, the SQLite migration backfill and the
+    /// downgrade round-trip. Getting any one of them wrong silently switches warnings OFF on every upgraded book,
+    /// which is invisible until someone oversells. <c>NegativeStockDefaultTrueTests</c> (Io) and
+    /// <c>NegativeStockFlagSchemaTests</c> (Sqlite) fail if any path regresses.</para>
+    /// </summary>
+    public bool WarnOnNegativeStock { get; set; } = true;
+
+    /// <summary>
     /// Company feature flag <b>"Maintain Payroll"</b> (F11 Company Features; Phase 8 slice 1; RQ-1). Master gate
     /// for the whole Payroll module: the employee/pay-head masters, the Attendance/Payroll voucher types and the
     /// payroll reports are all hidden/inert when it is off.

@@ -476,20 +476,26 @@ public sealed class CrossStreamInteractionTests : IDisposable
     }
 
     /// <summary>
-    /// <b>Safety pin for the un-allocated batch line.</b> Opening the batch sub-screen is OPTIONAL — G-5 gates it
-    /// behind four layers and the operator may simply never press Alt+B. When they don't, and the item's stock
-    /// exists only inside lots, the sale is REFUSED and nothing is written: no voucher, no stock movement, and no
-    /// receivable for the bill-wise party. That safety property is what this test locks.
+    /// <b>The un-allocated batch line — and ⚠️ A PROTECTION THIS SLICE REMOVED.</b> Opening the batch sub-screen is
+    /// OPTIONAL: G-5 gates it behind four layers and the operator may simply never press Alt+B. When they don't, and
+    /// the item's stock exists only inside lots, the line draws from the item's <b>no-batch bucket</b>, which is its
+    /// own balance and is empty. Until NS-3 the sale was REFUSED — but only as a side effect of the no-negative
+    /// block, whose misleading "on-hand -30 … Negative stock is not allowed" diagnosis (on a godown holding 70
+    /// Strips) was already recorded here as a defect.
     ///
-    /// <para><b>Observation, deliberately NOT asserted here.</b> The refusal arrives as a NEGATIVE-STOCK diagnosis —
-    /// "on-hand -30 … Negative stock is not allowed" — naming a godown that is holding 70 Strips, because the
-    /// no-batch bucket is its own balance. The refusal is right; the diagnosis is misleading and would read to an
-    /// operator as a stock problem rather than "pick a lot (Alt+B)". This predates the merge (an unallocated
-    /// batch-item line behaved the same before G-5 wired the sub-screen), so it is reported rather than fixed, and
-    /// the message text is left unasserted so improving it does not break this test.</para>
+    /// <para><b>NS-3 removed that block, so the refusal is gone with it.</b> The sale now POSTS: the no-batch bucket
+    /// goes to −30 while 70 Strips sit untouched in the two lots, and the bill-wise receivable is created. This test
+    /// is rewritten to lock what actually happens now, because a test asserting a refusal that no longer occurs
+    /// would simply have been deleted and the loss would have gone unrecorded.</para>
+    ///
+    /// <para><b>⚠️ CARRY-FORWARD — this needs a real fix, and it is NOT negative-stock's job.</b> The correct guard
+    /// is a <i>batch-allocation</i> requirement (a batch-tracked item's line must name a lot before it can be
+    /// saved), which is what the reference application enforces on the entry screen. Relying on the negative-stock
+    /// block for it was always accidental. Tracked in <c>notDone</c>; the two lots staying at 30/40 below is the
+    /// invariant that must survive whatever fix lands — an unallocated issue must never silently raid the lots.</para>
     /// </summary>
     [Fact]
-    public void An_unallocated_batch_line_is_refused_outright_and_leaves_no_receivable_behind()
+    public void An_unallocated_batch_line_now_posts_against_the_empty_no_batch_bucket_and_spares_the_lots()
     {
         var k = NewKit("Unallocated Batch Line Co");
         var date = k.C.FinancialYearStart.AddDays(200);
@@ -512,12 +518,18 @@ public sealed class CrossStreamInteractionTests : IDisposable
         // balance is kept per lot, so an unallocated issue is measured against 0 rather than against the 70.
         Assert.Equal(0m, OnHand(k.C, k.BatchItem.Id, k.Main.Id, null, date));
 
-        Assert.False(entry.Accept());
-        Assert.NotNull(entry.Message);
+        // ⚠️ NS-3: this used to be Assert.False — the no-negative block refused it. It posts now.
+        Assert.True(entry.Accept());
 
         var c = Reload(k.CompanyName);
-        Assert.DoesNotContain(c.Vouchers, x => x.InventoryLines.Count > 0);
-        Assert.Empty(Outstandings.OpenBillsFor(c, c.FindLedger(k.CustomerId)!, AsOf(c)));
+        Assert.Contains(c.Vouchers, x => x.InventoryLines.Count > 0);
+        // The bill-wise receivable IS created now, at the odd-paisa invoice total.
+        Assert.Equal(37037.10m, Assert.Single(
+            Outstandings.OpenBillsFor(c, c.FindLedger(k.CustomerId)!, AsOf(c))).Pending.Amount);
+
+        // THE INVARIANT THAT MUST SURVIVE ANY FUTURE FIX: the issue came out of the empty no-batch bucket, and the
+        // two real lots are untouched. An unallocated line must never silently raid the lots.
+        Assert.Equal(-30m, OnHand(c, k.BatchItem.Id, k.Main.Id, null, date));
         Assert.Equal(30m, OnHand(c, k.BatchItem.Id, k.Main.Id, "IB-2312", date));
         Assert.Equal(40m, OnHand(c, k.BatchItem.Id, k.Main.Id, "IB-2401", date));
     }
