@@ -87,13 +87,61 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
     /// <summary>
     /// The per-voucher <b>entry mode</b> (catalog §10; Tally "Change Mode", Ctrl+H) — the single source of truth for
-    /// which grid/render the Purchase/Sales screen shows: the classic Dr/Cr grid (<see cref="VoucherEntryMode.AsVoucher"/>,
-    /// the default and the only mode on every non-Purchase/Sales type), the stock-item Item Invoice
+    /// which grid/render the screen shows: the classic Dr/Cr grid (<see cref="VoucherEntryMode.AsVoucher"/>), the
+    /// cash/bank <see cref="VoucherEntryMode.SingleEntry"/> re-render of those same lines, the stock-item Item Invoice
     /// (<see cref="VoucherEntryMode.ItemInvoice"/>, Ctrl+I), or the service/accounting-ledger Accounting Invoice
-    /// (<see cref="VoucherEntryMode.AccountingInvoice"/>). All three post ordinary balanced <c>Voucher</c> legs; the mode
+    /// (<see cref="VoucherEntryMode.AccountingInvoice"/>). All post ordinary balanced <c>Voucher</c> legs; the mode
     /// is transient screen state, never persisted (inferred downstream from the posted legs — see the print/GSTR-1 paths).
+    ///
+    /// <para><b>This field initialiser is NOT the opening mode.</b> It is only the resting value the object holds
+    /// before the constructor runs. The mode a screen actually OPENS in is seeded per voucher type — see
+    /// <see cref="SeedOpeningMode"/> — because Payment, Receipt and Contra open in Single Entry.</para>
     /// </summary>
     [ObservableProperty] private VoucherEntryMode _mode = VoucherEntryMode.AsVoucher;
+
+    /// <summary>
+    /// Seeds the mode the screen OPENS in, per voucher type: <see cref="VoucherEntryMode.SingleEntry"/> on the three
+    /// cash/bank vouchers (<see cref="CanBeSingleEntry"/> — Contra F4, Payment F5, Receipt F6),
+    /// <see cref="VoucherEntryMode.AsVoucher"/> on the other twenty.
+    ///
+    /// <para><b>The evidence is inference from absence, so here is its exact shape.</b> Three separate walkthroughs in
+    /// <c>703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf</c> (<c>pdftotext -layout</c>) reach the Dr/Cr screen by turning
+    /// the single-entry setting <b>off</b>, and each then keys Cr and Dr fields — i.e. Double Entry:
+    /// <list type="bullet">
+    ///   <item>line 334 — "Use single entry mode for payment/receipt/contra vouchers? <b>NO</b>", followed at line 337
+    ///     onward by "In Credit field …", "In Debit field …";</item>
+    ///   <item>line 1634 — "Press F12 &amp; Activate Use Single Entry Mode for Pymt/Rcpt/Contra <b>set to No</b>",
+    ///     followed by "In the Cr field select …";</item>
+    ///   <item>line 1965 — "In F12: Configure 'Use single entry mode for pymt/Rect/Contra?' <b>set to No</b>",
+    ///     followed by "In Dr. field …".</item>
+    /// </list>
+    /// An instruction to turn a setting off is only meaningful if the shipped state is on. Layout corroboration:
+    /// <c>664311548-Tally-Prime-Book.pdf</c> pp.26-27, 29, 31-32; <c>696054070-TALLY-PRIME-STUDY-GUIDE.pdf</c> p.76.</para>
+    ///
+    /// <para><b>The one apparent counter-example, recorded rather than buried.</b> GSTN line 330 reads "4. Select
+    /// single entry mode for payment/receipt/contra vouchers", which in isolation looks like an instruction to switch
+    /// Single Entry ON. It is not: it names the setting being navigated to (steps 3-6 are a list of settings to visit),
+    /// and line 334 — four lines later, in the same numbered walkthrough — supplies its value, <b>NO</b>. Steps 7-12 of
+    /// that same walkthrough then key Credit and Debit fields. Reading line 330 as "turn it on" contradicts the twelve
+    /// steps beneath it. So the claim is not that the string never appears affirmatively; it is that <b>no walkthrough
+    /// in the corpus ever ends up in Single Entry by switching it on</b> — every one that mentions the setting is
+    /// switching it off.</para>
+    ///
+    /// <para><b>Residual uncertainty.</b> The corpus reaches Double Entry through an F12 flag, which is the ERP-9-era
+    /// control. That evidence establishes the <b>shipped state</b>, not which control changes it. We therefore seed the
+    /// state and leave Ctrl+H ("Change Voucher Mode", cited at GSTN line 328) as the way out; no F12 flag is invented,
+    /// and nothing here is persisted. Adding that F12 toggle later is a separate additive change — it would alter which
+    /// control reaches Double Entry, never which state the screen opens in.</para>
+    ///
+    /// <para><b>Assigns through the generated property, not the backing field.</b> The field-assignment form trips
+    /// analyzer MVVMTK0034, and more importantly it would skip <c>OnModeChanged</c> — whose
+    /// <see cref="SyncSingleEntrySides"/> call is what stamps the documented Dr/Cr polarity onto the starter lines.
+    /// Must therefore be called AFTER the two starter lines exist, or there is nothing to stamp.</para>
+    /// </summary>
+    private void SeedOpeningMode()
+    {
+        if (CanBeSingleEntry) Mode = VoucherEntryMode.SingleEntry;
+    }
 
     /// <summary>
     /// Ctrl+I — whether this Purchase/Sales voucher is being entered <b>as an item invoice</b> (catalog §10):
@@ -1138,6 +1186,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Seed two starter lines: the first Dr, the second Cr (opens with a By/To pair).
         AddLine(DrCr.Debit);
         AddLine(DrCr.Credit);
+
+        // …then seed the OPENING mode, which on Payment/Receipt/Contra is Single Entry (see SeedOpeningMode for the
+        // corpus evidence). Strictly after the two AddLine calls: entering the mode stamps the Account/Particulars
+        // polarity onto line 0 and line 1, so it needs them to exist. On a Payment this re-stamps the pair Cr/Dr,
+        // inverting the Dr/Cr default two lines above — which is the whole point (BOOK p.32).
+        SeedOpeningMode();
+
         Recalculate();
     }
 

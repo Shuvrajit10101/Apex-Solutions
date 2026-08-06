@@ -99,6 +99,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC Survives");
             vm.OpenVoucher(VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             var on = vm.Company!.FinancialYearStart.AddDays(9);
             entry.Date = on;
             entry.Lines[0].SelectedLedger = cash;
@@ -143,6 +147,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC RoundTrip");
             vm.OpenVoucher(VoucherBaseType.Payment);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "700";
 
@@ -184,6 +192,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC Cancel");
             vm.OpenVoucher(VoucherBaseType.Payment);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "310";
             var line = entry.Lines[1];
@@ -215,6 +227,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC AltX");
             vm.OpenVoucher(VoucherBaseType.Payment);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "88";
             var line = entry.Lines[1];
@@ -296,6 +312,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC Inert");
             vm.OpenVoucher(VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "42";
 
@@ -340,6 +360,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC InPicker");
             vm.OpenVoucher(VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "999";
 
@@ -458,6 +482,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC Nested Safe");
             vm.OpenVoucher(VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "54321";
 
@@ -509,6 +537,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC Depth2");
             vm.OpenVoucher(VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "2468";
 
@@ -569,6 +601,10 @@ public sealed class CreateOnTheFlyTests
         {
             var cash = SeedCompany(vm, "AltC SoftLock");
             vm.OpenVoucher(VoucherBaseType.Receipt);
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            vm.VoucherEntry!.ChangeMode();
             vm.VoucherEntry!.Lines[0].SelectedLedger = cash;
 
             Assert.True(vm.CreateMasterOnTheFly(MasterCreateKind.Ledger, MasterCreateFields.Ledger, null));
@@ -581,6 +617,10 @@ public sealed class CreateOnTheFlyTests
             // A fresh voucher, real focus in a real tagged picker, REAL Alt+C. It must still work.
             vm.OpenVoucher(VoucherBaseType.Payment);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].AmountText = "1500";
 
             var picker = TaggedPicker(window, MasterCreateFields.Ledger);
@@ -617,6 +657,10 @@ public sealed class CreateOnTheFlyTests
             var cash = SeedCompany(vm, "AltC Button");
             vm.OpenVoucher(VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // These Alt+C tests drive the plain Dr/Cr grid via Lines[0], so step out of the Single Entry
+            // screen a cash/bank voucher now opens in (there Lines[0] is the Account row and its amount is
+            // DERIVED, so a typed AmountText would be overwritten by SyncSingleEntrySides).
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].AmountText = "6400";
 
