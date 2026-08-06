@@ -1107,6 +1107,284 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     D11, D14–D24). They are the backlog this phase drew from; **nothing is built from them without an R6
     plan amendment first.**
 
+### Phase 10.10 — Wrong figures (engine-side)
+- **▶ NUMBERING (R6).** Continues the **10.x insertion band** in use since 10.5 — the slots after Phase 10 and
+  before Phase 11 (release). These are **preconditions to release**, not Phase-10 scope; Phase 10 and Phase 11
+  stay excluded and unchanged. The design draft proposed `11.A`/`11.B`; **rejected** — 10.x is the band in use.
+- **▶ REGISTER CURRENCY — read before using `docs/invented-vs-cloned.md` (re-verified in-tree this session).**
+  **IV-9 / D7 is STALE** — the negative-stock hard block **no longer throws** (`Company.cs:268` carries
+  `WarnOnNegativeStock = true`), so **v50 is SPENT and the next free schema version is v51**, and Phase 10.8's
+  status block is stale with it (NS-3/NS-4 shipped; only **NS-8 → NS-1** valuation remains blocked). **D1 and
+  D4 are already fixed.** **IV-1's "the corpus is silent" sub-claim is FALSIFIED** — the GST notes PDF
+  enumerates all five levels verbatim and shows the Stock-Group GST field shape; it is silent **only on the
+  ORDERING**. **Cited `file:line`s have DRIFTED by tens of lines — re-derive a row before trusting it.**
+- **Goals:** fix the **six Class-A "wrong figures" rows** that reach an invoice, a return, a Balance Sheet or a
+  purchase order — **IV-1, IV-2, IV-6, IV-7, IV-8, IV-10** — **in the engine only**. Each computes an
+  arithmetically wrong number today that nobody notices until an auditor, a supplier or a tax officer does.
+- **Modules:** `GstService` + `Reports/Gstr1.cs`; `TdsService` + `TcsService`; `StockValuationService` +
+  `StockValuationMethod` + `StockItem` + `InventoryService`; `Reports/InterestCalculation.cs`;
+  `Reports/ReorderStatus.cs`; new `MasterGstDetails` / `MarketValuationMethod` / `RetiredCostingMethod` /
+  `CostingMethodMigrationNotice`; `Schema` / `SchemaDowngrade` / `SqliteCompanyStore`; Io fold-in for
+  **WF-1/2/3 only** (WF-4…WF-7 are Io-clean, and that is itself the check).
+- **R7 fidelity — sources of record (A14 confirms each before its slice ships):** TallyPrime's **HSN/SAC and
+  GST Rate Hierarchy** page (both hierarchy strings verbatim; **Source of HSN/SAC Details** and **Source of GST
+  Rate** are **two** options) + the corpus GST notes; TallyHelp's §194Q *"Calculate tax on value exceeding the
+  threshold"*; TallyHelp's stock-valuation-methods page (**costing vs market**); `[CORPUS-BOOK pp.116-118]`;
+  TallyHelp's Reorder Status page (**Nett Available**, Shortfall, **F8 Reorder Only**) + `[BOOK pp.163-164]`.
+- **Work items (id — one-line; full design per row in the briefs, not here):**
+  - **WF-1 (IV-1)** GST rate + HSN/SAC resolved over TallyPrime's **five-level hierarchy in a selectable
+    order** — a deliberately narrow `MasterGstDetails` on `StockGroup`/`Group`/`GstConfig` (**do NOT reuse
+    `StockItemGstDetails`** — its RSP/cess/RCM/§17(5) fields are read item-first only); ancestor walks need a
+    **visited-set + depth cap** (no domain cycle guard exists). Also fixes the three latent bugs the new
+    default makes routine (item-first dated `RateHistory` HSN; the two-level `ResolveCess` walk; `Gstr1.cs`'s
+    **0%-bucket** + **"(none)"** HSN) and **deletes the invented "most-granular-wins (DP-6)" class doc**.
+  - **WF-2 (IV-2)** §194Q charged on the value **exceeding** the threshold, TDS/TCS twins reconciled —
+    `CalculateOnValueExceedingThreshold` on both `NatureOfPayment` and `NatureOfGoods` (trailing optional ctor
+    param, ~20 sites untouched) + a **LIMB-AWARE** `ChargeableBase`. **Do NOT copy `TcsService` verbatim — it
+    is single-limb and §194C is not** (carving against the cumulative limb returns **0 on a liable bill**).
+    `AssessableValue` stays the FULL value; each service cross-references the other naming IV-2.
+  - **WF-3 (IV-6)** Costing/market valuation split and every `LastSaleCost` item migrated — retire
+    `LastSaleCost` (**ordinal 5 reserved forever**), add `MarketValuationMethod` + `RetiredCostingMethod` (a
+    permanent audit fact **never cleared**) and a pure `CostingMethodMigrationNotice`. The notice is
+    deliberately **QUALITATIVE** — quantifying the restatement would mean keeping the deleted defective code.
+  - **WF-4 (IV-7)** Interest "Always" accrues on the **running balance, segment by segment**. **A movement
+    dated `d` creates a boundary AT `d`, not `d+1`** — this corrects the register's own Fix line and is what
+    makes the change zero-regression. Also: `OnBalance` evaluated **per segment**, and a sign-flipping window
+    **split into one `InterestLine` per contiguous same-side run** (Dr and Cr interest must not net).
+  - **WF-5 (IV-8a)** The basis is resolved from the **segment's own start date** — `BasisFor(per,
+    segmentStart)`; kills the uncited anchoring and makes Simple agree with Compound. **Round ONCE at the
+    end**, never per segment. **T8-INDEPENDENT.**
+  - **WF-6 (IV-8b)** The `BasisFor` **divisor table** — **BLOCKED on T8**; the branch is one six-line switch
+    body plus two test methods. Also rewrite `InterestPer.cs:25` / `InterestParameters.cs:20`, which describe
+    the per-period answer while the code implements ×12 — that disagreement is what exposed the defect.
+  - **WF-7 (IV-10)** Reorder Status computes **Nett Available** (`closing + pendingPO − soDue`) and **stops
+    filtering**; `orderToBePlaced = shortfall <= 0 ? 0 : max(shortfall, MOQ)`. Delete the `closing >
+    reorderLevel` block (pendingPO would be double-counted) and the invented listing filter **with no
+    replacement predicate** — that is what **F8 Reorder Only** is. **Do NOT substitute `if (shortfall <= 0)
+    continue;`** — it deletes the PO-covered row `[CORPUS-BOOK p.164]` shows on screen.
+- **Slices (schema-clean first, then the version chain in strict order; rationale in `memory.md`):**
+  1. **S1 — Interest running-balance accrual + per-segment basis** (WF-4, WF-5) — **L / med / schema-clean** —
+     **FIRST:** the only money fix both schema-clean and measurement-independent. Ships a compound test proving
+     a no-movement window reproduces today's figure **to the paisa** before the movement case is added.
+  2. **S2 — Reorder Nett Available + delete the invented filter** (WF-7) — **M / low / schema-clean** —
+     **append** `NettAvailable` to the positional row rather than inserting it at Tally's column position.
+  3. **S3 — Interest divisor table** (WF-6) — **S / low** — **DO NOT MERGE THE CONSTANTS UNTIL T8 LANDS.**
+  4. **S4 — GST five-level hierarchy** (WF-1) — **XL / HIGH / owns v51** — the worst row in the register.
+  5. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / owns v52**.
+  6. **S6 — Costing/market split + `LastSaleCost` migration** (WF-3) — **L / med / owns v53** — last: the only
+     migration that **rewrites customer data**, and it wants the two preceding parity gates green first.
+  - **▶ Why the worst row is fourth:** WF-1 was the only slice whose back-fill moves an existing customer's
+    future invoices, so it could not start before that R12 ruling. The ruling has landed, so **WF-1 may now be
+    pulled ahead of WF-6** without disturbing the version chain.
+- **Schema (v50 → v53) — binding allocation, replacing three colliding "v50 → v51" claims: WF-1 = v51,
+  WF-2 = v52, WF-3 = v53.** Each needs its columns in **BOTH** `CreateV1` **and** its migration byte-identically
+  (`SchemaMigrationEquivalenceTests`), a true-inverse `DowngradeTo`, and Io parity. **Watch the
+  default-asymmetry trap in both directions:** a `DEFAULT` back-filling an upgraded book to the *new* behaviour
+  silently changes shipped figures (v51); a `DEFAULT 0` back-filling to the *old* one silently re-ships the bug
+  (v52). v53 is the first **data rewrite** in the chain.
+- **USER DECISIONS (R12 — settled; do not re-litigate):**
+  1. **(WF-1) `MigrateV50ToV51` back-fills `StockItemFirst`** for books that already exist — provably changes
+     **zero** currently-resolvable figures. **Fresh companies get TallyPrime's shipped `LedgerFirst`.**
+  2. **(WF-3) Items on `LastSaleCost` migrate to `LastPurchaseCost`**, with a one-time notice **naming the
+     affected items**, because prior-year Balance Sheets are affected.
+  3. **(WF-7) HARD GATE PR-8 — the "MOQ floor at zero shortfall" rule — is RETIRED.** Requires amending
+     `docs/phase6-advanced-inventory-requirements.md:598-601`, **inverting** the regression test at
+     `tests/Apex.Ledger.Tests/InventoryReportsTests.cs:799`, and recording the reversal with its citation
+     (**Tally-Prime-Book p.164**). The report also **stops filtering on closing stock** — TallyPrime's default.
+- **ORCHESTRATOR RULINGS (with their reason):**
+  1. **WF-1 covers all FOUR item-first lookups**, not just `ResolveBase`: also `GstService.cs:380` (HSN for the
+     dated rate-history override), `GstService.cs:432` (`ResolveCess`) and `RcmService.cs:189` (`supplyGst`).
+     **Reason:** fixing only `ResolveBase` would let a line take its **rate from the ledger** and its **cess
+     from the item** — a new wrong-figure defect. Larger blast radius, **accepted deliberately**.
+  2. **WF-1 ships TWO source-order fields** (HSN/SAC, GST Rate), matching TallyPrime's two separate options —
+     **cheaper now than a later schema bump**.
+  3. **WF-1 EXCLUDES corpus level 5, "Creating GST Classification"** — TallyPrime's own published hierarchy
+     string omits it and there is **no GST-Classification master in `src/`**.
+  4. **WF-2 seeds `CalculateOnValueExceedingThreshold = true` for §194Q** — a **deliberate, cited divergence**:
+     TallyHelp documents the option but not its shipped default, and the statute mandates the excess base, so
+     shipping `false` would ship a knowingly wrong figure out of the box.
+  5. **WF-2's back-fill is guarded to predefined rows only; hand-authored §194Q masters are surfaced in the
+     one-time notice rather than silently rewritten.**
+  6. **WF-3's `MarketValuationMethod` ships PERSISTED-BUT-INERT** — no market-value column, no selling-price
+     auto-fill. **Reason:** TallyHelp names "Average Price" but never states the averaging period, so computing
+     it now would invent an unsourced figure — the exact sin IV-6 exists to punish. Matches the house precedent
+     (`StockValuationMethod` itself shipped persist-only).
+  7. **WF-3 DEFERS `AtZeroCost` and the Fifo/Lifo → Perpetual rename.** The rename would change the exported
+     canonical **NAME** of every existing item and rests on an inference; `AtZeroCost` changes `IssueValue` and
+     therefore Manufacturing Journal absorption.
+  8. **WF-5 (IV-8) is built BEFORE WF-4 (IV-7)** — `BasisFor` is applied inside the accrual WF-4 rewrites, so
+     the order is **not free**.
+  9. **The interest report's Principal column becomes the TIME-WEIGHTED AVERAGE**, so `Principal × Rate × Days
+     / Basis == Interest` stays true and an auditor can re-derive the row. `InterestReportViewModel.cs:73` is
+     relabelled — **that relabel sits in the deferred UI tail.**
+- **BLOCKED ON MEASUREMENT (the user is running these in a real TallyPrime):** **T8** gates **only** WF-6's two
+  `BasisFor` arms (ThirtyDayMonth, CalendarMonth) — **the Calendar-Month ×12 defect is wrong under either
+  answer and ships first, unblocked**. **T10** scopes WF-2's catch-up question (register §6 U-4) but **does not
+  block** the excess carve. **WF-3's Fifo/Lifo rename and IV-11 are not in scope**, still blocked on T3/T9.
+- **DEFERRED UI TAIL — its own follow-up slice, named so it is not smuggled in.** Keeping this phase out of
+  `src/Apex.Desktop/**` entirely is **what makes the Desktop test count a single-stream variable.** Deferred:
+  **(WF-1)** master GST fields + the F11 source-order switch; **(WF-2)** the `NatureOfPaymentMasterViewModel`
+  field; **(WF-3)** the valuation picker and where the one-time notice surfaces; **(WF-7)** the Nett Available
+  column (`ReportsViewModel`, `ReportTabularProjector.cs:146` header array); **(WF-4/5/6)**
+  `InterestReportViewModel`.
+- **Agents:** per-feature pipeline (§2.2) — Requirements/Design (design of record in `memory.md`), **A14** (R7,
+  per slice), Test author, Implementer, **A10** three-lens review **per slice, pre-merge**, **A12**, run-app.
+- **Deliverables:** a ledger-rated / stock-group-rated / company-defaulted line that **charges the right GST**
+  and files under the right HSN in GSTR-1; a §194Q deduction on the **excess** with the TCS twin reconciled; a
+  Balance Sheet no longer valuing stock at selling price, with affected items named; interest accrued on the
+  **running balance** with a re-derivable Principal; a Reorder Status showing **Nett Available**, every item
+  listed.
+- **Exit gate:** R9 — tests green and **shown as all four per-project counts, never the total** (§6.2; baseline
+  today **Ledger 1294 · Io 368 · Sqlite 214 · Desktop 1836**), **predicted before each merge, an exact match
+  treated as evidence the merge is semantically clean**; Robert & Bright unmoved; **the schema gate is three
+  migrations deep** (v51/v52/v53 each with equivalence + true-inverse downgrade parity green); **A10** review
+  per slice pre-merge; **A12** commits & pushes (R4/R10); the real app run with evidence; `memory.md` updated;
+  **user go/no-go** per R12.
+- **▶ CARRY-FORWARDS:** the deferred UI tail · **T8c** (`PostDue`: due date or the day after) — measured here,
+  fixed elsewhere · the **Fifo/Lifo → Perpetual** rename and **`AtZeroCost`** · the register's remaining
+  Class-A rows **IV-11, IV-14, IV-17, IV-22, IV-33** · marking the six fixed rows in
+  `docs/invented-vs-cloned.md` (see the documentation slice at the end of 10.11).
+
+### Phase 10.11 — Voucher lifecycle: alter, delete, cancel
+- **▶ SCOPE FENCE — THIS IS NOT PHASE 10 (R12, 2026-08-02).** Phase 10 and Phase 11 were **excluded by the
+  user** and this phase re-opens neither. It builds three verbs TallyPrime has and we do not — **alter, delete,
+  cancel** — over engines that **already exist** (`LedgerService.Cancel`, `.Delete`), and it builds **NO audit
+  trail, NO Edit Log, NO security roles, NO user attribution.**
+- **▶ STATED CARRY-FORWARD GAP — alter and delete ship with NO AUDIT TRAIL, BY EXPLICIT USER DECISION (item 3
+  below). A recorded ruling, not an oversight, and it must be read as one at every review.**
+  `MasterAlterationRules.cs:51-54` already defers the **master**-alteration audit trail to the excluded Phase
+  10 in its own words — *"writing half of it here would leave an audit log no one can query or protect."*
+  Voucher alteration and deletion are held to the identical ruling. **Consequence, stated so it is never
+  discovered instead:** after this phase an operator can alter and delete a posted voucher and **the books
+  carry no record that either happened.**
+- **▶ WHY IV-5 IS HERE AND NOT IN 10.10 (R12 user decision).** IV-5 is filed as Class-C but by harm belongs
+  with the wrong figures — it **posts real, irreversible receipt/payment vouchers**. **Moved to this stream by
+  user decision:** its fix is **navigation, not arithmetic**, and it **collided on the shell files**
+  (`MainWindow.axaml.cs`, `MainWindowViewModel.cs`) with VL-1…VL-3.
+- **▶ BUILD SEQUENTIALLY IN ONE STREAM — do NOT use Phase 10.9's five-worktree pattern.** All four work items
+  converge on the same ~700-line first-match-wins key dispatcher and the same prompt/button-bar machinery;
+  10.9's single hand-resolved add/add conflict was **still nearly malformed**.
+- **Goals:** give the operator the three lifecycle verbs a Tally user reaches for — **alter a posted voucher
+  (IV-3)**, **delete a voucher or master (IV-4)**, **cancel a voucher keeping its number in sequence
+  (IV-16)** — and **stop the one gesture that posts vouchers the operator never confirmed and cannot remove
+  (IV-5)**. Two of the four are **wiring gaps, not design gaps**: the engine exists and no UI calls it.
+- **Modules:** the tunnel key dispatcher in `MainWindow.axaml.cs` and the prompt / button-bar / routing
+  machinery in `MainWindowViewModel.cs`; `LedgerService` (a new `Replace`; `Cancel`/`Delete` reached at last);
+  `Company.ReplaceVoucherInternal`; a new pure `Services/MasterDeletionRules.cs` on the `MasterAlterationRules`
+  shape; `VoucherEntryViewModel` (a `ForAlter` factory + the rehydration inverse of its four `To…()` writers);
+  `BillSettlementService`; `ReportsViewModel`/`ReportRow`; the two Io print DTOs.
+- **R7 fidelity (A14 per slice):** `[CORPUS-BOOK p.28]` — plain **Enter** on a register row goes **straight to
+  Show/Edit**; TallyPrime has **no read-only voucher screen at all**, scopes **Alt+X** to *cancelling from a
+  report* and reserves **Ctrl+Enter** for *display-only drill-down*. `[CORPUS-SG p.67]` — a ledger with
+  transactions **cannot be deleted**; Tally **just refuses**. **Alt+A "Add voucher in report"** is TallyPrime's
+  own bottom-bar entry `[CORPUS-BOOK p.431]`. **⚠️ Two Tally-side facts could NOT be settled and must NOT be
+  fabricated (R7):** the exact cancellation prompt **wording**, and whether **un-cancel** exists.
+- **Work items (id — one-line; full design per row in the briefs, not here):**
+  - **VL-1 (IV-3)** Voucher alteration — the drill opens the entry screen pre-filled and Accept **REPLACES**
+    via `LedgerService.Replace(Guid, Voucher)`, **ordered so a rejected replacement leaves the original
+    untouched** (`Post` mutates before it can fail, so remove-then-post loses the original). **Three identities
+    preserved, each for its own reason:** the **Guid** (25+ tables `REFERENCES vouchers(id)`), the **Number**
+    (`Post` assigns when `Number <= 0`, so passing 0 renumbers a mid-sequence voucher to max+1) and the **list
+    position** (Remove+Add reorders the Day Book for same-dated vouchers). Three hard parts, named so they are
+    not discovered during implementation: the posted `Voucher.Lines` is **not** what the operator keyed; the
+    hidden-sub-form rule is **inverted** for vouchers; and the old voucher's derived records must be **unwound
+    before** the replacement re-derives.
+  - **VL-2 (IV-4)** Delete on **Alt+D** behind a Y/N confirmation and referential guards — one confirmation
+    channel with an action slot (keeping `ConfirmMasterAccept`/`DismissMasterAccept` by name, called by tests
+    and the dispatcher), a new **pure** `MasterDeletionRules`, and routing from Day Book / register drill /
+    voucher detail / Chart of Accounts / Stock Item list. **Also closes the modifier hole** — `CanQuickJump`
+    never tests `e.KeyModifiers`, so **Alt+D already opens the Day Book today**.
+  - **VL-3 (IV-16)** **Alt+X = CANCEL a posted voucher**, and cancelled documents **look** cancelled — delete
+    the app-wide Alt+X arm outright (Escape already reaches `Back()`; it has no `!IsPickerOpen` guard and blows
+    through the WI-11 Accept prompt) and **delete `CancelVoucher()` rather than repurpose it, so the compile
+    breaks and every stale caller surfaces**; then a narrowly-gated arm calling `LedgerService.Cancel`, plus
+    `IsCancelled` on `ReportRow`, a `CancelledRowToBrushConverter`, and the **greyed Day Book row**
+    `plan.md:267` already specifies. **Two picker leaks go live the moment Cancel is reachable and must close
+    in the same slice** — `BuildSection34Pickers()`/`BuildAdvancePickers()` filter on base type only, so a
+    cancelled invoice is offered as the original supply a §34 Credit Note adjusts.
+  - **VL-4 (IV-5)** Settlement comes **off Ctrl+B** and off the report — delete the arm, handler, button-bar
+    row (**leaving it would paint a red badge that fires nothing — the IV-31 defect**) and `SettleBills()`;
+    **keep `BuildSettlementAllocations`** (the only code that validates an AgstRef against a genuinely open
+    bill and caps each knock at the pending amount), **delete `SettleAndPost`**. Replaced by **Alt+A** on the
+    Outstandings screen, opening a **Single Entry** Receipt/Payment **pre-loaded** with the selected bills.
+- **Slices (one sequential stream, all schema-clean; rationale in `memory.md`):**
+  1. **S1 — the Alt+D modifier hole** (VL-2 step 1) — **S / low** — **its own commit, ahead of everything, and
+     it must precede S4:** binding Alt+D to DELETE on top of a hole that already fires it as a bare-letter
+     quick-jump would make a stray Alt+D destructive.
+  2. **S2 — settlement off Ctrl+B** (VL-4) — **M / low** — **second, because it is the only row in the phase
+     that CREATES bad data**: today Ctrl+B posts an irreversible voucher the operator never confirmed and —
+     until S3/S4 — can neither cancel nor delete.
+  3. **S3 — Cancel on Alt+X** (VL-3) — **M / med** — before delete, so the first new verb is the
+     **non-destructive** one and the dispatcher is clean where S4 inserts.
+  4. **S4 — Delete on Alt+D** (VL-2 steps 2-11) — **L / med**.
+  5. **S5 — Voucher alteration** (VL-1) — **XL / HIGH** — last and largest; the only slice that rebuilds a
+     posted aggregate rather than routing to an existing engine method.
+- **Schema: NONE — schema-clean end to end, and that is designed, not coincidental.** `SqliteCompanyStore.Save`
+  re-inserts the whole aggregate in one transaction, so persistence is a pure function of the in-memory
+  `Company` graph. **Io: none for the canonical model** — asserted, not assumed (a never-altered company must
+  still export byte-identically, ER-13).
+- **USER DECISIONS (R12 — settled; do not re-litigate):**
+  1. **(VL-1) Ctrl+Enter opens alteration; plain Enter keeps the read-only VoucherDetail column.** This is
+     **BACKWARDS from TallyPrime on both keys** — Tally's Enter goes straight to Show/Edit and its Ctrl+Enter
+     is display-only. A **deliberate, accepted divergence** to preserve the Miller-column cascade, **with a
+     follow-up to reconsider.**
+  2. **(VL-2) COMPANY deletion is SPLIT OUT into its own later slice;** this slice ships Alt+D for **voucher,
+     ledger and group only**. **Reason:** `CompanyStorage.Delete` **swallows `IOException`** — a locked `.db`
+     leaves the operator believing the company was deleted while the file survives — and `Company = null`
+     appears nowhere, so deleting the **open** company leaves a live aggregate bound to a missing file. The
+     split-out slice needs **type-the-company-name confirmation**, a **mandatory backup-first offer**, a real
+     **teardown**, and the **IOException fixed**.
+  3. **Alter and delete ship with NO audit trail**, by the earlier decision that excluded Phase 10 — a stated
+     carry-forward gap, not an oversight (see the block above).
+- **ORCHESTRATOR RULINGS (with their reason):**
+  1. **VL-1 REFUSES alteration, with a named message, for POS, Manufacturing Journal, payroll and the three
+     `InventoryVoucher` entry screens** — a silent no-op is the failure mode being avoided.
+  2. **Altering a voucher's DATE is warn-and-proceed, not blocked** — blocking would repeat the IV-9 mistake
+     where a default quietly became the only behaviour. **Refuse alteration only when
+     `EInvoiceStatus.Generated`, not `Pending`.**
+  3. **VL-3 ships NO un-cancel** in this slice — VL-1 ships in the same stream and **alteration is the route**.
+     The confirmation string is **ours, recorded as UNVERIFIED-BY-DESIGN** rather than fabricating a Tally
+     quote (R7). The e-invoice interlock is **warn-and-proceed**. The **pure-inventory Cancel analogue is
+     deferred** until the registers carry a cancelled-inclusive view.
+  4. **VL-4's replacement gesture is Alt+A** — TallyPrime's own documented *"add voucher in report"*. **Ctrl+B
+     is freed and RESERVED**, and **Basis of Values is explicitly NOT built here** — recorded as named debt,
+     and it is what Ctrl+B is reserved for.
+- **Measurements this phase is blocked on: NONE** — every blocker was an R12 decision and all are settled.
+- **Agents:** per-feature pipeline (§2.2) — Requirements/Design, **A14** (R7, incl. the explicit finding that
+  two Tally strings are unpublished), Test author, Implementer, **A10** review **per slice, pre-merge**,
+  **A12**, run-app verifier.
+- **Deliverables (and the four driving tests, odd paise throughout, each proven to fail before its fix):** a
+  posted voucher opened pre-filled, edited and re-accepted **keeping its Guid, number and Day-Book position**,
+  derived records unwound and re-derived exactly once — driven by **(1)** a rejected `Replace` leaving the
+  original **byte-identical and still at its list index**, **(2)** a TDS-carved purchase re-deriving from the
+  **restored gross** at a carve rounding to odd paise, **(3)** a §34 Credit Note altered with
+  `ShowSection34Details` false **keeping** its `GstCreditDebitNoteLink` and GSTR-1 9B row; **Alt+D deleting a
+  voucher, ledger or group** behind a Y/N confirmation and a guard that refuses with the count of blockers;
+  **Alt+X cancelling from the Day Book**, number staying in sequence — **(4)** a **₹1,84,733.45** invoice
+  greyed **and** overprinted "CANCELLED"; **Ctrl+B unbound and reserved**, settlement on the **Alt+A pre-loaded
+  Single-Entry Receipt/Payment** the operator confirms.
+- **Exit gate:** R9 — tests green and **shown as all four per-project counts, never the total** (§6.2; baseline
+  today **Ledger 1294 · Io 368 · Sqlite 214 · Desktop 1836**), **predicted before each merge, an exact match
+  treated as evidence the merge is semantically clean**; Robert & Bright unmoved; **A10** review per slice
+  pre-merge; **A12** commits & pushes (R4/R10); the **real app run with evidence** (alter a posted invoice and
+  see the same number at the same Day-Book position; be refused deleting a ledger that has transactions; cancel
+  an invoice and see it greyed and printed CANCELLED; settle two bills through the pre-loaded Receipt);
+  `memory.md` updated; **user go/no-go** per R12. **One addition specific to this phase: the NO-AUDIT-TRAIL
+  consequence is re-stated at the gate and acknowledged, not assumed** — with alter and delete working in front
+  of them, the user confirms that shipping them without any record of who changed what is still the decision.
+- **▶ CARRY-FORWARDS:** the **audit trail** itself (deferred to the excluded Phase 10; the gap widens with
+  every altered or deleted voucher) · **company deletion**, specified above but not fixed · **alteration for
+  the five deferred voucher families** · **cancellation for pure-inventory vouchers** · **Basis of Values**,
+  which reclaims Ctrl+B from the reserved list this phase creates · the **key-map table** (IV-28) — build the
+  Ctrl+B reserved-unbound row here so IV-28 inherits it.
+
+> **▶ ONE POST-MERGE DOCUMENTATION SLICE, OWNED BY ONE AGENT — applies to BOTH 10.10 and 10.11 (R5/R6).** All
+> documentation edits arising from these two phases — `docs/invented-vs-cloned.md` (row status + the register
+> corrections recorded in 10.10), `docs/phase6-advanced-inventory-requirements.md` (retiring PR-8),
+> `docs/voucher-entry-specification.md:101` and `memory.md` — are **deferred to a single slice after both
+> merges, performed by one agent**. Reason: two worktrees × nine slices appending to the same files
+> concurrently would conflict on every one of them.
+
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
 - **Modules:** performance passes (NFR-4), end-to-end system/acceptance tests, docs completion (user manual,
