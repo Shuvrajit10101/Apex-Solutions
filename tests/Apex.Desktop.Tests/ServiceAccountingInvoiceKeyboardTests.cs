@@ -157,10 +157,16 @@ public sealed class ServiceAccountingInvoiceKeyboardTests
     /// <b>G-6 end-to-end through the real key tunnel.</b> The view-model change alone was not enough: Ctrl+H was
     /// gated on <c>IsInvoiceableEntry</c> (Purchase/Sales only), so Single Entry — though implemented and unit
     /// tested — was unreachable from the keyboard on the three vouchers it belongs to. This asserts the key really
-    /// arrives, on a Payment, and that the rendered tree swaps to the Single-Entry grid.
+    /// arrives, on a Payment, and that the rendered tree swaps between the two grids.
+    ///
+    /// <para><b>Re-pointed at the new opening state.</b> A Payment now OPENS in Single Entry, so the journey under
+    /// test runs Single → Ctrl+H → Double → Ctrl+H → Single. That is strictly more than the original proved: as well
+    /// as the key tunnel and both tree swaps, the FIRST <c>Pump</c> below now asserts that the tree an operator meets
+    /// on open is the Single-Entry one — the render-level counterpart of
+    /// <c>VoucherOpeningDefaultsTests.The_opening_entry_mode_is_seeded_per_voucher_type</c>.</para>
     /// </summary>
     [AvaloniaFact]
-    public void CtrlH_on_a_payment_enters_single_entry_mode()
+    public void CtrlH_flips_a_payment_between_single_and_double_entry()
     {
         var (window, vm, _) = NewWindow();
         vm.OpenVoucher(VoucherBaseType.Payment);
@@ -168,25 +174,30 @@ public sealed class ServiceAccountingInvoiceKeyboardTests
         Assert.True(entry.CanBeSingleEntry);
         Assert.True(vm.IsChangeModeEntry);
         Pump(window);
-        Assert.Contains("Particulars (Ledger)", ShownText(window));   // the Dr/Cr grid header, in Double Entry
 
-        Assert.True(KeyWasHandled(window, Key.H, KeyModifiers.Control));
+        // What the operator meets on OPEN: the Account field is up, the Dr/Cr grid header is not.
         Assert.True(entry.IsSingleEntry);
         Assert.False(entry.ShowPlainDrCrGrid);
-        Pump(window);
-
-        // The realised tree really swapped: the Account field is up and the Dr/Cr grid header is gone.
-        var shown = ShownText(window);
-        Assert.Contains("Account", shown);
-        Assert.DoesNotContain("Particulars (Ledger)", shown);
+        var opening = ShownText(window);
+        Assert.Contains("Account", opening);
+        Assert.DoesNotContain("Particulars (Ledger)", opening);
 
         // Payment polarity, surfaced to the operator (BOOK p.32).
         Assert.Contains("Account is credited", entry.SingleEntryModeHint);
 
-        // …and Ctrl+H flips straight back.
+        // Ctrl+H reaches the Dr/Cr screen — the one move the corpus walkthroughs actually instruct.
         Assert.True(KeyWasHandled(window, Key.H, KeyModifiers.Control));
         Assert.False(entry.IsSingleEntry);
         Assert.True(entry.ShowPlainDrCrGrid);
+        Pump(window);
+        Assert.Contains("Particulars (Ledger)", ShownText(window));   // the Dr/Cr grid header, in Double Entry
+
+        // …and Ctrl+H flips straight back.
+        Assert.True(KeyWasHandled(window, Key.H, KeyModifiers.Control));
+        Assert.True(entry.IsSingleEntry);
+        Assert.False(entry.ShowPlainDrCrGrid);
+        Pump(window);
+        Assert.DoesNotContain("Particulars (Ledger)", ShownText(window));
     }
 
     /// <summary>

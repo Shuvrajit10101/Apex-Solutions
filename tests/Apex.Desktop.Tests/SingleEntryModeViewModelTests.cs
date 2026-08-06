@@ -105,11 +105,13 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
         k.Vm.OpenVoucher(VoucherBaseType.Payment);
         var e = k.Vm.VoucherEntry!;
 
-        Assert.False(e.IsSingleEntry);      // Double Entry is the opening state
-        e.ChangeMode();
+        // The opening state is SINGLE entry (see VoucherOpeningDefaultsTests for the corpus evidence), so the flip
+        // under test now runs single → double → single rather than the other way round.
         Assert.True(e.IsSingleEntry);
         e.ChangeMode();
         Assert.False(e.IsSingleEntry);
+        e.ChangeMode();
+        Assert.True(e.IsSingleEntry);
     }
 
     // ================================================================ (2) POLARITY — the money assertions
@@ -124,7 +126,7 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
         var k = NewKit("SE Receipt Co");
         k.Vm.OpenVoucher(VoucherBaseType.Receipt);
         var e = k.Vm.VoucherEntry!;
-        e.ChangeMode();
+        // Opens in Single Entry already — no ChangeMode() needed (VoucherOpeningDefaultsTests carries the evidence).
         Assert.True(e.IsSingleEntry);
 
         e.SingleEntryAccount = e.Ledgers.Single(l => l.Id == k.CashId);
@@ -154,7 +156,7 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
         var k = NewKit("SE Payment Co");
         k.Vm.OpenVoucher(VoucherBaseType.Payment);
         var e = k.Vm.VoucherEntry!;
-        e.ChangeMode();
+        // Opens in Single Entry already — no ChangeMode() needed (VoucherOpeningDefaultsTests carries the evidence).
 
         e.SingleEntryAccount = e.Ledgers.Single(l => l.Id == k.BankId);
         var p = e.SingleEntryParticulars[0];
@@ -181,7 +183,7 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
         var k = NewKit("SE Contra Co");
         k.Vm.OpenVoucher(VoucherBaseType.Contra);
         var e = k.Vm.VoucherEntry!;
-        e.ChangeMode();
+        // Opens in Single Entry already — no ChangeMode() needed (VoucherOpeningDefaultsTests carries the evidence).
 
         e.SingleEntryAccount = e.Ledgers.Single(l => l.Id == k.CashId);
         var p = e.SingleEntryParticulars[0];
@@ -212,7 +214,7 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
 
         k.Vm.OpenVoucher(VoucherBaseType.Receipt);
         var e = k.Vm.VoucherEntry!;
-        e.ChangeMode();
+        // Opens in Single Entry already — no ChangeMode() needed (VoucherOpeningDefaultsTests carries the evidence).
 
         e.SingleEntryAccount = e.Ledgers.Single(l => l.Id == k.CashId);
         e.SingleEntryParticulars[0].SelectedLedger = e.Ledgers.Single(l => l.Id == k.IncomeId);
@@ -246,9 +248,13 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
     {
         var k = NewKit("SE Equivalence Co");
 
-        // Double Entry: Cr Bank / Dr Rent, 23,456.78.
+        // Double Entry: Cr Bank / Dr Rent, 23,456.78. A Payment now OPENS in Single Entry, so this arm has to
+        // Ctrl+H its way OUT — otherwise SyncSingleEntrySides would re-stamp the polarity and derive line 0's amount,
+        // and the two arms would no longer be the independent keyings this equivalence proof needs.
         k.Vm.OpenVoucher(VoucherBaseType.Payment);
         var dbl = k.Vm.VoucherEntry!;
+        dbl.ChangeMode();
+        Assert.True(dbl.ShowPlainDrCrGrid);
         dbl.Lines[0].SelectedLedger = dbl.Ledgers.Single(l => l.Id == k.ExpenseId);
         dbl.Lines[0].Side = DrCr.Debit;
         dbl.Lines[0].AmountText = "23456.78";
@@ -260,7 +266,7 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
         // Single Entry: the same transaction.
         k.Vm.OpenVoucher(VoucherBaseType.Payment);
         var single = k.Vm.VoucherEntry!;
-        single.ChangeMode();
+        // Opens in Single Entry already — no ChangeMode() needed (VoucherOpeningDefaultsTests carries the evidence).
         single.SingleEntryAccount = single.Ledgers.Single(l => l.Id == k.BankId);
         single.SingleEntryParticulars[0].SelectedLedger = single.Ledgers.Single(l => l.Id == k.ExpenseId);
         single.SingleEntryParticulars[0].AmountText = "23456.78";
@@ -289,7 +295,7 @@ public sealed class SingleEntryModeViewModelTests : IDisposable
         var k = NewKit("SE Roundtrip Co");
         k.Vm.OpenVoucher(VoucherBaseType.Payment);
         var e = k.Vm.VoucherEntry!;
-        e.ChangeMode();
+        // Opens in Single Entry already — no ChangeMode() needed (VoucherOpeningDefaultsTests carries the evidence).
 
         e.SingleEntryAccount = e.Ledgers.Single(l => l.Id == k.BankId);
         e.SingleEntryParticulars[0].SelectedLedger = e.Ledgers.Single(l => l.Id == k.ExpenseId);

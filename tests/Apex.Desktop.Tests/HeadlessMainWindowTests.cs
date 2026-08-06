@@ -315,6 +315,8 @@ public sealed class HeadlessMainWindowTests
             // Payment: Dr Salaries 30,000 (cost-applicable, allocated to Delhi) / Cr Cash 30,000.
             vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Payment);
             var entry = vm.VoucherEntry!;
+            // A cash/bank voucher opens in Single Entry; this walkthrough keys the plain Dr/Cr grid.
+            entry.ChangeMode();
             entry.Lines[0].SelectedLedger = salaries;
             entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;
             entry.Lines[0].AmountText = "30000";
@@ -392,6 +394,8 @@ public sealed class HeadlessMainWindowTests
             // Enter a Receipt with a forex line: Cash Dr 83,000; Export Sales Cr (US$1,000 @ 83).
             vm.OpenVoucher(Apex.Ledger.Domain.VoucherBaseType.Receipt);
             var entry = vm.VoucherEntry!;
+            // A cash/bank voucher opens in Single Entry; this walkthrough keys the plain Dr/Cr grid.
+            entry.ChangeMode();
             entry.Date = fyStart.AddDays(9);
             entry.Lines[0].SelectedLedger = cash;
             entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;

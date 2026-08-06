@@ -154,6 +154,11 @@ public sealed class VoucherEntryViewModelTests : IDisposable
         vm.OpenVoucher(VoucherBaseType.Receipt);
         var entry = vm.VoucherEntry!;
 
+        // A Receipt opens in Single Entry, where the Account amount is DERIVED (Σ particulars) and so cannot be
+        // unbalanced by construction. This test is about the Dr/Cr grid's balance gate, so step out to it first.
+        entry.ChangeMode();
+        Assert.True(entry.ShowPlainDrCrGrid);
+
         var cash = vm.Company!.FindLedgerByName("Cash");
         var sales = vm.Company!.FindLedgerByName("Sales A/c");
 
