@@ -17,7 +17,7 @@ namespace Apex.Desktop.Tests;
 /// <para>The defect these tests pin: <c>AcceptItemInvoice</c> and <c>AcceptAccountingInvoice</c> built the party
 /// <see cref="EntryLine"/> with <b>no</b> bill allocations, while <see cref="Outstandings"/> only counts lines that
 /// HAVE allocations. A company invoicing normally therefore got an empty Receivables report, empty ageing, no
-/// overdue tracking and nothing for Ctrl+B to settle — with no error and no warning anywhere.</para>
+/// overdue tracking and nothing to settle against — with no error and no warning anywhere.</para>
 ///
 /// <para>Corpus: the Bill-wise sub-screen sits on BOTH invoice modes — Study Guide p.79 step 7 (Purchase Item
 /// Invoice), p.80 step 6 (Purchase Accounting Invoice), p.81 step 6 (Sales Item Invoice), p.82 step 5 (Sales

@@ -201,8 +201,23 @@ public sealed class HeadlessMainWindowTests
         }
     }
 
+    /// <summary>
+    /// The ONLY geometric proof of the Outstandings page in the settlement surface: it renders the page through
+    /// the real window and reads the realized <see cref="TextBlock"/>s, where every assertion in
+    /// <c>SettlementFromOutstandingsTests</c> is view-model state only.
+    ///
+    /// <para><b>Phase 10.11 S2 (VL-4 / register row IV-5) RETIRED the Ctrl+B behaviour this test used to assert.</b>
+    /// It was named <c>…_CtrlB_settles_it_through_the_window</c> and pressed Ctrl+B expecting the bill to be
+    /// knocked off on the spot. Ctrl+B is TallyPrime's <i>Basis of Values</i> — a report option that writes nothing
+    /// — so that binding was deleted and settlement moved to <b>Alt+A</b>, which OPENS a pre-loaded
+    /// Receipt the operator confirms and accepts. <b>This is not a regression: the old expectation was the defect.</b>
+    /// The render assertions are kept verbatim; only the gesture and the settle step changed, and the end state
+    /// (bill gone, back on a refreshed report) is re-asserted after Accept so nothing the old test guarded is lost.</para>
+    ///
+    /// <para>The bill is 25,417.83 — ODD PAISA, so the rendered "25,4…" assertion can also catch a paisa slip.</para>
+    /// </summary>
     [AvaloniaFact]
-    public void Billwise_outstandings_page_renders_the_bill_and_CtrlB_settles_it_through_the_window()
+    public void Billwise_outstandings_page_renders_the_bill_and_AltA_opens_a_preloaded_settlement()
     {
         var (window, vm, tempDir) = NewWindow();
         try
@@ -231,15 +246,17 @@ public sealed class HeadlessMainWindowTests
             var entry = vm.VoucherEntry!;
             entry.Lines[0].SelectedLedger = party;
             entry.Lines[0].Side = Apex.Ledger.DrCr.Debit;
-            entry.Lines[0].AmountText = "25000";
+            entry.Lines[0].AmountText = "25417.83";
             Assert.True(entry.Lines[0].IsBillWise);               // the sub-panel turned on
             entry.Lines[0].BillAllocations[0].Name = "BILL-1";
-            entry.Lines[0].BillAllocations[0].AmountText = "25000";
+            entry.Lines[0].BillAllocations[0].AmountText = "25417.83";
             entry.Lines[1].SelectedLedger = sales;
             entry.Lines[1].Side = Apex.Ledger.DrCr.Credit;
-            entry.Lines[1].AmountText = "25000";
+            entry.Lines[1].AmountText = "25417.83";
             Assert.True(entry.CanAccept);
             window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control); // accept
+
+            var postedCount = vm.Company!.Vouchers.Count;   // the Sales voucher only — nothing settled yet
 
             // Open the Receivables Outstandings page and confirm the rendered page shows the bill.
             vm.OpenOutstandings(OutstandingsKind.Receivables);
@@ -253,15 +270,33 @@ public sealed class HeadlessMainWindowTests
                 .OfType<TextBlock>()
                 .Select(t => t.Text ?? string.Empty)
                 .ToList();
-            Assert.Contains(texts, t => t.Contains("BILL-1"));   // the reference rendered
-            Assert.Contains(texts, t => t.Contains("25,000"));   // the pending amount rendered
+            Assert.Contains(texts, t => t.Contains("BILL-1"));      // the reference rendered
+            Assert.Contains(texts, t => t.Contains("25,417.83"));   // the pending amount rendered, to the paisa
 
-            // Spacebar selects the highlighted bill; Ctrl+B settles it — real key input on the window.
+            // Spacebar selects the highlighted bill; Alt+A OPENS a pre-loaded settlement — real key input on the
+            // window. (This was Ctrl+B until IV-5 retired that binding; see the summary above.)
             window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
             Assert.True(vm.Outstandings!.Rows[0].IsSelected);
-            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.Control);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
 
-            // The bill is knocked off — the page is now empty.
+            // Nothing is posted yet — a Receipt is merely OFFERED, pre-loaded with the bill as an Agst-Ref row.
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            var settle = vm.VoucherEntry!;
+            Assert.Equal(postedCount, vm.Company!.Vouchers.Count);
+            var settleLine = Assert.Single(settle.SingleEntryParticulars);
+            Assert.Same(party, settleLine.SelectedLedger);
+            var alloc = Assert.Single(settleLine.BillAllocations);
+            Assert.Equal(Apex.Ledger.Domain.BillRefType.AgstRef, alloc.RefType);
+            Assert.Equal("BILL-1", alloc.Name);
+            Assert.Equal("25417.83", alloc.AmountText);
+
+            // The operator names the cash/bank side and accepts — only now is the bill knocked off, and the
+            // refreshed report is empty. That end state is what the retired Ctrl+B assertion used to guard.
+            settle.SingleEntryAccount = vm.Company!.FindLedgerByName("Cash");
+            Assert.True(settle.CanAccept);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Equal(Screen.Outstandings, vm.CurrentScreen);
             Assert.Empty(vm.Outstandings!.Rows);
         }
         finally

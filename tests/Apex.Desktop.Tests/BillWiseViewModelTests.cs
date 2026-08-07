@@ -13,9 +13,10 @@ namespace Apex.Desktop.Tests;
 /// End-to-end coverage for the Bill-wise UI surfaced in the cascade (catalog §5): a party ledger is
 /// created with "Maintain bill-by-bill" + a default credit period; a Sales voucher captures a New-Ref
 /// bill-wise allocation and posts through the engine + SQLite; the Outstandings (Receivables) page shows
-/// the open bill with its due date + pending + ageing; spacebar multi-select + Ctrl+B settle it through
-/// the engine and it disappears; and every path keeps the cascade correct (Outstandings opens as ONE page
-/// column that REPLACES any prior page). Drives the real shell VMs over a throwaway .db — no UI toolkit.
+/// the open bill with its due date + pending + ageing; spacebar multi-select + Alt+A open a PRE-LOADED
+/// Receipt the operator accepts, after which the bill disappears; and every path keeps the cascade correct
+/// (Outstandings opens as ONE page column that REPLACES any prior page). Drives the real shell VMs over a
+/// throwaway .db — no UI toolkit.
 /// </summary>
 public sealed class BillWiseViewModelTests : IDisposable
 {
@@ -166,38 +167,68 @@ public sealed class BillWiseViewModelTests : IDisposable
         Assert.Empty(vm.Outstandings!.Rows);
     }
 
-    // ---------------------------------------------------------------- (3) Ctrl+B settles it
+    // ---------------------------------------------------------------- (3) Alt+A OFFERS a settlement
 
+    /// <summary>
+    /// Rewrite of <c>Spacebar_select_then_CtrlB_settles_the_bill_and_it_disappears</c> onto the Alt+A route.
+    /// Phase 10.11 S2 (VL-4 / register row IV-5) removed the Ctrl+B binding that POSTED here: in TallyPrime
+    /// Ctrl+B is "Basis of Values" and writes nothing, so the shipped behaviour was posting real receipt
+    /// vouchers against the operator's debtors for a keystroke that should only change a display.
+    ///
+    /// <para>The end state this test asserts is the SAME — the bill is knocked off, through a Receipt carrying an
+    /// Agst-Ref allocation, and survives a reload — but it is now reached by the operator confirming a pre-loaded
+    /// voucher, which is what TallyPrime makes them do [CORPUS-SG p.92 §5.5]. The odd-paise figure replaces the
+    /// original round 30,000, which could not have caught a paisa-level slip anywhere on the path.</para>
+    /// </summary>
     [Fact]
-    public void Spacebar_select_then_CtrlB_settles_the_bill_and_it_disappears()
+    public void Spacebar_select_then_AltA_offers_a_settlement_the_operator_accepts()
     {
         const string companyName = "BillWise Settle Co";
         var vm = NewSeededCompany(companyName);
         var party = CreatePartyDebtor(vm);
-        PostBillWiseSale(vm, party, "INV-900", 30000m);
+        PostBillWiseSale(vm, party, "INV-900", 30_417.83m);   // ODD PAISA
+        var postedSales = vm.Company!.Vouchers.Count;
 
         vm.OpenOutstandings(OutstandingsKind.Receivables);
         var os = vm.Outstandings!;
         Assert.Single(os.Rows);
         Assert.True(vm.IsOutstandingsScreen);
 
-        // Highlight is on the first row; spacebar selects it, Ctrl+B settles.
+        // Highlight is on the first row; the spacebar selects it.
         Assert.Equal(0, os.HighlightedIndex);
         vm.ToggleOutstandingSelection();
         Assert.True(os.Rows[0].IsSelected);
         Assert.Single(os.SelectedRows);
 
-        vm.SettleBills();
+        // Alt+A OPENS the settlement — it does not post it.
+        vm.OpenSettlementVoucherFromOutstandings();
+        Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+        Assert.Equal(postedSales, vm.Company!.Vouchers.Count);
 
-        // The bill is knocked off — the row is gone and the report is empty.
-        Assert.Empty(os.Rows);
-        Assert.Contains("Settled", os.Message);
+        var entry = vm.VoucherEntry!;
+        var line = Assert.Single(entry.SingleEntryParticulars);
+        Assert.Same(party, line.SelectedLedger);
+        Assert.Equal("30417.83", line.AmountText);
+        var allocation = Assert.Single(line.BillAllocations);
+        Assert.Equal(BillRefType.AgstRef, allocation.RefType);
+        Assert.Equal("INV-900", allocation.Name);
+        Assert.Equal("30417.83", allocation.AmountText);
+
+        // The operator names the cash side and accepts — only NOW is anything written.
+        entry.SingleEntryAccount = vm.Company!.FindLedgerByName("Cash");
+        Assert.True(entry.CanAccept);
+        Assert.True(entry.Accept());
+
+        // Back on a refreshed Outstandings, the bill is gone.
+        Assert.Equal(Screen.Outstandings, vm.CurrentScreen);
+        Assert.Empty(vm.Outstandings!.Rows);
 
         // The settlement voucher (a Receipt: Dr Cash / Cr party bill-wise Agst) posted + persisted.
         var receiptType = vm.Company!.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Receipt);
         var settlement = vm.Company!.Vouchers.Single(v => v.TypeId == receiptType.Id);
         var partyLine = settlement.Lines.Single(l => l.LedgerId == party.Id);
         Assert.Equal(BillRefType.AgstRef, Assert.Single(partyLine.BillAllocations).RefType);
+        Assert.Equal(30_417.83m, partyLine.Amount.Amount);
 
         // Reloading the .db confirms the bill is settled (no open receivable remains).
         var reloaded = Reload(companyName);

@@ -383,13 +383,31 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Ctrl+B settles the spacebar-selected bills on the Outstandings page (Bill Settlement).
-        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            vm.SettleBills();
-            e.Handled = true;
-            return;
-        }
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Ctrl+B IS FREE AND RESERVED — DO NOT BIND IT. (Phase 10.11 S2 / VL-4 / register row IV-5.)        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // A "Bill Settlement" arm stood HERE, bound app-wide and unconditionally — it handled and returned
+        // REGARDLESS OF SCREEN — and called vm.SettleBills(), which POSTED a real Receipt or Payment for every
+        // spacebar-selected bill: always the bill's FULL pending amount, always through a ledger literally named
+        // "Cash", dated at the report's as-of, with no preview, no confirmation and no undo.
+        //
+        // In TallyPrime Ctrl+B is "BASIS OF VALUES" — a report option that re-bases how figures are COMPUTED AND
+        // PRESENTED, and it WRITES NOTHING TO THE BOOKS [TallyHelp keyboard-shortcuts, Reports: "Ctrl+B — To view
+        // values in different ways in a report — Right button"]. TallyPrime's Bills Outstanding has no settlement
+        // action of any kind; a bill is settled by keying a Receipt/Payment and choosing Against Reference from
+        // the List of Pending Bills [CORPUS-SG p.92 §5.5]. So an operator pressing Ctrl+B on Bills Receivable to
+        // change how figures DISPLAY instead posted a batch of receipt vouchers against their debtors — and the
+        // trap was armed by a correct Tally reflex (Spacebar = select line in report) and sprung by a second one.
+        //
+        // Settlement now lives on Alt+A, scoped to the Outstandings screen (see that arm further down).
+        //
+        // BASIS OF VALUES ITSELF IS NOT BUILT — it is named debt, not an oversight. A later slice needs
+        // ReportsViewModel to grow a re-basis (scale factor, stock valuation method, type of voucher entries) on
+        // the OpenReportConfig cascade pattern; THAT slice reclaims Ctrl+B from this reservation. Until then the
+        // key must reach nothing, so it stays unbound rather than being squatted by an unrelated feature.
+        // NOTE for whoever binds it: with no arm here, Ctrl+B falls through to the bare-letter report quick-jump
+        // switch far below (Key.B → Balance Sheet). That is harmless ONLY because slice S1 narrowed CanQuickJump
+        // to `e.KeyModifiers == KeyModifiers.None`; do not loosen that guard.
 
         // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
         // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
@@ -579,6 +597,31 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.PosBilling)
         {
             vm.ShowPosTaxAnalysis();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+A on the Outstandings report SETTLES the spacebar-selected bills — by opening a Single-Entry
+        // Receipt/Payment PRE-LOADED with them as Against-Reference allocations, which the operator confirms
+        // (date, cash/bank ledger, per-bill amounts) and Accepts. It POSTS NOTHING itself. This is the
+        // replacement for the deleted Ctrl+B settlement arm; see the RESERVED block where that arm used to be.
+        //
+        // WHY Alt+A: TallyPrime's Reports bottom bar carries "Alt+A — Add voucher in report", which is precisely
+        // the semantic needed (create a voucher FROM this report), and it is already the meaning this app gives
+        // Alt+A on the Day Book — one key, one meaning. It squats nothing, so it does not repeat the IV-28
+        // mistake of picking the first letter of our own feature name.
+        //
+        // ORDER: BELOW the POS Alt+A immediately above, ABOVE the Day-Book Alt+A immediately below. The three
+        // guards are disjoint today — OpenPageColumn calls ClearSubScreens (which nulls Reports) before setting
+        // the page, so IsDayBookReport cannot hold while Screen.Outstandings is current, and Screen.PosBilling
+        // excludes both. The position is nevertheless deliberate, because this chain is FIRST-MATCH-WINS: if that
+        // invariant ever changes, the screen the operator is actually STANDING ON must win, and Outstandings sits
+        // above the Day Book for exactly that reason. Ctrl+A (Accept) is a separate Control-modified arm much
+        // further up, and !Control here keeps it that way.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsOutstandingsScreen)
+        {
+            vm.OpenSettlementVoucherFromOutstandings();
             e.Handled = true;
             return;
         }
@@ -1148,8 +1191,12 @@ public partial class MainWindow : Window
     private void OnCreateCostCentreClick(object? sender, RoutedEventArgs e)
         => Vm?.CostCentreMaster?.Create();
 
+    /// <summary>
+    /// The Outstandings "Settle Bills (Alt+A)" button — the same route the Alt+A key takes, so the button and the
+    /// accelerator can never do two different things. It OPENS a pre-loaded settlement voucher; it posts nothing.
+    /// </summary>
     private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
-        => Vm?.SettleBills();
+        => Vm?.OpenSettlementVoucherFromOutstandings();
 
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();
