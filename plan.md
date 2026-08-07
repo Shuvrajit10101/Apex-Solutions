@@ -1118,14 +1118,21 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   D4 are already fixed.** **IV-1's "the corpus is silent" sub-claim is FALSIFIED** — the GST notes PDF
   enumerates all five levels verbatim and shows the Stock-Group GST field shape; it is silent **only on the
   ORDERING**. **Cited `file:line`s have DRIFTED by tens of lines — re-derive a row before trusting it.**
+  **▶ AND `docs/invented-vs-cloned.md:319` IS REFUTED IN BOTH CLAUSES** (WF-7 review, 2026-08-06): it prescribes
+  *"list every item with a positive shortfall regardless of raw closing quantity; Order to be Placed =
+  max(shortfall, MOQ)"* — but an unguarded `max()` returns the **MOQ at zero shortfall**, the very PR-8 behaviour
+  the user retired (R12 item 3), and its listing rule still filters — on **shortfall** instead of closing
+  quantity — which drops the PO-covered row `[CORPUS-BOOK p.164]` shows on screen. **Owed to the post-merge
+  documentation slice; do NOT edit `docs/` from this phase.**
 - **Goals:** fix the **six Class-A "wrong figures" rows** that reach an invoice, a return, a Balance Sheet or a
   purchase order — **IV-1, IV-2, IV-6, IV-7, IV-8, IV-10** — **in the engine only**. Each computes an
   arithmetically wrong number today that nobody notices until an auditor, a supplier or a tax officer does.
 - **Modules:** `GstService` + `Reports/Gstr1.cs`; `TdsService` + `TcsService`; `StockValuationService` +
   `StockValuationMethod` + `StockItem` + `InventoryService`; `Reports/InterestCalculation.cs`;
-  `Reports/ReorderStatus.cs`; new `MasterGstDetails` / `MarketValuationMethod` / `RetiredCostingMethod` /
+  `Reports/ReorderStatus.cs`; `Reports/InventoryRegisters.cs` (+ `Reports/JobWorkReports.cs` read-only, as the
+  ported precedent); new `MasterGstDetails` / `MarketValuationMethod` / `RetiredCostingMethod` /
   `CostingMethodMigrationNotice`; `Schema` / `SchemaDowngrade` / `SqliteCompanyStore`; Io fold-in for
-  **WF-1/2/3 only** (WF-4…WF-7 are Io-clean, and that is itself the check).
+  **WF-1/2/3 only** (WF-4…WF-8 are Io-clean, and that is itself the check).
 - **R7 fidelity — sources of record (A14 confirms each before its slice ships):** TallyPrime's **HSN/SAC and
   GST Rate Hierarchy** page (both hierarchy strings verbatim; **Source of HSN/SAC Details** and **Source of GST
   Rate** are **two** options) + the corpus GST notes; TallyHelp's §194Q *"Calculate tax on value exceeding the
@@ -1162,16 +1169,34 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     reorderLevel` block (pendingPO would be double-counted) and the invented listing filter **with no
     replacement predicate** — that is what **F8 Reorder Only** is. **Do NOT substitute `if (shortfall <= 0)
     continue;`** — it deletes the PO-covered row `[CORPUS-BOOK p.164]` shows on screen.
+  - **WF-8 (no register row — a prerequisite WF-7 exposed; R12, 2026-08-06)** Order fulfilment tracking on
+    purchase and sales orders, **ported from JobWork**. `InventoryRegisters.cs:142` hard-codes `line.Quantity,
+    FulfilledQuantity: 0m, OutstandingQuantity: line.Quantity` — **an order is never retired**, and
+    `InventoryVoucher` carries no fulfilment or closure state at all. **Port the twin that already works** —
+    `JobWorkReports.cs:110`/`:134` compute a real `FulfilledQuantity(company, orderId, line)` by matching an
+    order to its subsequent movements. **This is the recurring "twin" the register keeps finding: the capability
+    exists on one side of the codebase and not the other.** **Engine-only; schema-clean if the match is
+    derived** — a persisted closure flag is the fallback, not the plan, and would take **v54**, after the chain.
+    **Blocks WF-7:** netting Sales Orders Due into Nett Available makes a **fully delivered SO suppress
+    availability for ever** — permanently overstating shortfall, telling the buyer to re-order stock already
+    shipped — and a **half-received PO** fails the same way inverted, understating it. Before WF-7 these were
+    two wrong display columns; after it they enter the **shortfall arithmetic**. Once WF-8 lands, WF-7's
+    `pendingPO`/`soDue` read the **outstanding** quantity, not the raw order-line quantity.
 - **Slices (schema-clean first, then the version chain in strict order; rationale in `memory.md`):**
   1. **S1 — Interest running-balance accrual + per-segment basis** (WF-4, WF-5) — **L / med / schema-clean** —
      **FIRST:** the only money fix both schema-clean and measurement-independent. Ships a compound test proving
      a no-movement window reproduces today's figure **to the paisa** before the movement case is added.
-  2. **S2 — Reorder Nett Available + delete the invented filter** (WF-7) — **M / low / schema-clean** —
+  2. **S1a — Order fulfilment tracking** (WF-8) — **M / med / schema-clean** — **inserted between S1 and S2, not
+     renumbered in**: S2–S6's ids are already cited in `memory.md` and in the built `stream-a` worktree, so they
+     keep their names. **MERGES BEFORE S2.** S2 is built and green on Ledger/Io/Sqlite (uncommitted in
+     `stream-a`) but computed against **raw order-line quantities**, so it is **re-verified — fixtures included —
+     against real outstanding quantities** before either merges.
+  3. **S2 — Reorder Nett Available + delete the invented filter** (WF-7) — **M / low / schema-clean** —
      **append** `NettAvailable` to the positional row rather than inserting it at Tally's column position.
-  3. **S3 — Interest divisor table** (WF-6) — **S / low** — **DO NOT MERGE THE CONSTANTS UNTIL T8 LANDS.**
-  4. **S4 — GST five-level hierarchy** (WF-1) — **XL / HIGH / owns v51** — the worst row in the register.
-  5. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / owns v52**.
-  6. **S6 — Costing/market split + `LastSaleCost` migration** (WF-3) — **L / med / owns v53** — last: the only
+  4. **S3 — Interest divisor table** (WF-6) — **S / low** — **DO NOT MERGE THE CONSTANTS UNTIL T8 LANDS.**
+  5. **S4 — GST five-level hierarchy** (WF-1) — **XL / HIGH / owns v51** — the worst row in the register.
+  6. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / owns v52**.
+  7. **S6 — Costing/market split + `LastSaleCost` migration** (WF-3) — **L / med / owns v53** — last: the only
      migration that **rewrites customer data**, and it wants the two preceding parity gates green first.
   - **▶ Why the worst row is fourth:** WF-1 was the only slice whose back-fill moves an existing customer's
     future invoices, so it could not start before that R12 ruling. The ruling has landed, so **WF-1 may now be
@@ -1217,6 +1242,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   9. **The interest report's Principal column becomes the TIME-WEIGHTED AVERAGE**, so `Principal × Rate × Days
      / Basis == Interest` stays true and an auditor can re-derive the row. `InterestReportViewModel.cs:73` is
      relabelled — **that relabel sits in the deferred UI tail.**
+  10. **NARROW RELAXATION OF THE STREAM-A FENCE — `tests/Apex.Desktop.Tests/InventoryReportsViewModelTests.cs`
+      ONLY.** WF-7 deletes the closing-stock listing filter, which fails the fixture at `:180`/`:192`
+      (`Reorder_status_flags_only_the_item_below_its_reorder_level`, `Assert.DoesNotContain(rows, r => r.Col1 ==
+      "Gadget")`) — a **stale fixture encoding the retired behaviour**, not a regression. **Reason, both grounds
+      required:** (a) the **Desktop count does not move — 1836 before and after**; nothing is added or removed,
+      only an assertion and a test name change; (b) that file is **provably absent from Stream B's changed-file
+      set**, so there is no conflict to create. **Mechanical change:** rename to
+      `Reorder_status_lists_every_level_carrying_item_with_the_short_one_flagged` and replace the
+      `DoesNotContain` with a **positive** assertion that Gadget is listed **with its correct figures**; the
+      rename carries an **inline comment citing the PR-8 retirement** so the next reviewer cannot mistake it for
+      a regression. **No other `tests/Apex.Desktop.Tests/**` file is unfenced.**
 - **BLOCKED ON MEASUREMENT (the user is running these in a real TallyPrime):** **T8** gates **only** WF-6's two
   `BasisFor` arms (ThirtyDayMonth, CalendarMonth) — **the Calendar-Month ×12 defect is wrong under either
   answer and ships first, unblocked**. **T10** scopes WF-2's catch-up question (register §6 U-4) but **does not
@@ -1244,6 +1280,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   fixed elsewhere · the **Fifo/Lifo → Perpetual** rename and **`AtZeroCost`** · the register's remaining
   Class-A rows **IV-11, IV-14, IV-17, IV-22, IV-33** · marking the six fixed rows in
   `docs/invented-vs-cloned.md` (see the documentation slice at the end of 10.11).
+  - **▶ RAISED BY THE WF-7 REVIEW (2026-08-06) — three, each with its owner:**
+    - **DD-5 worsens and a new register row is owed** — with `pendingPO` inside Nett Available a half-received PO
+      **understates** shortfall and a partly-delivered SO **overstates** it; recorded in-source at
+      `ReorderStatus.cs:174-182`. **WF-8 is the fix**; the row is owed to the **post-merge documentation slice**.
+    - **`ReportsViewModel.cs:1761`'s empty state is false whenever it renders** — post-slice, `shown == 0` with
+      F8 off can only mean **no item carries a reorder level at all**, so *"All items are above their reorder
+      levels."* tells a buyer stock is covered by a report that evaluated nothing. **Owed to Stream B** — it is a
+      `src/Apex.Desktop/**` file.
+    - **`Outstandings.cs:120-121` still documents `OpenBillsFor` as "the building block the UI
+      Outstandings/Ctrl+B screen binds to"** — Ctrl+B binds to nothing now. **Owed to Stream A or the post-merge
+      documentation slice**; Stream B is fenced out of `src/Apex.Ledger/Reports/**`.
 
 ### Phase 10.11 — Voucher lifecycle: alter, delete, cancel
 - **▶ SCOPE FENCE — THIS IS NOT PHASE 10 (R12, 2026-08-02).** Phase 10 and Phase 11 were **excluded by the
