@@ -4863,6 +4863,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// WI-11 — true while the terminal "Accept? (Y/N)" confirmation is up over a master screen. Every Y/N key
     /// arm in the window's tunnel handler is SCOPED to this flag, which is what stops the confirmation from
     /// hijacking Y (Gateway → Export Data) or Alt+N (Auto Columns) anywhere else in the app.
+    /// <para>
+    /// <b>Modifier scoping (Phase 10.11 S1).</b> While the flag is true the confirmation arm owns bare and
+    /// Shift-held <c>Y</c>/<c>N</c> (answer it), <c>Escape</c> and <c>Alt+Escape</c> (dismiss it, master
+    /// intact), and it CONSUMES <c>Alt+Y</c>/<c>Alt+N</c> as inert — those two neither answer the question nor
+    /// reach their own accelerators, because the Alt+Y owner (Data → Backup / Restore) tears the open master's
+    /// column down and would discard everything the operator keyed. <c>Ctrl</c>-held keys are excluded
+    /// entirely, so Ctrl+A still saves outright. Answer the prompt first, then press the accelerator.
+    /// </para>
     /// </summary>
     [ObservableProperty] private bool _isAcceptPromptOpen;
 

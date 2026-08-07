@@ -260,8 +260,10 @@ public partial class MainWindow : Window
         //   • It sits AFTER the Ctrl+A arm above, so the accept-as-is shortcut still reaches its own handler and
         //     saves WITHOUT the prompt (the ~40 Ctrl+A screens are untouched, and Ctrl+A while the prompt happens
         //     to be up simply accepts, as the reference product does).
-        //   • It sits BEFORE the bare-Y (Gateway → Export Data) and Alt+N (Auto Columns) arms further down, so
-        //     while the confirmation IS up, Y answers the confirmation rather than opening a backup panel.
+        //   • It sits BEFORE the bare-Y (Gateway → Export Data), Alt+Y (Data → Backup / Restore, :633) and
+        //     Alt+N (Auto Columns) arms further down, and it CONSUMES all four shapes while the confirmation
+        //     is up: bare Y/N answer it, Alt+Y/Alt+N are inert (see the S1 block below). Nothing reaches a
+        //     backup panel, an Export-Data panel or an Auto-Columns chooser over a live confirmation.
         // The whole arm is SCOPED to vm.IsAcceptPromptOpen, which is false everywhere else — so Y and N keep
         // their existing meanings across the rest of the app.
         //
@@ -275,10 +277,49 @@ public partial class MainWindow : Window
         // dropdown closes, IsPickerOpen is false and Y/N/Escape answer the prompt again exactly as before
         // (Y_with_prompt_and_dropdown_open_does_not_save_but_saves_once_the_dropdown_closes,
         // Escape_with_prompt_and_dropdown_open_closes_dropdown_first_then_dismisses_the_prompt).
+        //
+        // S1 (Phase 10.11) — THE SECOND MODIFIER HOLE, and the more dangerous of the two. This arm excluded
+        // Control but not Alt, so with the prompt up a stray Alt+Y — the Data / Backup-Restore accelerator,
+        // live on every screen a company is open on (its arm is further down this chain, so this one won) —
+        // reached ConfirmMasterAccept and SAVED the master. Measured: prompt open on Ledger Creation, Alt+Y,
+        // and "Bharat Motors" was in company.Ledgers. The operator asked for a menu and silently committed a
+        // record. It matters far beyond WI-11: this one prompt is the confirmation channel a later slice in
+        // this phase hangs DELETE on, so the same hole would have let Alt+Y confirm a deletion nobody answered.
+        //
+        // SCOPE — exactly Y and N, exactly Alt, and CONSUMED RATHER THAN YIELDED. Alt+Y/Alt+N must not answer
+        // the confirmation; they must also not be handed onward, and the difference is the whole review fix.
+        //
+        // WHY NOT YIELD (measured, and the first cut of this slice got it wrong). Narrowing with
+        // `case Key.Y when !altHeld` made Alt+Y fall through to its owner at :633 →
+        // ShowDataMenu → SelectRootItem → TrimColumnsAfter(0) → OpenSubmenuColumn → ClearSubScreens, which
+        // NULLS LedgerMaster/StockItemMaster/VoucherEntry. So the fix stopped the unconfirmed SAVE and bought
+        // an unconfirmed DESTROY in its place: prompt up on Ledger Creation, Alt+Y, and the ledger was indeed
+        // not created — but the typed name, the chosen group and the opening balance were gone, with the
+        // operator dumped on Backup / Restore and no message. Worse under Alt+C create-on-the-fly, where the
+        // create column sits OVER a live voucher: TrimColumnsAfter(0) takes the VOUCHER column too, so a
+        // half-keyed invoice dies to a menu chord. That is the D2 work-loss class this arm already exempts
+        // Escape for — the reasoning was applied to Escape and, first time round, not to Y.
+        //
+        // So while a confirmation is up the prompt is MODAL against Alt+letter chords: Alt+Y and Alt+N change
+        // nothing at all and leave the question on screen. Two presses, exactly the doctrine already settled
+        // for Escape — answer N/Esc, then press Alt+Y. Nothing is saved, nothing is discarded, and the
+        // outcome no longer depends on where the caret happens to be (the :633 owner requires !IsTyping(e),
+        // so a yield gave one answer with focus in the Name box and another with focus anywhere else).
+        // The prompt is never stranded: it is answerable immediately, and any real navigation resets it via
+        // OnCurrentScreenChanged → ResetMasterAcceptPrompt.
+        //
+        // ESCAPE IS DELIBERATELY NOT NARROWED. It is not a letter and owns no Alt accelerator, and the arm it
+        // would fall through to is `case Key.Escape when !IsPickerOpen(e)` → Back(), which POPS the column and
+        // discards the half-typed master — the same D2 work-loss class. Alt+Escape therefore still ANSWERS
+        // the prompt (dismiss, master intact), and a test pins that.
         if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsPickerOpen(e))
         {
+            var altHeld = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
             switch (e.Key)
             {
+                // Alt+Y / Alt+N: consumed and INERT. Guarded cases must precede their unguarded twins below.
+                case Key.Y when altHeld:
+                case Key.N when altHeld: e.Handled = true; return;
                 case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
                 case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
                 case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
@@ -984,9 +1025,33 @@ public partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>Report quick-letters fire only on menu screens and never while typing in a field.</summary>
+    /// <summary>
+    /// Report quick-letters fire only on menu screens, never while typing in a field, and only for a
+    /// keystroke carrying NO modifier at all.
+    ///
+    /// <para><b>The modifier hole this closes (Phase 10.11 S1).</b> This predicate tested only
+    /// <c>IsMenuScreen &amp;&amp; !IsTyping(e)</c>, and the <c>switch (e.Key)</c> that consults it tests no
+    /// modifiers either — so all four quick-jumps fired for EVERY chord no earlier arm had already claimed.
+    /// Measured on Company Select (the one screen they are reachable on: once a company is open
+    /// <c>IsGatewayCascade</c> is true and <see cref="MainWindowViewModel.IsMenuScreen"/> is false):
+    /// <b>Alt+D opened the Day Book</b>, and so did Ctrl+D and Shift+D; Alt+B/Alt+P/Alt+T opened their
+    /// reports too. The fix belongs HERE and not on the four arms — a per-arm fix on D would have left three
+    /// survivors.</para>
+    ///
+    /// <para><b>Why it had to be its own change, ahead of everything else in the phase.</b> A later slice
+    /// binds <b>Alt+D to DELETE</b>. Binding a destructive verb on top of a chord that already fires a
+    /// navigation would make a stray Alt+D both destructive and ambiguous — which one won would depend on
+    /// the screen. The hole is closed first so Alt+D is genuinely unclaimed when delete arrives.</para>
+    ///
+    /// <para><b>Why <c>== KeyModifiers.None</c> and not merely "no Alt".</b> It is the identical predicate
+    /// the WI-2/WI-9 bare-letter menu arm at the end of this handler already uses, so "bare letter" means one
+    /// thing in both places. It deliberately excludes Shift as well: a quick-jump is a bare-letter
+    /// accelerator, and admitting Shift would leave the same class of hole open on the next chord anyone
+    /// binds. Nothing else changes — with no modifier held these four arms behave exactly as before, which
+    /// <c>Bare_D_on_company_select_still_opens_the_day_book</c> and its B/P/T sibling pin.</para>
+    /// </summary>
     private static bool CanQuickJump(MainWindowViewModel vm, KeyEventArgs e)
-        => vm.IsMenuScreen && !IsTyping(e);
+        => vm.IsMenuScreen && !IsTyping(e) && e.KeyModifiers == KeyModifiers.None;
 
     private static void Fire(MainWindowViewModel vm, string key)
     {
