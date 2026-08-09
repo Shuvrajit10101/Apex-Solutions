@@ -317,6 +317,44 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > GitHub Expert commits/pushes → run the real app → memory.md updated → **user go-ahead**) and satisfies the
 > **R11** Definition of Done for its features. Agents are those in `agents.md` (finalised in Phase 0).
 
+> **▶ CENSUS BANNER — READ THIS BEFORE ANY PHASE BLOCK BELOW (R6, 2026-08-10).** A seven-agent capability
+> census — **`docs/full-clone-census.md`** — established the real denominator for the first time. **A full
+> clone is ~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined** (census §1.2). The
+> counting rule is **§1.1 and it is open to argument** — report families count as one row each, so the ~14
+> registers hidden inside them would push the denominator past 200. **115 is the *most favourable defensible*
+> count**, not a floor.
+>
+> **▶ EXISTENCE WAS MEASURED. FIDELITY WAS NOT.** The census measured *does the code exist and can a user
+> reach it* — nothing more. **Only 8 of 115 capabilities have ever had their behaviour compared to a source**
+> (§1.3), so **the honest "cannot tell" bucket is 107, not 8.** Every `PRESENT` row could still compute the
+> wrong number and two demonstrably do. §6 lists what remains unmeasured after the census.
+>
+> **▶ 🔴 THIS FILE'S OWN "COMPLETE" MARKERS ARE NOT A RELIABLE RECORD OF WHAT SHIPPED.** The census found
+> **34 false claims** across `plan.md`, the requirements docs and code comments — **concentrated in the phases
+> declared COMPLETE**: **Phase 1** (multi-create, delete guards, Alt+D/Alt+X), **Phase 2** (cheque printing),
+> **Phase 5** (report print/export, graphical dashboard, Go To, the Account Books / Inventory Books families),
+> **Phase 9** (LUT/SEZ/Bill-of-Entry, GSTR-9A screen, per-tax-ledger rounding) and **Phase 10.9** (*"all 24
+> voucher types reachable"* — the code seeds **23**). **Read every phase's Modules bullet as a statement of
+> INTENT, not of delivery**, and re-verify in-tree before planning on top of one. Census §2 Tier 3 itemises
+> each, along with **nine internal contradictions** between this file and the other project documents.
+
+> **▶ USER DECISION (R12, 2026-08-10) — SETTLED; DO NOT RE-LITIGATE. The 9 OBSOLETE-BY-LAW pre-GST
+> capabilities WILL NOT BE BUILT.** State VAT (enable / dealer type / TIN / registration date); VAT & Tax
+> Classifications; the **2005 four-slab rate structure** (1% / 4% / 12.5% / exempt, **~550 categories**); VAT
+> Composition; VAT Reports; **CST with its C/F/H declaration forms**; **Service Tax + Form ST3**; **Excise for
+> Dealers and Excise for Manufacturers**; and **FBT** (abolished 2009, and never in 7.2 — named only so nobody
+> adds it "for completeness"). **Reason:** they encode **repealed rate tables**, and a voucher posted against
+> them produces a **document no authority accepts.** Held **OUT** of the 115 (census §3).
+>
+> **▶ 🔴 CARVE-OUT — TDS AND TCS ARE NOT IN THIS GROUP.** Their **mechanism is current law**; only 7.2's
+> sections, rates, thresholds and return forms are twenty years stale. **Clone the mechanism, never the
+> numbers.** Nothing in this decision touches Phase 7 or Phase 10.10's WF-2.
+>
+> **▶ THE COUNTER-ARGUMENT THE USER WEIGHED AND OVERRODE:** real TallyPrime **still ships these** as
+> downloadable tax-extension modules (census §3 note 1; verification report A25, OFFICIAL), so *"exactly
+> cloned"* arguably included them. Overridden deliberately. The middle option — modelling VAT/CST/Service Tax
+> as **historical read-only** (§3 note 3) — was **not** taken either.
+
 ### Phase 0 — Setup, scaffold, governance
 - **Goals:** stand up the repo, toolchain, CI, and the framework-agnostic project skeleton; finalise
   `agents.md`; write the SRS skeleton + architecture ADRs; **lock the stack (user confirms §3).**
@@ -1431,6 +1469,78 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > `docs/voucher-entry-specification.md:101` and `memory.md` — are **deferred to a single slice after both
 > merges, performed by one agent**. Reason: two worktrees × nine slices appending to the same files
 > concurrently would conflict on every one of them.
+
+### Phase 10.12 — Wave 0: stop the active harm (UI over finished plumbing)
+- **▶ NUMBERING (R6).** **10.12** — the next free slot in the **10.x insertion band**; 10.10 (wrong figures)
+  and 10.11 (voucher lifecycle) are taken, and like them this is a **precondition to release**, not Phase-10
+  scope. **Phase 10 and Phase 11 stay excluded and unchanged.**
+- **Goals:** ship census §5 **Wave 0** — the items that are **cheap and stop active harm**. **Every one is UI
+  over plumbing that already exists, already persists and is already tested**: no new engine, no new
+  arithmetic, no new statutory figure. This is also the wave that makes the registers honest, without which
+  nothing downstream can be planned.
+- **Work items (id — one-line; the evidence for every row is in `docs/full-clone-census.md` §2, not here):**
+  - **W0-1 (T0-7) Bill of Supply routing + `DocumentTitle`** — **~1 day. Highest urgency in the wave.** The
+    screen **already computes the answer** (`IsBillOfSupply` and the s10 / Rule-5(f) declaration render in the
+    UI); neither reaches the PDF and the title is hard-coded. Until this lands, **a composition dealer's every
+    printed document is an illegal tax invoice** — we issue legally wrong documents today.
+  - **W0-2 (S2 / T1-6, T0-8) Company Create/Alter screen** — **days.** Expose the **11 profile fields that
+    already exist** on the domain, in the schema and in the printer. Fixes the **blank seller address block on
+    every future invoice** (CGST Rule 46) — unfixable from inside the UI today because the field cannot be
+    typed anywhere — and **unblocks prior-FY books** (creation captures one field: Name).
+  - **W0-3 (T1-7) Restore reachable from Company Select** — **~½ day.** The engine already restores a company
+    this machine never had; the screen is gated on an **open** company. **The difference between a backup
+    feature and a disaster-recovery one.**
+  - **W0-4 (T1-11) Wire the 5 orphaned `GstReturnJson` writers to their screens** — **~2–3 days. GATED:** the
+    **GSTN key schema needs A14/R7 confirmation before any wiring starts.** The writers are dead code today —
+    their only references in `src/` are two doc comments.
+  - **W0-5 Negative-stock warn toggle + e-Way config editor** — **days each.** Both are **shipped behaviour
+    with NO control surface**: `Company.WarnOnNegativeStock` persists and is honoured with zero UI.
+  - **W0-6 Tier 3 register & plan corrections** — **~1 day.** The **23-vs-24 voucher-type count** (and it is a
+    **real fidelity gap the docs are hiding**, not a typo — the corpus says 24); the false **Phase 1 / 2 / 5 /
+    9 / 10.9** claims; **IV-19's drill-down number — the real figure is 71 of 77, not "~50"**; and the
+    `Schema.cs:95` doc comment saying **46** while `:129` says **50**. **Nothing downstream can be planned
+    honestly until the registers stop lying.**
+  - **W0-7 (S0) `PopulatedCompanyFixture` extension** — **the census calls this the highest-leverage single
+    item in the report.** It covers **8 of 23 base types and zero inventory, order, provisional, job-work, POS
+    or payroll vouchers**, and **no print or export test uses it at all.** **Nothing else in this wave — or in
+    Waves 1–5 — is honestly testable without it.**
+- **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
+  1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
+     negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full
+     suite); GST rate hierarchy; CN/DN stock parity. **Then the voucher lifecycle (10.11), so those fixes are
+     recoverable in books that already exist.**
+  2. **Wave 2 — structural.** Voucher Type master; a **SHARED report base carrying drill + print + export by
+     construction — the census is explicit that these are ONE refactor and must not be done separately**, and
+     it must precede Wave 3 so new reports are born drillable; the F11 Accounting/Inventory + global F12
+     configuration layer, with **Integrate-Accounts-with-Inventory carved into its own oracle-gated slice**.
+  3. **Wave 3 — breadth.** Missing report families; GST return completeness; tracking numbers + fulfilment.
+  4. **Wave 4 — the print engine** (`PdfWriter` image/XObject + font embedding), then **everything gated
+     behind it**: IRN/QR, logo, cheque printing, multi-account printing, JPEG export, non-Latin script.
+  5. **Wave 5 — the statutory long tail.** Architecturally easy; it is **most of the remaining tonnage**.
+- **▶ THE THREE CONFIRMED BLOCKERS (census §5):** **no Order No / Tracking No blocks correct order
+  fulfilment** (zero `TrackingNumber` hits); **no voucher alteration or deletion makes every other defect
+  permanent** — *the true root of the tree*; **no master-screen F12 blocks a whole configuration layer**, and
+  it is **entangled with the missing F11 Accounting group — they are one configuration layer, not two.**
+- **Schema: NONE expected** — every item is UI over persisted state. Any slice that finds it needs a column
+  stops and takes the next free version through the 10.10 chain, not silently.
+- **Agents:** per-feature pipeline (§2.2) — Requirements/Design, **A14** (R7, and **W0-4 does not start until
+  A14 confirms the GSTN key schema**), Test author, Implementer, **A10** review **per slice, pre-merge**,
+  **A12**, run-app verifier.
+- **Deliverables:** a composition dealer's document printing as a **Bill of Supply** with its declaration; an
+  invoice carrying a **real seller address block**; a company created for a **prior financial year** and
+  altered afterwards; **Restore reached with no company open**; five GST return JSONs written from their own
+  screens; a negative-stock warning the operator can turn off; and **registers whose numbers match the tree.**
+- **Exit gate:** R9 — tests green and **shown as all four per-project counts, never the total** (§6.2). **The
+  verified baseline is `claude/stream-a-figures`: Ledger 1368 · Io 368 · Sqlite 214 · Desktop 1837, build
+  0W/0E, schema v50.** **⚠️ This file's header figures AND the Phase 10.10 / 10.11 exit-gate figures are BOTH
+  stale against that baseline — census contradiction 7; predict against `stream-a-figures`, not against this
+  file.** Robert & Bright unmoved; **A10** review per slice pre-merge; **A12** commits & pushes (R4/R10); the
+  real app run with evidence; `memory.md` updated; **user go/no-go** per R12.
+- **▶ CARRY-FORWARDS:** the **107-wide fidelity denominator** — this wave closes none of it · report **content
+  and column sets** unmeasured across all 77 surfaces · **print layout fidelity** unmeasured and structurally
+  capped · **GST return content** correctness · the **~20/90 SECONDARY-sourced 7.2 baseline rows** and the **8
+  never-grepped CANNOT-TELL rows** (census §6) · **Data Synchronisation IP mode**, the one architecture-excluded
+  item the census flags as buildable if branch-to-HO sync ever matters.
 
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.
