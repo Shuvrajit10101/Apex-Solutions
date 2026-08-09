@@ -3558,9 +3558,12 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                     Padding="10,6" Margin="0,4,0,0">
                               <Grid ColumnDefinitions="Auto,*,Auto">
-                                <!-- Party (PO/SO only) -->
+                                <!-- Party — orders AND movement notes (Phase 10.10 / WF-8 root-cause fix).
+                                     Was IsOrder, which hid the picker on every Receipt/Delivery/Rejection note
+                                     and left a note unable to name a party at all. See ShowsParty for the
+                                     per-type corpus citations. -->
                                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8"
-                                            IsVisible="{Binding IsOrder}" VerticalAlignment="Center">
+                                            IsVisible="{Binding ShowsParty}" VerticalAlignment="Center">
                                   <TextBlock Text="Party" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"/>
                                   <!-- C11: the pane fix does not reach this hardcoded picker (it sits in a
