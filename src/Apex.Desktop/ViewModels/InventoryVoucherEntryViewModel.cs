@@ -26,7 +26,8 @@ namespace Apex.Desktop.ViewModels;
 ///   <item><b>PO / SO</b> — order lines (Item, Godown, Qty, optional Rate) + an optional party ledger; no
 ///     stock/accounts effect.</item>
 ///   <item><b>GRN / Delivery / Rejection In / Rejection Out</b> — allocation lines (Item, Godown, Qty,
-///     optional Rate, optional Batch); the inward/outward direction is fixed by the type.</item>
+///     optional Rate, optional Batch) + an optional party ledger; the inward/outward direction is fixed by
+///     the type.</item>
 ///   <item><b>Stock Journal</b> — a Source (consumption/outward) list + a Destination (production/inward)
 ///     list, both editable; Accept is blocked until they balance in the base unit.</item>
 ///   <item><b>Physical Stock</b> — counted-quantity lines (Item, Godown, Counted Qty ≥ 0, optional Batch).</item>
@@ -77,7 +78,8 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// </summary>
     public IReadOnlyList<Unit> Units { get; }
 
-    /// <summary>The party (supplier/customer) ledgers a PO/SO may optionally reference; empty first = "(none)".</summary>
+    /// <summary>The party (supplier/customer) ledgers an order <b>or a movement note</b> may optionally
+    /// reference; empty first = "(none)". See <see cref="ShowsParty"/> for which types show the picker.</summary>
     public ObservableCollection<PartyOption> Parties { get; } = new();
 
     /// <summary>The primary editable lines: order lines (PO/SO), stock-movement source lines, or counted lines.</summary>
@@ -173,6 +175,23 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     public bool IsMovementNote =>
         _type.BaseType is VoucherBaseType.ReceiptNote or VoucherBaseType.DeliveryNote
             or VoucherBaseType.RejectionIn or VoucherBaseType.RejectionOut;
+
+    /// <summary>
+    /// True when the party (supplier/customer) picker is shown — orders <b>and</b> movement notes, which is
+    /// every voucher this screen enters that names a counterparty at all (Phase 10.10 / WF-8, R12 2026-08-07).
+    /// <para><b>Why the four note types, one by one</b> — each is corpus-grounded, not inferred:
+    /// <b>Receipt Note</b> takes "Party's A/c Name- Name of Party (Supplier)" [CORPUS-BOOK p.71];
+    /// <b>Delivery Note</b> takes "Party's A/c Name- Name of Party (Customer)" [CORPUS-BOOK p.77];
+    /// <b>Rejection In</b> takes "Ledger Account – Select customer who rejected item" [CORPUS-BOOK p.51]; and
+    /// <b>Rejection Out</b> takes "Ledger Account – Select Supplier whom rejected item" [CORPUS-BOOK p.53].
+    /// Naming the party does <b>not</b> make the note post an accounting entry — the corpus is explicit that a
+    /// note "will not reflect in Ledger/party balance ... will only affect your stock" [CORPUS-BOOK pp.70, 76],
+    /// which is exactly this product's DP-5 rule, so the field is a name and nothing more.</para>
+    /// <para><b>Why NOT the other two.</b> A <b>Stock Journal</b> is an internal godown-to-godown transfer and
+    /// its field list carries no party at all [CORPUS-BOOK pp.79-80]; a <b>Physical Stock</b> voucher records a
+    /// counted quantity, with no counterparty in the transaction. Showing a party there would invent a field.</para>
+    /// </summary>
+    public bool ShowsParty => IsOrder || IsMovementNote;
 
     /// <summary>Whether the single-list "Lines" grid shows a Rate column (order / movement, not physical).</summary>
     public bool LinesShowRate => !IsPhysicalStock;
@@ -284,7 +303,9 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Party pickers (PO/SO only): "(none)" plus every ledger — the supplier/customer is optional.
+        // Party picker: "(none)" plus every ledger — the supplier/customer is optional. Shown for orders AND
+        // movement notes since Phase 10.10 / WF-8 (see ShowsParty); this list is built for every type either way,
+        // because building it is cheap and gating the DATA as well as the visibility is a second place to drift.
         Parties.Add(new PartyOption { Ledger = null, Display = "◦ (none)" });
         foreach (var l in company.Ledgers.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
             Parties.Add(new PartyOption { Ledger = l, Display = l.Name });
@@ -578,9 +599,17 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             .ToList();
         if (allocations.Count == 0) throw Blank();
 
+        // 🔴 The party is captured on a movement note, exactly as BuildOrder captures it on an order (Phase
+        // 10.10 / WF-8 root-cause fix, R12 2026-08-07). Omitting it here is the defect that made a note in this
+        // product unable to name a party at all — TallyPrime's Receipt Note and Delivery Note both take
+        // "Party's A/c Name" [CORPUS-BOOK pp.71, 77] and its Rejection In/Out both take a "Ledger Account"
+        // naming the customer/supplier [CORPUS-BOOK pp.51, 53]. Downstream, OrderFulfilment keys its cohort on
+        // (PartyId, StockItemId): with no party reachable on a note, that cohort missed on every real book and
+        // retired NOTHING, so the Order Register reported every delivered order fully outstanding for ever.
+        // Like BuildOrder's, the party is OPTIONAL — "(none)" posts a null, which is a real shape, not an error.
         return new InventoryVoucher(
             Guid.NewGuid(), _type.Id, Date, allocations,
-            number: 0, narration: narration, postDated: IsPostDated);
+            number: 0, narration: narration, partyId: SelectedParty?.Ledger?.Id, postDated: IsPostDated);
     }
 
     private InventoryVoucher BuildStockJournal(string? narration)
