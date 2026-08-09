@@ -13,7 +13,13 @@ namespace Apex.Ledger.Tests.Inventory;
 /// asserted for the reconciliation identities the requirements state: Stock-Summary opening + inward − outward
 /// = closing and total = Σ items; Godown-Summary sums per location; the movement journal's running balance ties
 /// to on-hand; each register lists the right vouchers over the period (excluding cancelled/post-dated-after);
-/// Reorder-Status flags exactly the below-level items. Pure, deterministic, paisa-exact — like the accounting core.
+/// Reorder-Status lists <b>every</b> item that resolves a reorder level — no closing-stock filter (IV-10/WF-7,
+/// Phase 10.10) — with the shortfall measured against Nett Available (Closing + Pending POs − Sales Orders Due),
+/// never against closing stock alone. Pure, deterministic, paisa-exact — like the accounting core.
+/// <para>🔴 <b>Do not "restore" a listing predicate to this report.</b> The pre-10.10 rule ("flags exactly the
+/// below-level items") was invented — it appears in no Tally source — and was retired by user decision. If this
+/// summary and <see cref="Apex.Ledger.Reports.ReorderStatus"/> ever disagree again, the code is authoritative and
+/// this sentence is the bug: a doc restating an invented rule is exactly how DD-4/ER-13 survived four reviews.</para>
 /// </summary>
 public class InventoryReportsTests
 {
@@ -481,22 +487,45 @@ public class InventoryReportsTests
         Assert.Equal(-2m, row.Variance);
     }
 
+    /// <summary>
+    /// 🔴 <b>This fixture was VACUOUS until Phase 10.10 / WF-8 and is repaired here.</b> It posted two orders and
+    /// <b>no fulfilling movement of any kind</b>, so its <c>Assert.Equal(0m, po.FulfilledQuantity)</c> /
+    /// <c>Assert.Equal(100m, po.OutstandingQuantity)</c> were byte-identical to the deleted hard-code
+    /// <c>FulfilledQuantity: 0m, OutstandingQuantity: line.Quantity</c> — measured: replacing
+    /// <c>InventoryRegisters.BuildOrders</c>' fulfilment lookup with <c>var done = 0m</c> left it
+    /// <b>green</b>, so the one test in this file whose NAME claims the outstanding column could not detect
+    /// the entire defect WF-8 exists to fix. It also asserted only <c>OrderedQuantity</c> on the sales row and
+    /// used round 100/50 quantities throughout.
+    /// <para>Both arms now carry a partial movement on <b>odd-valued</b> quantities and both rows assert their
+    /// own Fulfilled/Outstanding <b>components</b>: 90.625 ordered less 30.125 received leaves 60.500;
+    /// 47.331 ordered less 15.375 delivered leaves 31.956. Under the hard-code this reads 0 / 90.625 and
+    /// 0 / 47.331 and goes red. The order and the notes all leave the party on "(none)", which is the
+    /// consistent-blank small book <see cref="Apex.Ledger.Reports.OrderFulfilment"/> documents as working —
+    /// the cross-party attribution rules are pinned in <c>OrderFulfilmentTests</c>.</para>
+    /// </summary>
     [Fact]
     public void Order_register_lists_purchase_and_sales_orders_with_outstanding_quantity()
     {
         var k = NewKit();
         var item = Item(k, "Widget");
         k.Posting.Post(InventoryVoucher.Order(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PurchaseOrder), D1,
-            new[] { new OrderLine(item, k.MainGodownId, 100m, Money.FromRupees(90m)) }));
+            new[] { new OrderLine(item, k.MainGodownId, 90.625m, Money.FromRupees(90m)) }));
         k.Posting.Post(InventoryVoucher.Order(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.SalesOrder), D2,
-            new[] { new OrderLine(item, k.MainGodownId, 50m, Money.FromRupees(150m)) }));
+            new[] { new OrderLine(item, k.MainGodownId, 47.331m, Money.FromRupees(150m)) }));
+        // Part-received against the PO, part-delivered against the SO — without these the assertions below are
+        // satisfied by the pre-WF-8 hard-code and lock nothing.
+        Receive(k, item, k.MainGodownId, D2, 30.125m, Money.FromRupees(90m));
+        Deliver(k, item, k.MainGodownId, D3, 15.375m);
 
         var reg = InventoryRegisters.BuildOrders(k.Company, FyStart, D4);
         Assert.Equal(2, reg.Count);
-        var po = reg.Single(r => r.OrderedQuantity == 100m);
-        Assert.Equal(0m, po.FulfilledQuantity);
-        Assert.Equal(100m, po.OutstandingQuantity);
-        Assert.Equal(50m, reg.Single(r => r.VoucherTypeName.Contains("Sales")).OrderedQuantity);
+        var po = reg.Single(r => r.OrderedQuantity == 90.625m);
+        Assert.Equal(30.125m, po.FulfilledQuantity);
+        Assert.Equal(60.500m, po.OutstandingQuantity);
+        var so = reg.Single(r => r.VoucherTypeName.Contains("Sales"));
+        Assert.Equal(47.331m, so.OrderedQuantity);
+        Assert.Equal(15.375m, so.FulfilledQuantity);
+        Assert.Equal(31.956m, so.OutstandingQuantity);
     }
 
     [Fact]
@@ -532,24 +561,44 @@ public class InventoryReportsTests
 
     // ================================================================ ReorderStatus (RQ-33)
 
+    /// <summary>
+    /// The listing rule (IV-10 / WF-7, Phase 10.10). The report lists <b>every</b> item that resolves to a
+    /// reorder level, whatever its closing quantity — TallyHelp's Reorder Status page: "By default, all stock
+    /// items from the selected stock group or category display… press F8 (Reorder Only)". The only engine-side
+    /// exclusion is "no reorder level resolved". <b>Supersedes</b> the pre-10.10 test whose very name —
+    /// <c>Reorder_status_flags_exactly_the_items_at_or_below_reorder_level</c> — asserted the invented
+    /// closing-stock filter this slice deletes.
+    /// </summary>
     [Fact]
-    public void Reorder_status_flags_exactly_the_items_at_or_below_reorder_level()
+    public void Reorder_status_lists_every_item_carrying_a_reorder_level_regardless_of_closing_quantity()
     {
         var k = NewKit();
-        var low = Item(k, "Low", reorderLevel: 20m, minOrder: 50m);   // closing 5 ≤ 20 → flagged
-        var ok = Item(k, "Ok", reorderLevel: 20m);                    // closing 30 > 20 → not flagged
-        var noLevel = Item(k, "NoLevel");                             // no reorder level → skipped
-        Receive(k, low, k.MainGodownId, D1, 5m, Money.FromRupees(10m));
-        Receive(k, ok, k.MainGodownId, D1, 30m, Money.FromRupees(10m));
-        Receive(k, noLevel, k.MainGodownId, D1, 1m, Money.FromRupees(10m));
+        // Alpha is ABOVE its raw closing level yet short once its open sales orders are netted.
+        var alpha = Item(k, "Alpha", reorderLevel: 100.75m, minOrder: 25.5m);
+        // Beta is genuinely covered — listed, but with nothing to order.
+        var beta = Item(k, "Beta", reorderLevel: 50.25m);
+        // Gamma resolves no reorder level at all — the ONE surviving exclusion.
+        var gamma = Item(k, "Gamma");
+        Receive(k, alpha, k.MainGodownId, D1, 120.375m, Money.FromRupees(10.37m));
+        Receive(k, beta, k.MainGodownId, D1, 200.625m, Money.FromRupees(8.19m));
+        Receive(k, gamma, k.MainGodownId, D1, 7.875m, Money.FromRupees(13.41m));
+        Order(k, VoucherBaseType.SalesOrder, alpha, D2, 60.125m);
 
-        var report = ReorderStatus.Build(k.Company, D4);
-        var row = Assert.Single(report.Rows);
-        Assert.Equal("Low", row.ItemName);
-        Assert.Equal(5m, row.ClosingQuantity);
-        Assert.Equal(20m, row.ReorderLevel);
-        Assert.Equal(15m, row.Shortfall);          // 20 − 5
-        Assert.Equal(50m, row.OrderToBePlaced);    // max(shortfall 15, min-order 50); no pending PO
+        var rows = ReorderStatus.Build(k.Company, D4).Rows;
+        Assert.Equal(2, rows.Count);
+        Assert.DoesNotContain(rows, r => r.ItemName == "Gamma");
+
+        var a = rows.Single(r => r.ItemName == "Alpha");
+        Assert.Equal(120.375m, a.ClosingQuantity);
+        Assert.Equal(60.125m, a.SalesOrdersDue);
+        Assert.Equal(60.250m, a.NettAvailable);      // 120.375 + 0 − 60.125
+        Assert.Equal(40.50m, a.Shortfall);           // 100.75 − 60.250
+        Assert.Equal(40.50m, a.OrderToBePlaced);     // shortfall 40.50 > MOQ 25.5
+
+        var b = rows.Single(r => r.ItemName == "Beta");
+        Assert.Equal(200.625m, b.NettAvailable);
+        Assert.Equal(0m, b.Shortfall);
+        Assert.Equal(0m, b.OrderToBePlaced);
     }
 
     [Fact]
@@ -563,18 +612,36 @@ public class InventoryReportsTests
         Assert.Equal(95m, row.OrderToBePlaced);    // max(95, 10) = 95
     }
 
+    /// <summary>
+    /// 🔴 <b>RENAMED — the old name asserted the OPPOSITE of the body.</b> It was
+    /// <c>Reorder_status_at_exactly_the_level_is_flagged</c>, a pre-10.10 name kept through the WF-7 rewrite even
+    /// though the assertions below say the item is <b>NOT</b> flagged. TallyHelp's rule is strict: "Only when the
+    /// quantity in Re-order Level column is <i>more than</i> the Nett Available column, the difference appears as
+    /// Shortfall" — <b>at</b> the level is not <b>above</b> it, so there is no shortfall and (PR-8 having been
+    /// retired by user decision) nothing to order. A name that contradicts its own assertions is worse than no
+    /// name: the next reader "fixes" the code to match the name.
+    /// <para>Re-fixtured off round numbers at the same time. The old 5/5 pair could not distinguish the boundary
+    /// from any of the arithmetic around it — 5 − 5 = 0 is true under a great many wrong rules. Nett Available is
+    /// pinned alongside Shortfall so the zero is shown to come from <c>level == nett</c> and not from an
+    /// unpinned closing quantity that happens to cancel.</para>
+    /// </summary>
     [Fact]
-    public void Reorder_status_at_exactly_the_level_is_flagged()
+    public void Reorder_status_at_exactly_the_level_has_no_shortfall_and_orders_nothing()
     {
         var k = NewKit();
-        var item = Item(k, "Widget", reorderLevel: 5m);
-        Receive(k, item, k.MainGodownId, D1, 5m, Money.FromRupees(10m));
+        var item = Item(k, "Widget", reorderLevel: 47.331m);
+        Receive(k, item, k.MainGodownId, D1, 47.331m, Money.FromRupees(10.37m));
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
-        Assert.Equal(0m, row.Shortfall);
+        Assert.Equal(47.331m, row.ClosingQuantity);
+        Assert.Equal(47.331m, row.ReorderLevel);
+        Assert.Equal(47.331m, row.NettAvailable);   // no orders either way ⇒ nett == closing
+        Assert.Equal(0m, row.Shortfall);            // AT the level, not below it
         Assert.Equal(0m, row.OrderToBePlaced);
     }
 
-    // ---- Slice 6: master definitions, rollup, Advanced consumption, PO netting, the PR-8 gate ----
+    // ---- Slice 6 + Phase 10.10: master definitions, rollup, Advanced consumption, Nett Available netting ----
+    // (The former "the PR-8 gate" in this banner named the MOQ-floor-at-zero-shortfall rule, RETIRED by user
+    //  decision under IV-10/WF-7 — see Reorder_status_places_no_order_when_the_shortfall_is_nil_….)
 
     [Fact]
     public void Reorder_status_group_definition_applies_to_items_and_nested_child_group()
@@ -669,8 +736,13 @@ public class InventoryReportsTests
             reorderAdvanced: true, reorderQuantity: 25m, periodCount: 1, periodUnit: ExpiryPeriodUnit.Months,
             criteria: ReorderCriteria.Lower);
 
-        // Effective level = min(25, 40) = 25; closing 60 > 25 → above level, not flagged.
-        Assert.Empty(ReorderStatus.Build(k.Company, D4).Rows);
+        // Effective level = min(25, 40) = 25. Post-10.10 the row is still LISTED (the closing-stock filter is
+        // gone); what the Lower criterion controls is the LEVEL, and at nett available 60 there is no shortfall.
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(25m, row.ReorderLevel);   // min(fixed 25, consumption 40)
+        Assert.Equal(60m, row.NettAvailable);
+        Assert.Equal(0m, row.Shortfall);
+        Assert.Equal(0m, row.OrderToBePlaced);
     }
 
     [Fact]
@@ -708,31 +780,125 @@ public class InventoryReportsTests
         Assert.Equal(70m, a);
     }
 
+    // ================================================================================================
+    // 🔴 WHY THE PURCHASE-ORDER REORDER FIXTURES BELOW STOCK UP VIA AN **OPENING BALANCE**, NOT A RECEIPT NOTE.
+    //
+    // Post-WF-8 a Receipt Note is a FULFILMENT DOCUMENT. These fixtures used to receive stock at D1 and then
+    // raise the purchase order at D2, and — because the Order and Receive helpers both leave the party blank —
+    // the receipt and the order landed in the SAME (null, item) cohort. Their "Pending Purchase Orders" figure
+    // was therefore correct only because OrderFulfilment refuses to retire an order dated AFTER the movement.
+    // They passed for a reason none of them named, and a reader could not tell the intended assertion from the
+    // accident. MEASURED, not assumed: deleting `if (open.Date > mv.Date) break;` from OrderFulfilment.Accumulate
+    // turned five fixtures in this file red —
+    //     …counts_a_post_dated_order_once_its_date_has_arrived      Expected 30.375  Actual 10.250
+    //     …does_not_double_count_a_pending_purchase_order           Expected 30.375  Actual 10.250
+    //     …lists_an_item_whose_pending_order_already_covers…        Expected 110.625 Actual 90.500
+    //     …min_order_quantity_floors_the_order_while_a_PO_pending   Expected 40.375  Actual 9.500
+    //     …nett_available_goes_negative_when_sales_orders_exceed…   Expected 8.375   Actual 0
+    // (The edit was reverted.) An opening balance is not an inventory voucher and can never fulfil an order —
+    // the same technique …nets_only_the_unreceived_remainder_of_a_partly_received_purchase_order already relies
+    // on — so the four converted fixtures now hold their figures because nothing COULD have retired the order.
+    //
+    // ONE fixture deliberately keeps the receipt-before-order shape: the first one below, which asserts the date
+    // bound explicitly. That keeps a single, named owner of the rule in this file instead of five silent ones.
+    // (…cancelled_and_post_dated_purchase_orders_do_not_net also receives at D1 but was NOT converted: both its
+    //  orders are excluded by cancellation and by the as-of bound, so it never depended on the date bound — it
+    //  was the only one of the six that already passed for its stated reason.)
+    // ================================================================================================
+
+    /// <summary>
+    /// A pending purchase order lifts Nett Available, and the Minimum Order Quantity still floors what remains —
+    /// the "MOQ branch WITH a live purchase order" combination, which nothing else in this file exercises.
+    /// <para>🔴 <b>This is the file's ONE deliberate date-bound fixture</b> — it keeps the D1-receipt /
+    /// D2-order shape and pins the consequence outright (the <c>OutstandingForItem</c> assertion at the end).
+    /// The four sibling fixtures that used to share the shape by accident were converted to opening balances;
+    /// see the banner above.</para>
+    /// <para><b>Re-fixtured (adversarial review).</b> The pre-review fixture (level 100, closing 20, PO 30, MOQ 10)
+    /// pinned Nett Available, Shortfall AND Order to be Placed all to the same round <c>50</c>, so it discriminated
+    /// nothing between three different columns — the project's round-number trap in its quantity form. Every figure
+    /// here is odd and fractional and all four differ: closing 30.875, pending PO 40.375, Nett Available 71.250,
+    /// Shortfall 49.375, Order to be Placed 75.25 (the MOQ, because 75.25 &gt; 49.375).</para>
+    /// </summary>
     [Fact]
-    public void Reorder_status_pending_purchase_order_reduces_the_order_to_be_placed()
+    public void Reorder_status_min_order_quantity_floors_the_order_while_a_purchase_order_is_pending()
     {
         var k = NewKit();
-        var item = Item(k, "Widget", reorderLevel: 100m, minOrder: 10m);
-        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));   // closing 20, shortfall 80
-        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 30m);            // 30 incoming
+        var item = Item(k, "Widget", reorderLevel: 120.625m, minOrder: 75.25m);
+        Receive(k, item, k.MainGodownId, D1, 30.875m, Money.FromRupees(11.43m));
+        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 40.375m);   // incoming, but not enough
 
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
-        Assert.Equal(80m, row.Shortfall);
-        Assert.Equal(30m, row.PendingPurchaseOrders);
-        Assert.Equal(50m, row.OrderToBePlaced);   // max(100 − 20 − 30, MOQ 10) = 50
+        Assert.Equal(30.875m, row.ClosingQuantity);
+        Assert.Equal(40.375m, row.PendingPurchaseOrders);
+        Assert.Equal(71.250m, row.NettAvailable);   // 30.875 + 40.375 − 0 (the PO is INSIDE availability)
+        Assert.Equal(49.375m, row.Shortfall);       // 120.625 − 71.250; pre-10.10 this printed 89.75
+        // The MOQ is compared against the SHORTFALL alone. Comparing it against shortfall + pendingPO instead
+        // (49.375 + 40.375 = 89.75 > 75.25) would return 49.375 here — the pre-10.10 double-count creeping back
+        // into the MOQ branch. No other fixture in this file catches that, because every other MOQ fixture has
+        // no pending purchase order.
+        Assert.Equal(75.25m, row.OrderToBePlaced);
+        // 🔴 Post-WF-8 this row survives on a rule that used to be irrelevant here: the D1 receipt PRE-DATES the
+        // D2 order, and goods already on the shelf cannot retire an order raised afterwards. Pinned explicitly
+        // rather than left as the incidental reason a raw-quantity assertion still passes — if
+        // OrderFulfilment ever dropped its date bound, this fixture's 40.375 would silently become 9.5.
+        Assert.Equal(40.375m,
+            OrderFulfilment.OutstandingForItem(k.Company, item, VoucherBaseType.PurchaseOrder, D4));
     }
 
+    /// <summary>
+    /// 🔴 BOTH order books live at once, driving Nett Available NEGATIVE — stock committed away past what is
+    /// incoming, which is the single case a buyer most needs the report to get right, and the case no other
+    /// fixture in this file reaches (every other one has either no purchase order or no sales order, and none
+    /// pushes Nett Available below zero).
+    /// <para>Level 100.875, closing 20.125, pending PO 8.375, sales orders due 60.625, MOQ 12.5 ⇒ Nett Available
+    /// <b>−32.125</b>, Shortfall 133.000, Order to be Placed 133.000. A variant that clamped Nett Available at
+    /// zero — <c>Math.Max(closing + pendingPO − soDue, 0m)</c> — passes every other test in this file (measured:
+    /// 46/46 green) and would print Shortfall 100.875 and pre-fill the buyer's Ctrl+F9 purchase order 32.125 Nos
+    /// short of already-committed customer demand. That is IV-10's own harm re-created inside the fix.</para>
+    /// </summary>
     [Fact]
-    public void Reorder_status_pending_po_covering_the_gap_yields_zero_order_even_with_a_shortfall()
+    public void Reorder_status_nett_available_goes_negative_when_sales_orders_exceed_stock_plus_incoming()
     {
         var k = NewKit();
-        var item = Item(k, "Widget", reorderLevel: 100m, minOrder: 10m);
-        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));   // closing 20, shortfall 80
-        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 90m);            // 90 incoming ≥ the 80 gap
+        var item = Item(k, "Widget", reorderLevel: 100.875m, minOrder: 12.5m);
+        // 🔴 OPENING BALANCE, not a Receipt Note — see the banner above Reorder_status_… (the date-bound note).
+        k.Masters.AddOpeningBalance(item, k.MainGodownId, 20.125m, Money.FromRupees(9.37m));
+        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 8.375m);
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 60.625m);
 
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
-        Assert.Equal(80m, row.Shortfall);              // still below the level
-        Assert.Equal(0m, row.OrderToBePlaced);         // but incoming POs cover it → nothing to place
+        Assert.Equal(20.125m, row.ClosingQuantity);
+        Assert.Equal(8.375m, row.PendingPurchaseOrders);
+        Assert.Equal(60.625m, row.SalesOrdersDue);
+        Assert.Equal(-32.125m, row.NettAvailable);    // 20.125 + 8.375 − 60.625
+        Assert.True(row.NettAvailable < 0m, "Nett Available must be allowed to go negative — never clamped at 0.");
+        Assert.Equal(133.000m, row.Shortfall);        // 100.875 − (−32.125)
+        Assert.Equal(133.000m, row.OrderToBePlaced);  // shortfall 133.000 exceeds the MOQ 12.5
+        // Reconciles from its own columns even below zero.
+        Assert.Equal(row.NettAvailable,
+            row.ClosingQuantity + row.PendingPurchaseOrders - row.SalesOrdersDue);
+    }
+
+    /// <summary>
+    /// A purchase order that already covers the requirement leaves nothing to order — and the row is STILL
+    /// LISTED, per [CORPUS-BOOK p.164], which shows the covered item on screen with an empty "Order to be
+    /// Placed" column. <b>Renamed and re-fixtured</b> from the pre-10.10
+    /// <c>…_yields_zero_order_even_with_a_shortfall</c>: once the PO is inside Nett Available there is no
+    /// shortfall left to have, so the old name asserted the double-count this slice removes.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_lists_an_item_whose_pending_order_already_covers_the_requirement()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.875m, minOrder: 10.5m);
+        // 🔴 OPENING BALANCE, not a Receipt Note — see the banner above Reorder_status_… (the date-bound note).
+        k.Masters.AddOpeningBalance(item, k.MainGodownId, 20.125m, Money.FromRupees(10.51m));
+        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 90.5m);   // incoming covers the 80.75 gap
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);   // listed, not filtered away
+        Assert.Equal(110.625m, row.NettAvailable);   // 20.125 + 90.5 − 0
+        Assert.Equal(0m, row.Shortfall);             // not short at all; pre-10.10 this printed 80.75
+        Assert.Equal(0m, row.OrderToBePlaced);       // MOQ 10.5 must NOT floor a nil shortfall
     }
 
     [Fact]
@@ -752,21 +918,146 @@ public class InventoryReportsTests
 
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
         Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(20m, row.ClosingQuantity);   // pinned, so the NettAvailable assertion below is not a
+        Assert.Equal(20m, row.NettAvailable);     // restatement of an unpinned value: neither order counts
+        Assert.Equal(80m, row.Shortfall);
         Assert.Equal(80m, row.OrderToBePlaced);   // 100 − 20 − 0
     }
 
+    /// <summary>
+    /// A post-dated order whose date has ARRIVED (Date ≤ asOf) <b>counts</b>. This is the arm the
+    /// cancelled/post-dated test above cannot reach: its post-dated order is dated after asOf, so the plain
+    /// <c>v.Date &gt; asOf</c> bound already excludes it and the <c>PostDated</c> flag never decides anything
+    /// there. Post-10.10 the flag moves real money — both order books feed Nett Available, which feeds the
+    /// Ctrl+F9 purchase-order prefill — so the decided behaviour is pinned explicitly rather than left implied.
+    /// <para>Decided behaviour and its grounding: identical to
+    /// <see cref="Apex.Ledger.Reports.InventoryRegisters.BuildOrders"/> (<c>if (v.PostDated &amp;&amp; v.Date &gt; to)
+    /// continue;</c>) and to <see cref="Apex.Ledger.Reports.LedgerBalance"/>'s <c>CountsAsOf</c> — a post-dated
+    /// voucher is provisional only UNTIL its date arrives, then it is an ordinary voucher. Reorder Status must
+    /// agree with the Order Register or the two reports disagree on the same order book (ER-4). If that is ever
+    /// changed, it is a behaviour change needing its own register row — not a quiet edit here.</para>
+    /// </summary>
     [Fact]
-    public void Reorder_status_sales_orders_due_is_shown_but_not_netted()
+    public void Reorder_status_counts_a_post_dated_order_once_its_date_has_arrived()
     {
         var k = NewKit();
-        var item = Item(k, "Widget", reorderLevel: 100m);
-        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));
-        Order(k, VoucherBaseType.SalesOrder, item, D2, 15m);
+        var item = Item(k, "Widget", reorderLevel: 100.875m);
+        // 🔴 OPENING BALANCE, not a Receipt Note — see the banner above Reorder_status_… (the date-bound note).
+        k.Masters.AddOpeningBalance(item, k.MainGodownId, 20.125m, Money.FromRupees(10.79m));
+        // Post-dated, but dated D2 which is ON OR BEFORE the as-of date D4 — its date has arrived.
+        k.Posting.Post(InventoryVoucher.Order(Guid.NewGuid(), TypeId(k.Company, VoucherBaseType.PurchaseOrder),
+            D2, new[] { new OrderLine(item, k.MainGodownId, 30.375m, null) }, postDated: true));
 
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
-        Assert.Equal(15m, row.SalesOrdersDue);
+        Assert.Equal(30.375m, row.PendingPurchaseOrders);   // counted — the date has arrived
+        Assert.Equal(20.125m, row.ClosingQuantity);
+        Assert.Equal(50.500m, row.NettAvailable);           // 20.125 + 30.375 − 0
+        Assert.Equal(50.375m, row.Shortfall);               // 100.875 − 50.500
+        Assert.Equal(50.375m, row.OrderToBePlaced);
+        // ER-4: the Order Register must see the very same order over the same window.
+        var register = InventoryRegisters.BuildOrders(k.Company, FyStart, D4);
+        Assert.Equal(30.375m, Assert.Single(register).OrderedQuantity);
+    }
+
+    /// <summary>
+    /// Sales Orders Due IS netted into Nett Available (IV-10 / WF-7). <b>Inverts</b> the pre-10.10
+    /// <c>Reorder_status_sales_orders_due_is_shown_but_not_netted</c>, whose name carried the invented "DD-4"
+    /// rule. TallyHelp, Reorder Status: Nett Available "is basically derived from adding the pending purchase
+    /// order to the closing stock and minusing the sales order".
+    /// </summary>
+    [Fact]
+    public void Reorder_status_nets_sales_orders_due_into_nett_available()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.875m);
+        Receive(k, item, k.MainGodownId, D1, 20.125m, Money.FromRupees(10.53m));
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 15.375m);
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(15.375m, row.SalesOrdersDue);
         Assert.Equal(0m, row.PendingPurchaseOrders);
-        Assert.Equal(80m, row.OrderToBePlaced);   // SOs Due does NOT change the order qty (DD-4)
+        Assert.Equal(4.750m, row.NettAvailable);     // 20.125 + 0 − 15.375
+        Assert.Equal(96.125m, row.Shortfall);        // 100.875 − 4.750; pre-10.10 this printed 80.75
+        Assert.Equal(96.125m, row.OrderToBePlaced);  // no MOQ ⇒ the shortfall itself
+    }
+
+    /// <summary>
+    /// 🔴 THE HEADLINE HARM of IV-10, reproduced. Reorder level 100.75, closing 120.375, no pending purchase
+    /// order, 60.125 committed on open sales orders, MOQ 25.5. TallyPrime shows Nett Available 60.250,
+    /// Shortfall 40.50 and Order to be Placed 40.50 so the buyer raises a purchase order. Pre-10.10 the engine
+    /// dropped the item from the report entirely (120.375 &gt; 100.75), nothing was ordered, and 40.50 Nos of
+    /// already-committed customer demand went unfilled. Every quantity is odd and fractional and the inward
+    /// rate carries odd paise, so no round figure can make an assertion vacuous.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_nets_sales_orders_due_and_lists_an_item_whose_closing_exceeds_its_level()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.75m, minOrder: 25.5m);
+        Receive(k, item, k.MainGodownId, D1, 120.375m, Money.FromRupees(10.37m));   // ABOVE the level
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 60.125m);                    // but committed away
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(120.375m, row.ClosingQuantity);
+        Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(60.125m, row.SalesOrdersDue);
+        Assert.Equal(60.250m, row.NettAvailable);
+        Assert.Equal(40.50m, row.Shortfall);
+        Assert.Equal(40.50m, row.OrderToBePlaced);   // shortfall 40.50 exceeds the MOQ 25.5
+        // 🔴 Post-WF-8 the netted figure is the OUTSTANDING quantity, not the raw ordered one. Here they
+        // coincide because nothing has shipped — pinned explicitly so this fixture cannot be read as evidence
+        // that the raw quantity is what feeds the column. Its pair,
+        // Reorder_status_orders_nothing_once_the_sales_order_it_netted_has_been_delivered, is the same book
+        // after delivery and is the fixture that separates the two.
+        Assert.Equal(60.125m,
+            OrderFulfilment.OutstandingForItem(k.Company, item, VoucherBaseType.SalesOrder, D4));
+    }
+
+    /// <summary>
+    /// The Shortfall column is measured against Nett Available, not closing stock — TallyHelp: "Only when the
+    /// quantity in Re-order Level column is more than the Nett Available column, the difference appears as
+    /// Shortfall." The fixture is chosen so Order to be Placed is the MOQ 25.5 under BOTH the old and the new
+    /// rule, which isolates the Shortfall column: a round-number fixture would have let the order quantity
+    /// mask the shortfall defect.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_shortfall_is_measured_against_nett_available_not_closing_stock()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.875m, minOrder: 25.5m);
+        Receive(k, item, k.MainGodownId, D1, 95.625m, Money.FromRupees(9.83m));
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 3.125m);
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(92.500m, row.NettAvailable);    // 95.625 + 0 − 3.125
+        Assert.Equal(8.375m, row.Shortfall);         // 100.875 − 92.500; pre-10.10 printed 5.25
+        Assert.Equal(25.5m, row.OrderToBePlaced);    // MOQ floors a REAL shortfall — unchanged either way
+    }
+
+    /// <summary>
+    /// A pending purchase order is counted ONCE, inside Nett Available, and never subtracted a second time off
+    /// the order quantity. Pre-10.10 the row printed Shortfall 80.75 beside Order to be Placed 50.375, two
+    /// figures no operator could reconcile from any pair of columns on the row. Order to be Placed is
+    /// value-preserving across the fix, which is precisely what makes dropping the separate subtraction safe.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_does_not_double_count_a_pending_purchase_order()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.875m, minOrder: 10.5m);
+        // 🔴 OPENING BALANCE, not a Receipt Note — see the banner above Reorder_status_… (the date-bound note).
+        k.Masters.AddOpeningBalance(item, k.MainGodownId, 20.125m, Money.FromRupees(11.09m));
+        Order(k, VoucherBaseType.PurchaseOrder, item, D2, 30.375m);
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(30.375m, row.PendingPurchaseOrders);
+        Assert.Equal(50.500m, row.NettAvailable);    // 20.125 + 30.375 − 0
+        Assert.Equal(50.375m, row.Shortfall);        // 100.875 − 50.500; pre-10.10 printed 80.75
+        Assert.Equal(50.375m, row.OrderToBePlaced);  // max(50.375, MOQ 10.5)
+        // The row reconciles from its own columns, which is the whole point of the Nett Available column.
+        Assert.Equal(row.NettAvailable,
+            row.ClosingQuantity + row.PendingPurchaseOrders - row.SalesOrdersDue);
+        Assert.Equal(row.Shortfall, row.ReorderLevel - row.NettAvailable);
     }
 
     /// <summary>
@@ -785,29 +1076,214 @@ public class InventoryReportsTests
         var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
         Assert.Equal(8m, row.ClosingQuantity);
         Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(8m, row.NettAvailable);     // no orders either way ⇒ nett == closing
         Assert.Equal(12m, row.Shortfall);        // 20 − 8
-        Assert.Equal(25m, row.OrderToBePlaced);  // max(netRequirement 12, MOQ 25) = 25
+        Assert.Equal(25m, row.OrderToBePlaced);  // max(netRequirement 12, MOQ 25) = 25 — SURVIVES 10.10
     }
 
     /// <summary>
-    /// ER-13 regression (slice-6 review): an item <b>exactly at</b> its reorder level with a Minimum Order
-    /// Quantity and NO pending purchase order still orders the MOQ (Phase-3 parity), not zero. At closing == level
-    /// the shortfall is 0, but the MOQ is a floor whenever the item is at/below its level and no incoming PO
-    /// covers it — the pre-fix refactor wrongly returned 0 here.
+    /// 🔴 <b>HARD GATE PR-8 / ER-13 — "the MOQ floor fires even at zero shortfall" — is RETIRED BY USER
+    /// DECISION</b> (Phase 10.10, WF-7, R12). This test is the deliberate INVERSION of the pre-10.10
+    /// <c>Reorder_status_at_exactly_the_level_with_min_order_qty_orders_the_min_order_qty</c>, which a slice-6
+    /// review had added as a regression lock. <b>It is not a regression — do not "restore" it.</b>
+    /// <para>Citation for the reversal: <b>Tally-Prime-Book p.164</b> — an item whose Minimum Order Quantity is
+    /// 25 (p.162), once its requirement is already covered, prints "You can see 'Order to be Placed' Column is
+    /// Empty, Because We Have ordered already". <i>Empty</i>, not 25. TallyHelp's Reorder Status page states the
+    /// MOQ branch only for a REAL shortfall: "When the Shortfall is less than the Min Order Quantity, the
+    /// quantity displayed in Min Order Quantity appears under Order to be Placed." With no shortfall there is no
+    /// branch to take, so the guard <c>shortfall &lt;= 0 ⇒ 0</c> is load-bearing.</para>
+    /// <para>The doc amendments this decision owes — <c>docs/phase6-advanced-inventory-requirements.md:598-601</c>
+    /// (gate PR-8) and the <c>memory.md</c> restatement — are DEFERRED to the post-merge documentation slice.</para>
     /// </summary>
     [Fact]
-    public void Reorder_status_at_exactly_the_level_with_min_order_qty_orders_the_min_order_qty()
+    public void Reorder_status_places_no_order_when_the_shortfall_is_nil_even_with_a_min_order_quantity()
     {
         var k = NewKit();
-        var item = Item(k, "Nike T-shirt", reorderLevel: 20m, minOrder: 25m);
-        Receive(k, item, k.MainGodownId, D1, 20m, Money.FromRupees(10m));   // closing exactly 20 = level, no PO
+        var item = Item(k, "Nike T-shirt", reorderLevel: 100.875m, minOrder: 25.5m);
+        Receive(k, item, k.MainGodownId, D1, 100.875m, Money.FromRupees(12.61m));   // exactly at the level, no PO
 
-        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
-        Assert.Equal(20m, row.ClosingQuantity);
-        Assert.Equal(20m, row.ReorderLevel);
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);   // still LISTED
+        Assert.Equal(100.875m, row.ClosingQuantity);
+        Assert.Equal(100.875m, row.ReorderLevel);
+        Assert.Equal(100.875m, row.NettAvailable);
         Assert.Equal(0m, row.Shortfall);            // at the level, not below it
         Assert.Equal(0m, row.PendingPurchaseOrders);
-        Assert.Equal(25m, row.OrderToBePlaced);     // MOQ floor (ER-13 / Phase-3 parity), NOT 0
+        // PR-8 retired (user decision, Tally-Prime-Book p.164): a nil shortfall orders NOTHING, not the MOQ.
+        Assert.Equal(0m, row.OrderToBePlaced);
+    }
+
+    /// <summary>
+    /// 🔴 <b>DD-5 CLOSED — both order books are now netted at their OUTSTANDING quantity, so a fulfilled order
+    /// is retired.</b> This is the deliberate INVERSION of the pre-S2
+    /// <c>Reorder_status_still_counts_fully_fulfilled_orders_as_outstanding_DD5_documented_defect</c>, which
+    /// asserted the wrong figures on purpose so the defect could not ship unnoticed. <b>The figures below are the
+    /// ones that test documented as "should be" — they are not re-baselined to whatever the engine prints.</b>
+    /// <para><b>Mechanism of the fix (WF-8 → WF-7).</b> WF-8 landed <see cref="OrderFulfilment"/>, which matches
+    /// an order to the movements that fulfil it; S2 rewires <see cref="ReorderStatus"/> onto
+    /// <see cref="OrderFulfilment.OutstandingByItem"/> so "Purc Orders Pending" and "Sales Orders Due" mean what
+    /// TallyPrime means by them — what is still OUTSTANDING, not everything ever ordered.</para>
+    /// <para><b>"Sold" — the ordinary order-to-delivery cycle, which is where the harm landed.</b> 180.875
+    /// received, a 60.125 sales order raised, then fully delivered. 120.750 Nos remain and nothing is
+    /// outstanding, so Sales Orders Due 0, Nett Available 120.750, Shortfall 0, Order to be Placed 0 — the item
+    /// is comfortably above its level of 100.875. Pre-fix the engine printed Sales Orders Due 60.125, Nett
+    /// Available 60.625, Shortfall 40.250 and pre-filled a purchase order for the MOQ 55.5 that was not needed,
+    /// for ever, growing with every delivered order.</para>
+    /// <para><b>"Bought" — the mirror, which erred the other way.</b> A 40.375 purchase order raised and fully
+    /// received: the goods are in closing stock, so nothing is still incoming. Nett Available 40.375, Shortfall
+    /// 60.500, Order to be Placed 60.500. Pre-fix the engine counted the goods twice (80.750 / 20.125) and
+    /// UNDER-ordered by 40.375.</para>
+    /// </summary>
+    [Fact]
+    public void Reorder_status_retires_a_fulfilled_order_in_both_directions()
+    {
+        var k = NewKit();
+        var sold = Item(k, "Sold", reorderLevel: 100.875m, minOrder: 55.5m);
+        Receive(k, sold, k.MainGodownId, D1, 180.875m, Money.FromRupees(10.37m));
+        Order(k, VoucherBaseType.SalesOrder, sold, D2, 60.125m);
+        Deliver(k, sold, k.MainGodownId, D3, 60.125m);              // the order is FULLY delivered
+
+        var bought = Item(k, "Bought", reorderLevel: 100.875m);
+        Order(k, VoucherBaseType.PurchaseOrder, bought, D2, 40.375m);
+        Receive(k, bought, k.MainGodownId, D3, 40.375m, Money.FromRupees(8.91m));   // FULLY received
+
+        var rows = ReorderStatus.Build(k.Company, D4).Rows;
+
+        var s = rows.Single(r => r.ItemName == "Sold");
+        Assert.Equal(120.750m, s.ClosingQuantity);     // the delivery reduced stock
+        Assert.Equal(0m, s.SalesOrdersDue);            // delivered in full ⇒ nothing due (pre-fix: 60.125)
+        Assert.Equal(120.750m, s.NettAvailable);       // pre-fix: 60.625
+        Assert.Equal(0m, s.Shortfall);                 // 120.750 > level 100.875 (pre-fix: 40.250)
+        Assert.Equal(0m, s.OrderToBePlaced);           // pre-fix: 55.5 — a real PO the buyer did not need
+        // The row is STILL LISTED even though it needs nothing — [CORPUS-BOOK p.164].
+        Assert.Contains(rows, r => r.ItemName == "Sold");
+
+        var b = rows.Single(r => r.ItemName == "Bought");
+        Assert.Equal(40.375m, b.ClosingQuantity);      // the receipt raised stock
+        Assert.Equal(0m, b.PendingPurchaseOrders);     // fully received ⇒ nothing incoming (pre-fix: 40.375)
+        Assert.Equal(40.375m, b.NettAvailable);        // pre-fix: 80.750 — the goods were counted twice
+        Assert.Equal(60.500m, b.Shortfall);            // 100.875 − 40.375 (pre-fix: 20.125)
+        Assert.Equal(60.500m, b.OrderToBePlaced);      // pre-fix: 20.125 — under-ordered by 40.375
+
+        // Each row still reconciles from its own printed columns.
+        Assert.Equal(s.NettAvailable, s.ClosingQuantity + s.PendingPurchaseOrders - s.SalesOrdersDue);
+        Assert.Equal(b.NettAvailable, b.ClosingQuantity + b.PendingPurchaseOrders - b.SalesOrdersDue);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE PAIR TO <see cref="Reorder_status_nets_sales_orders_due_and_lists_an_item_whose_closing_exceeds_its_level"/>
+    /// — the same worked case, after the goods have shipped.</b> The two fixtures are built so that the book
+    /// here has EXACTLY the closing quantity (120.375), reorder level (100.75) and MOQ (25.5) of the open-order
+    /// case, and differ only by the delivery. Reading the RAW order book — the pre-WF-8 behaviour — both books
+    /// therefore print the identical row: Nett Available 60.250, Shortfall 40.50, Order to be Placed 40.50. One
+    /// of those two answers is right and the other tells the buyer to re-order stock that has already shipped,
+    /// <b>for ever</b>. Only the outstanding quantity can tell them apart, which is what WF-8 exists for.
+    /// <para>Correct here: the order is delivered, so nothing is due, Nett Available is the whole 120.375, there
+    /// is no shortfall and — this is the load-bearing half — <b>no purchase order is suggested at all</b>.</para>
+    /// </summary>
+    [Fact]
+    public void Reorder_status_orders_nothing_once_the_sales_order_it_netted_has_been_delivered()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.75m, minOrder: 25.5m);
+        // 180.500 is forced, not chosen: it is the receipt that leaves closing at the open-order case's 120.375
+        // once 60.125 has shipped, which is what makes the two fixtures differ by the delivery alone.
+        Receive(k, item, k.MainGodownId, D1, 180.500m, Money.FromRupees(10.37m));
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 60.125m);
+        Deliver(k, item, k.MainGodownId, D3, 60.125m);              // shipped — the order is retired
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(120.375m, row.ClosingQuantity);   // identical to the open-order case's closing
+        Assert.Equal(0m, row.PendingPurchaseOrders);
+        Assert.Equal(0m, row.SalesOrdersDue);          // raw would be 60.125
+        Assert.Equal(120.375m, row.NettAvailable);     // raw would be 60.250
+        Assert.Equal(0m, row.Shortfall);               // raw would be 40.50
+        Assert.Equal(0m, row.OrderToBePlaced);         // raw would be 40.50 — ordered again every single day
+    }
+
+    /// <summary>
+    /// A PARTLY delivered sales order nets only its undelivered remainder. Neither the raw ordered quantity
+    /// (60.125) nor zero is right — the fixture is chosen so all three answers differ in every column, which a
+    /// fully-delivered fixture alone cannot prove: closing 130.250, still due 39.750, Nett Available 90.500,
+    /// Shortfall 10.375, and the MOQ 12.5 floors the order. Reading the raw book instead would print Nett
+    /// Available 70.125 / Shortfall 30.750 / Order 30.750.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_nets_only_the_undelivered_remainder_of_a_partly_delivered_sales_order()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.875m, minOrder: 12.5m);
+        Receive(k, item, k.MainGodownId, D1, 150.625m, Money.FromRupees(9.83m));
+        Order(k, VoucherBaseType.SalesOrder, item, D2, 60.125m);
+        Deliver(k, item, k.MainGodownId, D3, 20.375m);              // part shipment
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(130.250m, row.ClosingQuantity);   // 150.625 − 20.375
+        Assert.Equal(39.750m, row.SalesOrdersDue);     // 60.125 ordered − 20.375 shipped
+        Assert.Equal(90.500m, row.NettAvailable);      // 130.250 + 0 − 39.750
+        Assert.Equal(10.375m, row.Shortfall);          // 100.875 − 90.500
+        Assert.Equal(12.5m, row.OrderToBePlaced);      // MOQ 12.5 floors the 10.375 shortfall
+        Assert.Equal(row.NettAvailable, row.ClosingQuantity + row.PendingPurchaseOrders - row.SalesOrdersDue);
+    }
+
+    /// <summary>
+    /// The mirror: a PARTLY received purchase order counts only its unreceived remainder as incoming. The
+    /// opening balance (12.750, which is not an inventory voucher and so can never fulfil an order) exists to
+    /// stop closing + outstanding collapsing onto the ordered quantity, which would have let two different
+    /// columns share one figure. Reading the raw book instead would print Nett Available 68.250 / Shortfall
+    /// 32.625 / Order 32.625, double-counting the 15.125 already on the shelf.
+    /// </summary>
+    [Fact]
+    public void Reorder_status_nets_only_the_unreceived_remainder_of_a_partly_received_purchase_order()
+    {
+        var k = NewKit();
+        var item = Item(k, "Widget", reorderLevel: 100.875m, minOrder: 10.5m);
+        k.Masters.AddOpeningBalance(item, k.MainGodownId, 12.750m, Money.FromRupees(7.31m));
+        Order(k, VoucherBaseType.PurchaseOrder, item, D1, 40.375m);
+        Receive(k, item, k.MainGodownId, D2, 15.125m, Money.FromRupees(11.09m));   // part receipt
+
+        var row = Assert.Single(ReorderStatus.Build(k.Company, D4).Rows);
+        Assert.Equal(27.875m, row.ClosingQuantity);        // 12.750 opening + 15.125 received
+        Assert.Equal(25.250m, row.PendingPurchaseOrders);  // 40.375 ordered − 15.125 received
+        Assert.Equal(0m, row.SalesOrdersDue);
+        Assert.Equal(53.125m, row.NettAvailable);          // 27.875 + 25.250 − 0
+        Assert.Equal(47.750m, row.Shortfall);              // 100.875 − 53.125
+        Assert.Equal(47.750m, row.OrderToBePlaced);        // exceeds the MOQ 10.5
+        Assert.Equal(row.NettAvailable, row.ClosingQuantity + row.PendingPurchaseOrders - row.SalesOrdersDue);
+    }
+
+    /// <summary>
+    /// 🔴 <b>ER-4 — the Order Register and Reorder Status read the SAME order book and now agree on it.</b> This
+    /// is the deliberate inversion of the pre-S2 tripwire
+    /// <c>Order_register_and_reorder_status_disagree_on_a_delivered_order_until_WF7_rewires_it</c>, which existed
+    /// only to keep a stated, temporary divergence visible while WF-8 shipped ahead of WF-7's rewiring. Both
+    /// projections now derive their figure from <see cref="OrderFulfilment"/>, so the agreement is structural
+    /// rather than coincidental — and this test is the only fixture that reads both off one book, which is what
+    /// would catch either one being re-pointed at the raw ordered quantity again.
+    /// </summary>
+    [Fact]
+    public void Order_register_and_reorder_status_agree_on_a_partly_delivered_order()
+    {
+        var k = NewKit();
+        var sold = Item(k, "Sold", reorderLevel: 100.875m, minOrder: 55.5m);
+        Receive(k, sold, k.MainGodownId, D1, 180.875m, Money.FromRupees(10.37m));
+        Order(k, VoucherBaseType.SalesOrder, sold, D2, 60.125m);
+        Deliver(k, sold, k.MainGodownId, D3, 40.625m);              // PARTLY delivered — 19.500 still due
+
+        // The Order Register: the order is retired down to its remainder.
+        var registerOutstanding = InventoryRegisters.BuildOrders(k.Company, D1, D4)
+            .Where(r => r.StockItemId == sold)
+            .Sum(r => r.OutstandingQuantity);
+        Assert.Equal(19.500m, registerOutstanding);
+        Assert.Equal(19.500m, OrderFulfilment.OutstandingForItem(k.Company, sold, VoucherBaseType.SalesOrder, D4));
+
+        // Reorder Status reads the same book to the same figure.
+        var row = ReorderStatus.Build(k.Company, D4).Rows.Single(r => r.ItemName == "Sold");
+        Assert.Equal(19.500m, row.SalesOrdersDue);
+        Assert.Equal(0m, row.SalesOrdersDue - registerOutstanding);
+        // Partly delivered, so the figure is neither the raw 60.125 nor 0 — the divergence cannot be masked by
+        // an all-or-nothing fixture in which "retired" and "agreeing" happen to coincide at zero.
+        Assert.NotEqual(60.125m, row.SalesOrdersDue);
+        Assert.NotEqual(0m, row.SalesOrdersDue);
     }
 
     /// <summary>

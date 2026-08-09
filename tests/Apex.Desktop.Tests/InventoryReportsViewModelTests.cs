@@ -72,11 +72,15 @@ public sealed class InventoryReportsViewModelTests : IDisposable
         return k;
     }
 
-    /// <summary>Posts a one-line stock voucher of <paramref name="baseType"/> for Widget via the entry VM.</summary>
-    private void Post(Kit k, VoucherBaseType baseType, decimal qty, string? rate = null)
+    /// <summary>Posts a one-line stock voucher of <paramref name="baseType"/> for Widget via the entry VM.
+    /// <paramref name="party"/> names a ledger to pick in the party combo — the shipped capture path for both an
+    /// order and (since Phase 10.10 / WF-8) a movement note; <c>null</c> leaves it on "(none)".</summary>
+    private void Post(Kit k, VoucherBaseType baseType, decimal qty, string? rate = null, string? party = null)
     {
         k.Vm.OpenInventoryVoucher(baseType);
         var entry = k.Vm.InventoryVoucherEntry!;
+        if (party is not null)
+            entry.SelectedParty = entry.Parties.Single(p => p.Ledger?.Name == party);
         var line = entry.Lines[0];
         line.SelectedItem = entry.StockItems.Single(i => i.Id == k.WidgetId);
         line.SelectedGodown = entry.Godowns.Single(g => g.Id == k.GodownId);
@@ -174,22 +178,127 @@ public sealed class InventoryReportsViewModelTests : IDisposable
         Assert.Equal("-5", row.Col6);    // Variance
     }
 
-    // ---------------------------------------------------------------- (4) Reorder Status flags the short item only
+    // ---------------------------------------------------------------- (4) Reorder Status lists every level-carrying item
 
+    /// <summary>
+    /// 🔴 <b>RENAMED AND INVERTED BY DECISION — NOT A REGRESSION.</b> (Phase 10.10 / WF-7, register row IV-10.)
+    /// The pre-10.10 <c>Reorder_status_flags_only_the_item_below_its_reorder_level</c> ended on
+    /// <c>Assert.DoesNotContain(rows, r =&gt; r.Col1 == "Gadget")</c>, which encoded the engine's invented
+    /// closing-stock listing filter — a rule that appears in no TallyPrime source. <b>That filter and HARD GATE
+    /// PR-8 (the "MOQ floor at zero shortfall") were RETIRED BY USER DECISION</b>: TallyPrime lists every item
+    /// that resolves a reorder level ("By default, all stock items from the selected stock group or category
+    /// display… press F8 (Reorder Only)"), and <b>Tally-Prime-Book p.164</b> shows an already-covered item still
+    /// on screen with an EMPTY "Order to be Placed" column — listed, ordering nothing. Gadget appearing with a
+    /// nil shortfall is therefore the CORRECT behaviour. <b>Do not restore the <c>DoesNotContain</c>.</b>
+    /// <para>Narrowing the list is the operator's F8, not the engine's, and F8 is covered separately by
+    /// <c>ReorderLevelsViewModelTests.F8_reorder_only_filter_hides_rows_with_nothing_to_order</c>.</para>
+    /// </summary>
     [Fact]
-    public void Reorder_status_flags_only_the_item_below_its_reorder_level()
+    public void Reorder_status_lists_every_level_carrying_item_with_the_short_one_flagged()
     {
         var k = NewKit("Reorder Co");
         k.Vm.OpenReport(ReportKind.ReorderStatus);
         var rows = k.Vm.Reports!.Rows;
 
-        // Widget (105) is below its reorder level 150 → flagged with shortfall 45. Gadget (200 vs 50) is not.
         // Columns (slice 6): Item | Closing | Reorder Level | Pending POs | SOs Due | Shortfall | Order to be Placed.
+        // Widget: 105 on hand (100 opening + 40 GRN − 30 delivery, then counted to 105) against a level of 150,
+        // so it is short by 45; its MOQ of 20 does not floor a shortfall already above it.
         var widget = rows.Single(r => r.Col1 == "Widget");
+        Assert.Equal("105", widget.Col2);   // closing
         Assert.Equal("150", widget.Col3);   // reorder level
         Assert.Equal("0", widget.Col4);     // pending POs (none)
+        Assert.Equal("0", widget.Col5);     // sales orders due (none)
         Assert.Equal("45", widget.Col6);    // shortfall = 150 − 105
-        Assert.DoesNotContain(rows, r => r.Col1 == "Gadget");
+        Assert.Equal("45", widget.Col7);    // order to be placed = max(shortfall 45, MOQ 20)
+        // Gadget: 200 on hand against a level of 50 — comfortably covered, and LISTED all the same with every
+        // order column nil. This positive assertion is what replaced the retired DoesNotContain.
+        var gadget = rows.Single(r => r.Col1 == "Gadget");
+        Assert.Equal("200", gadget.Col2);   // closing (opening only — no movement was posted for Gadget)
+        Assert.Equal("50", gadget.Col3);    // reorder level
+        Assert.Equal("0", gadget.Col4);     // pending POs
+        Assert.Equal("0", gadget.Col5);     // sales orders due
+        Assert.Equal("0", gadget.Col6);     // no shortfall — nett available 200 is above the level of 50
+        Assert.Equal("0", gadget.Col7);     // and so nothing to order: PR-8's MOQ floor at nil shortfall is retired
+    }
+
+    // ------------------------------------------------ (4b) the party a movement note carries (WF-8 root cause)
+
+    /// <summary>
+    /// 🔴 <b>THE ROOT-CAUSE HALF OF WF-8, AND THE ONLY TEST ANYWHERE THAT TOUCHES IT.</b> Until Phase 10.10 a
+    /// movement note in this product <b>could not name a party at all</b>:
+    /// <c>InventoryVoucherEntryViewModel.BuildMovementNote</c> — the only <c>new InventoryVoucher(</c> in the
+    /// Desktop project — omitted <c>partyId</c>, and the picker was bound <c>IsVisible="{Binding IsOrder}"</c>,
+    /// which is false for a note. <c>OrderFulfilment</c> keys its cohort on <b>(PartyId, StockItemId)</b>, so a
+    /// customer's order sat in <c>(Ashok, Widget)</c> while his delivery note sat in <c>(null, Widget)</c>, the
+    /// lookup missed, and the Order Register reported the whole ordered quantity outstanding for ever —
+    /// byte-identical to the pre-WF-8 defect the engine work exists to delete.
+    /// <para><b>Why this test had to be added rather than left to the Ledger suite.</b> Measured, not assumed:
+    /// <c>grep -rn ShowsParty tests/</c> and <c>grep -rn SelectedParty tests/Apex.Desktop.Tests/</c> both
+    /// returned <b>nothing</b> before this test, and deleting <c>partyId: SelectedParty?.Ledger?.Id</c> from
+    /// <c>BuildMovementNote</c> (or flipping the binding back to <c>IsOrder</c>) left <b>all four projects
+    /// green</b>. The Ledger suite's <c>ShellNote</c> helper is a hand-copied MIRROR of that method in a
+    /// different project, and a mirror cannot by construction detect drift in the thing it mirrors — the same
+    /// failure mode <c>OrderFulfilmentTests</c> records one level down, where 18 tests were green while the
+    /// feature was a no-op on every real book.</para>
+    /// <para>It deliberately locks the shell fix and the engine figure <b>together</b>, in one test rather than
+    /// two files that can drift: the picker's per-type visibility, the party actually reaching the <c>.db</c>
+    /// (read back off a reloaded company, not off the in-memory object), and the Order Register row that party
+    /// makes correct.</para>
+    /// </summary>
+    [Fact]
+    public void A_movement_note_captures_its_party_and_retires_the_order_that_customer_raised()
+    {
+        const string companyName = "Note Party Co";
+        var k = NewKit(companyName);
+        var c = k.Vm.Company!;
+        var ashok = new Apex.Ledger.Domain.Ledger(
+            Guid.NewGuid(), "Ashok Traders", c.FindGroupByName("Sundry Debtors")!.Id, Money.Zero, true);
+        c.AddLedger(ashok);
+        _storage.Save(c);
+
+        // (a) WHICH SCREENS OFFER THE PICKER. Orders always did; the four movement notes are the WF-8 fix, each
+        // corpus-grounded on ShowsParty. Stock Journal (an internal transfer) and Physical Stock (a count) name
+        // no counterparty, so showing one there would invent a field.
+        foreach (var withParty in new[]
+                 {
+                     VoucherBaseType.PurchaseOrder, VoucherBaseType.SalesOrder, VoucherBaseType.ReceiptNote,
+                     VoucherBaseType.DeliveryNote, VoucherBaseType.RejectionIn, VoucherBaseType.RejectionOut,
+                 })
+        {
+            k.Vm.OpenInventoryVoucher(withParty);
+            Assert.True(k.Vm.InventoryVoucherEntry!.ShowsParty, $"{withParty} must offer the party picker");
+        }
+        foreach (var withoutParty in new[] { VoucherBaseType.StockJournal, VoucherBaseType.PhysicalStock })
+        {
+            k.Vm.OpenInventoryVoucher(withoutParty);
+            Assert.False(k.Vm.InventoryVoucherEntry!.ShowsParty, $"{withoutParty} names no counterparty");
+        }
+
+        // (b) Ashok's sales order and the delivery note that ships it — BOTH entered through the real screen.
+        // 60.125 is odd-valued on purpose: a round quantity would also match the 30 and 40 the kit already
+        // posted blank, and could not distinguish this note from those.
+        Post(k, VoucherBaseType.SalesOrder, 60.125m, party: "Ashok Traders");
+        Post(k, VoucherBaseType.DeliveryNote, 60.125m, party: "Ashok Traders");
+
+        // (c) The party reached the DATABASE, not merely the in-memory voucher — reloaded from the .db.
+        var reloaded = _storage.Load(_storage.ListCompanies().Single(e => e.Name == companyName));
+        var note = reloaded.InventoryVouchers.Single(v =>
+            reloaded.FindVoucherType(v.TypeId)!.BaseType == VoucherBaseType.DeliveryNote
+            && v.Allocations[0].Quantity == 60.125m);
+        Assert.Equal(ashok.Id, note.PartyId);
+        // The kit's own blank delivery note is untouched — "(none)" stays a real, reachable shape.
+        Assert.Null(reloaded.InventoryVouchers.Single(v =>
+            reloaded.FindVoucherType(v.TypeId)!.BaseType == VoucherBaseType.DeliveryNote
+            && v.Allocations[0].Quantity == 30m).PartyId);
+
+        // (d) …and the figure it exists to make right: the order is RETIRED, not reported outstanding for ever.
+        var from = reloaded.InventoryVouchers.Min(v => v.Date);
+        var to = reloaded.InventoryVouchers.Max(v => v.Date);
+        var order = Apex.Ledger.Reports.InventoryRegisters.BuildOrders(reloaded, from, to)
+            .Single(r => r.OrderedQuantity == 60.125m);
+        Assert.Equal(ashok.Id, order.PartyId);
+        Assert.Equal(60.125m, order.FulfilledQuantity);
+        Assert.Equal(0m, order.OutstandingQuantity);
     }
 
     // ---------------------------------------------------------------- (5) Godown Summary + Movement
