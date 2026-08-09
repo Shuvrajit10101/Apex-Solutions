@@ -229,7 +229,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     ///
     /// <para><b>The gap this closes.</b> Both invoice Accept paths previously built the party <c>EntryLine</c> with
     /// no allocations at all, while <c>Outstandings</c> only counts lines that HAVE them — so a company invoicing
-    /// normally had an empty Receivables report, empty ageing, no overdue tracking and nothing for Ctrl+B to settle,
+    /// normally had an empty Receivables report, empty ageing, no overdue tracking and nothing to settle against,
     /// with no error and no warning. The corpus puts the sub-screen squarely on both modes: SG p.79 step 7 (Purchase
     /// Item Invoice), p.80 step 6 (Purchase Accounting Invoice), p.81 step 6 (Sales Item Invoice), p.82 step 5
     /// (Sales Accounting Invoice).</para>
@@ -1313,6 +1313,149 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         return line;
     }
 
+    // =============================================================== settlement pre-load (Phase 10.11 S2 / VL-4)
+
+    /// <summary>
+    /// The report as-of a settlement pre-load was validated against, or null on an ordinary voucher. Its presence
+    /// is what arms <see cref="SettlementAllocationError"/>; on every hand-keyed voucher this class behaves
+    /// exactly as before.
+    /// </summary>
+    private DateOnly? _settlementAsOf;
+
+    /// <summary>
+    /// Pre-loads the bills selected on the Outstandings report as Against-Reference allocations, so the operator
+    /// confirms the date, the cash/bank ledger and every per-bill amount and then Accepts — which is what
+    /// TallyPrime makes them do anyway [CORPUS-SG p.92 §5.5]. Replaces the deleted Ctrl+B path that posted the
+    /// whole thing unasked (register row IV-5).
+    ///
+    /// <para><b>The Account (cash/bank) side is deliberately left EMPTY.</b> Defaulting it to a ledger named
+    /// "Cash" is the defect this slice removes, wearing a new hat.</para>
+    ///
+    /// <para><b>Two orderings here are load-bearing, and getting either wrong fails silently.</b>
+    /// (1) The mode is forced to Single Entry BEFORE anything is stamped: <see cref="SyncSingleEntrySides"/> is
+    /// what derives the Account amount from Σ Particulars, and it returns immediately when
+    /// <see cref="IsSingleEntry"/> is false — so a pre-load onto the wrong mode leaves the Account line at zero,
+    /// Accept greyed, and no explanation on screen. (2) The party ledger is assigned BEFORE its allocations:
+    /// assignment fires <see cref="VoucherLineViewModel.SyncBillWise"/>, which seeds one blank New-Ref row on a
+    /// bill-wise ledger and CLEARS the collection on a non-bill-wise one, so allocations stamped first are
+    /// wiped.</para>
+    ///
+    /// <para>The blank starter rows are REUSED, never appended beside: the screen opens with one blank Particulars
+    /// line and the ledger assignment seeds one blank bill row. A leftover blank is <c>IsBlank</c>, so
+    /// <see cref="VoucherLineViewModel.BillSplitOk"/> ignores it silently — it would pass every test while
+    /// rendering on screen as an empty row that reads as a bug.</para>
+    /// </summary>
+    public void PreloadSettlement(SettlementPreload preload)
+    {
+        ArgumentNullException.ThrowIfNull(preload);
+        if (!CanBeSingleEntry)
+            throw new InvalidOperationException(
+                $"A settlement pre-load needs a Single-Entry cash/bank voucher; '{_type.Name}' has no such layout.");
+
+        Mode = VoucherEntryMode.SingleEntry;   // idempotent — guarantees the derived-Account stamp is live
+        _settlementAsOf = preload.AsOf;
+
+        foreach (var party in preload.Parties)
+        {
+            // A party with NO allocations describes nothing to settle. Skipping it is not just tidiness: the
+            // cleanup loop below cannot reach a target of zero (see the note there), and the line it would
+            // otherwise leave behind is a zero-amount party row the operator did not ask for.
+            if (party.Allocations.Count == 0) continue;
+
+            // Reuse the blank starter Particulars line for the FIRST party actually stamped, then add one per
+            // party after it. Keyed on the line still being blank, NOT on the loop index: a skipped empty party
+            // at index 0 would leave the starter unconsumed, so an index test would append beside it and strand
+            // exactly the stray empty row this reuse exists to prevent.
+            var line = Lines.Count > 1 && Lines[1].IsBlank ? Lines[1] : AddSingleEntryParticular();
+
+            line.SelectedLedger = party.Party;   // FIRST — see the ordering note above
+            var total = party.Allocations.Sum(a => a.Amount.Amount);
+            line.AmountText = MoneyText(total);
+
+            for (var i = 0; i < party.Allocations.Count; i++)
+            {
+                var allocation = party.Allocations[i];
+                var row = i < line.BillAllocations.Count
+                    ? line.BillAllocations[i]                                // reuse the seeded blank row
+                    : line.AddBillAllocation(BillRefType.AgstRef);
+                row.RefType = BillRefType.AgstRef;
+                row.Name = allocation.Name;
+                row.AmountText = MoneyText(allocation.Amount.Amount);
+            }
+
+            // Nothing should be left over, but a stale seed beside stamped rows is exactly the silent-blank-row
+            // failure described above — so drop any, rather than trust the arithmetic above.
+            //
+            // THE SECOND CONDITION IS NOT REDUNDANT. VoucherLineViewModel.RemoveBillAllocation enforces a floor:
+            // it RETURNS WITHOUT REMOVING when the line is down to one row. Without `Count > 1` the loop stops
+            // making progress the moment it reaches that floor and spins forever on the UI thread — the app would
+            // have to be killed. The `continue` above makes a target of zero unreachable today, but the floor is
+            // owned by another class and this loop must be safe on its own terms.
+            while (line.BillAllocations.Count > party.Allocations.Count && line.BillAllocations.Count > 1)
+                line.RemoveBillAllocation(line.BillAllocations[^1]);
+        }
+
+        Recalculate();
+    }
+
+    private static string MoneyText(decimal value)
+        => value.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Re-validates every Against-Reference row of a PRE-LOADED settlement against the books, returning the
+    /// engine's own message on the first failure and null when all is well.
+    ///
+    /// <para><b>Why this exists at all.</b> <c>BillSettlementService.SettleAndPost</c> was the only caller of
+    /// <c>BuildSettlementAllocations</c>, i.e. the only path in the app that ever checked an Agst-Ref against a
+    /// genuinely open bill or capped a knock at its pending amount. The in-voucher Bill-wise panel binds the bill
+    /// name to a plain <c>TextBox</c> (register defect D5) and <c>VoucherValidator.EnsureBillAllocationsValid</c>
+    /// only checks that allocations sum to the line amount — so deleting the posting without this guard would
+    /// have made settlement strictly LESS safe than the defect being removed. One transposed character would post
+    /// a knock against a bill that does not exist, and <c>Outstandings</c> drops a non-positive pending, so the
+    /// real bill stays open while an orphan reference vanishes from the report entirely.</para>
+    ///
+    /// <para><b>Scope, stated so it is not mistaken for a D5 fix.</b> It arms only on a voucher this class
+    /// pre-loaded (<see cref="_settlementAsOf"/> is set). A hand-keyed Receipt with a typed Agst-Ref is validated
+    /// no more than before — that is D5's slice, and widening it needs
+    /// <c>VoucherValidator.EnsureBillAllocationsValid</c> to take the <c>Company</c> it currently does not.</para>
+    ///
+    /// <para>The as-of is the report's, captured at pre-load: it is the exact set of open bills the operator was
+    /// looking at when they chose. Re-deriving it from the (operator-editable) voucher date would refuse a
+    /// legitimate settlement back-dated before the bill was raised.</para>
+    /// </summary>
+    private string? SettlementAllocationError()
+    {
+        if (_settlementAsOf is not { } asOf) return null;
+
+        // POOLED PER PARTY, NOT PER LINE. BuildSettlementAllocations caps the knocks naming one bill by their
+        // running TOTAL, which only works if it sees them all at once. Validating line-by-line would hand it two
+        // separate single-knock batches whenever the operator adds a second Particulars row for the SAME party —
+        // each batch passes, and their sum over-settles the bill exactly as two rows on one line would.
+        var byParty = new Dictionary<Guid, (DomainLedger Ledger, List<BillSettlementService.Knock> Knocks)>();
+        foreach (var line in Lines)
+        {
+            if (line.SelectedLedger is not { } ledger || !line.IsBillWise) continue;
+
+            var knocks = line.BillAllocations
+                .Where(a => a.RefType == BillRefType.AgstRef && !a.IsBlank)
+                .Select(a => new BillSettlementService.Knock(
+                    (a.Name ?? string.Empty).Trim(), new Money(a.ParsedAmount)))
+                .ToList();
+            if (knocks.Count == 0) continue;
+
+            if (byParty.TryGetValue(ledger.Id, out var existing)) existing.Knocks.AddRange(knocks);
+            else byParty[ledger.Id] = (ledger, knocks);
+        }
+
+        var service = new BillSettlementService(_company);
+        foreach (var (ledger, knocks) in byParty.Values)
+        {
+            try { service.BuildSettlementAllocations(ledger, asOf, knocks); }
+            catch (InvalidOperationException ex) { return ex.Message; }
+        }
+        return null;
+    }
+
     /// <summary>Removes a Particulars row (never the Account line, and never below the two-line minimum).</summary>
     public void RemoveSingleEntryParticular(VoucherLineViewModel line)
     {
@@ -1434,6 +1577,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var billSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.BillSplitOk);
         var costSplitsOk = Lines.Where(l => l.IsComplete).All(l => l.CostSplitOk);
         CanAccept = IsBalanced && completeLines >= 2 && !hasHalfFilledRow && billSplitsOk && costSplitsOk;
+
+        // On a PRE-LOADED settlement only, an Agst-Ref must still name a genuinely open bill and must not exceed
+        // its pending amount — the check SettleAndPost used to be the sole owner of (see SettlementAllocationError).
+        // A no-op on every hand-keyed voucher, so nothing else in the app changes shape.
+        if (CanAccept && SettlementAllocationError() is not null) CanAccept = false;
     }
 
     // =============================================================== TDS withholding (catalog §13; Phase 7 slice 2)
@@ -2655,6 +2803,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             Message = $"Bill-wise allocations for '{badBill.SelectedLedger!.Name}' must sum to the line amount " +
                       $"({IndianFormat.AmountAlways(badBill.ParsedAmount)}).";
+            return false;
+        }
+
+        // Reject an Agst-Ref that no longer names an open bill of the party, or that over-settles one, on a
+        // PRE-LOADED settlement (register row IV-5 + D5). The bill name is a free TextBox, so the operator can
+        // edit the pre-loaded reference into something that is not a bill; nothing else in the app would catch it.
+        // Deliberately AFTER the bill-split check, so the commoner "allocations must sum to the line amount"
+        // message still wins when both are wrong.
+        if (SettlementAllocationError() is { } settlementError)
+        {
+            Message = settlementError;
             return false;
         }
 

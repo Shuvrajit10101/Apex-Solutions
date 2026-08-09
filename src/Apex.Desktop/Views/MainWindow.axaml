@@ -4988,7 +4988,10 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: Outstandings (Receivables / Payables) with Ctrl+B bill settlement -->
+                    <!-- PAGE: Outstandings (Receivables / Payables). Spacebar multi-selects bills; Alt+A opens a
+                         Single-Entry Receipt/Payment PRE-LOADED with them as Against-Reference allocations, which
+                         the operator confirms and accepts. This page posts nothing (Phase 10.11 S2 / IV-5: it used
+                         to settle on Ctrl+B, which in TallyPrime is Basis of Values and writes nothing). -->
                     <ContentControl IsVisible="{Binding Outstanding, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding Outstanding}">
                       <ContentControl.ContentTemplate>
@@ -5059,13 +5062,13 @@
                                     Padding="10,6" Margin="0,2">
                               <Grid ColumnDefinitions="*,Auto,Auto">
                                 <TextBlock Grid.Column="0"
-                                           Text="Space: select bill    Ctrl+B: settle selected"
+                                           Text="Space: select bill    Alt+A: settle selected bills"
                                            FontSize="11" Foreground="#6A6A6A" VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="12,0"
                                            FontWeight="SemiBold">
                                   <Run Text="Total Pending: "/><Run Text="{Binding TotalText}"/>
                                 </TextBlock>
-                                <Button Grid.Column="2" Content="Settle (Ctrl+B)" Padding="12,5"
+                                <Button Grid.Column="2" Content="Settle Bills (Alt+A)" Padding="12,5"
                                         Background="{StaticResource BrandNavy}" Foreground="White"
                                         Click="OnSettleBillsClick"/>
                               </Grid>

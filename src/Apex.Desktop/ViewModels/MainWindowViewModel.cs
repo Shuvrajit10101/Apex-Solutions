@@ -4592,13 +4592,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// Opens the Outstandings page (Reports → Statements of Accounts → Outstandings → Receivables/Payables)
     /// as a page column: the open bill-wise bills for the chosen side with due date, pending amount and
-    /// ageing. Spacebar multi-select + Ctrl+B settle bills through the engine, then the report refreshes.
+    /// ageing. Spacebar multi-selects bills and Alt+A opens a settlement voucher pre-loaded with them; the page
+    /// itself posts nothing.
     /// </summary>
     public void OpenOutstandings(OutstandingsKind kind)
     {
         if (Company is null) return;
 
-        var vm = new OutstandingsViewModel(Company, _storage, kind, onChanged: () => { });
+        var vm = new OutstandingsViewModel(Company, kind);
         var title = kind == OutstandingsKind.Receivables ? "Outstandings — Receivables" : "Outstandings — Payables";
         OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.Outstandings, title,
             () => Outstandings = vm);
@@ -4863,6 +4864,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// WI-11 — true while the terminal "Accept? (Y/N)" confirmation is up over a master screen. Every Y/N key
     /// arm in the window's tunnel handler is SCOPED to this flag, which is what stops the confirmation from
     /// hijacking Y (Gateway → Export Data) or Alt+N (Auto Columns) anywhere else in the app.
+    /// <para>
+    /// <b>Modifier scoping (Phase 10.11 S1).</b> While the flag is true the confirmation arm owns bare and
+    /// Shift-held <c>Y</c>/<c>N</c> (answer it), <c>Escape</c> and <c>Alt+Escape</c> (dismiss it, master
+    /// intact), and it CONSUMES <c>Alt+Y</c>/<c>Alt+N</c> as inert — those two neither answer the question nor
+    /// reach their own accelerators, because the Alt+Y owner (Data → Backup / Restore) tears the open master's
+    /// column down and would discard everything the operator keyed. <c>Ctrl</c>-held keys are excluded
+    /// entirely, so Ctrl+A still saves outright. Answer the prompt first, then press the accelerator.
+    /// </para>
     /// </summary>
     [ObservableProperty] private bool _isAcceptPromptOpen;
 
@@ -5613,10 +5622,42 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (IsOutstandingsScreen) Outstandings!.ToggleSelectHighlighted();
     }
 
-    /// <summary>Ctrl+B on the Outstandings page: settle (knock off) the selected bills via the engine.</summary>
-    public void SettleBills()
+    /// <summary>
+    /// Alt+A on the Outstandings page — settle the spacebar-selected bills by OPENING a Single-Entry
+    /// Receipt/Payment pre-loaded with them as Against-Reference allocations. Nothing is posted here: the
+    /// operator confirms the date, picks the cash/bank ledger and every per-bill amount, and presses Accept.
+    ///
+    /// <para>This replaces the deleted Ctrl+B binding, which posted the whole batch unasked (register row IV-5).
+    /// <b>Alt+A is TallyPrime's own "Add voucher in report"</b> [TallyHelp keyboard-shortcuts, Reports bottom bar;
+    /// CORPUS-BOOK p.431], which is exactly the semantic needed — create a voucher FROM this report — and it is
+    /// the meaning this app already gives Alt+A on the Day Book.</para>
+    ///
+    /// <para><b>The date is not seeded</b> (<c>date: null</c>), so a settlement is dated exactly like any
+    /// hand-keyed Receipt/Payment. <b>That is a consistency choice, NOT a protection</b> — an earlier draft of
+    /// this comment claimed it avoided <c>Outstandings.AsOf</c>, and it does not: <c>AsOf</c> is the maximum
+    /// voucher date in the company and the entry screen's own default is the same expression
+    /// (<c>Date = date ?? company.Vouchers.Max(v =&gt; v.Date) ?? BooksBeginFrom</c>), so on every reachable path
+    /// the two are equal. A book whose newest voucher is a 31-Mar year-end journal DOES open the settlement dated
+    /// 31-Mar. The difference from the deleted Ctrl+B path is that the date is now an editable field on screen
+    /// that the operator confirms, rather than one stamped invisibly on an already-posted voucher.</para>
+    ///
+    /// <para>The <c>onSaved</c> hook is required, not decorative: <see cref="OpenVoucher(VoucherType, DateOnly?,
+    /// Action?)"/> defaults to <see cref="ShowGateway"/>, which would dump the operator on the Gateway with no
+    /// confirmation that the bill closed. Returning to a refreshed Outstandings of the SAME side is what shows
+    /// them the settled bill is gone.</para>
+    /// </summary>
+    public void OpenSettlementVoucherFromOutstandings()
     {
-        if (IsOutstandingsScreen) Outstandings!.SettleSelected();
+        if (Company is null || !IsOutstandingsScreen) return;
+
+        var outstandings = Outstandings!;
+        var kind = outstandings.Kind;                       // captured now — the page is replaced by the entry screen
+        var preload = outstandings.BuildSettlementPreload();
+        if (preload is null) return;                        // the page carries the reason in its Message
+
+        OpenVoucher(preload.Type, date: null, onSaved: () => OpenOutstandings(kind));
+        if (CurrentScreen != Screen.VoucherEntry || VoucherEntry is null) return;
+        VoucherEntry.PreloadSettlement(preload);
     }
 
     // =============================================================== keyboard navigation
@@ -5634,7 +5675,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void StepActive(int direction)
     {
-        // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Ctrl+B).
+        // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Alt+A settle).
         if (IsOutstandingsScreen)
         {
             Outstandings!.MoveHighlight(direction);
@@ -6729,10 +6770,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Alt+I / Alt+A — POS payment-mode toggle + tax analysis; enabled only on the POS Billing entry (slice 7).
         var onPos = CurrentScreen == Screen.PosBilling;
         ButtonBar.Add(new ButtonBarItem("Alt+I", "Payment Mode", TogglePosPaymentMode, onPos));
-        // Alt+A is context-sensitive: on the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
+        // Alt+A is context-sensitive: on Outstandings it SETTLES the selected bills (Phase 10.11 S2 / VL-4), on
+        // the Day Book it ADDS a voucher (WI-12), on POS it shows tax analysis.
         // Only ONE Alt+A row is emitted — the shell's Fire()/hint lookup takes the first key match, so a second
-        // Alt+A would shadow this. The Day-Book "Add Voucher" wins whenever the live report is the Day Book.
-        if (IsDayBookReport)
+        // Alt+A would shadow this. BRANCH ORDER MIRRORS THE KEY DISPATCHER: Outstandings first, then the Day Book,
+        // then POS. Get it wrong and the Outstandings page advertises "Tax Analysis" and fires the POS handler.
+        if (IsOutstandingsScreen)
+            ButtonBar.Add(new ButtonBarItem("Alt+A", "Settle Bills", OpenSettlementVoucherFromOutstandings, true));
+        else if (IsDayBookReport)
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Add Voucher", OpenAddVoucherFromReport, true));
         else
             ButtonBar.Add(new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos));
@@ -6748,8 +6793,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("Alt+C", CreateMasterButtonLabel(), CreateMasterFromButton,
             hasCompany && !IsCreateOnTheFlyOpen));
         ButtonBar.Add(new ButtonBarItem("Scn", "Scenarios", ShowScenarioMaster, hasCompany));
-        // Ctrl+B — Bill Settlement (only on the Outstandings page); elsewhere it is a disabled hint.
-        ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Settle Bills", SettleBills, IsOutstandingsScreen));
+        // NOTE: there is deliberately NO "Ctrl+B" row here. Ctrl+B was the Bill-Settlement badge until Phase 10.11
+        // S2 (register row IV-5) removed the binding; leaving the badge would paint a red accelerator for a key
+        // that fires nothing, which is register defect IV-31. Settlement is advertised on the Alt+A row above.
         // "Outs" (not "O") — the bare-O key is bound to Import on the Gateway (RQ-28: a hint's letter must map
         // to the action that key actually triggers), so the Outstandings quick-button uses a non-key mnemonic
         // badge and is reached by click, never by a colliding "O" keystroke.

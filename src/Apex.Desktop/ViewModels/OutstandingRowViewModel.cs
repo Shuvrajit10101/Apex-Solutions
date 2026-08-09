@@ -7,15 +7,15 @@ namespace Apex.Desktop.ViewModels;
 /// <summary>
 /// One open-bill row in the Outstandings page (catalog §5): the party, the bill reference, its date and
 /// due date, the pending amount and its ageing (overdue days), plus a <see cref="IsSelected"/> flag the
-/// spacebar toggles for Ctrl+B bill settlement. Amount/date fields are pre-formatted (right-aligned
-/// Indian grouping) so the view binds strings directly.
+/// spacebar toggles to choose which bills Alt+A pre-loads into a settlement voucher. Amount/date fields are
+/// pre-formatted (right-aligned Indian grouping) so the view binds strings directly.
 /// </summary>
 public sealed partial class OutstandingRowViewModel : ViewModelBase
 {
-    /// <summary>The underlying open bill (kept so settlement can knock it off by reference/amount).</summary>
+    /// <summary>The underlying open bill (kept so a settlement can be pre-loaded from its reference/amount).</summary>
     public OutstandingBill Bill { get; }
 
-    /// <summary>Toggled by the spacebar in the Outstandings page; drives multi-select for Ctrl+B.</summary>
+    /// <summary>Toggled by the spacebar in the Outstandings page; drives the Alt+A settlement multi-select.</summary>
     [ObservableProperty] private bool _isSelected;
 
     /// <summary>True for the row currently under the keyboard highlight (set by the parent page VM).</summary>

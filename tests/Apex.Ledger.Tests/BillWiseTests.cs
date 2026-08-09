@@ -8,7 +8,8 @@ namespace Apex.Ledger.Tests;
 /// <summary>
 /// Bill-wise accounting tests (catalog §5; plan.md §5, C-3): New/Agst/Advance/On-Account refs,
 /// split lines, the "Σ open bills == ledger closing balance" invariant, ageing/overdue math, a
-/// small AR/AP scenario, and the Settle-Bill (Ctrl+B) API.
+/// small AR/AP scenario, and <see cref="BillSettlementService.BuildSettlementAllocations"/> — the
+/// open-bill validation that outlived the deleted Ctrl+B settlement (Phase 10.11 S2 / register row IV-5).
 /// </summary>
 public class BillWiseTests
 {
@@ -433,50 +434,201 @@ public class BillWiseTests
         Assert.Equal(Money.Zero, LedgerBalances.Closing(c, creditor, asOf).Amount);
     }
 
-    // ---- Settle-Bill (Ctrl+B) API ----
+    // ---- BuildSettlementAllocations: the validation that OUTLIVED the Ctrl+B settlement ----
+    //
+    // These two tests used to drive BillSettlementService.SettleAndPost, which built AND POSTED a whole
+    // settlement voucher from the Outstandings report's Ctrl+B binding. Phase 10.11 S2 (VL-4 / register row IV-5)
+    // deleted that method: in TallyPrime Ctrl+B is "Basis of Values" and writes nothing, and settlement is now an
+    // ordinary Receipt/Payment the operator confirms. BuildSettlementAllocations SURVIVED, because it is the only
+    // code in the repository that checks an Agst-Ref against a genuinely open bill and caps each knock at that
+    // bill's pending amount — the shell now calls it to build the pre-load AND again at Accept. So these tests are
+    // rewritten onto it rather than deleted: the rule they exist to lock is unchanged, only its caller moved.
+    //
+    // The figures are ODD-PAISA. The originals used round 9,000 / 9,500, which cannot detect a paisa-level slip in
+    // exactly the comparison this method is here to make.
 
-    [Fact]
-    public void SettleAndPost_knocks_off_a_receivable_via_the_settlement_service()
+    private const decimal OpenBill = 47_318.63m;   // ODD PAISA
+
+    private static Company SeedOneOpenBill(out Domain.Ledger debtor, out Domain.Ledger cash)
     {
-        var c = Seed(out var cash, out var sales, out _, out var debtor, out _, out var journal);
-        var svc = new LedgerService(c);
-        var asOf = new DateOnly(2024, 4, 30);
-
-        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 1), new[]
+        var c = Seed(out cash, out var sales, out _, out debtor, out _, out var journal);
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 1), new[]
         {
-            new EntryLine(debtor.Id, Money.FromRupees(9000m), DrCr.Debit,
-                new[] { new BillAllocation(BillRefType.NewRef, "INV-9", Money.FromRupees(9000m)) }),
-            new EntryLine(sales.Id, Money.FromRupees(9000m), DrCr.Credit),
+            new EntryLine(debtor.Id, Money.FromRupees(OpenBill), DrCr.Debit,
+                new[] { new BillAllocation(BillRefType.NewRef, "INV-9", Money.FromRupees(OpenBill)) }),
+            new EntryLine(sales.Id, Money.FromRupees(OpenBill), DrCr.Credit),
         }));
-
-        var settle = new BillSettlementService(c);
-        settle.SettleAndPost(
-            debtor, cash, Receipt(c).Id, new DateOnly(2024, 4, 15),
-            new[] { new BillSettlementService.Knock("INV-9", Money.FromRupees(9000m)) });
-
-        Assert.Empty(Outstandings.OpenBillsFor(c, debtor, asOf));
-        Assert.Equal(Money.Zero, LedgerBalances.Closing(c, debtor, asOf).Amount);
-        // Cash rose from opening 100000 by the 9000 received.
-        Assert.Equal(Money.FromRupees(109000m), LedgerBalances.Closing(c, cash, asOf).Amount);
+        return c;
     }
 
     [Fact]
-    public void SettleAndPost_rejects_over_settlement()
+    public void BuildSettlementAllocations_turns_an_open_bill_into_an_AgstRef_allocation()
     {
-        var c = Seed(out var cash, out var sales, out _, out var debtor, out _, out var journal);
-        var svc = new LedgerService(c);
-
-        svc.Post(new Voucher(Guid.NewGuid(), journal.Id, new DateOnly(2024, 4, 1), new[]
-        {
-            new EntryLine(debtor.Id, Money.FromRupees(9000m), DrCr.Debit,
-                new[] { new BillAllocation(BillRefType.NewRef, "INV-9", Money.FromRupees(9000m)) }),
-            new EntryLine(sales.Id, Money.FromRupees(9000m), DrCr.Credit),
-        }));
-
+        var c = SeedOneOpenBill(out var debtor, out _);
         var settle = new BillSettlementService(c);
-        Assert.Throws<InvalidOperationException>(() =>
-            settle.SettleAndPost(
-                debtor, cash, Receipt(c).Id, new DateOnly(2024, 4, 15),
-                new[] { new BillSettlementService.Knock("INV-9", Money.FromRupees(9500m)) }));
+
+        var allocations = settle.BuildSettlementAllocations(
+            debtor, new DateOnly(2024, 4, 15),
+            new[] { new BillSettlementService.Knock("INV-9", Money.FromRupees(OpenBill)) });
+
+        var allocation = Assert.Single(allocations);
+        Assert.Equal(BillRefType.AgstRef, allocation.RefType);
+        Assert.Equal("INV-9", allocation.Name);
+        Assert.Equal(OpenBill, allocation.Amount.Amount);
+
+        // It is a PURE builder — nothing was posted and the bill is untouched. (Assert.Single, not
+        // Assert.Equal(1, …): xUnit2013 makes the latter a build warning, and the baseline is 0 warnings.)
+        Assert.Single(c.Vouchers);
+        Assert.Equal(OpenBill,
+            Assert.Single(Outstandings.OpenBillsFor(c, debtor, new DateOnly(2024, 4, 30))).Pending.Amount);
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_allows_a_part_payment_of_an_open_bill()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // A part payment is legitimate and must NOT be capped away — only an amount ABOVE the pending is refused.
+        var allocation = Assert.Single(settle.BuildSettlementAllocations(
+            debtor, new DateOnly(2024, 4, 15),
+            new[] { new BillSettlementService.Knock("INV-9", Money.FromRupees(19_999.37m)) }));
+
+        Assert.Equal(19_999.37m, allocation.Amount.Amount);
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_rejects_an_over_settlement_by_a_single_paisa()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // ONE PAISA over the pending — the smallest failure the money type can express.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            settle.BuildSettlementAllocations(
+                debtor, new DateOnly(2024, 4, 15),
+                new[] { new BillSettlementService.Knock("INV-9", Money.FromRupees(OpenBill + 0.01m)) }));
+        Assert.Contains("INV-9", ex.Message);
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_rejects_a_reference_that_is_not_an_open_bill()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // A transposed character (capital O for the zero) must not silently become an orphan allocation: the real
+        // bill would stay open while Outstandings drops the non-positive orphan from the report entirely.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            settle.BuildSettlementAllocations(
+                debtor, new DateOnly(2024, 4, 15),
+                new[] { new BillSettlementService.Knock("INV-O", Money.FromRupees(1_000.11m)) }));
+        Assert.Contains("INV-O", ex.Message);
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_rejects_a_settlement_against_a_bill_that_is_already_closed()
+    {
+        var c = SeedOneOpenBill(out var debtor, out var cash);
+        var asOf = new DateOnly(2024, 4, 30);
+
+        // Settle the bill in full by hand, exactly as the operator now does through the pre-loaded voucher …
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), Receipt(c).Id, new DateOnly(2024, 4, 15), new[]
+        {
+            new EntryLine(cash.Id, Money.FromRupees(OpenBill), DrCr.Debit),
+            new EntryLine(debtor.Id, Money.FromRupees(OpenBill), DrCr.Credit,
+                new[] { new BillAllocation(BillRefType.AgstRef, "INV-9", Money.FromRupees(OpenBill)) }),
+        }));
+        Assert.Empty(Outstandings.OpenBillsFor(c, debtor, asOf));
+
+        // … after which the reference is no longer settleable at all.
+        var settle = new BillSettlementService(c);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            settle.BuildSettlementAllocations(
+                debtor, asOf, new[] { new BillSettlementService.Knock("INV-9", Money.FromRupees(0.01m)) }));
+        Assert.Contains("INV-9", ex.Message);
+    }
+
+    // ---- the AGGREGATE cap: two knocks naming ONE bill ------------------------------------------------
+    //
+    // The per-knock cap above compares each Knock against the bill's ORIGINAL pending. That is sufficient only
+    // while every knock names a different bill — which was true at base, where the sole caller built knocks from
+    // distinct selected report rows. Phase 10.11 S2 points this method at the operator-editable Agst-Ref rows of a
+    // pre-loaded voucher (the bill Name is a free TextBox — register defect D5, and there is an "+ Add bill"
+    // button beside it), so two rows can now name the SAME bill. Each row can sit under the pending while their
+    // SUM sails over it, which is the exact "must not exceed its pending amount" contract this method's own doc
+    // promises. Over-settling drives the bill's accumulated pending NEGATIVE, and Outstandings.OpenBillsFor drops
+    // a non-positive pending — so the over-knocked bill VANISHES from the report while the party's ledger balance
+    // nets out, and nothing anywhere flags it.
+
+    [Fact]
+    public void BuildSettlementAllocations_rejects_two_knocks_that_together_over_settle_one_bill()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // 30,000.11 + 25,000.13 = 55,000.24 against a 47,318.63 bill. Each knock alone is UNDER the pending, so
+        // a per-knock cap passes both; only an aggregate cap catches it. Every figure is odd-paise.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            settle.BuildSettlementAllocations(debtor, new DateOnly(2024, 4, 15), new[]
+            {
+                new BillSettlementService.Knock("INV-9", Money.FromRupees(30_000.11m)),
+                new BillSettlementService.Knock("INV-9", Money.FromRupees(25_000.13m)),
+            }));
+        Assert.Contains("INV-9", ex.Message);
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_rejects_an_aggregate_over_settlement_by_a_single_paisa()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // The smallest aggregate failure the money type can express: the full pending PLUS one paisa, split
+        // across two rows so neither one alone trips the per-knock cap.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            settle.BuildSettlementAllocations(debtor, new DateOnly(2024, 4, 15), new[]
+            {
+                new BillSettlementService.Knock("INV-9", Money.FromRupees(OpenBill - 0.01m)),
+                new BillSettlementService.Knock("INV-9", Money.FromRupees(0.02m)),
+            }));
+        Assert.Contains("INV-9", ex.Message);
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_still_allows_two_knocks_that_together_exactly_settle_one_bill()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // The aggregate cap must not become a "one row per bill" rule: splitting a knock across two rows is
+        // legitimate (two remittances, one bill) as long as the TOTAL stays within the pending amount.
+        // 28_411.37 + 18_907.26 == 47_318.63 to the paisa.
+        var allocations = settle.BuildSettlementAllocations(debtor, new DateOnly(2024, 4, 15), new[]
+        {
+            new BillSettlementService.Knock("INV-9", Money.FromRupees(28_411.37m)),
+            new BillSettlementService.Knock("INV-9", Money.FromRupees(18_907.26m)),
+        });
+
+        Assert.Equal(2, allocations.Count);
+        Assert.Equal(OpenBill, allocations.Sum(a => a.Amount.Amount));
+        Assert.All(allocations, a => Assert.Equal("INV-9", a.Name));
+    }
+
+    [Fact]
+    public void BuildSettlementAllocations_aggregates_case_insensitively_matching_its_own_lookup()
+    {
+        var c = SeedOneOpenBill(out var debtor, out _);
+        var settle = new BillSettlementService(c);
+
+        // The open-bill dictionary is OrdinalIgnoreCase, so "inv-9" and "INV-9" resolve to the SAME bill. The
+        // aggregate cap must use the same comparer or a case flip would slip the whole guard.
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            settle.BuildSettlementAllocations(debtor, new DateOnly(2024, 4, 15), new[]
+            {
+                new BillSettlementService.Knock("INV-9", Money.FromRupees(30_000.11m)),
+                new BillSettlementService.Knock("inv-9", Money.FromRupees(25_000.13m)),
+            }));
+        Assert.Contains("INV-9", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

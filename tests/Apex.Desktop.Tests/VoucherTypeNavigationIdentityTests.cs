@@ -582,15 +582,22 @@ public sealed class VoucherTypeNavigationIdentityTests
     }
 
     /// <summary>
-    /// THE DRIVING TEST for the sixth, unconverted call site. Bill Settlement (Ctrl+B) carried the byte-identical
-    /// pre-change shape — <c>FirstOrDefault(BaseType == want &amp;&amp; IsActive) ?? FirstOrDefault(BaseType == want)</c> —
-    /// so a company that had switched its only Receipt series OFF could not OPEN the type (F6 refuses) yet could
-    /// still be made to POST under it: a real Receipt voucher for the full odd-paisa bill was written and the bill
-    /// knocked off. The writing path was the one left unguarded, which is worse than any of the five navigation
-    /// sites. It must refuse with the same message the routes give, and leave the books untouched.
+    /// THE DRIVING TEST for the sixth, unconverted call site — <b>rewritten onto Alt+A</b>, never deleted.
+    ///
+    /// <para>Bill Settlement carried the byte-identical pre-change shape —
+    /// <c>FirstOrDefault(BaseType == want &amp;&amp; IsActive) ?? FirstOrDefault(BaseType == want)</c> — so a company
+    /// that had switched its only Receipt series OFF could not OPEN the type (F6 refuses) yet could still be made
+    /// to act under it. The rule: a settlement is an ordinary Receipt the operator could have keyed by hand, so if
+    /// they could not have keyed it we must not produce it for them. It must refuse with the same message the
+    /// navigation routes give, and leave the books untouched.</para>
+    ///
+    /// <para>The GESTURE changed in Phase 10.11 S2 (VL-4 / register row IV-5): settlement came off <b>Ctrl+B</b>,
+    /// which in TallyPrime is "Basis of Values" and writes nothing, and moved to <b>Alt+A</b> — TallyPrime's own
+    /// "Add voucher in report" — which now OPENS a pre-loaded voucher rather than posting one. The rule under test
+    /// is unchanged and is asserted verbatim; only the key that reaches it moved.</para>
     /// </summary>
     [AvaloniaFact]
-    public void Bill_settlement_refuses_to_post_under_a_deactivated_receipt_type()
+    public void Bill_settlement_refuses_to_open_under_a_deactivated_receipt_type()
     {
         var (window, vm, tempDir) = NewWindow();
         try
@@ -603,13 +610,15 @@ public sealed class VoucherTypeNavigationIdentityTests
             vm.OpenVoucher(VoucherBaseType.Receipt);
             Assert.NotEqual(Screen.VoucherEntry, vm.CurrentScreen);
 
-            // … so the writing route must refuse too.
+            // … so the settlement route must refuse too.
             SelectFirstBill(window, vm);
             var before = vm.Company!.Vouchers.Count;
-            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.Control);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
 
             Assert.Equal("No active 'Receipt' voucher type is configured for this company.",
                 vm.Outstandings!.Message);
+            Assert.Equal(Screen.Outstandings, vm.CurrentScreen);   // no entry screen was opened
+            Assert.Null(vm.VoucherEntry);
             Assert.Equal(before, vm.Company!.Vouchers.Count);
             Assert.DoesNotContain(vm.Company!.Vouchers, v => v.TypeId == receipt.Id);
             // The bill is still open, for its full odd-paisa amount — nothing was knocked off.
@@ -621,12 +630,12 @@ public sealed class VoucherTypeNavigationIdentityTests
     }
 
     /// <summary>
-    /// The other half of the same rule: with an ACTIVE series the settlement still posts, under the series the
-    /// resolver picks (the seeded predefined one, not whichever row happens to come first), for the exact
-    /// odd-paisa pending amount. Guards against "fixing" the refusal by breaking settlement.
+    /// The other half of the same rule: with an ACTIVE series the settlement still opens, under the series the
+    /// resolver picks (the seeded predefined one, not whichever row happens to come first), pre-loaded for the
+    /// exact odd-paisa pending amount. Guards against "fixing" the refusal by breaking settlement.
     /// </summary>
     [AvaloniaFact]
-    public void Bill_settlement_posts_the_odd_paisa_bill_under_the_resolved_active_series()
+    public void Bill_settlement_opens_the_odd_paisa_bill_under_the_resolved_active_series()
     {
         var (window, vm, tempDir) = NewWindow();
         try
@@ -636,14 +645,18 @@ public sealed class VoucherTypeNavigationIdentityTests
             vm.Company!.AddVoucherType(new VoucherType(Guid.NewGuid(), "Branch Receipt", VoucherBaseType.Receipt));
             var seeded = vm.Company!.VoucherTypes.Single(
                 t => t.BaseType == VoucherBaseType.Receipt && t.IsPredefined);
+            var before = vm.Company!.Vouchers.Count;
 
             SelectFirstBill(window, vm);
-            window.KeyPressQwerty(PhysicalKey.B, RawInputModifiers.Control);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
 
-            Assert.Equal("Settled 1 bill.", vm.Outstandings!.Message);
-            var settlement = vm.Company!.Vouchers.Single(v => v.TypeId == seeded.Id);
-            Assert.Equal(amount, settlement.Lines.Single(l => l.LedgerId == debtor.Id).Amount.Amount);
-            Assert.Empty(vm.Outstandings!.Rows);   // the bill is knocked off
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            var entry = vm.VoucherEntry!;
+            Assert.Equal(seeded.Id, entry.Type.Id);
+            var line = Assert.Single(entry.SingleEntryParticulars);
+            Assert.Same(debtor, line.SelectedLedger);
+            Assert.Equal(amount, line.ParsedAmount);
+            Assert.Equal(before, vm.Company!.Vouchers.Count);   // opened, not posted
         }
         finally { Close(window, tempDir); }
     }

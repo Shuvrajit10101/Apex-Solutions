@@ -260,8 +260,10 @@ public partial class MainWindow : Window
         //   • It sits AFTER the Ctrl+A arm above, so the accept-as-is shortcut still reaches its own handler and
         //     saves WITHOUT the prompt (the ~40 Ctrl+A screens are untouched, and Ctrl+A while the prompt happens
         //     to be up simply accepts, as the reference product does).
-        //   • It sits BEFORE the bare-Y (Gateway → Export Data) and Alt+N (Auto Columns) arms further down, so
-        //     while the confirmation IS up, Y answers the confirmation rather than opening a backup panel.
+        //   • It sits BEFORE the bare-Y (Gateway → Export Data), Alt+Y (Data → Backup / Restore, :633) and
+        //     Alt+N (Auto Columns) arms further down, and it CONSUMES all four shapes while the confirmation
+        //     is up: bare Y/N answer it, Alt+Y/Alt+N are inert (see the S1 block below). Nothing reaches a
+        //     backup panel, an Export-Data panel or an Auto-Columns chooser over a live confirmation.
         // The whole arm is SCOPED to vm.IsAcceptPromptOpen, which is false everywhere else — so Y and N keep
         // their existing meanings across the rest of the app.
         //
@@ -275,10 +277,49 @@ public partial class MainWindow : Window
         // dropdown closes, IsPickerOpen is false and Y/N/Escape answer the prompt again exactly as before
         // (Y_with_prompt_and_dropdown_open_does_not_save_but_saves_once_the_dropdown_closes,
         // Escape_with_prompt_and_dropdown_open_closes_dropdown_first_then_dismisses_the_prompt).
+        //
+        // S1 (Phase 10.11) — THE SECOND MODIFIER HOLE, and the more dangerous of the two. This arm excluded
+        // Control but not Alt, so with the prompt up a stray Alt+Y — the Data / Backup-Restore accelerator,
+        // live on every screen a company is open on (its arm is further down this chain, so this one won) —
+        // reached ConfirmMasterAccept and SAVED the master. Measured: prompt open on Ledger Creation, Alt+Y,
+        // and "Bharat Motors" was in company.Ledgers. The operator asked for a menu and silently committed a
+        // record. It matters far beyond WI-11: this one prompt is the confirmation channel a later slice in
+        // this phase hangs DELETE on, so the same hole would have let Alt+Y confirm a deletion nobody answered.
+        //
+        // SCOPE — exactly Y and N, exactly Alt, and CONSUMED RATHER THAN YIELDED. Alt+Y/Alt+N must not answer
+        // the confirmation; they must also not be handed onward, and the difference is the whole review fix.
+        //
+        // WHY NOT YIELD (measured, and the first cut of this slice got it wrong). Narrowing with
+        // `case Key.Y when !altHeld` made Alt+Y fall through to its owner at :633 →
+        // ShowDataMenu → SelectRootItem → TrimColumnsAfter(0) → OpenSubmenuColumn → ClearSubScreens, which
+        // NULLS LedgerMaster/StockItemMaster/VoucherEntry. So the fix stopped the unconfirmed SAVE and bought
+        // an unconfirmed DESTROY in its place: prompt up on Ledger Creation, Alt+Y, and the ledger was indeed
+        // not created — but the typed name, the chosen group and the opening balance were gone, with the
+        // operator dumped on Backup / Restore and no message. Worse under Alt+C create-on-the-fly, where the
+        // create column sits OVER a live voucher: TrimColumnsAfter(0) takes the VOUCHER column too, so a
+        // half-keyed invoice dies to a menu chord. That is the D2 work-loss class this arm already exempts
+        // Escape for — the reasoning was applied to Escape and, first time round, not to Y.
+        //
+        // So while a confirmation is up the prompt is MODAL against Alt+letter chords: Alt+Y and Alt+N change
+        // nothing at all and leave the question on screen. Two presses, exactly the doctrine already settled
+        // for Escape — answer N/Esc, then press Alt+Y. Nothing is saved, nothing is discarded, and the
+        // outcome no longer depends on where the caret happens to be (the :633 owner requires !IsTyping(e),
+        // so a yield gave one answer with focus in the Name box and another with focus anywhere else).
+        // The prompt is never stranded: it is answerable immediately, and any real navigation resets it via
+        // OnCurrentScreenChanged → ResetMasterAcceptPrompt.
+        //
+        // ESCAPE IS DELIBERATELY NOT NARROWED. It is not a letter and owns no Alt accelerator, and the arm it
+        // would fall through to is `case Key.Escape when !IsPickerOpen(e)` → Back(), which POPS the column and
+        // discards the half-typed master — the same D2 work-loss class. Alt+Escape therefore still ANSWERS
+        // the prompt (dismiss, master intact), and a test pins that.
         if (vm.IsAcceptPromptOpen && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsPickerOpen(e))
         {
+            var altHeld = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
             switch (e.Key)
             {
+                // Alt+Y / Alt+N: consumed and INERT. Guarded cases must precede their unguarded twins below.
+                case Key.Y when altHeld:
+                case Key.N when altHeld: e.Handled = true; return;
                 case Key.Y: vm.ConfirmMasterAccept(); e.Handled = true; return;
                 case Key.N: vm.DismissMasterAccept(); e.Handled = true; return;
                 case Key.Escape: vm.DismissMasterAccept(); e.Handled = true; return;
@@ -342,13 +383,31 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Ctrl+B settles the spacebar-selected bills on the Outstandings page (Bill Settlement).
-        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control))
-        {
-            vm.SettleBills();
-            e.Handled = true;
-            return;
-        }
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Ctrl+B IS FREE AND RESERVED — DO NOT BIND IT. (Phase 10.11 S2 / VL-4 / register row IV-5.)        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // A "Bill Settlement" arm stood HERE, bound app-wide and unconditionally — it handled and returned
+        // REGARDLESS OF SCREEN — and called vm.SettleBills(), which POSTED a real Receipt or Payment for every
+        // spacebar-selected bill: always the bill's FULL pending amount, always through a ledger literally named
+        // "Cash", dated at the report's as-of, with no preview, no confirmation and no undo.
+        //
+        // In TallyPrime Ctrl+B is "BASIS OF VALUES" — a report option that re-bases how figures are COMPUTED AND
+        // PRESENTED, and it WRITES NOTHING TO THE BOOKS [TallyHelp keyboard-shortcuts, Reports: "Ctrl+B — To view
+        // values in different ways in a report — Right button"]. TallyPrime's Bills Outstanding has no settlement
+        // action of any kind; a bill is settled by keying a Receipt/Payment and choosing Against Reference from
+        // the List of Pending Bills [CORPUS-SG p.92 §5.5]. So an operator pressing Ctrl+B on Bills Receivable to
+        // change how figures DISPLAY instead posted a batch of receipt vouchers against their debtors — and the
+        // trap was armed by a correct Tally reflex (Spacebar = select line in report) and sprung by a second one.
+        //
+        // Settlement now lives on Alt+A, scoped to the Outstandings screen (see that arm further down).
+        //
+        // BASIS OF VALUES ITSELF IS NOT BUILT — it is named debt, not an oversight. A later slice needs
+        // ReportsViewModel to grow a re-basis (scale factor, stock valuation method, type of voucher entries) on
+        // the OpenReportConfig cascade pattern; THAT slice reclaims Ctrl+B from this reservation. Until then the
+        // key must reach nothing, so it stays unbound rather than being squatted by an unrelated feature.
+        // NOTE for whoever binds it: with no arm here, Ctrl+B falls through to the bare-letter report quick-jump
+        // switch far below (Key.B → Balance Sheet). That is harmless ONLY because slice S1 narrowed CanQuickJump
+        // to `e.KeyModifiers == KeyModifiers.None`; do not loosen that guard.
 
         // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
         // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
@@ -538,6 +597,31 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.PosBilling)
         {
             vm.ShowPosTaxAnalysis();
+            e.Handled = true;
+            return;
+        }
+
+        // Alt+A on the Outstandings report SETTLES the spacebar-selected bills — by opening a Single-Entry
+        // Receipt/Payment PRE-LOADED with them as Against-Reference allocations, which the operator confirms
+        // (date, cash/bank ledger, per-bill amounts) and Accepts. It POSTS NOTHING itself. This is the
+        // replacement for the deleted Ctrl+B settlement arm; see the RESERVED block where that arm used to be.
+        //
+        // WHY Alt+A: TallyPrime's Reports bottom bar carries "Alt+A — Add voucher in report", which is precisely
+        // the semantic needed (create a voucher FROM this report), and it is already the meaning this app gives
+        // Alt+A on the Day Book — one key, one meaning. It squats nothing, so it does not repeat the IV-28
+        // mistake of picking the first letter of our own feature name.
+        //
+        // ORDER: BELOW the POS Alt+A immediately above, ABOVE the Day-Book Alt+A immediately below. The three
+        // guards are disjoint today — OpenPageColumn calls ClearSubScreens (which nulls Reports) before setting
+        // the page, so IsDayBookReport cannot hold while Screen.Outstandings is current, and Screen.PosBilling
+        // excludes both. The position is nevertheless deliberate, because this chain is FIRST-MATCH-WINS: if that
+        // invariant ever changes, the screen the operator is actually STANDING ON must win, and Outstandings sits
+        // above the Day Book for exactly that reason. Ctrl+A (Accept) is a separate Control-modified arm much
+        // further up, and !Control here keeps it that way.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsOutstandingsScreen)
+        {
+            vm.OpenSettlementVoucherFromOutstandings();
             e.Handled = true;
             return;
         }
@@ -984,9 +1068,33 @@ public partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>Report quick-letters fire only on menu screens and never while typing in a field.</summary>
+    /// <summary>
+    /// Report quick-letters fire only on menu screens, never while typing in a field, and only for a
+    /// keystroke carrying NO modifier at all.
+    ///
+    /// <para><b>The modifier hole this closes (Phase 10.11 S1).</b> This predicate tested only
+    /// <c>IsMenuScreen &amp;&amp; !IsTyping(e)</c>, and the <c>switch (e.Key)</c> that consults it tests no
+    /// modifiers either — so all four quick-jumps fired for EVERY chord no earlier arm had already claimed.
+    /// Measured on Company Select (the one screen they are reachable on: once a company is open
+    /// <c>IsGatewayCascade</c> is true and <see cref="MainWindowViewModel.IsMenuScreen"/> is false):
+    /// <b>Alt+D opened the Day Book</b>, and so did Ctrl+D and Shift+D; Alt+B/Alt+P/Alt+T opened their
+    /// reports too. The fix belongs HERE and not on the four arms — a per-arm fix on D would have left three
+    /// survivors.</para>
+    ///
+    /// <para><b>Why it had to be its own change, ahead of everything else in the phase.</b> A later slice
+    /// binds <b>Alt+D to DELETE</b>. Binding a destructive verb on top of a chord that already fires a
+    /// navigation would make a stray Alt+D both destructive and ambiguous — which one won would depend on
+    /// the screen. The hole is closed first so Alt+D is genuinely unclaimed when delete arrives.</para>
+    ///
+    /// <para><b>Why <c>== KeyModifiers.None</c> and not merely "no Alt".</b> It is the identical predicate
+    /// the WI-2/WI-9 bare-letter menu arm at the end of this handler already uses, so "bare letter" means one
+    /// thing in both places. It deliberately excludes Shift as well: a quick-jump is a bare-letter
+    /// accelerator, and admitting Shift would leave the same class of hole open on the next chord anyone
+    /// binds. Nothing else changes — with no modifier held these four arms behave exactly as before, which
+    /// <c>Bare_D_on_company_select_still_opens_the_day_book</c> and its B/P/T sibling pin.</para>
+    /// </summary>
     private static bool CanQuickJump(MainWindowViewModel vm, KeyEventArgs e)
-        => vm.IsMenuScreen && !IsTyping(e);
+        => vm.IsMenuScreen && !IsTyping(e) && e.KeyModifiers == KeyModifiers.None;
 
     private static void Fire(MainWindowViewModel vm, string key)
     {
@@ -1083,8 +1191,12 @@ public partial class MainWindow : Window
     private void OnCreateCostCentreClick(object? sender, RoutedEventArgs e)
         => Vm?.CostCentreMaster?.Create();
 
+    /// <summary>
+    /// The Outstandings "Settle Bills (Alt+A)" button — the same route the Alt+A key takes, so the button and the
+    /// accelerator can never do two different things. It OPENS a pre-loaded settlement voucher; it posts nothing.
+    /// </summary>
     private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
-        => Vm?.SettleBills();
+        => Vm?.OpenSettlementVoucherFromOutstandings();
 
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
         => Vm?.LedgerMaster?.Create();

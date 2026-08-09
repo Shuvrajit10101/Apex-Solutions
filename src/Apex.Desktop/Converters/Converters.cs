@@ -270,7 +270,7 @@ public sealed class BillRefTypeLabelConverter : IValueConverter
 /// <summary>
 /// Maps (IsSelected, IsHighlighted) → an Outstandings bill-row background: amber for the row under the
 /// keyboard highlight, a pale-green tick tint for a spacebar-selected row, a blend when both, else white.
-/// Lets the user see at a glance which bills are picked for Ctrl+B settlement.
+/// Lets the user see at a glance which bills Alt+A will pre-load into a settlement voucher.
 /// </summary>
 public sealed class OutstandingRowBrushConverter : IMultiValueConverter
 {
