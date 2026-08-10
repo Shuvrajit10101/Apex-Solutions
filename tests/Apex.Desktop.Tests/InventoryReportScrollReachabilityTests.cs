@@ -78,9 +78,16 @@ public sealed class InventoryReportScrollReachabilityTests
     }
 
     /// <summary>
-    /// Opens the REALISTICALLY POPULATED fixture company (28 stock items, 51 vouchers, real price levels)
-    /// through the real company-select path at an EXPLICIT window size. A thin seed would make every one of
-    /// these assertions vacuous — a pane only strands rows it actually has.
+    /// Opens the REALISTICALLY POPULATED fixture company through the real company-select path at an EXPLICIT
+    /// window size. A thin seed would make every one of these assertions vacuous — a pane only strands rows it
+    /// actually has.
+    /// <para>⚠️ <b>The old description here — "28 stock items, 51 vouchers" — was true of the item count and
+    /// misleading about the vouchers:</b> the 51 were accounting vouchers of 8 base kinds, and the fixture had
+    /// <b>no inventory, order or job-work voucher at all</b>, which is exactly why <b>five</b> of the eleven
+    /// reports below carried no real content (three empty, two showing a single placeholder row — measured
+    /// against the pre-W0-7 fixture; see the census in test A below). Since W0-7 it carries 56 accounting
+    /// vouchers plus one of every stock/order base kind. Live counts are not restated here — they are asserted,
+    /// and kept honest, by <c>PopulatedFixtureCoverageTests</c>.</para>
     /// </summary>
     private static (MainWindow Window, MainWindowViewModel Vm, string TempDir) OpenPopulated(int width, int height)
     {
@@ -151,6 +158,25 @@ public sealed class InventoryReportScrollReachabilityTests
         {
             vm.OpenReport(kind);
             Pump(window);
+
+            // ⚠️ NON-VACUITY — AND IT WAS NOT HYPOTHETICAL. Figures below are MEASURED by building the
+            // pre-W0-7 fixture (git show HEAD:…/PopulatedCompanyFixture.cs) and counting each report's rows,
+            // not inferred. FIVE of these eleven reports carried no real content on it, so TWENTY of this
+            // theory's 44 cases were measuring an empty pane — a scroller with nothing in it satisfies every
+            // assertion below however broken it is:
+            //
+            //   ZERO rows      Order Register · Receipt Note Register · Job Work In Order Book   (12 cases)
+            //   ONE PLACEHOLDER  Physical Stock Register · Age Analysis of Expiring Batches      ( 8 cases)
+            //
+            // ⚠️ The placeholder half is why this guard is NOT `Rows.Count > 0`. That form was blind to it:
+            // measured, with the Physical-Stock voucher moved outside the as-of window and every reorder level
+            // removed, ALL 44 cases passed while eight of them measured a one-row pane. Six of the eleven
+            // builders express "empty" as a single placeholder row rather than an empty list, and two more add
+            // a Grand Total outside the data loop. ReportContentGuard counts DATA rows (neither IsHeader nor
+            // IsTotal) against a measured per-kind floor, and it is the SAME predicate
+            // PopulatedFixtureCoverageTests uses, so the two cannot drift apart again.
+            ReportContentGuard.RequireRealRows(
+                vm.Reports!.Rows, kind, $"the populated fixture at {width}x{height}");
 
             var pane = Pane(window);
             var scroller = RowScroller(pane);

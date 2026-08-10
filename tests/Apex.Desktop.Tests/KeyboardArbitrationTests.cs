@@ -78,9 +78,14 @@ public sealed class KeyboardArbitrationTests
     }
 
     /// <summary>
-    /// Opens the REALISTICALLY POPULATED fixture company (38 ledgers, 28 stock items, 51 vouchers). The thin
-    /// 2-ledger seed is what made a previous sweep undecidable: a picker with two rows cannot demonstrate that
-    /// Enter took the wrong one.
+    /// Opens the REALISTICALLY POPULATED fixture company. The thin 2-ledger seed is what made a previous sweep
+    /// undecidable: a picker with two rows cannot demonstrate that Enter took the wrong one.
+    /// <para>⚠️ The counts formerly quoted here ("38 ledgers, 28 stock items, 51 vouchers") were a snapshot and
+    /// are now stale — W0-7 extended the fixture to cover every voucher family, which also added the POS tender
+    /// ledgers and the auto-created payroll ledgers. <b>Nothing in this file asserts an absolute count</b>: every
+    /// assertion captures its own <c>before</c> value at runtime and asserts a delta, so a larger book makes the
+    /// pickers deeper and the tests stronger, never weaker. Live counts live in
+    /// <c>PopulatedFixtureCoverageTests</c>, which asserts them.</para>
     /// </summary>
     private static (MainWindow Window, MainWindowViewModel Vm, string Dir) OpenPopulated()
     {
@@ -291,9 +296,11 @@ public sealed class KeyboardArbitrationTests
     /// <para><b>⚠ ATTRIBUTION CORRECTED — this test is NOT what locks arm 49.</b> It previously claimed to be.
     /// Measured by stripping the <c>!IsPickerOpen</c> guard from arm 49: this test stayed GREEN, and the test
     /// that actually went red was <see cref="Enter_with_a_picker_open_does_not_silently_save_the_master"/>
-    /// (<c>Expected 38, Actual 39</c> ledgers — the fall-through committing a master the operator never
-    /// confirmed). That ledger-count assertion is arm 49's real lock. This test remains a genuine
-    /// non-regression guard for the report panel, which is all it ever proved.</para>
+    /// (measured <c>Expected 38, Actual 39</c> ledgers — the fall-through committing a master the operator never
+    /// confirmed). The absolute figures are a pre-W0-7 snapshot and no longer reproduce; the <b>+1 delta</b> is
+    /// the invariant, and the delta is what the test actually asserts, capturing its own <c>before</c> count at
+    /// runtime. That ledger-count assertion is arm 49's real lock. This test remains a genuine non-regression
+    /// guard for the report panel, which is all it ever proved.</para>
     /// </summary>
     [AvaloniaFact]
     public void Enter_with_a_picker_open_on_a_report_panel_does_not_apply_and_close_it()
@@ -1216,7 +1223,9 @@ public sealed class KeyboardArbitrationTests
     /// <summary>
     /// 🔴 V8 (f) — THE STRAY-Y BUG, inverted. With the accept prompt open AND a dropdown open, a bare Y used to
     /// reach the WI-11 confirm arm (<c>:261</c>) and SAVE the master — measured
-    /// <c>promptOpen=True dropdownOpen=True ledgers 38 → 39 created=True</c>. A Y the operator meant as
+    /// <c>promptOpen=True dropdownOpen=True ledgers 38 → 39 created=True</c> (a pre-W0-7 snapshot: the fixture
+    /// is larger now, so the absolute pair no longer reproduces — the asserted invariant is the unchanged
+    /// count, captured at runtime, not the number 38). A Y the operator meant as
     /// type-ahead into the dropdown silently committed the ledger. The fix guards that arm with
     /// <c>!IsPickerOpen(e)</c> so it YIELDS while a dropdown is up.
     ///

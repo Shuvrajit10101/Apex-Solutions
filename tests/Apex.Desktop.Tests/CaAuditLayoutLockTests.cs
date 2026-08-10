@@ -50,9 +50,12 @@ public sealed class CaAuditLayoutLockTests
     }
 
     /// <summary>
-    /// Opens the REALISTICALLY POPULATED fixture (28 stock items with batches, 8 employees, 38 ledgers —
-    /// longest stock item 62 chars) through the real company-select path at an EXPLICIT window size. A thin
-    /// seed would make every assertion below vacuous: a starved column only hurts when it has real names in it.
+    /// Opens the REALISTICALLY POPULATED fixture (28 stock items with batches, 8 employees, long real-world
+    /// names) through the real company-select path at an EXPLICIT window size. A thin seed would make every
+    /// assertion below vacuous: a starved column only hurts when it has real names in it.
+    /// <para>⚠️ The "38 ledgers" formerly quoted here is stale — W0-7 added the POS tender ledgers and the
+    /// auto-created payroll ledgers. The live figure is asserted by <c>PopulatedFixtureCoverageTests</c>, not
+    /// restated here; nothing in this file depends on an absolute ledger count.</para>
     /// </summary>
     private static (MainWindow Window, MainWindowViewModel Vm, string TempDir) OpenPopulated(int width, int height)
     {
@@ -119,10 +122,24 @@ public sealed class CaAuditLayoutLockTests
             Pump(window);
 
             // NON-VACUITY: a Batch-wise report with no batch rows would make any column assertion meaningless.
+            //
+            // ⚠️ FLOOR RAISED FROM `> 1` (W0-7). `> 1` is satisfied by a SINGLE batch row plus a total, so it
+            // could not distinguish "the fixture still carries real batch depth" from "one lot survived".
+            //
+            // ⚠️ BOTH FIGURES BELOW ARE MEASURED — by building the pre-W0-7 fixture (git show HEAD:) and this
+            // one and counting. The earlier note here said the pre-W0-7 batch surface "was five batch-tracked
+            // items' opening lots", which reads as near-empty and is wrong: it was already 10 rows — 9 data
+            // rows + Grand Total — because the Phase-3 item-invoice purchases opened lots of their own
+            // (EN8 bar: opening + LOT-001 + LOT-004; wire: opening + LOT-002 + LOT-005; plus the M12, M16 and
+            // SS-nut opening lots). W0-7 added exactly THREE data rows: the HEAT-2025982/LOT-007 Receipt-Note
+            // lot, the JW-2025-PLATED-0041 lot the consuming Material In produces, and the wire lot standing at
+            // the third-party job-worker godown. So the fixture now measures 13 rows (12 data + total) and the
+            // floor of 8 has a 5-row margin — of which W0-7 contributed 3, and the historical baseline is 10,
+            // not 2. A drop to 10 is therefore NOT a collapse; a drop below 8 is.
             Assert.True(
-                vm.Reports!.Rows.Count > 1,
-                $"Batch-wise produced {vm.Reports.Rows.Count} row(s) on the populated fixture — the fixture no "
-                + "longer carries batch-tracked stock, so this lock would be vacuous.");
+                vm.Reports!.Rows.Count >= 8,
+                $"Batch-wise produced {vm.Reports.Rows.Count} row(s) on the populated fixture (floor 8) — its "
+                + "batch-tracked stock has collapsed, so this lock would be measuring an almost-empty grid.");
 
             var grids = Descendants(window).OfType<Grid>()
                 .Where(g => g.IsEffectivelyVisible && g.ColumnDefinitions.Count == 9
@@ -185,10 +202,16 @@ public sealed class CaAuditLayoutLockTests
             var master = vm.EmployeeMaster;
             Assert.True(master != null, "Employee Creation did not open.");
             // NON-VACUITY: the gutter can only be measured on a REALISED row.
+            //
+            // ⚠️ FLOOR RAISED FROM `> 0` (W0-7). The defect this locks is that a Group value FILLING its 180px
+            // track abuts the Designation beside it, so it is only genuinely exercised across a spread of rows
+            // with differing name lengths — one employee satisfies `> 0` while proving nothing about the case
+            // the test exists for. The fixture seeds 8 (their designations run to 38 characters), and that count
+            // is stable data, so the floor is pinned at it rather than at a token 1.
             Assert.True(
-                master!.Existing.Count > 0,
-                "The populated fixture produced no existing employees, so no list row realises and this lock "
-                + "would be vacuous.");
+                master!.Existing.Count >= 8,
+                $"The populated fixture produced {master.Existing.Count} existing employee(s), below the 8 it "
+                + "seeds — too few rows realise for this gutter lock to be exercised across real name lengths.");
 
             // Scoped to the ROW template by its Height="24". The header band shares the same 4-track spec but
             // its cells are Classes="colHdr", whose 8px inset is PADDING (inside the rect), so header rects
