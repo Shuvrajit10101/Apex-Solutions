@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Xml.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
@@ -100,6 +101,29 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// The other half of F1: a <b>WHOLLY EXEMPT</b> service invoice to an out-of-state buyer posts no tax leg either,
     /// and was misstated identically.
     /// <para><b>Bite:</b> the same one — restore <c>PostedInterState</c> as the sole signal.</para>
+    /// <para><b>FIX-W1l — read the inter-State assertions below for what they are.</b> Since W0-1 this voucher is a
+    /// BILL OF SUPPLY (CGST §31(3)(c) covers exempted <i>services</i>), and CGST Rule 49 prescribes no counterpart to
+    /// Rule 46 clause (n) "place of supply … in the case of a supply in the course of inter-State trade" — so
+    /// <c>InvoicePdf</c> suppresses the intra/inter HEAD CAPTION ("Inter-State (IGST)") on it. <c>IsInterState</c> and
+    /// <c>PlaceOfSupply</c> are therefore still correct DTO values, and still the right guard on the BUYER-BLOCK
+    /// routing this test exists for. The document-kind assertion is added so nobody reads this test as evidence that
+    /// it prints as a tax invoice.</para>
+    /// <para><b>W0-1 follow-up review, finding #9 — this note used to say the two values "no longer reach the printed
+    /// page for this document", which is FALSE for <c>PlaceOfSupply</c>: <c>InvoicePdf.DrawFirstHeader</c> prints
+    /// "Place of Supply: " + <c>data.PlaceOfSupply</c> UNCONDITIONALLY; only the caption beside it is gated on
+    /// <c>!IsBillOfSupply</c>. A maintainer acting on the old wording could have deleted the <c>PlaceOfSupply</c>
+    /// assertion below (the only lock on the F1 fix for the exempt limb) or "completed" the suppression by gating the
+    /// row itself, dropping the recipient's place of supply from every bill of supply with nothing failing. That is
+    /// the FIX-W1d failure mode — a comment claiming behaviour the code does not have — so the wording is corrected
+    /// and the row's PRESENCE in the bytes is now pinned below and in
+    /// <c>InvoicePdfTests.A_bill_of_supply_is_titled_correctly_and_shows_no_tax_particular_at_all</c>.</para>
+    /// <para><b>W0-1 follow-up review, finding #8 — this test posts the only INTER-STATE bill of supply the suite has,
+    /// and stopped at the DTO.</b> Nothing in the repository ever RENDERED one, so the <c>!IsBillOfSupply</c> gate
+    /// around the IGST head line had zero coverage in all four renderers. It renders now — bytes AND the on-screen
+    /// mirror the operator approves.</para>
+    /// <para><b>SETTLED AND USER-RATIFIED (R12, 2026-08-10):</b> that a wholly exempt SERVICE supply is a bill of
+    /// supply is now a decision of record, not W0-1's own call — CGST Act §31(3)(c) binds "a registered person
+    /// supplying exempted goods <b>or services</b> or both" (<c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>).</para>
     /// </summary>
     [Fact]
     public void WhollyExemptServiceInvoice_toOutOfStateParty_statesTheRealBuyerStateGstinAndPlaceOfSupply()
@@ -121,6 +145,31 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
         Assert.Equal("Gujarat (24)", data.PlaceOfSupply);
         Assert.Equal(7500m, data.GrandTotal.Amount);
         Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+        // FIX-W1l: the document kind, so this test cannot be misread — see the note above.
+        Assert.True(data.IsBillOfSupply);
+        Assert.Equal("BILL OF SUPPLY", data.DocumentTitle);
+
+        // --- finding #8: RENDER the inter-State bill of supply, on paper and on the approval screen. ---
+        var s = Encoding.Latin1.GetString(InvoicePdf.Render(data, new PrintConfig(), new PageConfig()));
+        Assert.Contains("BILL OF SUPPLY", s);
+        Assert.Contains("Bill of Supply No", s);
+        Assert.DoesNotContain("TAX INVOICE", s);
+        Assert.DoesNotContain("IGST", s);            // Rule 49 prescribes no tax-amount particular — on EITHER routing
+        Assert.DoesNotContain("CGST", s);
+        Assert.DoesNotContain("Inter-State", s);
+        Assert.DoesNotContain("Intra-State", s);
+        Assert.Contains("Value of Supply", s);
+        // finding #9: the Place of Supply ROW is printed on a bill of supply — pinned so it cannot vanish silently.
+        Assert.Contains(@"Place of Supply: Gujarat \(24\)", s);   // PDF literal-string escaping of ( )
+
+        var preview = new PrintPreviewViewModel(data);
+        Assert.Equal("BILL OF SUPPLY", preview.Pages[0].Title);
+        var cells = preview.Pages.SelectMany(p => p.Lines).SelectMany(r => r.Cells).ToList();
+        Assert.DoesNotContain("IGST", cells);
+        Assert.DoesNotContain("CGST", cells);
+        Assert.DoesNotContain("Taxable Value", cells);
+        Assert.Contains("Value of Supply", cells);
+        Assert.Contains("Place of Supply: Gujarat (24)", cells);
     }
 
     /// <summary>

@@ -139,15 +139,24 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
-    /// <summary>Preview a POS retail receipt (Phase 6 slice 7 RQ-44) via <c>PosReceiptPdf</c>. A receipt is a fixed
-    /// retail bill layout — the F12 title/narration/copy knobs do not apply.</summary>
+    /// <summary>Preview a POS retail receipt (Phase 6 slice 7 RQ-44) via <c>PosReceiptPdf</c> — or a <b>Bill of
+    /// Supply</b> (W0-1b). A receipt is a fixed retail bill layout, so the F12 title/narration/copy knobs do not
+    /// apply.</summary>
     public PrintPreviewViewModel(PosReceiptData receipt)
     {
         _receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
         Kind = PrintKind.Receipt;
+        // W0-1 follow-up (review findings #2/#5) — the SAME principle the invoice ctor above applies: the heading
+        // names the document the operator is actually looking at, and a bill of supply must not be announced as
+        // something else anywhere in the app. This one was left on the old literal, so a composition dealer's POS
+        // sale headed its pane "Retail Receipt No. 1" — and, because ReportTitle is also surfaced as
+        // PrintConfigViewModel.DocumentTitle and used as the DEFAULT SAVED FILE NAME, the operator filed
+        // "Retail Receipt No. 1.pdf" for a document whose title band, number caption and closing declaration all read
+        // bill of supply.
+        var kindName = receipt.IsBillOfSupply ? "Bill of Supply" : "Retail Receipt";
         ReportTitle = string.IsNullOrEmpty(receipt.BillNumber)
-            ? "Retail Receipt"
-            : $"Retail Receipt No. {receipt.BillNumber}";
+            ? kindName
+            : $"{kindName} No. {receipt.BillNumber}";
         _config = BuildConfig();
         Render();
     }
@@ -333,8 +342,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
             rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
         // W0-1: CGST Rule 5(1)(f) puts the composition declaration at the TOP of the bill of supply — so it is the
-        // first row of the on-screen mirror too, exactly as InvoicePdf draws it under the title.
-        if (!string.IsNullOrWhiteSpace(inv.TopDeclaration))
+        // first row of the on-screen mirror too, exactly as InvoicePdf draws it under the title. W0-1 follow-up
+        // (finding #6): gated on the structural flag, in lockstep with InvoicePdf.TopDeclarationLines — if the mirror
+        // showed a declaration the bytes suppress, the operator would approve one document and issue another.
+        if (inv.IsBillOfSupply && !string.IsNullOrWhiteSpace(inv.TopDeclaration))
             rows.Add(PrintRow.Header(inv.TopDeclaration, string.Empty, string.Empty));
         rows.Add(PrintRow.Header(
             (inv.IsBillOfSupply ? "Bill of Supply No. " : "Invoice No. ") + inv.InvoiceNumber, "Date", inv.InvoiceDateText));
@@ -366,6 +377,14 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
                 rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
             }
+            // W0-1 follow-up (review finding #3): the ring-fenced Compensation Cess, which InvoicePdf.DrawClosingBlock
+            // has printed on its own line since FIX-1 and this mirror did not. Cess is OUT of TotalTax but IN
+            // GrandTotal (the accept path adds it to the party leg), so omitting the row left the operator approving a
+            // page whose visible money rows summed to 55,810.14 under a printed Grand Total of 64,323.55 — the whole
+            // 8,513.41 of cess invisible. Same condition and same position as the renderer, so a cess-free invoice
+            // mirrors exactly as before (ER-13).
+            if (inv.TotalCess.Amount != 0m)
+                rows.Add(new PrintRow(new[] { "Compensation Cess", string.Empty, IndianFormat.AmountAlways(inv.TotalCess) }));
         }
         if (inv.RoundOff.Amount != 0m)
             rows.Add(new PrintRow(new[] { "Round Off", string.Empty, IndianFormat.AmountAlways(inv.RoundOff) }));
@@ -376,9 +395,25 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
         // The title override cannot re-title a bill of supply — mirroring InvoicePdf.Render, so the preview and the
         // bytes can never differ on what document this is.
-        var title = inv.IsBillOfSupply
-            ? inv.DocumentTitle
-            : (string.IsNullOrEmpty(cfg.TitleOverride) ? inv.DocumentTitle : cfg.TitleOverride!);
+        // FIX-W1h: mirror the renderer's FALLBACKS too, not just its override rule. `DocumentTitle` now defaults to
+        // empty (so a caller who sets only IsBillOfSupply cannot be handed a page titled TAX INVOICE), which means
+        // both branches need the same structural derivation InvoicePdf.Render applies — otherwise the operator's
+        // screen would show a blank heading over bytes that are correctly titled.
+        string title;
+        if (inv.IsBillOfSupply)
+        {
+            // FIX-W2b: case-insensitive (and trimmed), mirroring InvoicePdf.Render — an ordinal compare let the
+            // spelling "Tax Invoice" through and headed the operator's own approval screen with it.
+            title = inv.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(title) ||
+                title.Trim().Equals(GstReportSupport.TaxInvoiceTitle, StringComparison.OrdinalIgnoreCase))
+                title = GstReportSupport.BillOfSupplyTitle;
+        }
+        else
+        {
+            title = string.IsNullOrEmpty(cfg.TitleOverride) ? inv.DocumentTitle : cfg.TitleOverride!;
+            if (string.IsNullOrWhiteSpace(title)) title = GstReportSupport.TaxInvoiceTitle;
+        }
         return new PrintReport
         {
             Title = title,
@@ -397,6 +432,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     {
         var r = _receipt!;
         var rows = new List<PrintRow>();
+        // Rule 5(1)(f): a composition taxable person's wording sits at the TOP of the bill of supply — so it is the
+        // mirror's first row too, matching where PosReceiptPdf draws it (finding #6: gated on the structural flag in
+        // lockstep with the renderer, so the mirror can never show a declaration the bytes suppress).
+        if (r.IsBillOfSupply && !string.IsNullOrWhiteSpace(r.TopDeclaration))
+            rows.Add(PrintRow.Header(r.TopDeclaration, string.Empty, string.Empty));
         rows.Add(PrintRow.Header($"Bill No. {r.BillNumber}", "Date", r.DateText));
         rows.Add(PrintRow.Header("Customer: " + (string.IsNullOrWhiteSpace(r.Party) ? "(cash)" : r.Party),
             string.Empty, string.Empty));
@@ -409,15 +449,23 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 IndianFormat.Amount(it.Value),
             }));
 
-        rows.Add(PrintRow.Total("Taxable", string.Empty, IndianFormat.AmountAlways(r.TotalTaxable)));
-        if (r.IsInterState)
-            rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(r.TotalIgst) }));
-        else
+        // W0-1b: the mirror suppresses exactly what PosReceiptPdf suppresses — a bill of supply shows Rule 49(g)'s
+        // value of supply and no tax head at all. If the two disagreed the operator would approve one document over
+        // the counter and hand the customer another (the same failure FIX-W1f caught on the invoice path).
+        rows.Add(PrintRow.Total(r.IsBillOfSupply ? "Value of Supply" : "Taxable",
+            string.Empty, IndianFormat.AmountAlways(r.TotalTaxable)));
+        if (!r.IsBillOfSupply)
         {
-            rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(r.TotalCgst) }));
-            rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(r.TotalSgst) }));
+            if (r.IsInterState)
+                rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(r.TotalIgst) }));
+            else
+            {
+                rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(r.TotalCgst) }));
+                rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(r.TotalSgst) }));
+            }
         }
-        rows.Add(PrintRow.Total("Grand Total", string.Empty, IndianFormat.AmountAlways(r.GrandTotal)));
+        rows.Add(PrintRow.Total(r.IsBillOfSupply ? "Total" : "Grand Total",
+            string.Empty, IndianFormat.AmountAlways(r.GrandTotal)));
 
         rows.Add(PrintRow.Header("Payment", string.Empty, string.Empty));
         foreach (var t in r.Tenders)
@@ -431,7 +479,11 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(r.Message2)) rows.Add(PrintRow.Header(r.Message2, string.Empty, string.Empty));
         if (!string.IsNullOrWhiteSpace(r.Declaration)) rows.Add(PrintRow.Header(r.Declaration, string.Empty, string.Empty));
 
-        var title = string.IsNullOrWhiteSpace(r.Title) ? "RETAIL INVOICE" : r.Title;
+        // W0-1b: derived structurally, mirroring PosReceiptPdf.Render — the POS config's DefaultTitle is a print
+        // preference and may not re-title a §31(3)(c) bill of supply.
+        var title = r.IsBillOfSupply
+            ? GstReportSupport.BillOfSupplyTitle
+            : (string.IsNullOrWhiteSpace(r.Title) ? "RETAIL INVOICE" : r.Title);
         return new PrintReport
         {
             Title = title,

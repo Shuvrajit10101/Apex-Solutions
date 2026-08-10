@@ -523,12 +523,31 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
 
     /// <summary>
     /// The other half of FIX-0: a <b>WHOLLY EXEMPT</b> service invoice also posts no tax leg, and was documented as a
-    /// deliberate known limitation of the previous gate ("keeps printing as a plain voucher"). It is a Rule-46
-    /// document too, and the persisted flag now says so.
-    /// <para><b>Bite:</b> the same one — restore the <c>HasForwardTaxLines</c> gate.</para>
+    /// deliberate known limitation of the previous gate ("keeps printing as a plain voucher"). The persisted flag now
+    /// admits it to the INVOICE PROJECTION — which is what this test is about, and is unchanged.
+    ///
+    /// <para><b>FIX-W1l — this test used to be named …_printsAsTaxInvoice and to claim "It is a Rule-46 document
+    /// too". That claim was legally wrong, and W0-1 silently reversed the behaviour without this test noticing.</b>
+    /// CGST §31(3)(c) requires a bill of supply from "a registered person supplying exempted goods <b>or services</b>
+    /// or both", so a wholly exempt service supply is a Rule-49 document, not a Rule-46 one. W0-1 correctly retitled
+    /// it BILL OF SUPPLY — and every assertion here stayed green, because they all read
+    /// <see cref="VoucherPrintProjector.IsTaxInvoice"/>, a DIFFERENT predicate meaning only "takes the invoice
+    /// projection rather than the plain Dr/Cr print", which is still true. Nothing here touched
+    /// <c>DocumentTitle</c>, <c>IsBillOfSupply</c> or <c>DocumentLabel</c>. The document-kind assertions below close
+    /// that hole; the zero-rated twin above already carried its <c>DocumentLabel</c> assertion, and this exempt twin
+    /// simply omitted the one line.</para>
+    ///
+    /// <para><b>SETTLED AND USER-RATIFIED (R12, 2026-08-10).</b> The reversal was made on W0-1's own authority and is
+    /// now a decision of record: a wholly exempt SERVICE supply is a Rule-49 bill of supply, not a Rule-46 tax
+    /// invoice. Ground: CGST Act §31(3)(c) binds "a registered person supplying exempted goods <b>or services</b> or
+    /// both", read with §2(47) — <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>. Nothing here is
+    /// interim or awaiting a call; the assertions below are the settled behaviour.</para>
+    ///
+    /// <para><b>Bite:</b> the projection half — restore the <c>HasForwardTaxLines</c> gate. The document-kind half —
+    /// see <c>BillOfSupplyRoutingTests.A_wholly_exempt_service_invoice_is_a_bill_of_supply</c>.</para>
     /// </summary>
     [Fact]
-    public void WhollyExemptServiceInvoice_printsAsTaxInvoice()
+    public void WhollyExemptServiceInvoice_takesTheInvoiceProjection_butIsTitledABillOfSupply()
     {
         var k = NewServiceKit("Svc Print Exempt Co");
         var entry = OpenAccountingSale(k);
@@ -551,6 +570,12 @@ public sealed class ServiceAccountingInvoicePrintTests : IDisposable
         Assert.Empty(data.TaxRows);
         Assert.Equal(7500m, data.GrandTotal.Amount);
         Assert.Equal(PartyLegAmount(c, v), data.GrandTotal.Amount);
+
+        // FIX-W1l: …and the document kind, which this test used to leave unasserted while claiming the opposite.
+        Assert.True(data.IsBillOfSupply);
+        Assert.Equal("BILL OF SUPPLY", data.DocumentTitle);
+        Assert.Equal("Bill of Supply", new VoucherDetailViewModel(c, v).DocumentLabel);
+        Assert.Equal(string.Empty, data.TopDeclaration);   // a Regular dealer — Rule 5(1)(f) does not bind him
     }
 
     // ================================================================ (10) FIX-6: a PARTLY exempt service invoice

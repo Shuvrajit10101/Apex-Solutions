@@ -43,9 +43,23 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
 
     /// <summary>The declaration CGST Rule 5(1)(f) requires at the top of a <b>composition</b> taxable person's Bill of
     /// Supply (de-branded, ER-11); empty otherwise — including on a <b>regular</b> dealer's exempt Bill of Supply, which
-    /// takes the other limb of §31(3)(c) and must not claim composition status.</summary>
+    /// takes the other limb of §31(3)(c) and must not claim composition status.
+    /// <para><b>FIX-W1e — this must agree with <see cref="DocumentLabel"/>, and W0-1 briefly let it disagree.</b> The
+    /// two properties were split across two different predicates (this one on the engine's §10-only
+    /// <c>GstReportSupport.IsBillOfSupply</c>, the badge on the wider <c>VoucherPrintProjector.IsBillOfSupply</c>),
+    /// and MainWindow.axaml renders them one under the other in the same Border, binding this TextBlock's visibility
+    /// to the STRING rather than to the document kind. Reachable with no import or tampering: post a taxed sale as a
+    /// Regular dealer, then switch Registration Type to Composition in the F11 GST config (which is idempotent and
+    /// checks no existing voucher) and re-drill the old sale — the pane read badge "Tax Invoice" with "Composition
+    /// taxable person, not eligible to collect tax on supplies" printed directly beneath it, on a document that
+    /// demonstrably DID collect tax, while the PDF carried no declaration at all. It is now the CONJUNCTION of both
+    /// predicates, which is exactly what <c>ProjectInvoice</c> stamps into
+    /// <c>InvoicePrintData.TopDeclaration</c> (<c>billOfSupply ? TopDeclarationFor(…) : empty</c>), so the screen and
+    /// the paper cannot differ.</para></summary>
     public string BillOfSupplyDeclaration =>
-        GstReportSupport.IsBillOfSupply(_company, _voucher) ? GstReportSupport.BillOfSupplyDeclaration : string.Empty;
+        IsBillOfSupply && GstReportSupport.IsBillOfSupply(_company, _voucher)
+            ? GstReportSupport.BillOfSupplyDeclaration
+            : string.Empty;
 
     /// <summary>Builds the print-preview VM for this voucher: a tax-invoice preview when it is a Sales
     /// item-invoice, else the plain voucher preview. The Io renderer is chosen by the projection kind.</summary>

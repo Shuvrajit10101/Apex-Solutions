@@ -334,6 +334,27 @@ public sealed class EWayBillService
         _ => "Supply",
     };
 
+    /// <summary>
+    /// The NIC Part-A <c>docType</c> for a movement, derived from the voucher base type alone.
+    ///
+    /// <para><b>🔴 UNVERIFIED CARRY-FORWARD (W0-1 follow-up, review finding #4) — this contradicts the app's own
+    /// printed title, and the corrective value is NOT sourced, so nothing is changed here.</b> A composition dealer's
+    /// (or a wholly-exempt) outward goods movement is titled <c>BILL OF SUPPLY</c> by <c>InvoicePdf</c>, captioned
+    /// "Bill of Supply No: " and closed with "this bill of supply shows the actual price" — while this method stamps
+    /// <c>"INV"</c>, which <c>EWayBillJson</c> writes into the portal request as <c>"docType":"INV"</c>. One voucher,
+    /// two mutually exclusive claims about what document it is. <see cref="Domain.EWayBillRecord.DocType"/>'s own doc
+    /// comment already lists <c>BIL</c> in the value set, so the codebase knows another code exists.</para>
+    ///
+    /// <para><b>Why it is not fixed here (R7).</b> This is a field in a request sent to a government portal; stamping
+    /// it from memory is precisely what the citation rule forbids. The licensed corpus contains no <c>docType</c>
+    /// reference at all. The authoritative source is NIC's own master-codes / "Supply Type–Doc Type mapping" page,
+    /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>, which refuses automated retrieval (HTTP
+    /// 403); the secondary summaries reachable without it disagree on whether <c>BIL</c> denotes "Bill" or "Bill of
+    /// Supply", and are not official. <b>To close:</b> read that list, then either route this through the shared
+    /// bill-of-supply predicate (<c>GstReportSupport.IsBillOfSupply</c>) or record why "INV" is in fact correct. The
+    /// contradiction is pinned meanwhile by
+    /// <c>BillOfSupplyPosAndPostingGuardTests.PINNED_UNVERIFIED_a_bill_of_supply_movement_still_emits_the_eWay_docType_INV</c>.</para>
+    /// </summary>
     private static string DocTypeOf(VoucherBaseType baseType) => baseType switch
     {
         VoucherBaseType.CreditNote => "CRN",

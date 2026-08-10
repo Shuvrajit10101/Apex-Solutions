@@ -1,5 +1,6 @@
 using System.Globalization;
 using Apex.Ledger;
+using Apex.Ledger.Reports;
 
 namespace Apex.Ledger.Io;
 
@@ -40,18 +41,36 @@ public static class InvoicePdf
         // The F12 title override exists so an operator can print e.g. "PROFORMA INVOICE"; letting it apply to a bill of
         // supply would reissue, through a print knob, exactly the tax invoice CGST §31(3)(c) forbids a composition or
         // exempt supplier to issue. Copy marking (Original/Duplicate) is unaffected and still available.
+        // FIX-W1g: the two titles are read from the single GstReportSupport constants rather than re-spelled here.
+        // They were previously literal in four places (the two consts, the DTO default and two fallbacks below), so
+        // the consts' own doc claim to be "the single source both the print projector and the renderer read" was
+        // false as written and the literals could drift. Apex.Ledger.Io already project-references Apex.Ledger.
         string title;
         if (data.IsBillOfSupply)
         {
+            // FIX-W1h: derive STRUCTURALLY, never by trusting the DTO. `InvoicePrintData.DocumentTitle` defaulted to
+            // the non-blank string "TAX INVOICE", so this branch's blank-only guard could not catch a caller that set
+            // IsBillOfSupply without a title: it suppressed every tax head, the breakup and the intra/inter caption —
+            // and then TITLED the page TAX INVOICE and stamped that into the PDF metadata, i.e. produced precisely the
+            // document §31(3)(c) forbids, from the renderer whose comment advertises it is safe for any future caller.
+            // The DTO default is now empty as well, so this is belt-and-braces on both sides.
+            // FIX-W2b: the rejection is CASE-INSENSITIVE (and trims). It used to be ordinal equality against the
+            // upper-case constant, so a DTO carrying "Tax Invoice" — the exact spelling the drilled-voucher badge and
+            // this project's own prose use — sailed through and printed a bill of supply headed "Tax Invoice", with
+            // that string stamped into the PDF metadata too. Every tax head was still correctly suppressed, so only
+            // the self-description lied, which is the hardest kind to notice.
             title = data.DocumentTitle;
-            if (string.IsNullOrWhiteSpace(title)) title = "BILL OF SUPPLY";
+            if (string.IsNullOrWhiteSpace(title) ||
+                title.Trim().Equals(GstReportSupport.TaxInvoiceTitle, StringComparison.OrdinalIgnoreCase))
+                title = GstReportSupport.BillOfSupplyTitle;
         }
         else
         {
             title = string.IsNullOrWhiteSpace(config.TitleOverride)
-                ? (string.IsNullOrWhiteSpace(data.DocumentTitle) ? "TAX INVOICE" : data.DocumentTitle)
+                ? (string.IsNullOrWhiteSpace(data.DocumentTitle) ? GstReportSupport.TaxInvoiceTitle : data.DocumentTitle)
                 : Debrand.Text(config.TitleOverride!.Trim());
-            if (string.IsNullOrWhiteSpace(title)) title = "TAX INVOICE"; // guard: don't let de-brand blank the title
+            // guard: don't let de-brand blank the title
+            if (string.IsNullOrWhiteSpace(title)) title = GstReportSupport.TaxInvoiceTitle;
         }
 
         double left = page.MarginLeft;
@@ -137,9 +156,17 @@ public static class InvoicePdf
 
     /// <summary>The Rule 5(1)(f) declaration wrapped to the content width, or empty when the document bears none.
     /// Measured and drawn from ONE place so <see cref="FirstHeaderHeight"/> and <see cref="DrawFirstHeader"/> cannot
-    /// drift apart.</summary>
+    /// drift apart.
+    /// <para><b>W0-1 follow-up (review finding #6) — gated on the STRUCTURAL flag, not merely on the string being
+    /// non-blank.</b> FIX-W1h/FIX-W2b made the TITLE renderer-derived precisely so this layer would be "safe against
+    /// any future caller that does not" gate it; the declaration was left caller-trusted in exactly the way the title
+    /// no longer is. A caller writing <c>{ TopDeclaration = …, IsBillOfSupply = false, TotalCgst = … }</c> — the
+    /// mirror of the mistake FIX-W1h fixed — centred "composition taxable person, not eligible to collect tax on
+    /// supplies" over a page that goes on to print CGST and SGST head lines: the badge/declaration contradiction
+    /// FIX-W1e removed from the drilled-voucher pane, reborn in the renderer. Rule 5(1)(f) binds the wording to the
+    /// bill of supply he issues, so it can only ever appear on one.</para></summary>
     private static List<string> TopDeclarationLines(InvoicePrintData data, PageConfig page) =>
-        string.IsNullOrWhiteSpace(data.TopDeclaration)
+        !data.IsBillOfSupply || string.IsNullOrWhiteSpace(data.TopDeclaration)
             ? new List<string>()
             : VoucherPdf.WrapText(Debrand.Text(data.TopDeclaration.Trim()), page.ContentWidth, page.BodyFontSize);
 
@@ -270,7 +297,13 @@ public static class InvoicePdf
         writer.Line(left, y, right, y, 0.5);
         y -= page.BodyFontSize + 2;
 
-        writer.Text(left, y, "Invoice No: " + data.InvoiceNumber, page.BodyFontSize, bold: false);
+        // FIX-W1f: the document-number caption must name the document this IS. A bill of supply captioned "Invoice No:"
+        // calls its own serial an invoice number on a page whose title band reads BILL OF SUPPLY and whose closing
+        // declaration (already fixed by W0-1) says "this bill of supply shows the actual price" — the same
+        // self-description error, one screenful apart. It also disagreed with the on-screen preview mirror, which W0-1
+        // DID change to "Bill of Supply No.", so the operator approved one caption and issued another.
+        writer.Text(left, y, (data.IsBillOfSupply ? "Bill of Supply No: " : "Invoice No: ") + data.InvoiceNumber,
+            page.BodyFontSize, bold: false);
         writer.Text(geo.MidX + 6, y, "Date: " + data.InvoiceDateText, page.BodyFontSize, bold: false);
         y -= page.BodyFontSize + 2;
         // v48 (numbering §8): the buyer's reference (e.g. their PO / "Reference No."). Printed only when captured,

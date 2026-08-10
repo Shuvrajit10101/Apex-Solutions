@@ -28,6 +28,23 @@ namespace Apex.Desktop.Services;
 /// switched off); the service-invoice slice merely widens the set of vouchers that reach it. Fixing it means deciding
 /// what a de-GSTed company should print for an already-issued tax invoice — a separate change, not a print-path
 /// patch.</item>
+/// <item><b>W0-1b — the POS retail-bill path was the OTHER HALF of the bill-of-supply defect. FIXED in the W0-1
+/// follow-up.</b> W0-1 routed the voucher-screen document only, so the same composition dealer billing the same supply
+/// through POS Billing still got a customer-facing receipt titled from <c>PosConfig.DefaultTitle</c> ("Retail
+/// Invoice") that stated "Taxable / CGST / SGST" head lines — <c>PosReceiptPdf</c> drew them UNCONDITIONALLY, outside
+/// any TaxRows guard — with no §31(3)(c) routing and none of the Rule 5(1)(f) wording. <c>PosReceiptData</c> now
+/// carries <c>IsBillOfSupply</c> + <c>TopDeclaration</c>, <c>PosReceiptPdf</c> and the on-screen receipt mirror gate
+/// the title, the head lines and the per-rate breakup on them, and <c>PosBillingViewModel.BuildReceipt</c> routes
+/// them from <see cref="IsBillOfSupply"/> — the SAME predicate the invoice path uses, never a third copy of the
+/// rule.</item>
+/// <item><b>🔴 The e-Way Bill Part-A <c>docType</c> is a FOURTH document-kind emitter, and it is NOT routed through
+/// <see cref="IsBillOfSupply"/> — UNVERIFIED, deliberately left alone.</b> <c>EWayBillService.DocTypeOf</c> derives
+/// the NIC code from <c>VoucherBaseType</c> alone, so a movement this projector titles BILL OF SUPPLY still emits
+/// <c>"INV"</c> into the portal request. Read as a completeness claim, the "never a third copy" note above would be
+/// misleading, so it is qualified here: the §31(3)(c) ROUTING has one definition, but not every document-kind
+/// decision in the codebase consults it. The corrective NIC code could not be sourced from an official list under
+/// R7 (see <c>EWayBillService.DocTypeOf</c>'s own comment for the exact carry-forward), so the wire value is
+/// unchanged and the contradiction is pinned by a test instead of laundered.</item>
 /// <item><b>F6 — <c>SchemaDowngrade.V49ToV48</c> loses the vouchers PK / NOT-NULLs / index</b> when it rebuilds the
 /// table. This is the SAME pre-existing idiom as <c>V48ToV47</c> and <c>V47ToV46</c>, and <c>SchemaDowngrade</c> is
 /// referenced nowhere in <c>src/</c> (test-only, to prove forward-migration parity), so nothing shipped reads a
@@ -41,6 +58,39 @@ public static class VoucherPrintProjector
     /// a Sales voucher carrying item-invoice stock lines, <b>or</b> a Sales <b>accounting (service) invoice</b>
     /// (<see cref="IsServiceAccountingInvoice"/>). Purchase item-invoices and every other voucher print as the plain
     /// Dr/Cr voucher (RQ-10).
+    ///
+    /// <para><b>FIX-W1c — the §10 CONTRADICTION prints NEITHER document.</b> A composition dealer's outward supply
+    /// carrying POSTED forward CGST/SGST/IGST (or cess) legs asserts two incompatible things at once: §31(3)(c) makes
+    /// his document a bill of supply unconditionally ("shall issue, INSTEAD OF a tax invoice"), while §10(4) says he
+    /// "shall not collect any tax from the recipient" — so the tax that IS in the GL cannot lawfully be on any document
+    /// he issues. Picking either paper silently launders the contradiction: a TAX INVOICE is the exact document
+    /// §31(3)(c) forbids him, and a BILL OF SUPPLY shows no tax, so its Grand Total would fall short of the posted
+    /// party leg — the understatement class FIX-1 / FIX-F10 exist to prevent. So the voucher is not projected as an
+    /// invoice at all and prints as the plain Dr/Cr voucher, which states the posted legs exactly as recorded.
+    /// This is the same structural refusal <see cref="ServiceInvoiceFoots"/> (F2) already applies when a document
+    /// cannot reconcile to its own party leg.</para>
+    ///
+    /// <para><b>W0-1 follow-up — the POSTING is now refused at ACCEPT (R12 user decision, 2026-08-10), and this branch
+    /// is RE-DOCUMENTED rather than removed or simplified.</b> <c>VoucherValidator.EnsureValid</c> rejects the shape
+    /// outright on every entry path, citing §10(4) by name, so no NEW voucher can reach here. The branch is not dead
+    /// code and must not be deleted: the posting guard is deliberately scoped to entry, because
+    /// <c>SqliteCompanyStore.Load</c> re-posts every stored voucher and a guard that refused to LOAD would make a book
+    /// that ALREADY contains the shape unopenable. So an existing (or imported) anomalous voucher still opens, still
+    /// reads and still reaches this predicate — and this is what makes it printable at all.</para>
+    ///
+    /// <para><b>The reachable route it still serves.</b> A Regular dealer posts a taxed sale and later opts into
+    /// composition (F11 GST is idempotent and checks no existing voucher), and every one of his old, lawfully-issued
+    /// tax invoices hits this branch on REPRINT.
+    /// Strictly, the document kind is fixed at the time of SUPPLY — a supply made under the regular scheme, whose tax
+    /// was lawfully collected and posted, is a Rule-46 tax invoice forever — so the ideal behaviour is to reprint the
+    /// ORIGINAL tax invoice unchanged. The app cannot express that yet: <c>GstConfig.RegistrationType</c> is a single
+    /// CURRENT value with no registration history, so the projector cannot know what the company was on the voucher
+    /// date. And it could not print the invoice correctly even if it did — the ITEM path takes its head totals from a
+    /// LIVE <c>ComputeInvoiceTax</c> rather than from the POSTED tax legs (the SERVICE path reads the posted legs;
+    /// the two paths disagree), so before this fix that reprint produced an invoice whose Grand Total was ₹47,296.73
+    /// against a posted party debit of ₹55,810.14 — understated by the whole tax. Refusing the invoice is therefore
+    /// strictly better than what it replaces: the plain voucher states every posted leg exactly. The ROOT fix is to
+    /// make the item path read posted tax, which is a money slice of its own; registration history is a second.</para>
     /// </summary>
     public static bool IsTaxInvoice(Company company, Voucher voucher)
     {
@@ -48,8 +98,22 @@ public static class VoucherPrintProjector
         ArgumentNullException.ThrowIfNull(voucher);
         var type = company.FindVoucherType(voucher.TypeId);
         if (type?.BaseType != VoucherBaseType.Sales) return false;
+        // The §10 contradiction, from the ONE shared definition — the same one the posting guard and
+        // ProjectInvoice's structural refusal read, so the three can never drift apart.
+        if (GstReportSupport.IsCompositionSupplyCarryingForwardTax(company, voucher)) return false;
         return voucher.HasInventoryLines || IsServiceAccountingInvoice(company, voucher);
     }
+
+    /// <summary>
+    /// The message <see cref="ProjectInvoice"/> refuses the §10 contradiction with. Stated once so the exception text
+    /// and the tests that pin it cannot drift, and kept ASCII-safe (it can surface in the UI).
+    /// </summary>
+    internal const string CompositionContradictionRefusal =
+        "No statutory document can be issued for this voucher: it is a section 10 (composition) outward supply that " +
+        "nonetheless recorded forward GST. CGST Act section 31(3)(c) requires a bill of supply instead of a tax " +
+        "invoice, while section 10(4) bars the dealer from collecting any tax from the recipient - so a tax invoice " +
+        "is the document he is denied, and a bill of supply would state a total short of the posted party leg. It " +
+        "prints as the plain voucher, which states every posted leg exactly.";
 
     /// <summary>
     /// True iff a <b>ledger-only Sales</b> voucher is a SERVICE (Accounting Invoice) sale — the one ledger-only shape
@@ -275,11 +339,43 @@ public static class VoucherPrintProjector
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
 
+        // FIX-W1a — §31(3)(c) binds "A REGISTERED PERSON". Both limbs therefore require GST to be ON. Limb 1 carries
+        // this gate already (GstReportSupport.IsBillOfSupply tests `Gst is { Enabled: true, … }`, and its doc comment
+        // records the gate as load-bearing); limb 2 shipped without it, so a company that enabled GST, classified an
+        // item Exempt, then switched GST OFF in F11 — the disable branch clears Enabled but RETAINS the config and
+        // every master — printed a document titled BILL OF SUPPLY and badged the drill "Bill of Supply", naming a GST
+        // statutory document for a business that is not registered under GST at all and whose GST menu is hidden.
+        // One gate at the top so the two limbs can never drift apart on it again.
+        if (!company.GstEnabled) return false;
+
         // A document that carries posted forward tax states that tax, whatever else is true of the supplier.
-        if (GstReportSupport.HasForwardTaxLines(voucher) || HasPostedForwardCess(voucher)) return false;
+        //
+        // W0-1 follow-up (review finding #1): this reads GstReportSupport.CarriesForwardTax, which answers off the
+        // GENERAL LEDGER — a plain credit to an Output CGST/SGST/IGST/Cess ledger counts, tagged or not. The two
+        // metadata-only predicates it used to call require `line.Gst is not null`, which ONLY the GST-engine accept
+        // paths stamp: the shipped Sales As-Voucher screen stamps none, so a composition dealer's hand-keyed
+        // Cr Output CGST / Cr Output SGST sailed through this gate and the drilled voucher badged itself "Bill of
+        // Supply" with Rule 5(1)(f)'s "not eligible to collect tax on supplies" printed directly above entry rows
+        // reading Output CGST 4,256.71 / Output SGST 4,256.70. The exact false statutory statement FIX-W1e removed.
+        if (GstReportSupport.CarriesForwardTax(company, voucher)) return false;
 
         // Limb 1 — §10 (composition). Applies to every outward Sales voucher, invoice-format or not.
         if (GstReportSupport.IsBillOfSupply(company, voucher)) return true;
+
+        // FIX-W1b — an outward REVERSE-CHARGE supply is a TAXABLE supply, so §31(3)(c) does not reach it. §2(98)
+        // defines reverse charge as "the liability to pay tax by the recipient … INSTEAD OF THE SUPPLIER": the tax is
+        // due, it merely moves. §31(3)(c) reserves the bill of supply for an exempted supply or a §10 dealer, and
+        // neither describes him — so the document stays a Rule-46 TAX INVOICE (which Rule 46(p) additionally requires
+        // to state "whether the tax is payable on reverse charge basis"; that clause is a separate slice).
+        //
+        // It must be tested BELOW limb 1 (a §10 dealer issues a bill of supply either way) and ABOVE limb 2, because
+        // limb 2 classifies purely by declared taxability: the app's own — and only reachable — shape for an outward
+        // RCM sale is a sales ledger flagged `ReverseChargeApplicable` and declared Nil-rated/Exempt so it posts no
+        // forward tax (Gstr1.cs:246), which limb 2 would read as "wholly exempt" and mis-title. That would put the
+        // paper in direct contradiction with the app's own return, where ComputeRcm4BOutwardValue files the SAME
+        // voucher in GSTR-1 Table 4B as a TAXABLE reverse-charge outward supply and Gstr1 deliberately keeps it OUT
+        // of the exempt bucket (Gstr1.cs:249) — one voucher, two mutually exclusive statutory claims.
+        if (GstReportSupport.IsOutwardReverseChargeSupply(company, voucher)) return false;
 
         // Limb 2 — wholly exempt / nil-rated / non-GST. Only a document-producing supply has lines to classify.
         if (!IsTaxInvoice(company, voucher)) return false;
@@ -308,10 +404,30 @@ public static class VoucherPrintProjector
         return true;
     }
 
-    /// <summary>The exempt limb for a SERVICE (Accounting Invoice) supply: every service-income leg's ledger declares a
-    /// non-taxable supply. A ledger with no GST block at all is treated as taxable (silence is not an exemption), and a
-    /// <b>zero-rated</b> (0%, LUT/export) ledger declares <c>IsTaxable = true</c>, so it correctly stays a tax
-    /// invoice — a zero-rated supply is a taxable supply, not an exempt one.</summary>
+    /// <summary>The exempt limb for a SERVICE (Accounting Invoice) supply: at least one service-income leg, and every
+    /// one of them declares a non-taxable supply. A <b>zero-rated</b> (0%, LUT/export) ledger declares
+    /// <c>IsTaxable = true</c>, so it correctly stays a tax invoice — a zero-rated supply is a taxable supply, not an
+    /// exempt one.
+    /// <para><b>SETTLED, USER-RATIFIED (R12, 2026-08-10) — a wholly exempt SERVICE sale is a BILL OF SUPPLY.</b> W0-1
+    /// inverted the shipped behaviour of a wholly-exempt Accounting Invoice (TAX INVOICE ⇒ BILL OF SUPPLY) on the
+    /// slice's own authority, and the pre-existing test that was written to pin the old behaviour stayed green through
+    /// the inversion because it asserted a different predicate. The user has now explicitly ratified the new
+    /// behaviour, so it is a decision of record rather than an unreviewed side effect. The ground is CGST Act
+    /// §31(3)(c), which binds "a registered person supplying exempted goods <b>or services</b> or both" — the exempt
+    /// limb reaches services on the face of the section, and §2(47) defines an exempt supply as one which "attracts
+    /// nil rate of tax or which may be wholly exempt from tax under section 11 … and includes non-taxable supply".
+    /// Source: <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>. Pinned by
+    /// <c>BillOfSupplyRoutingTests.A_wholly_exempt_service_invoice_is_a_bill_of_supply</c> and by the two service
+    /// print suites.</para>
+    /// <para><b>FIX-W1d — what happens to a leg carrying NO GST block at all.</b> The comment here used to claim such a
+    /// leg "is treated as taxable (silence is not an exemption)", the item limb's rule. That is not what this code
+    /// does, and the next reader could have deleted a guard on the strength of it: this loop never SEES such a leg,
+    /// because <see cref="Gstr1.ServiceLegs"/> skips every line whose ledger has <c>SalesPurchaseGst is null</c>. On
+    /// this method's own terms a plain income leg is therefore invisible, and an invoice mixing one exempt SAC leg
+    /// with one plain income leg would return TRUE. The protection is structural but lives ELSEWHERE and one conjunct
+    /// earlier: <see cref="ServiceInvoiceFoots"/> rejects any voucher whose projected total (built from the SAC legs
+    /// alone) misses the posted party leg, so such a voucher is not an <see cref="IsServiceAccountingInvoice"/> at all
+    /// and is demoted to the plain Dr/Cr print before this method is ever consulted.</para></summary>
     private static bool IsWhollyExemptServiceSupply(Company company, Voucher voucher)
     {
         bool any = false;
@@ -325,8 +441,12 @@ public static class VoucherPrintProjector
 
     /// <summary>The Rule 5(1)(f) wording a <b>composition</b> taxable person must carry "at the top of the bill of
     /// supply issued by him", or blank. Gated on the §10 limb alone: a regular dealer's exempt bill of supply must NOT
-    /// bear it — he is not a composition taxable person.</summary>
-    private static string TopDeclarationFor(Company company, Voucher voucher) =>
+    /// bear it — he is not a composition taxable person.
+    /// <para>Public since the W0-1 follow-up so the POS receipt path reads the SAME rule rather than spelling a third
+    /// copy of it (<c>PosBillingViewModel.BuildReceipt</c>). Callers must gate it on
+    /// <see cref="IsBillOfSupply"/> first, exactly as <see cref="ProjectInvoice"/> does — the wording belongs on a
+    /// bill of supply, not on any document a §10 dealer happens to produce.</para></summary>
+    public static string TopDeclarationFor(Company company, Voucher voucher) =>
         GstReportSupport.IsBillOfSupply(company, voucher) ? GstReportSupport.BillOfSupplyDeclaration : string.Empty;
 
     // ---------------------------------------------------------------- RQ-11: tax invoice
@@ -338,11 +458,32 @@ public static class VoucherPrintProjector
     /// breakup and the money totals — all paisa-exact figures the <see cref="GstService"/> produced, so the
     /// printed tax reconciles to the posted tax ledgers. Intra vs inter is routed from the party's recorded
     /// State vs the company home State.
+    ///
+    /// <para><b>W0-1 follow-up — it REFUSES the §10 contradiction structurally, instead of relying on the caller.</b>
+    /// <see cref="IsTaxInvoice"/> returns <c>false</c> for a composition dealer's outward supply that nonetheless
+    /// carries posted forward tax, but this method used to return a TAX INVOICE DTO for it anyway: its own
+    /// <see cref="IsBillOfSupply"/> bails on the posted-tax gate BEFORE the §10 limb, so <c>billOfSupply</c> came out
+    /// false and every branch below took the tax-invoice road. Measured: Grand Total ₹47,296.73 against a posted party
+    /// debit of ₹55,810.14 — understated by the whole ₹8,513.41, because the head totals come from a live
+    /// <c>ComputeInvoiceTax</c> that short-circuits to zero for composition. Exactly one <c>src/</c> call site
+    /// (<c>VoucherDetailViewModel.BuildPrintPreview</c>) checked <see cref="IsTaxInvoice"/> first, and this method is
+    /// public. A projector that cannot produce a lawful document must not produce one, so it throws — the same
+    /// direction <see cref="ServiceInvoiceFoots"/> (F2) already takes when a document cannot reconcile to its own
+    /// party leg, and the same one the (pre-existing, F7) GST-disabled throw takes. The real call site is unaffected;
+    /// a future caller that forgets the predicate now fails loudly instead of issuing an understated demand.</para>
     /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is a §10 (composition) outward supply carrying posted
+    /// forward GST or Compensation Cess — neither statutory document describes it (CGST Act §31(3)(c) vs §10(4)), so
+    /// it has no invoice projection at all and must print as the plain Dr/Cr voucher.</exception>
     public static InvoicePrintData ProjectInvoice(Company company, Voucher voucher)
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
+
+        // The structural refusal, from the ONE shared definition (GstReportSupport), tested BEFORE anything else so
+        // no partial projection or live master read can happen first.
+        if (GstReportSupport.IsCompositionSupplyCarryingForwardTax(company, voucher))
+            throw new InvalidOperationException(CompositionContradictionRefusal);
 
         var gst = new GstService(company);
         var partyLedger = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
@@ -699,13 +840,11 @@ public static class VoucherPrintProjector
     }
 
     /// <summary>True iff the voucher posted at least one FORWARD Compensation-Cess leg (F4) — the signal that the cess
-    /// this document charges is recorded in the GL and must never be re-resolved from the live master.</summary>
-    private static bool HasPostedForwardCess(Voucher voucher)
-    {
-        foreach (var line in voucher.Lines)
-            if (line.Gst is { IsReverseCharge: false, TaxHead: GstTaxHead.Cess }) return true;
-        return false;
-    }
+    /// this document charges is recorded in the GL and must never be re-resolved from the live master. Delegates to
+    /// <see cref="GstReportSupport.HasPostedForwardCessLines"/> so the print side and the engine side cannot drift on
+    /// what "posted forward cess" means (W0-1 follow-up: it used to be a second, identical loop here).</summary>
+    private static bool HasPostedForwardCess(Voucher voucher) =>
+        GstReportSupport.HasPostedForwardCessLines(voucher);
 
     /// <summary>
     /// <see cref="GstService.ResolveCess"/>, degraded to "no cess" instead of throwing (F3). The engine is

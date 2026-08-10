@@ -83,8 +83,13 @@ public sealed class InvoicePrintData
     /// The <b>statutory document title</b> this supply must be issued under — <c>"TAX INVOICE"</c> (CGST Rule 46) or
     /// <c>"BILL OF SUPPLY"</c> (CGST Rule 49). Set by the projector from what the supply IS, never from a print
     /// preference; see <see cref="IsBillOfSupply"/>.
+    /// <para><b>FIX-W1h — the default is EMPTY, not "TAX INVOICE".</b> A non-blank default defeated
+    /// <c>InvoicePdf.Render</c>'s blank-only fallback: a caller writing <c>new InvoicePrintData { IsBillOfSupply =
+    /// true, … }</c> without a title got a page with every tax particular suppressed and the title "TAX INVOICE" —
+    /// the illegal document, produced by the safety net. Empty means the renderer supplies the title that matches the
+    /// document kind, so neither side has to remember.</para>
     /// </summary>
-    public string DocumentTitle { get; init; } = "TAX INVOICE";
+    public string DocumentTitle { get; init; } = string.Empty;
 
     /// <summary>
     /// True iff this document is a <b>bill of supply</b> under CGST Act §31(3)(c) — issued "instead of a tax invoice"

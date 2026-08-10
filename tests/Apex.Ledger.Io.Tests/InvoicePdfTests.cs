@@ -102,7 +102,7 @@ public sealed class InvoicePdfTests
     /// §31(3)(c) requires. Deliberately constructed WITH populated tax rows and non-zero heads so the renderer's own
     /// suppression is under test, not the projector's: the layout layer must be safe for any caller.
     /// </summary>
-    private static InvoicePrintData BillOfSupply(bool composition)
+    private static InvoicePrintData BillOfSupply(bool composition, bool interState = false)
     {
         var value = new Money(47_296.73m);
         return new InvoicePrintData
@@ -118,12 +118,14 @@ public sealed class InvoicePdfTests
             },
             Buyer = new InvoicePartyBlock
             {
-                Name = "Acme Retail", Gstin = ValidGstin("19CCCCC0000C1Z"), StateText = "West Bengal (19)",
+                Name = "Acme Retail",
+                Gstin = ValidGstin(interState ? "24CCCCC0000C1Z" : "19CCCCC0000C1Z"),
+                StateText = interState ? "Gujarat (24)" : "West Bengal (19)",
             },
             InvoiceNumber = "BOS-0417",
             InvoiceDateText = "31-03-2025",
-            PlaceOfSupply = "West Bengal (19)",
-            IsInterState = false,
+            PlaceOfSupply = interState ? "Gujarat (24)" : "West Bengal (19)",
+            IsInterState = interState,
             Items = new[]
             {
                 new InvoiceItemRow
@@ -139,10 +141,17 @@ public sealed class InvoicePdfTests
                 new InvoiceTaxRow
                 {
                     RateLabel = "18%", TaxableValue = value,
-                    Cgst = new Money(4_256.71m), Sgst = new Money(4_256.70m), Igst = Money.Zero,
+                    Cgst = interState ? Money.Zero : new Money(4_256.71m),
+                    Sgst = interState ? Money.Zero : new Money(4_256.70m),
+                    Igst = interState ? new Money(8_513.41m) : Money.Zero,
                 },
             },
             TotalTaxable = value,
+            // W0-1 follow-up review, finding #8: the hostile caller also loads the INTER-State and CESS branches, the
+            // two the whole slice never rendered once. `IsInterState` selects a DIFFERENT head line in all four
+            // renderers, so `!IsBillOfSupply` on the intra branch alone proves nothing about the inter one.
+            TotalIgst = interState ? new Money(8_513.41m) : Money.Zero,
+            TotalCess = interState ? new Money(2_364.83m) : Money.Zero,
         };
     }
 
@@ -168,6 +177,20 @@ public sealed class InvoicePdfTests
         Assert.DoesNotContain("Taxable Value", s);
         Assert.DoesNotContain("Intra-State", s);
 
+        // FIX-W1f: the document-number caption must name the document this IS. DrawFirstHeader hardcoded
+        // "Invoice No: " on every page, so a bill of supply called its own serial an invoice number directly under a
+        // title band reading BILL OF SUPPLY — and disagreed with the on-screen preview mirror, which W0-1 had already
+        // changed to "Bill of Supply No.". No test in the slice inspected the number row.
+        Assert.Contains("Bill of Supply No", s);
+        Assert.DoesNotContain("Invoice No", s);
+
+        // W0-1 follow-up review, finding #9: the Place of Supply row IS printed on a bill of supply —
+        // `DrawFirstHeader` emits it unconditionally (InvoicePdf.cs); only the intra/inter HEAD CAPTION beside it is
+        // gated on `!IsBillOfSupply`. Nothing asserted its PRESENCE, so "completing" the suppression the
+        // ServiceAccountingInvoicePrintFixTests comment described would have dropped the recipient's place of supply
+        // from every bill of supply with the suite still green. Pinned here so the row cannot go silently.
+        Assert.Contains(@"Place of Supply: West Bengal \(19\)", s);   // PDF literal-string escaping of ( )
+
         // Rule 49(g): value of supply — and it is the whole of what the recipient owes.
         Assert.Contains("Value of Supply", s);
         Assert.Contains("47,296.73", s);
@@ -175,6 +198,87 @@ public sealed class InvoicePdfTests
         Assert.Contains("this bill of supply shows the actual price", s);
         Assert.Contains("Authorised Signatory", s);
         Assert.DoesNotContain("tally", s.ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// <b>W0-1 follow-up review, finding #8 (MEDIUM) — the inter-State bill of supply nobody ever rendered.</b>
+    /// Every rendered bill-of-supply fixture in the repository is INTRA-State: this file's own factory hardcoded
+    /// <c>IsInterState = false</c>, every <c>BillOfSupplyRoutingTests</c> customer is State 27 against home 27, and the
+    /// POS fixture selects no party at all. The suite DOES post inter-State bills of supply (a wholly exempt service
+    /// to a Gujarat party) but stops at the DTO. So the <c>!IsBillOfSupply</c> gate around the IGST head line had
+    /// <b>zero</b> coverage: the one-token slip <c>if (!data.IsBillOfSupply || data.IsInterState)</c> would print
+    /// <c>IGST</c> on a Rule-49 document handed to a customer, with all four per-project suites still green — because
+    /// the intra-State <c>DoesNotContain("IGST")</c> assertions cannot reach a line that is unreachable intra-State
+    /// whether the gate is there or not.
+    /// <para><b>Bite:</b> change <c>if (!data.IsBillOfSupply)</c> to <c>if (!data.IsBillOfSupply ||
+    /// data.IsInterState)</c> in <c>InvoicePdf.DrawClosingBlock</c> and this goes red on the IGST assertion.</para>
+    /// </summary>
+    [Fact]
+    public void An_inter_state_bill_of_supply_shows_no_igst_no_cess_and_no_routing_caption()
+    {
+        string s = AsLatin1(InvoicePdf.Render(BillOfSupply(composition: true, interState: true),
+            new PrintConfig(), new PageConfig()));
+
+        Assert.StartsWith("%PDF-", s);
+        Assert.Contains("BILL OF SUPPLY", s);
+        Assert.Contains("Bill of Supply No", s);
+        Assert.DoesNotContain("Invoice No", s);
+
+        // Rule 49 prescribes no rate and no tax-amount particular — on EITHER routing.
+        Assert.DoesNotContain("IGST", s);
+        Assert.DoesNotContain("CGST", s);
+        Assert.DoesNotContain("SGST", s);
+        Assert.DoesNotContain("Compensation Cess", s);
+        Assert.DoesNotContain("GST Breakup", s);
+        Assert.DoesNotContain("Inter-State", s);
+        Assert.DoesNotContain("Intra-State", s);
+        Assert.DoesNotContain("8,513.41", s);      // the suppressed IGST figure
+        Assert.DoesNotContain("2,364.83", s);      // the suppressed cess figure
+
+        // …and Rule 49(g)'s value of supply, plus the recipient's place of supply, are still stated.
+        Assert.Contains("Value of Supply", s);
+        Assert.Contains("47,296.73", s);
+        Assert.Contains(@"Place of Supply: Gujarat \(24\)", s);
+        Assert.Contains("Composition taxable person, not eligible to collect tax on supplies", s);
+    }
+
+    /// <summary>
+    /// <b>W0-1 follow-up review, finding #6 (LOW) — the declaration was still caller-trusted after the TITLE stopped
+    /// being.</b> FIX-W1h/FIX-W2b made the title renderer-derived precisely so the renderer would be "safe against any
+    /// future caller that does not" gate it. The Rule 5(1)(f) declaration was left drawn on nothing but
+    /// <c>TopDeclaration</c> being non-blank, so a caller could centre "Composition taxable person, not eligible to
+    /// collect tax on supplies" over a page that goes on to print CGST 4,256.71 and SGST 4,256.70 — the exact
+    /// badge/declaration contradiction FIX-W1e removed from the drilled-voucher pane, reborn in the renderer. Not
+    /// reachable from <c>src/</c> today (both callers gate it), so this closes a hardening gap, not a live defect.
+    /// </summary>
+    [Fact]
+    public void The_composition_declaration_is_refused_on_a_document_that_is_not_a_bill_of_supply()
+    {
+        const string decl = "Composition taxable person, not eligible to collect tax on supplies";
+        var hostile = IntraStateInvoice(out var engineTax);
+        var taxInvoiceCarryingTheDeclaration = new InvoicePrintData
+        {
+            DocumentTitle = hostile.DocumentTitle,
+            IsBillOfSupply = false,
+            TopDeclaration = decl,                    // the mirror of the mistake FIX-W1h fixed on the title
+            Seller = hostile.Seller,
+            Buyer = hostile.Buyer,
+            InvoiceNumber = "INV-0432",
+            InvoiceDateText = "31-03-2025",
+            PlaceOfSupply = "West Bengal (19)",
+            IsInterState = false,
+            Items = hostile.Items,
+            TaxRows = hostile.TaxRows,
+            TotalTaxable = hostile.TotalTaxable,
+            TotalCgst = engineTax.Cgst,
+            TotalSgst = engineTax.Sgst,
+        };
+
+        string s = AsLatin1(InvoicePdf.Render(taxInvoiceCarryingTheDeclaration, new PrintConfig(), new PageConfig()));
+        Assert.Contains("TAX INVOICE", s);
+        Assert.Contains("CGST", s);                   // it really is a taxed document …
+        Assert.DoesNotContain(decl, s);               // … so §10's wording may not appear on it
+        Assert.DoesNotContain("Composition taxable person", s);
     }
 
     /// <summary>CGST Rule 5(1)(f): a composition taxable person's bill of supply carries the declaration "at the top".
@@ -207,6 +311,87 @@ public sealed class InvoicePdfTests
         string proforma = AsLatin1(InvoicePdf.Render(
             IntraStateInvoice(out _), new PrintConfig { TitleOverride = "PROFORMA INVOICE" }, new PageConfig()));
         Assert.Contains("PROFORMA INVOICE", proforma);
+    }
+
+    /// <summary>
+    /// <b>FIX-W1h — the renderer's safety net could not fire, because the DTO's default defeated it.</b>
+    /// <c>InvoicePdf.Render</c> handled a bill of supply as "take <c>DocumentTitle</c>; if BLANK, use BILL OF SUPPLY",
+    /// while <c>InvoicePrintData.DocumentTitle</c> defaulted to the non-blank string "TAX INVOICE". So a caller
+    /// writing <c>new InvoicePrintData { IsBillOfSupply = true, … }</c> and forgetting the title got a page with
+    /// every tax head, the breakup table and the intra/inter caption correctly suppressed — and the title
+    /// "TAX INVOICE", stamped into the PDF metadata too. That is exactly the document §31(3)(c) forbids, produced by
+    /// the renderer whose own comment advertises it is "safe against any future caller". The default is now empty AND
+    /// the branch rejects the tax-invoice title structurally, so neither side has to remember.
+    /// </summary>
+    [Fact]
+    public void A_caller_that_sets_only_the_bill_of_supply_flag_never_gets_a_page_titled_tax_invoice()
+    {
+        var minimal = new InvoicePrintData
+        {
+            IsBillOfSupply = true,
+            InvoiceNumber = "BOS-0418",
+            InvoiceDateText = "31-03-2025",
+            TotalTaxable = new Money(47_296.73m),
+        };
+        string s = AsLatin1(InvoicePdf.Render(minimal, new PrintConfig(), new PageConfig()));
+
+        Assert.Contains("BILL OF SUPPLY", s);
+        Assert.DoesNotContain("TAX INVOICE", s);      // incl. SafeTitle's /Title metadata
+        Assert.DoesNotContain("Tax Invoice", s);
+
+        // …and the same holds when the DTO carries the tax-invoice title outright (a stale/hand-built projection).
+        string stale = AsLatin1(InvoicePdf.Render(
+            new InvoicePrintData
+            {
+                IsBillOfSupply = true, DocumentTitle = "TAX INVOICE", InvoiceNumber = "BOS-0419",
+                InvoiceDateText = "31-03-2025", TotalTaxable = new Money(47_296.73m),
+            },
+            new PrintConfig(), new PageConfig()));
+        Assert.Contains("BILL OF SUPPLY", stale);
+        Assert.DoesNotContain("TAX INVOICE", stale);
+    }
+
+    /// <summary>
+    /// <b>FIX-W2b — the FIX-W1h safety net was spelled ORDINALLY, so one letter of case defeated it.</b> The guard
+    /// read <c>title == GstReportSupport.TaxInvoiceTitle</c>, i.e. an exact match on the upper-case constant. A DTO
+    /// carrying "Tax Invoice" — the exact spelling <c>VoucherDetailViewModel.DocumentLabel</c> uses on screen, and the
+    /// spelling this project's own prose uses throughout — therefore sailed straight through and printed a bill of
+    /// supply headed "Tax Invoice", with that string stamped into the PDF <c>/Title</c> metadata as well. Every tax
+    /// head, the breakup and the intra/inter caption were still correctly suppressed, so the ONLY thing wrong with the
+    /// page was what it called itself — which is precisely the failure §31(3)(c) is about.
+    /// <para>Locks the casing variants the guard has to survive, including surrounding whitespace.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("Tax Invoice")]
+    [InlineData("tax invoice")]
+    [InlineData("Tax INVOICE")]
+    [InlineData("  TAX INVOICE  ")]
+    public void A_bill_of_supply_rejects_the_tax_invoice_title_in_any_casing(string documentTitle)
+    {
+        string s = AsLatin1(InvoicePdf.Render(
+            new InvoicePrintData
+            {
+                IsBillOfSupply = true, DocumentTitle = documentTitle, InvoiceNumber = "BOS-0420",
+                InvoiceDateText = "31-03-2025", TotalTaxable = new Money(47_296.73m),
+            },
+            new PrintConfig(), new PageConfig()));
+
+        Assert.Contains("BILL OF SUPPLY", s);
+        Assert.DoesNotContain("TAX INVOICE", s);
+        Assert.DoesNotContain("Tax Invoice", s);
+        Assert.DoesNotContain("tax invoice", s);
+        Assert.DoesNotContain("Tax INVOICE", s);
+    }
+
+    /// <summary>An ordinary tax invoice whose projection sets no <c>DocumentTitle</c> at all still renders "TAX
+    /// INVOICE" — the empty default must not blank the title of the common document (ER-13).</summary>
+    [Fact]
+    public void A_tax_invoice_with_no_explicit_document_title_still_renders_tax_invoice()
+    {
+        string s = AsLatin1(InvoicePdf.Render(IntraStateInvoice(out _), new PrintConfig(), new PageConfig()));
+        Assert.Contains("TAX INVOICE", s);
+        Assert.Contains("Invoice No", s);
+        Assert.DoesNotContain("BILL OF SUPPLY", s);
     }
 
     /// <summary>The y-coordinate of the text-positioning operator that precedes the first occurrence of

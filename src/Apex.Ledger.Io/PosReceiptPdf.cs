@@ -1,5 +1,6 @@
 using System.Globalization;
 using Apex.Ledger;
+using Apex.Ledger.Reports;
 
 namespace Apex.Ledger.Io;
 
@@ -11,6 +12,18 @@ namespace Apex.Ledger.Io;
 /// informational change, then the two thank-you messages and the declaration. De-branded (never the word
 /// "Tally", ER-11), deterministic (no clock/RNG, invariant formatting — the same bill renders byte-identically).
 /// Reuses <see cref="PdfWriter"/>. A retail receipt is short, so it lays out on a single page.
+///
+/// <para><b>Also renders a BILL OF SUPPLY over the counter</b> (W0-1b), when
+/// <see cref="PosReceiptData.IsBillOfSupply"/> is set — the document CGST Act §31(3)(c) requires "instead of a tax
+/// invoice" from a registered person supplying exempted goods or services, or paying tax under §10 (composition), and
+/// which §10(4) additionally forbids to show any tax he collected. CGST Rule 49 prescribes eight particulars and
+/// <b>none of them is a rate or an amount of tax</b>, so that receipt drops the "Taxable" caption in favour of Rule
+/// 49(g)'s "Value of Supply", drops the CGST/SGST/IGST head lines and the whole per-rate GST breakup, and — for a
+/// composition supplier — carries the Rule 5(1)(f) declaration at the TOP, immediately under the store name. The POS
+/// config's own <c>DefaultTitle</c> does not apply to it: the document kind follows the supply, not a print
+/// preference (the same rule <see cref="InvoicePdf"/> applies to the F12 title override). This half was missed by
+/// W0-1 — the invoice path routed correctly while the counter still handed the same dealer a "Retail Invoice"
+/// asserting tax heads he may not show.</para>
 /// </summary>
 public static class PosReceiptPdf
 {
@@ -20,8 +33,19 @@ public static class PosReceiptPdf
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(page);
 
-        string title = string.IsNullOrWhiteSpace(data.Title) ? "RETAIL INVOICE" : Debrand.Text(data.Title.Trim());
-        if (string.IsNullOrWhiteSpace(title)) title = "RETAIL INVOICE";
+        // W0-1b: the title states which document this IS in law, and on a bill of supply that is not negotiable —
+        // derived STRUCTURALLY from the flag, never from the configured title, so a POS config saying "Retail Invoice"
+        // (or anything else) cannot reissue through a print preference the tax invoice §31(3)(c) forbids.
+        string title;
+        if (data.IsBillOfSupply)
+        {
+            title = GstReportSupport.BillOfSupplyTitle;
+        }
+        else
+        {
+            title = string.IsNullOrWhiteSpace(data.Title) ? "RETAIL INVOICE" : Debrand.Text(data.Title.Trim());
+            if (string.IsNullOrWhiteSpace(title)) title = "RETAIL INVOICE";
+        }
 
         double left = page.MarginLeft;
         double right = page.PageWidth - page.MarginRight;
@@ -40,6 +64,19 @@ public static class PosReceiptPdf
         {
             y -= page.BodyFontSize + 2;
             Center(writer, Debrand.Text(data.StoreName), left, right, y, page.BodyFontSize, bold: true);
+        }
+        // ---- Rule 5(1)(f): the composition declaration, "at the top of the bill of supply issued by him" ----
+        // W0-1 follow-up (review finding #6): gated on the STRUCTURAL flag, mirroring the title above. The declaration
+        // used to be drawn on nothing but the string being non-blank — the caller-trusting shape FIX-W1h removed from
+        // the title — so a caller could centre §10's wording over a receipt that then prints CGST/SGST head lines.
+        if (data.IsBillOfSupply && !string.IsNullOrWhiteSpace(data.TopDeclaration))
+        {
+            y -= 4;
+            foreach (var ln in VoucherPdf.WrapText(Debrand.Text(data.TopDeclaration), width, page.FooterFontSize))
+            {
+                y -= page.FooterFontSize + 2;
+                Center(writer, ln, left, right, y, page.FooterFontSize, bold: true);
+            }
         }
         y -= 6;
         writer.Line(left, y, right, y, 0.8);
@@ -84,22 +121,28 @@ public static class PosReceiptPdf
             RightText2(writer, amount, rateR, amtR, y, page.BodyFontSize, bold);
             y -= page.RowHeight;
         }
-        Total("Taxable", Fmt(data.TotalTaxable), false);
-        if (data.IsInterState)
+        // W0-1b: Rule 49 prescribes no rate and no tax-amount particular, so a bill of supply states Rule 49(g)'s
+        // "value of supply" and NO tax head at all. The head lines used to be drawn unconditionally, which is how a
+        // composition dealer's receipt came to assert CGST/SGST he is barred from collecting (§10(4), §32(2)).
+        Total(data.IsBillOfSupply ? "Value of Supply" : "Taxable", Fmt(data.TotalTaxable), false);
+        if (!data.IsBillOfSupply)
         {
-            Total("IGST", Fmt(data.TotalIgst), false);
-        }
-        else
-        {
-            Total("CGST", Fmt(data.TotalCgst), false);
-            Total("SGST", Fmt(data.TotalSgst), false);
+            if (data.IsInterState)
+            {
+                Total("IGST", Fmt(data.TotalIgst), false);
+            }
+            else
+            {
+                Total("CGST", Fmt(data.TotalCgst), false);
+                Total("SGST", Fmt(data.TotalSgst), false);
+            }
         }
         writer.Line(qtyR, y + page.RowHeight - 2, right, y + page.RowHeight - 2, 0.6);
-        Total("Grand Total", Fmt(data.GrandTotal), true);
+        Total(data.IsBillOfSupply ? "Total" : "Grand Total", Fmt(data.GrandTotal), true);
         y -= 2;
 
-        // ---- Per-rate GST breakup ----
-        if (data.TaxRows.Count > 0)
+        // ---- Per-rate GST breakup (never on a bill of supply — Rule 49 has no counterpart to Rule 46 (l)/(m)) ----
+        if (data.TaxRows.Count > 0 && !data.IsBillOfSupply)
         {
             writer.Line(left, y, right, y, 0.5);
             y -= page.BodyFontSize + 2;

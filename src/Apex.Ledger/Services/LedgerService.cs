@@ -34,7 +34,10 @@ public sealed class LedgerService
     /// <para><paramref name="costAllocationStrictness"/> is <see cref="CostAllocationStrictness.Strict"/>
     /// for every entry path. The two rehydration paths (<c>SqliteCompanyStore.Load</c> and company import)
     /// pass <see cref="CostAllocationStrictness.Legacy"/> so books written under the superseded partition
-    /// rule still open — see that enum for why.</para>
+    /// rule still open — see that enum for why. The same flag also distinguishes entry from rehydration for the
+    /// §10(4) "a composition dealer may not collect tax" guard (<see cref="VoucherValidator.EnsureValid(Voucher,
+    /// Company, CostAllocationStrictness)"/>), which must refuse a new ENTRY without making an existing book
+    /// unopenable.</para>
     /// </summary>
     public Voucher Post(Voucher voucher, CostAllocationStrictness costAllocationStrictness)
     {

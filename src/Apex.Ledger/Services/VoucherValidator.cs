@@ -29,6 +29,11 @@ public static class VoucherValidator
     /// <see cref="CostAllocationStrictness"/>). Every other check is identical. Only the two rehydration
     /// paths — <c>SqliteCompanyStore.Load</c> and company import — pass anything but
     /// <see cref="CostAllocationStrictness.Strict"/>.
+    /// <para><b>The parameter now gates a SECOND entry-only rule</b> — the §10(4) "a composition dealer may not
+    /// collect tax" guard at the foot of this method — for the same reason and on the same two paths: a rule that
+    /// refuses to POST must not refuse to LOAD, or a book already containing the shape becomes unopenable. A
+    /// dedicated name for "entry vs rehydration" would read better than <see cref="CostAllocationStrictness"/>; that
+    /// rename touches every caller and is deliberately left to its own slice rather than folded in here.</para>
     /// </summary>
     public static void EnsureValid(Voucher v, Company c, CostAllocationStrictness costAllocationStrictness)
     {
@@ -117,6 +122,27 @@ public static class VoucherValidator
         // the item-invoice pairing above are untouched; POS only changes the DEBIT side to a tender split.
         if (v.HasPosTenders)
             EnsurePosTendersValid(v, c);
+
+        // W0-1 follow-up (R12 user decision) — CGST Act §10(4): a composition dealer "shall not collect any tax from
+        // the recipient on supplies made by him". An outward supply of his that CARRIES posted forward GST is
+        // therefore not a document-classification problem to be explained at print time; it is an entry that should
+        // never have been accepted. Refused here so it cannot enter the books at all.
+        //
+        // ⚠️ ENTRY PATHS ONLY, and that is load-bearing. A guard that refuses to POST is not a guard that refuses to
+        // LOAD: SqliteCompanyStore.Load re-posts every stored voucher through this engine, so applying this rule
+        // unconditionally would make a book that ALREADY contains the shape unopenable — strictly worse than the
+        // print-path refusal it supplements. The two rehydration paths (SqliteCompanyStore.Load and company import)
+        // are exactly the two that pass CostAllocationStrictness.Legacy, and that enum's own contract already says so
+        // ("Rehydration only … never used when a user enters or alters a voucher"), so it is the discriminator here
+        // too. An already-posted anomalous voucher keeps loading, reading and printing — as the plain Dr/Cr voucher,
+        // which states every posted leg exactly (VoucherPrintProjector.IsTaxInvoice).
+        if (costAllocationStrictness == CostAllocationStrictness.Strict &&
+            GstReportSupport.IsCompositionSupplyCarryingForwardTax(c, v))
+            throw new InvalidVoucherException(
+                "A composition dealer may not collect GST. This outward supply posts forward Output CGST/SGST/IGST " +
+                "or Compensation Cess, which CGST Act section 10(4) forbids (\"shall not collect any tax from the " +
+                "recipient on supplies made by him\") and section 31(3)(c) answers by requiring a bill of supply " +
+                "instead of a tax invoice. Remove the tax legs, or change the Registration Type under F11 GST.");
     }
 
     /// <summary>

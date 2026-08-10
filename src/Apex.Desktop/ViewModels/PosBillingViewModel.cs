@@ -797,9 +797,19 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
 
         var cashTender = tenders.FirstOrDefault(x => x.Type == PosTenderType.Cash);
 
+        // W0-1b — WHICH DOCUMENT IS THIS, IN LAW? Routed from the SAME predicate the voucher-screen invoice path uses
+        // (CGST Act §31(3)(c): a composition dealer's supply, or a wholly exempt/nil-rated/non-GST one). A second copy
+        // of the rule here is exactly how one dealer came to get two different answers from two screens, so the POS
+        // path asks the projector rather than re-deciding. The declaration is Rule 5(1)(f)'s §10-only wording, gated
+        // on the document kind first — precisely as ProjectInvoice stamps it into InvoicePrintData.TopDeclaration.
+        var billOfSupply = VoucherPrintProjector.IsBillOfSupply(_company, posted);
         return new PosReceiptData
         {
             Title = _type.PosConfig?.DefaultTitle ?? "Retail Invoice",
+            IsBillOfSupply = billOfSupply,
+            TopDeclaration = billOfSupply
+                ? VoucherPrintProjector.TopDeclarationFor(_company, posted)
+                : string.Empty,
             StoreName = _company.Name,
             BillNumber = _company.FormatVoucherNumber(posted),
             DateText = ApexDate.Format(Date),

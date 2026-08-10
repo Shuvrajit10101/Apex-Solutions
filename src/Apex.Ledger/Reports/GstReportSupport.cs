@@ -83,6 +83,18 @@ public static class GstReportSupport
     /// so the invoice bears none. Such a supply belongs <b>only</b> in GSTR-1 Table 4B / the 3.1(d)-value bucket, never in
     /// the exempt/nil/non-GST outward bucket (it would otherwise be double-represented). A pure read over the posted lines'
     /// ledgers; a company with no such supply always returns false (byte-identical, ER-13).
+    ///
+    /// <para><b>"ANY line" is deliberate, and it is the safe direction (W0-1 follow-up).</b> A sale mixing a
+    /// reverse-charge leg with a wholly exempt leg answers TRUE, so the print router takes TAX INVOICE for the WHOLE
+    /// document. That is correct: §2(98) defines reverse charge as "the liability to pay tax by the recipient …
+    /// <b>instead of the supplier</b>", so the RCM leg is a <b>taxable</b> supply; §31(3)(c) reserves the bill of
+    /// supply for a supply of <b>exempted</b> goods or services or a §10 dealer, and a supply containing a taxable leg
+    /// is neither; and Rule 46(p) requires a Rule-46 tax invoice to state "whether the tax is payable on reverse
+    /// charge basis". Rule 46A's combined "invoice-cum-bill of supply" is <b>permissive</b> ("may be issued") and
+    /// confined to an <b>unregistered</b> recipient, so it cannot make the bill of supply the required document.
+    /// Answering FALSE for the mixed shape would instead demote it to a bill of supply and contradict the app's own
+    /// GSTR-1, which files the same voucher in Table 4B as a taxable reverse-charge outward supply. Pinned by
+    /// <c>BillOfSupplyPosAndPostingGuardTests.A_partly_reverse_charge_partly_exempt_sale_is_a_tax_invoice_for_the_whole_document</c>.</para>
     /// </summary>
     public static bool IsOutwardReverseChargeSupply(Company company, Voucher voucher)
     {
@@ -111,8 +123,9 @@ public static class GstReportSupport
 
     /// <summary>
     /// The printed title of an outward supply documented under <b>CGST Rule 46</b> (a tax invoice). The single source
-    /// both the print projector and the renderer read, so the document, the on-screen badge and the PDF metadata can
-    /// never disagree.
+    /// the print projector <b>and</b> the <c>InvoicePdf</c> renderer both read, so the printed title and the PDF
+    /// metadata can never disagree, and neither can drift from <see cref="BillOfSupplyTitle"/>'s counterpart.
+    /// (FIX-W1g: the renderer used to re-spell both literals itself, which made this doc comment false as written.)
     /// </summary>
     public const string TaxInvoiceTitle = "TAX INVOICE";
 
@@ -292,6 +305,129 @@ public static class GstReportSupport
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// True iff a voucher posted at least one <b>forward</b> (non-reverse-charge) Compensation-Cess line — the twin of
+    /// <see cref="HasForwardTaxLines"/> for the ring-fenced cess head, stated as a question so callers need not
+    /// compare money. Mirrors the head/RCM exclusions of <see cref="PostedCessTotal"/> so the two can never disagree
+    /// on WHICH lines they read.
+    ///
+    /// <para><b>⚠️ NOT the same predicate as <c>PostedCessTotal(voucher) != Money.Zero</c></b> (W0-1 follow-up, review
+    /// finding #7 — the doc comment used to claim it was "the exact predicate" that expresses, which is false). This
+    /// answers on the <b>EXISTENCE</b> of a forward cess line; <see cref="PostedCessTotal"/> answers on the <b>SUM</b>
+    /// of their amounts. Two forward cess legs that net to zero (or one zero-amount leg on imported/crafted data) make
+    /// this <c>true</c> while the total is <see cref="Money.Zero"/>. Substituting one for the other would flip
+    /// <c>VoucherPrintProjector.HasPostedForwardCess</c> from "use the POSTED cess" to "re-resolve cess LIVE from the
+    /// master" for such a voucher — reintroducing the exact F4 defect that delegation exists to prevent. Pinned by
+    /// <c>GstForwardTaxPredicateTests.A_cess_line_exists_even_when_the_posted_cess_sums_to_zero</c>.</para>
+    /// </summary>
+    public static bool HasPostedForwardCessLines(Voucher voucher)
+    {
+        foreach (var line in voucher.Lines)
+            if (line.Gst is { TaxHead: GstTaxHead.Cess, IsReverseCharge: false })
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True iff a voucher posts at least one line to one of the company's own <b>ordinary Output</b> GST ledgers —
+    /// Output CGST / SGST / IGST / Cess, identified by the ledger's
+    /// <see cref="Domain.Ledger.GstClassification"/> rather than by any line metadata. The same
+    /// ledger-classification read <see cref="RcmLines"/> already performs.
+    ///
+    /// <para><b>Two exclusions, both load-bearing.</b> <see cref="GstTaxDirection.Input"/> ledgers are ITC — tax the
+    /// business PAID, not tax it collected from a recipient. The dedicated <b>RCM Output</b> ledgers
+    /// (<c>IsReverseCharge: true</c>, also <c>Direction: Output</c>) are the §49(4) liability the RECIPIENT bears, so
+    /// they are not a supplier's collection either; excluding them mirrors the RCM exclusion
+    /// <see cref="HasForwardTaxLines"/> and <see cref="PostedForwardTaxTotal"/> already apply. A company with no GST
+    /// tax ledgers at all — every Composition company the app itself creates — always returns false, byte-identical
+    /// (ER-13).</para>
+    /// </summary>
+    public static bool PostsToAnOrdinaryOutputTaxLedger(Company company, Voucher voucher)
+    {
+        // Driven from the LEDGER side, not the line side: there are at most four such ledgers, so this is one pass over
+        // the masters plus a line scan only for those four — never `FindLedger` (a linear scan) once per line. It
+        // matters because the consumers include `VoucherDetailViewModel.DocumentLabel` /
+        // `BillOfSupplyDeclaration`, which are XAML-bound properties re-read on render.
+        foreach (var ledger in company.Ledgers)
+        {
+            if (ledger.GstClassification is not
+                { IsReverseCharge: false, Direction: GstTaxDirection.Output } cls) continue;
+            if (cls.TaxHead is not (GstTaxHead.Central or GstTaxHead.State
+                                    or GstTaxHead.Integrated or GstTaxHead.Cess)) continue;
+            foreach (var line in voucher.Lines)
+                if (line.LedgerId == ledger.Id) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// <b>W0-1 follow-up (review finding #1) — "carries forward tax" is a question about the GENERAL LEDGER, not about
+    /// metadata.</b> True iff <paramref name="voucher"/> records forward (non-reverse-charge) GST collected from the
+    /// recipient, by <b>either</b> route: a tagged tax line (<see cref="HasForwardTaxLines"/> /
+    /// <see cref="HasPostedForwardCessLines"/>, which read <see cref="EntryLine.Gst"/>), <b>or</b> a plain untagged
+    /// posting to one of the company's own ordinary Output tax ledgers
+    /// (<see cref="PostsToAnOrdinaryOutputTaxLedger"/>).
+    ///
+    /// <para><b>Why the second route exists.</b> Only the GST-engine accept paths stamp
+    /// <see cref="GstLineTax"/>. The shipped Sales <b>As-Voucher</b> screen does not: it builds every leg as a plain
+    /// <c>new EntryLine(ledgerId, amount, side, …)</c> with no <c>gst:</c> argument, and its particulars picker is the
+    /// unfiltered company ledger list. A composition dealer could therefore hand-key <c>Cr Output CGST / Cr Output
+    /// SGST</c> and be invisible to every metadata-only predicate — so the §10(4) posting guard accepted the very
+    /// entry it exists to refuse, and the document then routed as a BILL OF SUPPLY bearing the Rule 5(1)(f)
+    /// declaration that he may not collect tax, printed above entry rows reading Output CGST / Output SGST.</para>
+    ///
+    /// <para><b>Any line, not only a credit</b> — deliberately, and it is the safe direction. The sibling
+    /// <see cref="HasForwardTaxLines"/> is side-agnostic too, no shipped path posts a Sales-side DEBIT to an Output
+    /// GST head, and both consumers fail SAFE on a true: the posting guard refuses an anomalous entry, and the print
+    /// router falls back to the plain Dr/Cr voucher, which states every posted leg exactly.</para>
+    ///
+    /// <para>Sources: CGST Act §10(4), §31(3)(c), §32(2) —
+    /// <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>.</para>
+    /// </summary>
+    public static bool CarriesForwardTax(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return HasForwardTaxLines(voucher)
+            || HasPostedForwardCessLines(voucher)
+            || PostsToAnOrdinaryOutputTaxLedger(company, voucher);
+    }
+
+    /// <summary>
+    /// <b>W0-1 — the §10 CONTRADICTION, in one place.</b> True iff <paramref name="voucher"/> is a composition
+    /// dealer's outward supply (<see cref="IsBillOfSupply"/>) that NONETHELESS carries posted <b>forward</b>
+    /// CGST/SGST/IGST or Compensation Cess.
+    ///
+    /// <para>Such a voucher asserts two incompatible things at once. CGST Act §31(3)(c) makes his document a bill of
+    /// supply unconditionally ("shall issue, <i>instead of a tax invoice</i>"), while §10(4) says he "shall not
+    /// collect any tax from the recipient on supplies made by him" — so the tax that IS in the GL cannot lawfully sit
+    /// on any document he issues. §32(2) forbids a registered person collecting tax otherwise than as the Act allows.
+    /// A TAX INVOICE is the exact document §31(3)(c) denies him; a BILL OF SUPPLY shows no tax, so its total would
+    /// fall short of the posted party leg.</para>
+    ///
+    /// <para><b>This is the single definition three layers now share</b> — the posting guard
+    /// (<c>VoucherValidator</c>, which refuses the entry outright), the document-kind predicate
+    /// (<c>VoucherPrintProjector.IsTaxInvoice</c>) and the projector's own structural refusal
+    /// (<c>VoucherPrintProjector.ProjectInvoice</c>). Copies of a routing rule are how this defect class keeps being
+    /// reborn (the POS receipt was the fourth instance), so there is exactly one <b>of this predicate</b>. (It is not
+    /// a claim that every document-kind decision in the codebase routes through it — <c>EWayBillService.DocTypeOf</c>
+    /// still derives the NIC Part-A <c>docType</c> from the voucher base type alone; see its own comment.)</para>
+    ///
+    /// <para><b>W0-1 follow-up (review finding #1):</b> "carries forward tax" reads
+    /// <see cref="CarriesForwardTax"/>, which answers off the GENERAL LEDGER — a plain untagged credit to an Output
+    /// CGST/SGST/IGST/Cess ledger counts. The metadata-only version missed the entire As-Voucher entry path, which
+    /// stamps no <see cref="GstLineTax"/> at all.</para>
+    ///
+    /// <para>Sources: CGST Act §31(3)(c), §10(4), §32(2) —
+    /// <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>.</para>
+    /// </summary>
+    public static bool IsCompositionSupplyCarryingForwardTax(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return IsBillOfSupply(company, voucher) && CarriesForwardTax(company, voucher);
     }
 
     /// <summary>One posted reverse-charge tax line in a report window (Phase 9 slice 2; RQ-7).</summary>

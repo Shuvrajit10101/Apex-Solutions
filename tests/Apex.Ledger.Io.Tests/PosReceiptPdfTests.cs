@@ -153,4 +153,116 @@ public sealed class PosReceiptPdfTests
         var s = AsLatin1(PosReceiptPdf.Render(branded, new PageConfig()));
         Assert.DoesNotContain("tally", s.ToLowerInvariant());   // scrubbed from body AND /Title
     }
+
+    // ================================================================ W0-1 follow-up: the bill-of-supply receipt
+
+    /// <summary>A §31(3)(c) receipt at an odd value, hostile-loaded: tax figures and a per-rate breakup the document
+    /// may not show, on the requested routing.</summary>
+    private static PosReceiptData BillOfSupplyReceipt(bool composition, bool interState) => new()
+    {
+        Title = "Retail Invoice",                    // a print preference — it may not re-title a §31(3)(c) document
+        IsBillOfSupply = true,
+        TopDeclaration = composition
+            ? "Composition taxable person, not eligible to collect tax on supplies"
+            : string.Empty,
+        StoreName = "Apex Retail Co",
+        BillNumber = "11",
+        DateText = "10-Apr-2024",
+        Party = "Gujarat Buyer",
+        IsInterState = interState,
+        Items = new[]
+        {
+            new PosReceiptItem
+            {
+                Description = "Fresh Milk", QuantityText = "60.125", RateText = "786.64",
+                Value = new Money(47_296.73m),
+            },
+        },
+        TaxRows = new[]
+        {
+            new PosReceiptTaxRow
+            {
+                RateLabel = "18%", TaxableValue = new Money(47_296.73m),
+                Cgst = interState ? Money.Zero : new Money(4_256.71m),
+                Sgst = interState ? Money.Zero : new Money(4_256.70m),
+                Igst = interState ? new Money(8_513.41m) : Money.Zero,
+            },
+        },
+        Tenders = new[] { new PosReceiptTender { Label = "Cash", Amount = new Money(47_296.73m) } },
+        TotalTaxable = new Money(47_296.73m),
+        CashTendered = new Money(47_296.73m),
+        Change = Money.Zero,
+    };
+
+    /// <summary>
+    /// <b>W0-1 follow-up review, finding #8 (MEDIUM) — the POS twin of the unrendered inter-State branch.</b> Every
+    /// rendered bill-of-supply receipt in the suite is intra-State (the POS fixture never selects a party, so
+    /// <c>interState</c> is false), which leaves the <c>!IsBillOfSupply</c> gate around the IGST head line untested in
+    /// this renderer as well. <c>DoesNotContain("IGST")</c> on an intra-State receipt proves nothing: that line is
+    /// unreachable intra-State whether the gate exists or not.
+    /// <para><b>Bite:</b> change <c>if (!data.IsBillOfSupply)</c> to <c>if (!data.IsBillOfSupply ||
+    /// data.IsInterState)</c> in <c>PosReceiptPdf</c> and this goes red.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_bill_of_supply_receipt_shows_no_tax_head_on_either_routing(bool interState)
+    {
+        var s = AsLatin1(PosReceiptPdf.Render(BillOfSupplyReceipt(composition: true, interState), new PageConfig()));
+
+        Assert.Contains("BILL OF SUPPLY", s);
+        Assert.DoesNotContain("Retail Invoice", s);
+        Assert.DoesNotContain("IGST", s);
+        Assert.DoesNotContain("CGST", s);
+        Assert.DoesNotContain("SGST", s);
+        Assert.DoesNotContain("GST Breakup", s);
+        Assert.DoesNotContain("Taxable", s);
+        Assert.Contains("Value of Supply", s);
+        Assert.Contains("47,296.73", s);
+        Assert.Contains("Composition taxable person, not eligible to collect tax on supplies", s);
+    }
+
+    /// <summary>
+    /// <b>W0-1 follow-up review, finding #6 (LOW).</b> The Rule 5(1)(f) declaration was drawn on nothing but
+    /// <c>TopDeclaration</c> being non-blank — the same caller-trusting shape FIX-W1h removed from the TITLE, which
+    /// the renderer's own comment claims makes it "safe against any future caller that does not" gate. A caller could
+    /// therefore centre §10's wording over a receipt that then prints CGST 4,256.71 / SGST 4,256.70 head lines. Gated
+    /// on the structural flag now, so the declaration and the heads can never appear together.
+    /// </summary>
+    [Fact]
+    public void The_composition_declaration_is_refused_on_a_receipt_that_is_not_a_bill_of_supply()
+    {
+        const string decl = "Composition taxable person, not eligible to collect tax on supplies";
+        var hostile = new PosReceiptData
+        {
+            Title = "Retail Invoice",
+            IsBillOfSupply = false,
+            TopDeclaration = decl,
+            StoreName = "Apex Retail Co",
+            BillNumber = "12",
+            DateText = "10-Apr-2024",
+            Party = "(cash)",
+            IsInterState = false,
+            Items = new[]
+            {
+                new PosReceiptItem
+                {
+                    Description = "Widget", QuantityText = "60.125", RateText = "786.64",
+                    Value = new Money(47_296.73m),
+                },
+            },
+            Tenders = new[] { new PosReceiptTender { Label = "Cash", Amount = new Money(55_810.14m) } },
+            TotalTaxable = new Money(47_296.73m),
+            TotalCgst = new Money(4_256.71m),
+            TotalSgst = new Money(4_256.70m),
+            CashTendered = new Money(55_810.14m),
+            Change = Money.Zero,
+        };
+
+        var s = AsLatin1(PosReceiptPdf.Render(hostile, new PageConfig()));
+        Assert.Contains("CGST", s);                  // it really is a taxed receipt …
+        Assert.Contains("4,256.71", s);
+        Assert.DoesNotContain(decl, s);              // … so §10's wording may not appear on it
+        Assert.DoesNotContain("Composition taxable person", s);
+    }
 }
