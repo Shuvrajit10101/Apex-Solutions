@@ -92,7 +92,24 @@ namespace Apex.Persistence.Sqlite;
 /// <c>voucher_inventory_lines</c> (<c>unit_id</c> → <c>units(id)</c>), so an invoice line can be entered in a
 /// compound unit ("2 Dozen @ ₹10" ⇒ ₹20 billed, 24 Nos moved). NULL ⇒ the item's base unit, i.e. every pre-v46
 /// line, so a company with no unit-carrying line serialises byte-identically to a v45 company (ER-13).
-/// <b><see cref="CurrentVersion"/> = 46</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v47</b> adds the Phase-10.7 voucher-numbering S3 <b>per-type numbering config</b>: three additive columns on
+/// <c>voucher_types</c> (<c>prevent_duplicate</c>, <c>number_width</c>, <c>prefill_with_zero</c>) plus two date-keyed
+/// affix child tables (<c>voucher_type_prefix</c>, <c>voucher_type_suffix</c>) and their indexes.
+/// <b>v48</b> adds the voucher-numbering S5 <b>counterparty captured field</b>: two nullable columns on
+/// <c>vouchers</c> (<c>reference_no</c>, <c>reference_date</c>) holding the other party's document number/date —
+/// "Supplier Invoice No." on a Purchase, "Reference No." on a Sales — a distinct field from the CDN-only
+/// <c>original_invoice_number</c>.
+/// <b>v49</b> adds the <b>accounting-invoice flag</b>: one <c>is_accounting_invoice INTEGER NOT NULL DEFAULT 0</c>
+/// column on <c>vouchers</c> recording that a Sales voucher was posted from the Accounting Invoice (service-invoice)
+/// entry mode, so the printed document type is a PERSISTED FACT rather than an inference from the posted GST legs —
+/// a zero-rated or wholly-exempt service invoice posts no tax leg yet is still a Rule-46 tax invoice. Existing v48
+/// rows read 0 = "not an accounting invoice" and print exactly as before.
+/// <b>v50</b> adds the <b>negative-stock warning toggle</b>: one
+/// <c>warn_on_negative_stock INTEGER NOT NULL <b>DEFAULT 1</b></c> column on <c>companies</c>.
+/// ⚠️ <b>The ONLY company flag in this schema that defaults TRUE.</b> Every other one defaults 0, so "column absent"
+/// and "flag off" coincide and a missed read path is harmless; here they do not coincide, and a read path that treats
+/// an absent value as <c>false</c> silently switches warnings OFF on every upgraded book.
+/// <b><see cref="CurrentVersion"/> = 50</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
