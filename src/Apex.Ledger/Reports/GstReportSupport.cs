@@ -110,6 +110,20 @@ public static class GstReportSupport
     public const string BillOfSupplyDeclaration = "Composition taxable person, not eligible to collect tax on supplies";
 
     /// <summary>
+    /// The printed title of an outward supply documented under <b>CGST Rule 46</b> (a tax invoice). The single source
+    /// both the print projector and the renderer read, so the document, the on-screen badge and the PDF metadata can
+    /// never disagree.
+    /// </summary>
+    public const string TaxInvoiceTitle = "TAX INVOICE";
+
+    /// <summary>
+    /// The printed title of an outward supply documented under <b>CGST Rule 49</b> (a bill of supply) — required by
+    /// CGST Act §31(3)(c) "instead of a tax invoice" from a registered person supplying exempted goods or services, or
+    /// paying tax under §10 (composition).
+    /// </summary>
+    public const string BillOfSupplyTitle = "BILL OF SUPPLY";
+
+    /// <summary>
     /// True iff a voucher is a composition dealer's <b>Bill of Supply</b> (Phase 9 slice 3; RQ-10): an outward supply
     /// (<see cref="VoucherBaseType.Sales"/>) of a company whose GST is <b>enabled</b> as Composition
     /// (<c>Gst is { Enabled: true, RegistrationType: Composition }</c>). A <b>derived</b> property (no stored flag),

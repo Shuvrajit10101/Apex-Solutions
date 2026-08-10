@@ -95,6 +95,133 @@ public sealed class InvoicePdfTests
     // Completes a 14-char GSTIN prefix with its correct Luhn-mod-36 check digit (so the fixture is a real GSTIN).
     private static string ValidGstin(string first14) => first14 + Apex.Ledger.Domain.Gstin.ComputeCheckDigit(first14 + "0");
 
+    // ================================================================ W0-1 (census T0-7): BILL OF SUPPLY
+
+    /// <summary>
+    /// A wholly exempt supply of ODD value (60.125 Nos @ ₹786.64 = ₹47,296.73), rendered as the bill of supply CGST Act
+    /// §31(3)(c) requires. Deliberately constructed WITH populated tax rows and non-zero heads so the renderer's own
+    /// suppression is under test, not the projector's: the layout layer must be safe for any caller.
+    /// </summary>
+    private static InvoicePrintData BillOfSupply(bool composition)
+    {
+        var value = new Money(47_296.73m);
+        return new InvoicePrintData
+        {
+            DocumentTitle = "BILL OF SUPPLY",
+            IsBillOfSupply = true,
+            TopDeclaration = composition
+                ? "Composition taxable person, not eligible to collect tax on supplies"
+                : string.Empty,
+            Seller = new InvoicePartyBlock
+            {
+                Name = "Bright Traders", Gstin = ValidGstin("19AAAAA0000A1Z"), StateText = "West Bengal (19)",
+            },
+            Buyer = new InvoicePartyBlock
+            {
+                Name = "Acme Retail", Gstin = ValidGstin("19CCCCC0000C1Z"), StateText = "West Bengal (19)",
+            },
+            InvoiceNumber = "BOS-0417",
+            InvoiceDateText = "31-03-2025",
+            PlaceOfSupply = "West Bengal (19)",
+            IsInterState = false,
+            Items = new[]
+            {
+                new InvoiceItemRow
+                {
+                    Description = "Fresh Milk", HsnSac = "040110",
+                    QuantityText = "60.125 Nos", RateText = "786.64", TaxableValue = value,
+                },
+            },
+            // A hostile caller: tax the document may not show. Rule 49 prescribes no rate and no tax-amount
+            // particular, so NONE of this may reach the page.
+            TaxRows = new[]
+            {
+                new InvoiceTaxRow
+                {
+                    RateLabel = "18%", TaxableValue = value,
+                    Cgst = new Money(4_256.71m), Sgst = new Money(4_256.70m), Igst = Money.Zero,
+                },
+            },
+            TotalTaxable = value,
+        };
+    }
+
+    /// <summary>CGST Act §31(3)(c) + Rule 49: the document is titled BILL OF SUPPLY, never TAX INVOICE, and shows
+    /// Rule 49(g)'s "value of supply" — with no rate, no tax head and no breakup table anywhere on the page.</summary>
+    [Fact]
+    public void A_bill_of_supply_is_titled_correctly_and_shows_no_tax_particular_at_all()
+    {
+        var bytes = InvoicePdf.Render(BillOfSupply(composition: false), new PrintConfig(), new PageConfig());
+        string s = AsLatin1(bytes);
+
+        Assert.StartsWith("%PDF-", s);
+        Assert.Contains("BILL OF SUPPLY", s);
+        Assert.DoesNotContain("TAX INVOICE", s);          // incl. the /Title metadata, which follows the document
+        Assert.DoesNotContain("Tax Invoice", s);
+
+        // Rule 49 has no counterpart to Rule 46 (l) rate of tax / (m) amount of tax / (n) inter-State place of supply.
+        Assert.DoesNotContain("GST Breakup", s);
+        Assert.DoesNotContain("CGST", s);
+        Assert.DoesNotContain("SGST", s);
+        Assert.DoesNotContain("IGST", s);
+        Assert.DoesNotContain("4,256.7", s);              // the suppressed rows' figures
+        Assert.DoesNotContain("Taxable Value", s);
+        Assert.DoesNotContain("Intra-State", s);
+
+        // Rule 49(g): value of supply — and it is the whole of what the recipient owes.
+        Assert.Contains("Value of Supply", s);
+        Assert.Contains("47,296.73", s);
+        Assert.Contains("Rupees Forty Seven Thousand Two Hundred Ninety Six and Seventy Three Paise Only", s);
+        Assert.Contains("this bill of supply shows the actual price", s);
+        Assert.Contains("Authorised Signatory", s);
+        Assert.DoesNotContain("tally", s.ToLowerInvariant());
+    }
+
+    /// <summary>CGST Rule 5(1)(f): a composition taxable person's bill of supply carries the declaration "at the top".
+    /// A non-composition (exempt) bill of supply carries none — he is not a composition taxable person.</summary>
+    [Fact]
+    public void The_composition_declaration_prints_at_the_top_and_only_for_a_composition_dealer()
+    {
+        const string decl = "Composition taxable person, not eligible to collect tax on supplies";
+
+        string withDecl = AsLatin1(InvoicePdf.Render(BillOfSupply(composition: true), new PrintConfig(), new PageConfig()));
+        Assert.Contains(decl, withDecl);
+        // "At the top": above the supplier/recipient blocks — i.e. drawn at a HIGHER y than the "Supplier:" caption.
+        Assert.True(FirstTextY(withDecl, decl) > FirstTextY(withDecl, "Supplier:"),
+            "Rule 5(1)(f) requires the declaration at the TOP of the bill of supply, above the party blocks.");
+
+        string without = AsLatin1(InvoicePdf.Render(BillOfSupply(composition: false), new PrintConfig(), new PageConfig()));
+        Assert.DoesNotContain("Composition taxable person", without);
+    }
+
+    /// <summary>The F12 title override must not be able to reissue, through a print knob, the very tax invoice
+    /// §31(3)(c) forbids. It still applies to an ordinary tax invoice.</summary>
+    [Fact]
+    public void The_title_override_is_refused_on_a_bill_of_supply_but_still_applies_to_a_tax_invoice()
+    {
+        var cfg = new PrintConfig { TitleOverride = "TAX INVOICE" };
+        string bos = AsLatin1(InvoicePdf.Render(BillOfSupply(composition: true), cfg, new PageConfig()));
+        Assert.Contains("BILL OF SUPPLY", bos);
+        Assert.DoesNotContain("TAX INVOICE", bos);
+
+        string proforma = AsLatin1(InvoicePdf.Render(
+            IntraStateInvoice(out _), new PrintConfig { TitleOverride = "PROFORMA INVOICE" }, new PageConfig()));
+        Assert.Contains("PROFORMA INVOICE", proforma);
+    }
+
+    /// <summary>The y-coordinate of the text-positioning operator that precedes the first occurrence of
+    /// <paramref name="needle"/> — used to assert vertical ORDER on the page (PDF y grows upward).</summary>
+    private static double FirstTextY(string latin1, string needle)
+    {
+        int at = latin1.IndexOf(needle, StringComparison.Ordinal);
+        Assert.True(at >= 0, $"'{needle}' not found in the rendered PDF.");
+        int td = latin1.LastIndexOf(" Td", at, StringComparison.Ordinal);
+        Assert.True(td > 0, $"No text-position operator precedes '{needle}'.");
+        int lineStart = latin1.LastIndexOf('\n', td) + 1;
+        var parts = latin1[lineStart..td].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return double.Parse(parts[^1], System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     [Fact]
     public void Renders_a_valid_debranded_pdf()
     {

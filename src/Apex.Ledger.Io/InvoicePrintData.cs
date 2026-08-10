@@ -71,13 +71,40 @@ public sealed class InvoiceTaxRow
 
 /// <summary>
 /// A framework-agnostic projection of an item-invoice (Sales) ready to render as a GST <b>tax invoice</b>
-/// (RQ-11; Rule 46). The thin Avalonia layer resolves the company (seller) and party (buyer) masters, runs
+/// (RQ-11; Rule 46) — or, when <see cref="IsBillOfSupply"/> is set, as the <b>bill of supply</b> CGST Act §31(3)(c)
+/// requires instead (Rule 49; W0-1). The thin Avalonia layer resolves the company (seller) and party (buyer) masters, runs
 /// the item-invoice through <c>GstService.ComputeInvoiceTax</c>, and fills this DTO with the seller/buyer
 /// blocks, the item rows, the per-rate tax breakup and the money totals; the renderer only lays it out.
 /// Deterministic — every date is pre-formatted; no clock, no RNG.
 /// </summary>
 public sealed class InvoicePrintData
 {
+    /// <summary>
+    /// The <b>statutory document title</b> this supply must be issued under — <c>"TAX INVOICE"</c> (CGST Rule 46) or
+    /// <c>"BILL OF SUPPLY"</c> (CGST Rule 49). Set by the projector from what the supply IS, never from a print
+    /// preference; see <see cref="IsBillOfSupply"/>.
+    /// </summary>
+    public string DocumentTitle { get; init; } = "TAX INVOICE";
+
+    /// <summary>
+    /// True iff this document is a <b>bill of supply</b> under CGST Act §31(3)(c) — issued "instead of a tax invoice"
+    /// by "a registered person supplying exempted goods or services or both <b>or</b> paying tax under the provisions
+    /// of section 10". It is the structural flag the renderer gates on: CGST Rule 49 prescribes eight particulars and
+    /// <b>none of them is a rate or an amount of tax</b> (contrast Rule 46 (l) "rate of tax", (m) "amount of tax
+    /// charged", (n) place of supply for an inter-State supply), so a bill of supply shows no tax breakup, no per-head
+    /// totals and no intra/inter routing caption. A composition dealer showing tax on his document would also assert a
+    /// collection §10(4) and §32(2) forbid him.
+    /// </summary>
+    public bool IsBillOfSupply { get; init; }
+
+    /// <summary>
+    /// The declaration CGST Rule 5(1)(f) requires "at the <b>top</b> of the bill of supply" issued by a composition
+    /// taxable person — "composition taxable person, not eligible to collect tax on supplies". Blank on every other
+    /// document, including a <b>regular</b> dealer's exempt bill of supply: he is not a composition taxable person and
+    /// Rule 5(1)(f) does not bind him.
+    /// </summary>
+    public string TopDeclaration { get; init; } = string.Empty;
+
     /// <summary>Seller (supplier) name / address / GSTIN block.</summary>
     public InvoicePartyBlock Seller { get; init; } = new();
 

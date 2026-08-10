@@ -30,17 +30,22 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// item-invoice) rather than the plain Dr/Cr voucher (RQ-10/RQ-11 routing).</summary>
     public bool IsTaxInvoice => VoucherPrintProjector.IsTaxInvoice(_company, _voucher);
 
-    /// <summary>True iff this voucher is a composition dealer's <b>Bill of Supply</b> (Phase 9 slice 3; RQ-10): an
-    /// outward Sales supply of a Composition company. A composition dealer collects no tax, so the document is a Bill
-    /// of Supply (never a tax invoice) bearing the §10 declaration. False for a Regular/Unregistered company (ER-13).</summary>
-    public bool IsBillOfSupply => GstReportSupport.IsBillOfSupply(_company, _voucher);
+    /// <summary>True iff this voucher must be issued as a <b>Bill of Supply</b> rather than a tax invoice — CGST Act
+    /// §31(3)(c), <b>both</b> limbs: a composition dealer's outward supply (§10) <i>and</i> a wholly exempt / nil-rated
+    /// / non-GST supply by any registered dealer. W0-1 widened this from the §10 limb alone: it now routes through
+    /// <see cref="VoucherPrintProjector.IsBillOfSupply"/>, the SAME predicate the printed document uses, so the badge
+    /// on screen and the title on paper can never disagree. A Regular company's taxable supply is unchanged (ER-13).</summary>
+    public bool IsBillOfSupply => VoucherPrintProjector.IsBillOfSupply(_company, _voucher);
 
-    /// <summary>The document label the header shows: "Bill of Supply" for a composition sale, "Tax Invoice" for a
-    /// Regular Sales item-invoice, else empty (a plain voucher shows only its type name).</summary>
+    /// <summary>The document label the header shows: "Bill of Supply" for a composition or wholly-exempt supply,
+    /// "Tax Invoice" for a Regular Sales item/service invoice, else empty (a plain voucher shows only its type name).</summary>
     public string DocumentLabel => IsBillOfSupply ? "Bill of Supply" : IsTaxInvoice ? "Tax Invoice" : string.Empty;
 
-    /// <summary>The §10 / Rule 5(f) declaration a Bill of Supply must bear (de-branded, ER-11); empty otherwise.</summary>
-    public string BillOfSupplyDeclaration => IsBillOfSupply ? GstReportSupport.BillOfSupplyDeclaration : string.Empty;
+    /// <summary>The declaration CGST Rule 5(1)(f) requires at the top of a <b>composition</b> taxable person's Bill of
+    /// Supply (de-branded, ER-11); empty otherwise — including on a <b>regular</b> dealer's exempt Bill of Supply, which
+    /// takes the other limb of §31(3)(c) and must not claim composition status.</summary>
+    public string BillOfSupplyDeclaration =>
+        GstReportSupport.IsBillOfSupply(_company, _voucher) ? GstReportSupport.BillOfSupplyDeclaration : string.Empty;
 
     /// <summary>Builds the print-preview VM for this voucher: a tax-invoice preview when it is a Sales
     /// item-invoice, else the plain voucher preview. The Io renderer is chosen by the projection kind.</summary>

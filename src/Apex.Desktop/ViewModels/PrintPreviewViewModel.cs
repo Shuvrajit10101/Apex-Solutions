@@ -23,9 +23,9 @@ namespace Apex.Desktop.ViewModels;
 /// </summary>
 public sealed partial class PrintPreviewViewModel : ViewModelBase
 {
-    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice (RQ-11),
-    /// a POS receipt, or a payroll Payslip (RQ-16). The document mode selects the Io renderer and the F12 config
-    /// knobs that apply.</summary>
+    /// <summary>What this preview is printing: a report (RQ-9), a plain voucher (RQ-10), a tax invoice — or the
+    /// bill of supply §31(3)(c) requires in its place (RQ-11; W0-1) — a POS receipt, or a payroll Payslip (RQ-16).
+    /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
     public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
@@ -123,14 +123,18 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
-    /// <summary>Preview a GST tax invoice (RQ-11) via <c>InvoicePdf</c>; the F12 knobs apply.</summary>
+    /// <summary>Preview a GST tax invoice — or a <b>Bill of Supply</b> (W0-1) — via <c>InvoicePdf</c>; the F12 knobs
+    /// apply, except that the title override cannot re-title a bill of supply (see <c>InvoicePdf.Render</c>).</summary>
     public PrintPreviewViewModel(InvoicePrintData invoice)
     {
         _invoice = invoice ?? throw new ArgumentNullException(nameof(invoice));
         Kind = PrintKind.Invoice;
+        // The heading names the document the operator is actually looking at; a bill of supply must not be announced
+        // as a tax invoice anywhere in the app, on screen or on paper.
+        var kindName = invoice.IsBillOfSupply ? "Bill of Supply" : "Tax Invoice";
         ReportTitle = string.IsNullOrEmpty(invoice.InvoiceNumber)
-            ? "Tax Invoice"
-            : $"Tax Invoice No. {invoice.InvoiceNumber}";
+            ? kindName
+            : $"{kindName} No. {invoice.InvoiceNumber}";
         _config = BuildConfig();
         Render();
     }
@@ -328,7 +332,12 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         var rows = new List<PrintRow>();
         if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
             rows.Add(PrintRow.Header(cfg.CopyMarkingLabel, string.Empty, string.Empty));
-        rows.Add(PrintRow.Header($"Invoice No. {inv.InvoiceNumber}", "Date", inv.InvoiceDateText));
+        // W0-1: CGST Rule 5(1)(f) puts the composition declaration at the TOP of the bill of supply — so it is the
+        // first row of the on-screen mirror too, exactly as InvoicePdf draws it under the title.
+        if (!string.IsNullOrWhiteSpace(inv.TopDeclaration))
+            rows.Add(PrintRow.Header(inv.TopDeclaration, string.Empty, string.Empty));
+        rows.Add(PrintRow.Header(
+            (inv.IsBillOfSupply ? "Bill of Supply No. " : "Invoice No. ") + inv.InvoiceNumber, "Date", inv.InvoiceDateText));
         rows.Add(PrintRow.Header("Buyer: " + inv.Buyer.Name, string.Empty, string.Empty));
         rows.Add(PrintRow.Header("Place of Supply: " + inv.PlaceOfSupply, string.Empty, string.Empty));
 
@@ -343,21 +352,33 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 IndianFormat.Amount(it.TaxableValue),
             }));
         }
-        rows.Add(PrintRow.Total("Taxable Value", string.Empty, IndianFormat.AmountAlways(inv.TotalTaxable)));
-        if (inv.IsInterState)
-            rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
-        else
+        // W0-1: the on-screen mirror suppresses exactly what InvoicePdf suppresses — a bill of supply shows Rule 49(g)'s
+        // value of supply and no tax head at all. If the two disagreed the operator would approve one document and
+        // issue another.
+        rows.Add(PrintRow.Total(inv.IsBillOfSupply ? "Value of Supply" : "Taxable Value",
+            string.Empty, IndianFormat.AmountAlways(inv.TotalTaxable)));
+        if (!inv.IsBillOfSupply)
         {
-            rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
-            rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
+            if (inv.IsInterState)
+                rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
+            else
+            {
+                rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
+                rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
+            }
         }
         if (inv.RoundOff.Amount != 0m)
             rows.Add(new PrintRow(new[] { "Round Off", string.Empty, IndianFormat.AmountAlways(inv.RoundOff) }));
-        rows.Add(PrintRow.Total("Grand Total", string.Empty, IndianFormat.AmountAlways(inv.GrandTotal)));
+        rows.Add(PrintRow.Total(inv.IsBillOfSupply ? "Total" : "Grand Total",
+            string.Empty, IndianFormat.AmountAlways(inv.GrandTotal)));
         if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(inv.Narration))
             rows.Add(PrintRow.Header("Narration: " + inv.Narration, string.Empty, string.Empty));
 
-        var title = string.IsNullOrEmpty(cfg.TitleOverride) ? "TAX INVOICE" : cfg.TitleOverride!;
+        // The title override cannot re-title a bill of supply — mirroring InvoicePdf.Render, so the preview and the
+        // bytes can never differ on what document this is.
+        var title = inv.IsBillOfSupply
+            ? inv.DocumentTitle
+            : (string.IsNullOrEmpty(cfg.TitleOverride) ? inv.DocumentTitle : cfg.TitleOverride!);
         return new PrintReport
         {
             Title = title,

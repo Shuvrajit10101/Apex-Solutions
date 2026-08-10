@@ -13,6 +13,15 @@ namespace Apex.Ledger.Io;
 /// (no clock/RNG, invariant formatting) — the same invoice renders byte-identically. Reuses
 /// <see cref="PdfWriter"/>.
 ///
+/// <para><b>Also renders a BILL OF SUPPLY</b> (W0-1 / census T0-7), when <see cref="InvoicePrintData.IsBillOfSupply"/>
+/// is set — the document CGST Act §31(3)(c) requires "instead of a tax invoice" from a registered person supplying
+/// exempted goods or services, or paying tax under §10 (composition). CGST Rule 49 prescribes eight particulars and
+/// <b>none of them is a rate or an amount of tax</b>, so that document drops the per-head totals, the per-rate breakup
+/// table and the intra/inter (CGST+SGST / IGST) caption, states Rule 49(g)'s "Value of Supply" rather than a "Taxable
+/// Value", and — for a composition supplier — carries the Rule 5(1)(f) declaration at the TOP, immediately under the
+/// title. The F12 title override does not apply to it: the document kind follows the supply, not a print preference.
+/// </para>
+///
 /// <para>Paginates like <see cref="ReportPdf"/>: a long invoice whose item rows overflow the page starts a
 /// continuation page (repeating the item-table column header), and the closing block (totals + GST breakup +
 /// amount-in-words + declaration/signature) is kept together — moved to a fresh page if it would not fit under
@@ -27,10 +36,23 @@ public static class InvoicePdf
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(page);
 
-        string title = string.IsNullOrWhiteSpace(config.TitleOverride)
-            ? "TAX INVOICE"
-            : Debrand.Text(config.TitleOverride!.Trim());
-        if (string.IsNullOrWhiteSpace(title)) title = "TAX INVOICE"; // guard: don't let de-brand blank the title
+        // W0-1 (T0-7): the title states which document this IS in law, and on a bill of supply that is not negotiable.
+        // The F12 title override exists so an operator can print e.g. "PROFORMA INVOICE"; letting it apply to a bill of
+        // supply would reissue, through a print knob, exactly the tax invoice CGST §31(3)(c) forbids a composition or
+        // exempt supplier to issue. Copy marking (Original/Duplicate) is unaffected and still available.
+        string title;
+        if (data.IsBillOfSupply)
+        {
+            title = data.DocumentTitle;
+            if (string.IsNullOrWhiteSpace(title)) title = "BILL OF SUPPLY";
+        }
+        else
+        {
+            title = string.IsNullOrWhiteSpace(config.TitleOverride)
+                ? (string.IsNullOrWhiteSpace(data.DocumentTitle) ? "TAX INVOICE" : data.DocumentTitle)
+                : Debrand.Text(config.TitleOverride!.Trim());
+            if (string.IsNullOrWhiteSpace(title)) title = "TAX INVOICE"; // guard: don't let de-brand blank the title
+        }
 
         double left = page.MarginLeft;
         double right = page.PageWidth - page.MarginRight;
@@ -113,9 +135,21 @@ public static class InvoicePdf
 
     // ================================================================ header heights (kept in sync w/ drawing)
 
+    /// <summary>The Rule 5(1)(f) declaration wrapped to the content width, or empty when the document bears none.
+    /// Measured and drawn from ONE place so <see cref="FirstHeaderHeight"/> and <see cref="DrawFirstHeader"/> cannot
+    /// drift apart.</summary>
+    private static List<string> TopDeclarationLines(InvoicePrintData data, PageConfig page) =>
+        string.IsNullOrWhiteSpace(data.TopDeclaration)
+            ? new List<string>()
+            : VoucherPdf.WrapText(Debrand.Text(data.TopDeclaration.Trim()), page.ContentWidth, page.BodyFontSize);
+
     private static double FirstHeaderHeight(InvoicePrintData data, PageConfig page)
     {
         double h = page.TitleFontSize + 8 + 4;   // title band + rule
+        // CGST Rule 5(1)(f): the composition declaration sits "at the top of the bill of supply" — immediately under
+        // the title band, above the party blocks. Absent on every other document ⇒ zero height ⇒ byte-identical.
+        int declLines = TopDeclarationLines(data, page).Count;
+        if (declLines > 0) h += declLines * (page.BodyFontSize + 2) + 4;
         h += PartyBlockHeight(data.Seller, data.Buyer, page) + 4;
         h += 0.5;                                 // rule
         h += (page.BodyFontSize + 2) * 2;         // invoice-no/date + place-of-supply rows
@@ -160,19 +194,26 @@ public static class InvoicePdf
             ? VoucherPdf.WrapText("Remarks: " + Debrand.Text(data.Narration), page.ContentWidth, page.BodyFontSize)
             : new List<string>();
 
-        const string declaration =
-            "Declaration: We declare that this invoice shows the actual price of the goods described and that " +
-            "all particulars are true and correct.";
+        // The document must not describe itself as something it is not: a bill of supply is not an invoice.
+        string declaration = data.IsBillOfSupply
+            ? "Declaration: We declare that this bill of supply shows the actual price of the goods described and " +
+              "that all particulars are true and correct."
+            : "Declaration: We declare that this invoice shows the actual price of the goods described and that " +
+              "all particulars are true and correct.";
         var declLines = VoucherPdf.WrapText(declaration, page.ContentWidth * 0.62, page.FooterFontSize);
 
         // Totals rows: Taxable + (IGST | CGST+SGST) + optional Cess + optional Round Off + Grand Total.
         // The Cess row appears only on a cess-bearing invoice, so a cess-free one measures (and renders) as before.
-        int totalRows = 1 + (data.IsInterState ? 1 : 2)
-                        + (data.TotalCess.Amount != 0m ? 1 : 0)
-                        + (data.RoundOff.Amount != 0m ? 1 : 0) + 1;
+        // A BILL OF SUPPLY has no tax head to state (Rule 49 prescribes none), so it is value + optional round-off +
+        // total — kept in lockstep with DrawClosingBlock below.
+        int totalRows = data.IsBillOfSupply
+            ? 1 + (data.RoundOff.Amount != 0m ? 1 : 0) + 1
+            : 1 + (data.IsInterState ? 1 : 2)
+                + (data.TotalCess.Amount != 0m ? 1 : 0)
+                + (data.RoundOff.Amount != 0m ? 1 : 0) + 1;
         double h = 2 + totalRows * page.RowHeight + 2;
 
-        if (data.TaxRows.Count > 0)
+        if (!data.IsBillOfSupply && data.TaxRows.Count > 0)
         {
             h += page.BodyFontSize + 2                 // "GST Breakup" caption + rule
                + page.RowHeight                        // caption row
@@ -208,6 +249,19 @@ public static class InvoicePdf
         writer.Line(left, y, right, y, 0.8);
         y -= 4;
 
+        // CGST Rule 5(1)(f) — "at the top of the bill of supply issued by him". Drawn here, directly beneath the title
+        // rule and above the supplier/recipient blocks, so it is the first thing read after the document's name.
+        var declLines = TopDeclarationLines(data, page);
+        if (declLines.Count > 0)
+        {
+            foreach (var dl in declLines)
+            {
+                y -= page.BodyFontSize + 2;
+                Center(writer, dl, left, right, y, page.BodyFontSize, bold: true);
+            }
+            y -= 4;
+        }
+
         double blockTop = y;
         double sellerY = DrawPartyBlock(writer, page, "Supplier:", data.Seller, left, blockTop);
         double buyerY = DrawPartyBlock(writer, page, "Recipient (Bill to):", data.Buyer, geo.MidX + 6, blockTop);
@@ -229,8 +283,14 @@ public static class InvoicePdf
             y -= page.BodyFontSize + 2;
         }
         writer.Text(left, y, "Place of Supply: " + data.PlaceOfSupply, page.BodyFontSize, bold: false);
-        string supply = data.IsInterState ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
-        writer.Text(geo.MidX + 6, y, supply, page.BodyFontSize, bold: false);
+        // The intra/inter caption names a TAX HEAD ("CGST + SGST" / "IGST"). CGST Rule 49 prescribes no rate and no
+        // tax-amount particular, and a composition supplier may collect none (§10(4), §32(2)), so a bill of supply
+        // states no head at all. Occupies the same line as Place of Supply ⇒ dropping it changes no height.
+        if (!data.IsBillOfSupply)
+        {
+            string supply = data.IsInterState ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
+            writer.Text(geo.MidX + 6, y, supply, page.BodyFontSize, bold: false);
+        }
         y -= 6;
         writer.Line(left, y, right, y, 0.8);
         y -= page.BodyFontSize + 2;
@@ -290,29 +350,36 @@ public static class InvoicePdf
             y -= page.RowHeight;
         }
 
-        TotalLine("Taxable Value", Fmt(data.TotalTaxable), false);
-        if (data.IsInterState)
+        // CGST Rule 49(g) — "value of supply of goods or services or both taking into account discount or abatement".
+        // "Taxable Value" is a tax concept and would contradict the document: this supply is precisely NOT taxable.
+        TotalLine(data.IsBillOfSupply ? "Value of Supply" : "Taxable Value", Fmt(data.TotalTaxable), false);
+        if (!data.IsBillOfSupply)
         {
-            TotalLine("IGST", Fmt(data.TotalIgst), false);
+            if (data.IsInterState)
+            {
+                TotalLine("IGST", Fmt(data.TotalIgst), false);
+            }
+            else
+            {
+                TotalLine("CGST", Fmt(data.TotalCgst), false);
+                TotalLine("SGST", Fmt(data.TotalSgst), false);
+            }
+            // Compensation Cess gets its OWN line — it is ring-fenced from the GST heads (never folded into
+            // CGST/SGST/IGST) but it IS charged to the recipient, so it must appear on the bill and reach the Grand
+            // Total. Printed only when non-zero, so a cess-free invoice renders exactly as before (ER-13).
+            if (data.TotalCess.Amount != 0m)
+                TotalLine("Compensation Cess", Fmt(data.TotalCess), false);
         }
-        else
-        {
-            TotalLine("CGST", Fmt(data.TotalCgst), false);
-            TotalLine("SGST", Fmt(data.TotalSgst), false);
-        }
-        // Compensation Cess gets its OWN line — it is ring-fenced from the GST heads (never folded into CGST/SGST/IGST)
-        // but it IS charged to the recipient, so it must appear on the bill and reach the Grand Total. Printed only
-        // when non-zero, so a cess-free invoice renders exactly as before (ER-13).
-        if (data.TotalCess.Amount != 0m)
-            TotalLine("Compensation Cess", Fmt(data.TotalCess), false);
         if (data.RoundOff.Amount != 0m)
             TotalLine("Round Off", FmtSigned(data.RoundOff), false);
         writer.Line(geo.QtyRight, y + page.RowHeight - 2, right, y + page.RowHeight - 2, 0.7);
-        TotalLine("Grand Total", Fmt(data.GrandTotal), true);
+        TotalLine(data.IsBillOfSupply ? "Total" : "Grand Total", Fmt(data.GrandTotal), true);
         y -= 2;
 
-        // --- Per-rate tax breakup table ---
-        if (data.TaxRows.Count > 0)
+        // --- Per-rate tax breakup table --- (never on a bill of supply: Rule 49 prescribes no rate particular, and
+        // showing one would assert a collection §10(4) / §32(2) forbid. Belt-and-braces — the projector already
+        // suppresses the rows; this makes the renderer safe against any future caller that does not.)
+        if (!data.IsBillOfSupply && data.TaxRows.Count > 0)
         {
             writer.Line(left, y, right, y, 0.5);
             y -= page.BodyFontSize + 2;
@@ -455,6 +522,8 @@ public static class InvoicePdf
         w.Text(x, y, text, size, bold);
     }
 
+    /// <summary>The PDF metadata title. Follows the document's own title, so a bill of supply's file properties do not
+    /// announce a tax invoice either.</summary>
     private static string SafeTitle(string title) =>
         string.IsNullOrWhiteSpace(title) ? "Apex Solutions Tax Invoice" : Debrand.Text(title) + " — Apex Solutions";
 }
