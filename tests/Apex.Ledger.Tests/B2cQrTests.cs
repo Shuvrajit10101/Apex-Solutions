@@ -163,6 +163,49 @@ public sealed class B2cQrTests
         Assert.Null(f.Service.BuildFor(f.B2CSale, Above500Cr));
     }
 
+    // ================================================ W0-8: the overseas suppression, held at THIS call site
+
+    /// <summary>
+    /// <b>🔴 The overseas-suppression branch of <c>BuildFor</c> had NO test — not before the W0-2 slice and not after
+    /// it (review findings #10 / #15).</b> Proven, not assumed: deleting the
+    /// <c>GstReportSupport.IsOverseasStateCode</c> guard from <c>B2cQrService</c> outright left all 1,390 tests in this
+    /// project green, so an export sale could have carried a domestic UPI payment QR under a fully green gate. The
+    /// slice changed the predicate on BOTH edges — 97 stopped suppressing and 99 started — inside an e-Way slice that
+    /// did not need to touch this file at all, so both edges are pinned here.
+    ///
+    /// <para><b>97 = "Other Territory" is DOMESTIC</b> (official state-code master,
+    /// <c>https://einvoice1.gst.gov.in/Others/MasterCodes</c>), so a B2C sale there is an ordinary domestic supply and
+    /// Rule 46(r)'s dynamic QR belongs on it. It used to be denied one.</para>
+    /// </summary>
+    [Fact]
+    public void A_b2c_sale_to_state_97_other_territory_is_domestic_and_DOES_carry_the_dynamic_qr()
+    {
+        var f = Build();
+        f.Company.FindLedger(ConsumerId(f.Company))!.PartyGst =
+            new PartyGstDetails { RegistrationType = GstRegistrationType.Consumer, StateCode = "97" };
+
+        var payload = f.Service.BuildFor(f.B2CSale, Above500Cr);
+        Assert.NotNull(payload);
+        Assert.Equal(Money.FromRupees(59000m), payload!.Amount);
+        Assert.Equal($"upi://pay?pa=apexsolutions@upi&pn=Apex%20Traders&am=59000.00&cu=INR&tn={payload.Reference}",
+            payload.UpiUri);
+    }
+
+    /// <summary>The other edge: 96 and 99 are both "OTHER COUNTRIES" in the same official master. An overseas supply is
+    /// an export, not a domestic B2C supply, so it carries no UPI payment QR. 99 previously slipped through the
+    /// <c>is "96" or "97"</c> test and DID receive one.</summary>
+    [Theory]
+    [InlineData("96")]
+    [InlineData("99")]
+    public void No_b2c_qr_for_a_genuinely_overseas_place_of_supply(string overseasStateCode)
+    {
+        var f = Build();
+        f.Company.FindLedger(ConsumerId(f.Company))!.PartyGst =
+            new PartyGstDetails { RegistrationType = GstRegistrationType.Consumer, StateCode = overseasStateCode };
+
+        Assert.Null(f.Service.BuildFor(f.B2CSale, Above500Cr));
+    }
+
     // ============================================ finding #1: am= is the party debit (round-off / charges included)
 
     [Fact]

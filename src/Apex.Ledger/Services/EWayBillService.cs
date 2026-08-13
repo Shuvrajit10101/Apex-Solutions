@@ -185,12 +185,23 @@ public sealed class EWayBillService
         if (voucher.Date >= EWayShipToMandatoryFrom && string.IsNullOrWhiteSpace(shipToGstin))
             throw new InvalidOperationException("A Ship-To GSTIN is mandatory for e-Way Bills from 01-Aug-2026.");
 
-        var type = _company.FindVoucherType(voucher.TypeId)!;
+        var codes = PartACodesFor(voucher, txnType);
+
+        // W0-8 — the consignor/consignee ORIENTATION follows the emitted supplyType, because NIC's mapping constrains
+        // FIVE columns, not three: every Inward row reads From = Other GSTIN/URP, To = Self, and every ordinary Outward
+        // row the mirror (https://docs.ewaybillgst.gov.in/apidocs/sub-docType-mapping.html). This used to stamp
+        // ShipFrom = the company's own home state and ShipTo = the counterparty UNCONDITIONALLY, so an inward movement
+        // declared the buyer as its own supplier — three individually-legal codes forming a combination the portal
+        // refuses, and, if it did not, an e-Way Bill stating goods travelling the opposite way down the road.
+        var home = _company.Gst!.HomeStateCode;
+        var counterparty = GstReportSupport.PlaceOfSupply(_company, voucher);
+        var inward = string.Equals(codes.SupplyType, "I", StringComparison.Ordinal);
+
         var record = new EWayBillRecord(
             Guid.NewGuid(), voucher.Id, EInvoiceService.DocumentNumberOf(_company, voucher),
-            SupplyTypeOf(type.BaseType), SubSupplyTypeOf(txnType), DocTypeOf(type.BaseType),
+            codes.SupplyType, codes.SubSupplyType, codes.DocType,
             ToPaisa(ConsignmentValue(voucher)),
-            _company.Gst!.HomeStateCode, GstReportSupport.PlaceOfSupply(_company, voucher), shipToGstin);
+            inward ? counterparty : home, inward ? home : counterparty, shipToGstin);
         _company.AddEWayBillRecord(record);
         return record;
     }
@@ -321,47 +332,138 @@ public sealed class EWayBillService
 
     // ================================================================ Part-A code helpers
 
-    private static string SupplyTypeOf(VoucherBaseType baseType) => baseType switch
-    {
-        VoucherBaseType.Purchase or VoucherBaseType.DebitNote or VoucherBaseType.ReceiptNote => "Inward",
-        _ => "Outward",
-    };
-
-    private static string SubSupplyTypeOf(EWayTransactionType txnType) => txnType switch
-    {
-        EWayTransactionType.JobWork => "Job Work",
-        EWayTransactionType.Handicraft => "Handicraft",
-        _ => "Supply",
-    };
+    /// <summary>The NIC Part-A code triple carried on an <see cref="EWayBillRecord"/> and written verbatim into the
+    /// EWB-01 request by <c>EWayBillJson</c>. Returned as ONE value because the three fields are not independent — the
+    /// portal validates the <b>combination</b> against its Supply-Type/Document-Type mapping (see
+    /// <see cref="PartACodesFor"/>), so resolving them separately is what let a valid-looking pair become an invalid
+    /// filing.</summary>
+    /// <param name="SupplyType">NIC <c>supplyType</c> — <c>I</c> (Inward) or <c>O</c> (Outward).</param>
+    /// <param name="SubSupplyType">NIC <c>subSupplyType</c> — the numeric code 1–12.</param>
+    /// <param name="DocType">NIC <c>docType</c> — <c>INV</c> / <c>BIL</c> / <c>BOE</c> / <c>CHL</c> / <c>OTH</c>.</param>
+    public readonly record struct EWayPartACodes(string SupplyType, string SubSupplyType, string DocType);
 
     /// <summary>
-    /// The NIC Part-A <c>docType</c> for a movement, derived from the voucher base type alone.
+    /// <b>W0-2 — the NIC Part-A master codes for a goods movement.</b> The single place the
+    /// <c>supplyType</c> / <c>subSupplyType</c> / <c>docType</c> triple is decided. Every triple it can return is a row
+    /// of NIC's published Supply-Type/Document-Type mapping; the exhaustive proof is
+    /// <c>EWayPartACodeTests.Every_triple_the_engine_can_emit_is_a_row_of_the_official_NIC_mapping</c>.
     ///
-    /// <para><b>🔴 UNVERIFIED CARRY-FORWARD (W0-1 follow-up, review finding #4) — this contradicts the app's own
-    /// printed title, and the corrective value is NOT sourced, so nothing is changed here.</b> A composition dealer's
-    /// (or a wholly-exempt) outward goods movement is titled <c>BILL OF SUPPLY</c> by <c>InvoicePdf</c>, captioned
-    /// "Bill of Supply No: " and closed with "this bill of supply shows the actual price" — while this method stamps
-    /// <c>"INV"</c>, which <c>EWayBillJson</c> writes into the portal request as <c>"docType":"INV"</c>. One voucher,
-    /// two mutually exclusive claims about what document it is. <see cref="Domain.EWayBillRecord.DocType"/>'s own doc
-    /// comment already lists <c>BIL</c> in the value set, so the codebase knows another code exists.</para>
+    /// <para><b>The official sources (R7 — all read live, none asserted from memory).</b>
+    /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c> (Eway Bill Team, National Informatics
+    /// Centre, Karnataka, Govt. of India) enumerates the domains: <c>supplyType</c> = <c>I</c> Inward / <c>O</c>
+    /// Outward; <c>subSupplyType</c> = 1 Supply, 2 Import, 3 Export, 4 Job Work, 5 For Own Use, 6 Job work Returns,
+    /// 7 Sales Return, 8 Others, 9 SKD/CKD/Lots, 10 Line Sales, 11 Recipient Not Known, 12 Exhibition or Fairs;
+    /// <c>docType</c> = <c>INV</c> Tax Invoice, <c>BIL</c> Bill of Supply, <c>BOE</c> Bill of Entry, <c>CHL</c>
+    /// Delivery Challan, <c>OTH</c> Others. <c>https://docs.ewaybillgst.gov.in/apidocs/sub-docType-mapping.html</c>
+    /// gives the permitted COMBINATIONS.</para>
     ///
-    /// <para><b>Why it is not fixed here (R7).</b> This is a field in a request sent to a government portal; stamping
-    /// it from memory is precisely what the citation rule forbids. The licensed corpus contains no <c>docType</c>
-    /// reference at all. The authoritative source is NIC's own master-codes / "Supply Type–Doc Type mapping" page,
-    /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>, which refuses automated retrieval (HTTP
-    /// 403); the secondary summaries reachable without it disagree on whether <c>BIL</c> denotes "Bill" or "Bill of
-    /// Supply", and are not official. <b>To close:</b> read that list, then either route this through the shared
-    /// bill-of-supply predicate (<c>GstReportSupport.IsBillOfSupply</c>) or record why "INV" is in fact correct. The
-    /// contradiction is pinned meanwhile by
-    /// <c>BillOfSupplyPosAndPostingGuardTests.PINNED_UNVERIFIED_a_bill_of_supply_movement_still_emits_the_eWay_docType_INV</c>.</para>
+    /// <para><b>What this corrects (the whole triple was malformed).</b>
+    /// <list type="number">
+    /// <item><c>supplyType</c> emitted the DESCRIPTIONS "Inward"/"Outward" where NIC's domain is <c>I</c>/<c>O</c>.</item>
+    /// <item><c>subSupplyType</c> emitted "Supply"/"Job Work" — descriptions, not the numeric codes — plus
+    /// <b>"Handicraft"</b>, which is not in NIC's list at all (see the handicraft note below). Sub-type <b>3 Export</b>
+    /// was never emitted: an export sale declared "Supply".</item>
+    /// <item><c>docType</c> emitted <b>CRN</b> and <b>DBN</b>, which are not e-Way values — they belong to the separate
+    /// e-invoice INV-01 <c>DocDtls.Typ</c> domain (String(3): "INV-Invoice, CRN-Credit Note, DBN-Debit Note", official
+    /// schema <c>https://einvoice1.gst.gov.in/Documents/E-INVOICE-SCHEMA.pdf</c> field 9). <b>The two code sets are
+    /// deliberately NOT shared</b> with <c>EInvoiceJson</c>'s base-type⇒docType switch: they are different domains that
+    /// happen to overlap on "INV", and merging them would re-introduce exactly this class of defect.</item>
+    /// <item>Every outward Sales voucher stamped <c>INV</c> — including one the app itself titles <b>BILL OF SUPPLY</b>.
+    /// The bill-of-supply limb now runs through the SHARED <see cref="GstReportSupport.IsBillOfSupply"/>, not a sixth
+    /// private copy of the document-kind rule.</item>
+    /// </list></para>
+    ///
+    /// <para><b>The mapping, and why each row is what it is.</b>
+    /// <list type="bullet">
+    /// <item><b>Sales</b> ⇒ <c>O</c> + (overseas place of supply ? <c>3</c> Export : <c>1</c> Supply) +
+    /// (<see cref="GstReportSupport.IsBillOfSupply"/> ? <c>BIL</c> : <c>INV</c>). The mapping permits
+    /// Outward+Supply and Outward+Export with a Tax Invoice <b>or</b> a Bill of Supply. A bill of supply genuinely
+    /// needs an e-Way Bill: CGST Rule 138(1) covers movement "in relation to a supply" (not "taxable supply") and
+    /// Explanation 2 reckons the consignment value from "an invoice, <b>a bill of supply</b> or a delivery challan".</item>
+    /// <item><b>Purchase</b> ⇒ <c>I</c> + <c>1</c> Supply + <c>INV</c>.</item>
+    /// <item><b>Credit Note</b> (a sales return) ⇒ <c>I</c> + <c>7</c> Sales Return + <c>CHL</c>. <b>The direction is
+    /// corrected here</b>: it used to file OUTWARD. The mapping's only Sales-Return row is
+    /// <c>Inward | Sales Return | Delivery Challan</c>, From = Other GSTIN/URP, To = Self — the goods come back to the
+    /// seller — and there is no Sales-Return row under Outward at all.</item>
+    /// <item><b>Delivery Note / Receipt Note</b> ⇒ <c>CHL</c>, with the job-work legs taking <c>4</c> Job Work (out)
+    /// and <c>6</c> Job work Returns (back). A PLAIN delivery/receipt note takes <c>8</c> Others, <b>not</b> <c>1</c>
+    /// Supply: the mapping permits Supply only with a Tax Invoice or Bill of Supply, so Supply + Delivery Challan is
+    /// not a row.</item>
+    /// </list></para>
+    ///
+    /// <para><b>W0-8 — the Debit Note direction is now settled, by the From/To columns.</b> The earlier note left it
+    /// Inward as "UNVERIFIED", reasoning that NIC's mapping has no purchase-return SUB-TYPE on either side. True, but
+    /// the wrong column: the mapping settles it on the party roles. <c>Outward | Others | Delivery Challan</c> reads
+    /// From = Self, To = Self/Other/URP; <c>Inward | Others | Delivery Challan</c> reads From = Self/Other/URP,
+    /// <b>To = Self</b>. A purchase return moves goods away from Self to the supplier, so the consignee is not Self and
+    /// only the Outward row can accommodate it. It therefore emits <c>O</c> + <c>8</c> + <c>CHL</c> (job-work leg
+    /// <c>4</c>). This is the same reasoning that flipped the Credit Note, applied symmetrically.</para>
+    ///
+    /// <para><b>🔴 REACHABILITY, stated plainly (review finding #2).</b> Only the <b>Sales</b> and <b>Purchase</b> limbs
+    /// can execute in the shipped application. <see cref="CoverageOf"/> gates on <see cref="Voucher.HasInventoryLines"/>,
+    /// and <c>VoucherValidator.EnsureItemInvoiceValid</c> refuses stock lines on anything but a Purchase or a Sales
+    /// voucher — so a Credit/Debit Note carrying the inventory this engine demands cannot be POSTED at all, and
+    /// Delivery/Receipt Notes hold their stock as a separate <c>InventoryVoucher</c> that <see cref="CoverageOf"/> never
+    /// sees. The four remaining limbs are the correct codes for the day the challan path is wired up, <b>not</b> live
+    /// mappings; <c>EWayPartAOrientationTests.PINNED_the_return_and_challan_branches_cannot_be_posted_so_they_are_unreachable_today</c>
+    /// fails the day that changes.</para>
+    ///
+    /// <para><b>🔴 UNVERIFIED / NOT MODELLED — handicraft, and imports.</b> <see cref="EWayTransactionType.Handicraft"/>
+    /// has no NIC sub-supply code (the list has twelve values and handicraft is not one). It is a Rule-138 THRESHOLD
+    /// concept: Explanation 1 defines "handicraft goods" by reference to Notification No 56/2018-Central Tax purely to
+    /// support the "irrespective of the value of the consignment" relaxation, which <see cref="CoverageOf"/> already
+    /// implements. So a handicraft movement declares the sub-supply its DOCUMENT implies. "8 Others" would be the
+    /// honest fallback if nothing fitted — but for a handicraft <i>sale</i> it would be positively invalid, since
+    /// Outward+Others permits only a Delivery Challan or Others, never the Tax Invoice the sale travels on. Separately,
+    /// an <b>import</b> purchase should file <c>2</c> Import + <c>BOE</c>; the app has no Bill of Entry document, so it
+    /// files the ordinary <c>I</c>+<c>1</c>+<c>INV</c> rather than claim a customs document it does not hold.</para>
     /// </summary>
-    private static string DocTypeOf(VoucherBaseType baseType) => baseType switch
+    public EWayPartACodes PartACodesFor(Voucher voucher, EWayTransactionType txnType = EWayTransactionType.Regular)
     {
-        VoucherBaseType.CreditNote => "CRN",
-        VoucherBaseType.DebitNote => "DBN",
-        VoucherBaseType.DeliveryNote or VoucherBaseType.ReceiptNote => "CHL",
-        _ => "INV",
-    };
+        ArgumentNullException.ThrowIfNull(voucher);
+
+        // W0-8 (review finding #12) — this method is PUBLIC, so it must refuse a document whose kind the company cannot
+        // identify rather than fabricate a statutory triple for it. It used to read `?? VoucherBaseType.Sales`, which
+        // turned a partially-applied import or a deleted voucher type into ("O","1","INV") — an outward taxable supply
+        // on a Tax Invoice. A missing type is a data fault, not a sale.
+        var baseType = _company.FindVoucherType(voucher.TypeId)?.BaseType
+            ?? throw new ArgumentException(
+                $"Voucher {voucher.Id} references voucher type {voucher.TypeId}, which this company does not have; " +
+                "the NIC Part-A codes cannot be decided for a document of unknown kind.", nameof(voucher));
+        var jobWork = txnType == EWayTransactionType.JobWork;
+
+        return baseType switch
+        {
+            // Outward supply on an invoice document. Export (3) when the place of supply is overseas, else Supply (1).
+            VoucherBaseType.Sales => new EWayPartACodes(
+                "O",
+                GstReportSupport.IsOverseasStateCode(GstReportSupport.PlaceOfSupply(_company, voucher)) ? "3" : "1",
+                GstReportSupport.IsBillOfSupply(_company, voucher) ? "BIL" : "INV"),
+
+            // Inward supply on the supplier's invoice. (An import would be 2 + BOE — not modelled; see the note above.)
+            VoucherBaseType.Purchase => new EWayPartACodes("I", "1", "INV"),
+
+            // A sales return travels INWARD on a delivery challan (the only Sales-Return row in the official mapping).
+            VoucherBaseType.CreditNote => new EWayPartACodes("I", jobWork ? "6" : "7", "CHL"),
+
+            // A purchase return travels OUTWARD on a delivery challan. W0-8 (review finding #5) settles the direction
+            // the earlier note left open, from the mapping's From/To columns rather than from the sub-type list: the
+            // goods leave Self and go to the supplier, which fits Outward | Others | Delivery Challan
+            // (From = Self, To = Self/Other/URP) and CANNOT fit Inward | Others | Delivery Challan, whose To column is
+            // fixed at Self. This is the identical reasoning that flipped the Credit Note; applying it to one return
+            // note and not the other was the asymmetry. DBN remains replaced by the permitted challan.
+            VoucherBaseType.DebitNote => new EWayPartACodes("O", jobWork ? "4" : "8", "CHL"),
+
+            // Challan movements. Outward+Supply forbids a challan, so a plain delivery note is Others (8).
+            VoucherBaseType.DeliveryNote => new EWayPartACodes("O", jobWork ? "4" : "8", "CHL"),
+            VoucherBaseType.ReceiptNote => new EWayPartACodes("I", jobWork ? "6" : "8", "CHL"),
+
+            // Defensive only — IsGoodsMovementDocument gates PrepareRecord to the six types above (a known base type
+            // outside them, e.g. a Journal, can still reach the PUBLIC surface). Outward | Others | Others is a
+            // permitted row, so even this branch cannot emit an out-of-domain combination.
+            _ => new EWayPartACodes("O", "8", "OTH"),
+        };
+    }
 
     /// <summary>Integer-paisa value of a paisa-exact <see cref="Money"/> (consignment values are sums of posted
     /// paisa-exact amounts, so this is exact). Kept in the Ledger layer (no dependency on the Io <c>MoneyCodec</c>).</summary>

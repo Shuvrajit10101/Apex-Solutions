@@ -74,15 +74,19 @@ public sealed class B2cQrService
         if (type is null || type.BaseType != VoucherBaseType.Sales) return null;
 
         // The recipient must be B2C. A registered (GSTIN-bearing) recipient is B2B — its document carries the IRP QR
-        // instead. An overseas place of supply (GST convention 96 = Other Country, 97 = Other Territory) is an export,
-        // not a domestic UPI payment. A walk-in cash sale (no party) or a party with no GST block is B2C.
+        // instead. An overseas place of supply is an export, not a domestic UPI payment. A walk-in cash sale (no party)
+        // or a party with no GST block is B2C.
         var partyGst = voucher.PartyId is Guid pid ? _company.FindLedger(pid)?.PartyGst : null;
         // Honour the stated contract "never a registered GSTIN-bearing recipient": a party that carries a GSTIN is B2B
         // even if its RegistrationType still defaults to Unregistered (IsB2C is OR-based and would leak it through) —
         // finding #2.
         if (!string.IsNullOrWhiteSpace(partyGst?.Gstin)) return null;
         if (partyGst is { IsB2C: false }) return null;
-        if (partyGst?.StateCode is "96" or "97") return null;
+        // W0-2 — the third copy of the overseas rule, now routed through the one shared predicate. It used to test
+        // `is "96" or "97"`: 97 is "Other Territory", a DOMESTIC GST territory (so a B2C sale there was wrongly denied
+        // its payment QR), and 99 — a genuine OTHER COUNTRIES code — was missed. Official state-code master:
+        // https://einvoice1.gst.gov.in/Others/MasterCodes.
+        if (GstReportSupport.IsOverseasStateCode(partyGst?.StateCode)) return null;
 
         var amount = InvoiceSettlementAmount(voucher, type.BaseType);
         var reference = DocumentReference(voucher);

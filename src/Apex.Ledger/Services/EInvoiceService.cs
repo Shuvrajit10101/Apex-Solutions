@@ -81,7 +81,8 @@ public sealed class EInvoiceService
     /// <summary>
     /// The <see cref="EInvoiceSupplyCategory"/> of an outward voucher, or <c>null</c> when it is an excluded B2C supply
     /// (§2.5). Resolution (from the data the party GST block currently expresses): an outward reverse-charge supply ⇒
-    /// <see cref="EInvoiceSupplyCategory.RcmSupplierLiable"/>; an overseas place of supply (GST code 96/97) ⇒
+    /// <see cref="EInvoiceSupplyCategory.RcmSupplierLiable"/>; an overseas place of supply — <b>the ONE statement of
+    /// that rule is <see cref="GstReportSupport.IsOverseasStateCode"/></b>, never a code list repeated here ⇒
     /// <see cref="EInvoiceSupplyCategory.Export"/>; a registered (GSTIN-bearing) recipient ⇒
     /// <see cref="EInvoiceSupplyCategory.Regular"/>; else a domestic consumer ⇒ <c>null</c> (B2C, excluded). SEZ /
     /// deemed-export are modelled on the enum for the INV-01 writer but not minted here until a party SEZ flag exists.
@@ -93,8 +94,11 @@ public sealed class EInvoiceService
 
         var partyGst = voucher.PartyId is Guid pid ? _company.FindLedger(pid)?.PartyGst : null;
 
-        // Export: an overseas place of supply (GST convention: 96 = Other Country, 97 = Other Territory).
-        if (partyGst?.StateCode is "96" or "97")
+        // Export: an overseas place of supply. W0-2 — this used to test `is "96" or "97"`, which BOTH over-reached and
+        // under-reached: the official state-code master (https://einvoice1.gst.gov.in/Others/MasterCodes) reads
+        // 96 = OTHER COUNTRIES, 97 = Other Territory (a DOMESTIC GST territory), 99 = OTHER COUNTRIES. Routed through
+        // the shared predicate so the e-invoice, e-Way and B2C-QR paths can never disagree about what is overseas.
+        if (GstReportSupport.IsOverseasStateCode(partyGst?.StateCode))
             return EInvoiceSupplyCategory.Export;
 
         // A registered recipient (a real GSTIN) ⇒ ordinary B2B.

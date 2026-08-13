@@ -883,27 +883,60 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     /// invoice "shall carry an endorsement SUPPLY MEANT FOR EXPORT…", i.e. it is an invoice. The licensed corpus
     /// teaches exactly the colliding ledger ("Create Sales Export Exempt", 703679456-TALLY-PRIME-WITH-GST-Notes-PDF).
     ///
-    /// <para>It is not fixed here because a zero-rated recipient is barely expressible: <c>IndianState.All</c> has no
-    /// code "96" (Other Country) and there is no party SEZ flag (EInvoiceService.cs:87 says so). But the collision is
-    /// ALREADY live on state code "97", which <c>EInvoiceService.ResolveSupplyCategory</c> classifies as
-    /// <c>Export</c>: the same voucher's e-invoice payload declares a tax invoice while the printed paper says BILL
-    /// OF SUPPLY. This test fails the day either side is changed, so the export/SEZ slice cannot land without
-    /// resolving it.</para>
+    /// <para>It is not fixed here because a zero-rated recipient is barely expressible: <c>IndianState.All</c> carries
+    /// neither "96" nor "99" and there is no party SEZ flag (EInvoiceService.cs says so). But the collision is live
+    /// wherever <c>EInvoiceService.ResolveSupplyCategory</c> answers <c>Export</c>: the same voucher's e-invoice
+    /// payload declares a tax invoice while the printed paper says BILL OF SUPPLY. This test fails the day either
+    /// side is changed, so the export/SEZ slice cannot land without resolving it.</para>
+    ///
+    /// <para><b>🔴 W0-2 — THIS TEST'S ORIGINAL PREMISE WAS FALSIFIED, and the test is restated rather than deleted.</b>
+    /// It used to be named <c>…_an_exempt_supply_to_an_overseas_place_of_supply_…</c> and drove the collision from
+    /// state code <b>"97"</b>, on the stated belief that 97 is overseas. It is not. The official state-code master at
+    /// <c>https://einvoice1.gst.gov.in/Others/MasterCodes</c> (State Codes table, read from the page DOM) reads
+    /// <b>96 = OTHER COUNTRIES, 97 = Other Territory, 99 = OTHER COUNTRIES</b>: "Other Territory" is a DOMESTIC GST
+    /// territory. The shipped predicate <c>is "96" or "97"</c> was therefore wrong on both halves — it made every 97
+    /// supply an export and missed 99 entirely — and is now <c>GstReportSupport.IsOverseasStateCode</c> (96/99).
+    /// So the gap this test pins is unchanged in SUBSTANCE, but it is driven from <b>99</b>, a code that really is
+    /// overseas; and the test now additionally asserts the corrected half — that 97 no longer collides at all.</para>
     /// </summary>
     [Fact]
-    public void PINNED_GAP_an_exempt_supply_to_an_overseas_place_of_supply_prints_a_bill_of_supply_but_e_invoices_as_an_export()
+    public void PINNED_GAP_an_exempt_supply_to_a_genuinely_overseas_place_of_supply_prints_a_bill_of_supply_but_e_invoices_as_an_export()
     {
         var k = NewKit("Export Collision Co", GstRegistrationType.Regular);
+        k.Company.FindLedger(k.CustomerId)!.PartyGst = new PartyGstDetails
+        {
+            RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "99",
+        };
+        var v = PostSaleInvoice(k, e => FillItemLine(e, k.ExemptItemId, k.MainGodownId, Qty, RateText));
+
+        // The paper says: not a tax invoice.
+        Assert.True(VoucherPrintProjector.IsBillOfSupply(k.Company, v));
+        // The e-invoice payload says: an export — which is a TAX INVOICE (Rule 46, third proviso). THE PIN.
+        Assert.Equal(EInvoiceSupplyCategory.Export, new EInvoiceService(k.Company).ResolveSupplyCategory(v));
+    }
+
+    /// <summary>
+    /// <b>W0-2, the corrected half — state code 97 is DOMESTIC and no longer collides.</b> The very shape the test
+    /// above used to be built on: an exempt supply to an "Other Territory" party. Officially 97 is a domestic GST
+    /// territory (see the citation above), so this is an ordinary domestic exempt supply — a bill of supply on paper
+    /// AND an ordinary domestic supply to the e-invoice resolver, with no contradiction to pin. Kept as a test in its
+    /// own right so the falsified premise cannot quietly come back.
+    /// </summary>
+    [Fact]
+    public void An_exempt_supply_to_state_97_other_territory_is_domestic_not_an_export()
+    {
+        var k = NewKit("Other Territory Co", GstRegistrationType.Regular);
         k.Company.FindLedger(k.CustomerId)!.PartyGst = new PartyGstDetails
         {
             RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "97",
         };
         var v = PostSaleInvoice(k, e => FillItemLine(e, k.ExemptItemId, k.MainGodownId, Qty, RateText));
 
-        // The paper says: not a tax invoice.
         Assert.True(VoucherPrintProjector.IsBillOfSupply(k.Company, v));
-        // The e-invoice payload says: an export — which is a TAX INVOICE (Rule 46, third proviso).
-        Assert.Equal(EInvoiceSupplyCategory.Export, new EInvoiceService(k.Company).ResolveSupplyCategory(v));
+        // W0-8 (review finding #17) — the POSITIVE outcome, not `NotEqual(Export, …)`. That form also passes for null,
+        // and null means "excluded from e-invoicing entirely": a reordering that let the B2C fall-through win would
+        // silently drop this registered B2B recipient out of coverage with no IRN ever minted, and stay green.
+        Assert.Equal(EInvoiceSupplyCategory.Regular, new EInvoiceService(k.Company).ResolveSupplyCategory(v));
     }
 
     public void Dispose()

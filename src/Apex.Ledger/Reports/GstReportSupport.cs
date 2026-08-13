@@ -78,6 +78,31 @@ public static class GstReportSupport
     }
 
     /// <summary>
+    /// True iff a GST state code denotes an <b>overseas</b> place of supply — i.e. the supply leaves India, so it is an
+    /// export rather than a domestic supply. <b>The ONE copy of this rule</b> (W0-2): the e-invoice supply-category
+    /// resolver, the B2C dynamic-QR suppressor and the e-Way sub-supply router all call this, because a state code
+    /// cannot mean "overseas" on one path and "domestic" on another.
+    ///
+    /// <para><b>Sourced (R7).</b> The official state-code master at <c>https://einvoice1.gst.gov.in/Others/MasterCodes</c>
+    /// (State Codes table) lists <b>96 = OTHER COUNTRIES</b>, <b>97 = Other Territory</b> and <b>99 = OTHER
+    /// COUNTRIES</b>. Only 96 and 99 are overseas.</para>
+    ///
+    /// <para><b>🔴 This CORRECTS a shipped defect on both halves.</b> Three call sites tested
+    /// <c>stateCode is "96" or "97"</c>, which (a) mis-classified <b>97</b> as an export when "Other Territory" is a
+    /// <b>domestic</b> GST territory — §2(114)(g) of the CGST Act lists "other territory" among the States/Union
+    /// territories, and it is the place of supply used for India's continental shelf and exclusive economic zone — and
+    /// (b) missed <b>99</b>, a genuine overseas code, entirely. The corrected rule therefore both narrows (97 is no
+    /// longer an export) and widens (99 now is).</para>
+    ///
+    /// <para><b>Reachability caveat.</b> <see cref="Domain.IndianState.All"/> carries 97 but neither 96 nor 99, and
+    /// <c>PartyGstDetails.EnsureValid</c> rejects any code outside that list — so a 96/99 party is reachable in memory
+    /// and through import, but not through a validated master edit. Adding 96/99 to <c>IndianState.All</c> was
+    /// deliberately NOT done here: <c>Gstin.Validate</c> checks a GSTIN's leading two digits against the same list, and
+    /// widening it would start accepting GSTINs beginning "96"/"99", which do not exist. That is a separate slice.</para>
+    /// </summary>
+    public static bool IsOverseasStateCode(string? stateCode) => stateCode is "96" or "99";
+
+    /// <summary>
     /// True iff a voucher is an <b>outward reverse-charge supply</b> (Phase 9 slice 2; RQ-7): an outward supply whose
     /// sales ledger carries <see cref="StockItemGstDetails.ReverseChargeApplicable"/> — the <b>recipient</b> pays the tax,
     /// so the invoice bears none. Such a supply belongs <b>only</b> in GSTR-1 Table 4B / the 3.1(d)-value bucket, never in
@@ -411,9 +436,19 @@ public static class GstReportSupport
     /// (<c>VoucherValidator</c>, which refuses the entry outright), the document-kind predicate
     /// (<c>VoucherPrintProjector.IsTaxInvoice</c>) and the projector's own structural refusal
     /// (<c>VoucherPrintProjector.ProjectInvoice</c>). Copies of a routing rule are how this defect class keeps being
-    /// reborn (the POS receipt was the fourth instance), so there is exactly one <b>of this predicate</b>. (It is not
-    /// a claim that every document-kind decision in the codebase routes through it — <c>EWayBillService.DocTypeOf</c>
-    /// still derives the NIC Part-A <c>docType</c> from the voucher base type alone; see its own comment.)</para>
+    /// reborn (the POS receipt was the fourth instance), so there is exactly one <b>of this predicate</b>. (W0-2: the
+    /// fifth instance, <c>EWayBillService</c>'s NIC Part-A <c>docType</c>, now routes through
+    /// <see cref="IsBillOfSupply"/> too — a <b>§10 composition</b> movement files <c>BIL</c>, not <c>INV</c>. The
+    /// e-invoice INV-01 <c>DocDtls.Typ</c> deliberately does NOT join them: it is a different, three-value code
+    /// domain.)</para>
+    ///
+    /// <para><b>🔴 W0-8 — that sentence must stay qualified.</b> It said flatly "a bill-of-supply movement files BIL,
+    /// not INV", which is FALSE for half the document class: this predicate is the §10 composition limb <b>only</b>,
+    /// while <c>VoucherPrintProjector.IsBillOfSupply</c> adds the §31(3)(c) <i>wholly-exempt</i> limb. A REGULAR
+    /// dealer's exempt goods movement is therefore still printed BILL OF SUPPLY and still filed <c>docType "INV"</c> —
+    /// the one-voucher-two-documents contradiction, surviving for the commoner of the two shapes. It is pinned by
+    /// <c>BillOfSupplyPosAndPostingGuardTests.PINNED_GAP_a_regular_dealers_exempt_movement_prints_BILL_OF_SUPPLY_but_files_INV</c>,
+    /// which fails the day the exempt limb is lifted out of the Desktop projector into this layer.</para>
     ///
     /// <para><b>W0-1 follow-up (review finding #1):</b> "carries forward tax" reads
     /// <see cref="CarriesForwardTax"/>, which answers off the GENERAL LEDGER — a plain untagged credit to an Output

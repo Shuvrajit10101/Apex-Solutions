@@ -712,32 +712,37 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         Assert.DoesNotContain("BILL OF SUPPLY", text);
     }
 
-    // ================================================================ 3b — the e-Way Bill docType, PINNED
+    // ================================================================ 3b — the e-Way Bill docType, NOW ROUTED
 
     /// <summary>
-    /// <b>W0-1 follow-up review, finding #4 (MEDIUM) — a FOURTH document-kind emitter, outside the shared routing, and
-    /// it is NOT FIXED HERE.</b> <c>EWayBillService.DocTypeOf</c> decides the NIC Part-A <c>docType</c> from
-    /// <see cref="VoucherBaseType"/> alone, so every Sales voucher emits <c>"INV"</c> — including the one this same app
-    /// titles <b>BILL OF SUPPLY</b>, captions "Bill of Supply No: " and closes with "this bill of supply shows the
-    /// actual price". <c>EWayBillJson</c> then writes <c>"docType":"INV"</c> into the portal request. One voucher, two
-    /// mutually exclusive claims about what document it is — and <c>EWayBillRecord.DocType</c>'s own doc comment
-    /// already names <c>BIL</c> in its value set, so the codebase knows another code exists.
+    /// <b>W0-2 — THE PIN IS RELEASED. This test asserted <c>"INV"</c>; it now asserts <c>"BIL"</c>, and that reversal
+    /// is a CORRECTION, not a regression.</b>
     ///
-    /// <para><b>🔴 UNVERIFIED (R7) — the corrective VALUE is not sourced, so the wire value is NOT changed.</b> This is
-    /// a field in a request sent to a government portal; stamping it from memory is exactly what R7 forbids. The
-    /// licensed corpus at <c>tally/</c> contains no <c>docType</c> reference at all (searched, all ten PDFs). The
-    /// authoritative list is NIC's own "Master codes" / "Supply Type–Doc Type mapping" page at
-    /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>, which refuses automated retrieval (HTTP
-    /// 403); the secondary summaries reachable from here do not agree on whether <c>BIL</c> means "Bill" or "Bill of
-    /// Supply", and they are not official. <b>Carry-forward:</b> read the NIC master-codes list, then either route
-    /// <c>DocTypeOf</c> through the shared bill-of-supply predicate or record why "INV" is in fact correct.</para>
+    /// <para>What it used to pin: <c>EWayBillService</c> decided the NIC Part-A <c>docType</c> from
+    /// <see cref="VoucherBaseType"/> alone, so every Sales voucher emitted <c>"INV"</c> — including the one this same
+    /// app titles <b>BILL OF SUPPLY</b>, captions "Bill of Supply No: " and closes with "this bill of supply shows the
+    /// actual price". <c>EWayBillJson</c> wrote <c>"docType":"INV"</c> into the portal request: one voucher, two
+    /// mutually exclusive claims about what document it is. The corrective value was then UNVERIFIED — NIC's list
+    /// refused automated retrieval (HTTP 403) and only non-official summaries were reachable — so R7 required pinning
+    /// the contradiction rather than guessing at a value bound for a government filing.</para>
     ///
-    /// <para>The contradiction is PINNED rather than laundered — the idiom this suite already uses for a
-    /// separately-owned defect (<c>BillOfSupplyRoutingTests.An_exempt_supply_that_posted_forward_tax_stays_a_tax_invoice</c>).
-    /// The day <c>DocTypeOf</c> is routed, this test fails and says so.</para>
+    /// <para><b>The source has since been read, live, in a real browser</b> (the 403 is a bot-block, not a missing
+    /// document): <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>, published by the "Eway Bill
+    /// Team, National Informatics Centre, Karnataka, Govt. of India", enumerates the complete Document Type domain as
+    /// <b>INV</b> Tax Invoice, <b>BIL</b> Bill of Supply, <b>BOE</b> Bill of Entry, <b>CHL</b> Delivery Challan,
+    /// <b>OTH</b> Others. <c>BIL</c> is unambiguously "Bill of Supply". The companion mapping page
+    /// (<c>https://docs.ewaybillgst.gov.in/apidocs/sub-docType-mapping.html</c>) explicitly permits
+    /// <c>Outward | Supply | Bill of Supply</c>. And such a movement genuinely carries an e-Way Bill at all: CGST
+    /// Rule 138(1) covers movement "in relation to a supply" — not "taxable supply" — and Explanation 2 reckons the
+    /// consignment value from "an invoice, <b>a bill of supply</b> or a delivery challan".</para>
+    ///
+    /// <para><c>EWayBillService.PartACodesFor</c> now takes this limb from the SHARED
+    /// <c>GstReportSupport.IsBillOfSupply</c>, so the printed title and the filed <c>docType</c> are one decision. The
+    /// broader Part-A code correction (supplyType/subSupplyType as codes, CRN/DBN removed) lives in
+    /// <c>Apex.Ledger.Tests.EWayPartACodeTests</c>.</para>
     /// </summary>
     [Fact]
-    public void PINNED_UNVERIFIED_a_bill_of_supply_movement_still_emits_the_eWay_docType_INV()
+    public void A_bill_of_supply_movement_emits_the_eWay_docType_BIL()
     {
         var k = NewPosKit(GstRegistrationType.Composition);
         var c = k.Company;
@@ -761,11 +766,63 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         Assert.True(VoucherPrintProjector.IsBillOfSupply(c, v));
         Assert.Equal(GstReportSupport.BillOfSupplyTitle, VoucherPrintProjector.ProjectInvoice(c, v).DocumentTitle);
 
-        // … while the e-Way Part-A calls it an invoice. THE PIN — see the UNVERIFIED note above.
+        // … and the e-Way Part-A now agrees: BIL = Bill of Supply (NIC master-codes list, cited above).
         var eway = new EWayBillService(c);
         Assert.Equal(EWayCoverage.Required, eway.CoverageOf(v));
         var record = eway.PrepareRecord(v, D1.AddDays(3));
-        Assert.Equal("INV", record.DocType);
+        Assert.Equal("BIL", record.DocType);
+        Assert.NotEqual("INV", record.DocType); // the exact value this test used to assert
+    }
+
+    /// <summary>
+    /// <b>🔴 PINNED GAP (W0-8, review findings #3 / #8 / #14) — the OTHER half of §31(3)(c) is still contradictory, and
+    /// the slice that closed the composition half left this half with strictly LESS coverage than before.</b>
+    ///
+    /// <para>The e-Way engine routes <c>docType</c> through <c>GstReportSupport.IsBillOfSupply</c>, which is the §10
+    /// <b>composition</b> limb only (it gates on <c>Gst is { Enabled: true, RegistrationType: Composition }</c>). The
+    /// printed title comes from <see cref="VoucherPrintProjector.IsBillOfSupply"/>, which adds the §31(3)(c)
+    /// <b>wholly-exempt</b> limb. So a REGULAR dealer moving wholly-exempt goods — the commoner shape by far — has his
+    /// paper titled BILL OF SUPPLY with the Rule-49 captions while the EWB-01 declares <c>docType "INV"</c>, a Tax
+    /// Invoice. One consignment, two mutually exclusive statutory claims: precisely the defect the slice exists to
+    /// remove, still live. The test above was renamed and repurposed to the composition case, and nothing replaced it.</para>
+    ///
+    /// <para>This asserts the CURRENT (wrong) value deliberately, in the suite's <c>PINNED_GAP</c> idiom, so the
+    /// contradiction is visible rather than laundered. Closing it means lifting the exempt limb out of this Desktop
+    /// projector into the Ledger layer — writing a second copy of the exempt rule inside the e-Way engine is the exact
+    /// pathology the shared-predicate note exists to prevent. The day it is lifted, this test fails and says so.</para>
+    /// </summary>
+    [Fact]
+    public void PINNED_GAP_a_regular_dealers_exempt_movement_prints_BILL_OF_SUPPLY_but_files_INV()
+    {
+        var k = NewPosKit(GstRegistrationType.Regular);
+        var c = k.Company;
+        c.Gst!.EWayBillEnabled = true;
+        c.Gst!.EWayApplicableFrom = FyStart;
+
+        // A Regular dealer's inter-state sale of a wholly EXEMPT stock item, ₹2,04,317.63 — odd to the paisa and over
+        // the ₹50,000 Rule-138 threshold. No forward tax posts, so the consignment values off the stock value.
+        var salesType = c.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive && !t.UseForPos);
+        var customer = c.FindLedgerByName("Gujarat Buyer")!;
+        var v = new Voucher(Guid.NewGuid(), salesType.Id, D1.AddDays(3), new[]
+        {
+            new EntryLine(customer.Id, Money.FromRupees(2_04_317.63m), DrCr.Debit),
+            new EntryLine(c.FindLedgerByName("Sales (POS)")!.Id, Money.FromRupees(2_04_317.63m), DrCr.Credit),
+        }, partyId: customer.Id, inventoryLines: new[]
+        {
+            new VoucherInventoryLine(k.ExemptItemId, c.MainLocation!.Id, 1m, Money.FromRupees(2_04_317.63m)),
+        });
+        new LedgerService(c).Post(v);
+
+        // The paper says BILL OF SUPPLY, via the §31(3)(c) exempt limb …
+        Assert.True(VoucherPrintProjector.IsBillOfSupply(c, v));
+        Assert.Equal(GstReportSupport.BillOfSupplyTitle, VoucherPrintProjector.ProjectInvoice(c, v).DocumentTitle);
+        // … while the Ledger-layer predicate the e-Way engine consults says no, because this dealer is not §10.
+        Assert.False(GstReportSupport.IsBillOfSupply(c, v));
+
+        var eway = new EWayBillService(c);
+        Assert.Equal(EWayCoverage.Required, eway.CoverageOf(v));
+        var record = eway.PrepareRecord(v, D1.AddDays(3));
+        Assert.Equal("INV", record.DocType);   // THE PIN — the contradiction, held where it can be seen.
     }
 
     // ================================================================ 4 — the mixed RCM / exempt shape

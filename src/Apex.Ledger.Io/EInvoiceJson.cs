@@ -102,6 +102,14 @@ public static class EInvoiceJson
         var category = service.ResolveSupplyCategory(voucher)
             ?? throw new InvalidOperationException("A B2C / excluded supply cannot be emitted as an INV-01 (ER-15).");
 
+        // INV-01 DocDtls.Typ — String(3), and its domain is exactly three values: "INV-Invoice, CRN-Credit Note,
+        // DBN-Debit Note" (official schema, https://einvoice1.gst.gov.in/Documents/E-INVOICE-SCHEMA.pdf field 9).
+        // This is CORRECT and must NOT be merged with EWayBillService.PartACodesFor (W0-2): the e-Way docType domain
+        // is a DIFFERENT five-value set — INV / BIL / BOE / CHL / OTH — that contains no CRN or DBN at all, and the
+        // e-Way engine emitting these e-invoice codes is the very defect W0-2 fixed. They overlap only on "INV";
+        // sharing one switch between two statutory domains would guarantee the wrong value on one of them. Note too
+        // that BIL has no counterpart here by design: a bill of supply is outside e-invoicing (Rule 48(4) reaches a
+        // tax invoice), and EInvoiceService.CoverageOf already refuses to mint an IRN request for one.
         var type = company.FindVoucherType(voucher.TypeId);
         var docType = type?.BaseType switch
         {

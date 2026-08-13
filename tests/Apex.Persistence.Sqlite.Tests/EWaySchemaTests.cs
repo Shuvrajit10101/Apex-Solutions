@@ -166,7 +166,106 @@ public sealed class EWaySchemaTests
         finally { Delete(dbPath); }
     }
 
+    /// <summary>
+    /// <b>W0-8 (review finding #6) — a row written BEFORE the Part-A code correction is re-derived when it is loaded,
+    /// so it can never be filed verbatim.</b>
+    ///
+    /// <para>The correction was write-time only. An <c>eway_bills</c> row prepared by the old engine holds
+    /// <c>('Outward','Supply','CRN')</c> — human-readable descriptions plus CRN, which is not in the e-Way document-type
+    /// domain at all — and <c>Pending</c> is its normal resting state offline, because an EWB number only ever arrives
+    /// from the portal (ER-5). Such a row is <b>unfixable in-app</b>: the three fields are get-only with no mutator,
+    /// <c>PrepareRecord</c> refuses a second record for the voucher, and <c>Cancel</c> requires a Generated status. A
+    /// green suite over NEW records therefore proved nothing about it — <c>EWayBillJson.BuildEwb01</c> would have
+    /// written <c>"supplyType":"Outward","subSupplyType":"Supply","docType":"CRN"</c> straight into the portal request.
+    /// <c>EWayBillRecord.Rehydrate</c> — which every persisted AND imported record funnels through — now re-derives the
+    /// triple, so no schema bump is needed and nothing on disk is rewritten behind the user's back.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void A_legacy_eway_row_loads_with_its_Part_A_re_derived_into_NIC_master_codes()
+    {
+        var dbPath = TempDb("apex-eway-legacy");
+        try
+        {
+            var (company, sale) = SeedMovement();
+            var svc = new EWayBillService(company);
+            svc.PrepareRecord(sale, SaleDate);
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(company);
+
+            // Rewind the stored row to exactly what the OLD engine wrote for a credit note.
+            Execute(dbPath,
+                "UPDATE eway_bills SET supply_type='Outward', sub_supply_type='Supply', doc_type='CRN';");
+            Assert.Equal("Outward", ReadScalarStr(dbPath, "SELECT supply_type FROM eway_bills LIMIT 1;"));
+
+            Company reloaded;
+            using (var store = new SqliteCompanyStore(dbPath)) reloaded = store.Load(company.Id)!;
+
+            var r = Assert.Single(reloaded.EWayBillRecords);
+            Assert.Equal("I", r.SupplyType);        // Sales Return is Inward — the only such row in NIC's mapping
+            Assert.Equal("7", r.SubSupplyType);     // 7 Sales Return, numeric — never the description
+            Assert.Equal("CHL", r.DocType);         // CRN is an e-INVOICE code; a return travels on a delivery challan
+
+            // The domains, asserted as domains (NIC master-codes list, read live).
+            Assert.Contains(r.SupplyType, new[] { "I", "O" });
+            Assert.Contains(r.SubSupplyType,
+                new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12" });
+            Assert.Contains(r.DocType, new[] { "INV", "BIL", "BOE", "CHL", "OTH" });
+
+            // The schema itself is untouched — this is a load-time re-derivation, not a migration.
+            Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
+        }
+        finally { Delete(dbPath); }
+    }
+
+    /// <summary>A GST + e-Way company with one posted, over-threshold inter-state goods movement.</summary>
+    private static (Company Company, Voucher Sale) SeedMovement()
+    {
+        var c = CompanyFactory.CreateSeeded("Legacy e-Way Co", FyStart);
+        var gst = new GstService(c);
+        gst.EnableGst(new GstConfig
+        {
+            HomeStateCode = "27", Gstin = GstinMaharashtra, RegistrationType = GstRegistrationType.Regular,
+            ApplicableFrom = FyStart, Periodicity = GstReturnPeriodicity.Monthly,
+            EWayBillEnabled = true, EWayApplicableFrom = FyStart,
+        });
+
+        var inv = new InventoryService(c);
+        var item = inv.CreateStockItem("Widget", inv.CreateStockGroup("Goods").Id,
+            inv.CreateSimpleUnit("Nos", "Numbers", unitQuantityCode: "NOS").Id);
+        item.Gst = new StockItemGstDetails { HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        inv.AddOpeningBalance(item.Id, c.MainLocation!.Id, 100m, Money.FromRupees(40000m));
+
+        var sales = Add(c, "Sales", "Sales Accounts", false);
+        var b2b = Add(c, "Gujarat Debtor", "Sundry Debtors", true);
+        b2b.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = "24AAACC1206D1ZM", StateCode = "24" };
+
+        // ₹2,04,317.63 — odd to the paisa, comfortably over the ₹50,000 Rule-138 threshold.
+        var value = 2_04_317.63m;
+        var tax = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(new Money(value), 1800) },
+            interState: true, GstTaxDirection.Output);
+        var lines = new List<EntryLine>
+        {
+            new(b2b.Id, new Money(value + tax.TotalTax.Amount), DrCr.Debit),
+            new(sales.Id, new Money(value), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        var sale = new LedgerService(c).Post(new Voucher(Guid.NewGuid(),
+            c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id, SaleDate, lines, partyId: b2b.Id,
+            inventoryLines: new[] { new VoucherInventoryLine(item.Id, c.MainLocation!.Id, 1m, new Money(value)) }));
+        return (c, sale);
+    }
+
     // ---- helpers ----
+
+    private static void Execute(string dbPath, string sql)
+    {
+        using var conn = Open(dbPath);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+        SqliteConnection.ClearPool(conn);
+    }
 
     private static Apex.Ledger.Domain.Ledger Add(Company c, string name, string groupName, bool openingIsDebit)
     {

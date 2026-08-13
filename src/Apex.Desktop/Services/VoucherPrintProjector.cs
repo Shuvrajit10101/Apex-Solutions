@@ -37,14 +37,17 @@ namespace Apex.Desktop.Services;
 /// the title, the head lines and the per-rate breakup on them, and <c>PosBillingViewModel.BuildReceipt</c> routes
 /// them from <see cref="IsBillOfSupply"/> — the SAME predicate the invoice path uses, never a third copy of the
 /// rule.</item>
-/// <item><b>🔴 The e-Way Bill Part-A <c>docType</c> is a FOURTH document-kind emitter, and it is NOT routed through
-/// <see cref="IsBillOfSupply"/> — UNVERIFIED, deliberately left alone.</b> <c>EWayBillService.DocTypeOf</c> derives
-/// the NIC code from <c>VoucherBaseType</c> alone, so a movement this projector titles BILL OF SUPPLY still emits
-/// <c>"INV"</c> into the portal request. Read as a completeness claim, the "never a third copy" note above would be
-/// misleading, so it is qualified here: the §31(3)(c) ROUTING has one definition, but not every document-kind
-/// decision in the codebase consults it. The corrective NIC code could not be sourced from an official list under
-/// R7 (see <c>EWayBillService.DocTypeOf</c>'s own comment for the exact carry-forward), so the wire value is
-/// unchanged and the contradiction is pinned by a test instead of laundered.</item>
+/// <item><b>W0-2 — the e-Way Bill Part-A <c>docType</c> was a FOURTH document-kind emitter. NOW ROUTED.</b>
+/// <c>EWayBillService</c> derived the NIC code from <c>VoucherBaseType</c> alone, so a movement this projector titles
+/// BILL OF SUPPLY still emitted <c>"INV"</c> into the portal request. The NIC master-codes list was read from an
+/// official source (<c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>) and carries <c>BIL</c> =
+/// Bill of Supply, so <c>EWayBillService.PartACodesFor</c> now takes its outward-sales limb from
+/// <c>GstReportSupport.IsBillOfSupply</c> — the shared engine predicate.
+/// <para><b>One residual, deliberate gap.</b> The engine predicate is the §10 (composition) limb only, while
+/// <see cref="IsBillOfSupply"/> here adds the §31(3)(c) <i>exempt</i> limb. So a Regular dealer's wholly-exempt
+/// movement still prints BILL OF SUPPLY while filing <c>docType "INV"</c>. Closing it means lifting the exempt limb
+/// out of this Desktop projector into the Ledger layer, which is a routing slice of its own — writing a second copy
+/// of the exempt rule inside the e-Way engine is precisely the pathology this note exists to prevent.</para></item>
 /// <item><b>F6 — <c>SchemaDowngrade.V49ToV48</c> loses the vouchers PK / NOT-NULLs / index</b> when it rebuilds the
 /// table. This is the SAME pre-existing idiom as <c>V48ToV47</c> and <c>V47ToV46</c>, and <c>SchemaDowngrade</c> is
 /// referenced nowhere in <c>src/</c> (test-only, to prove forward-migration parity), so nothing shipped reads a

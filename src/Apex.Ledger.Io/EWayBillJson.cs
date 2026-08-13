@@ -78,6 +78,12 @@ public static class EWayBillJson
         var cessTotalPaisa = MoneyCodec.ToPaisa(GstReportSupport.PostedCessTotal(voucher));
         var items = BuildItems(company, voucher, groups, cessTotalPaisa);
 
+        // W0-8 — the consignor/consignee ends follow the record's supplyType. NIC's Supply-Type/Document-Type mapping
+        // (https://docs.ewaybillgst.gov.in/apidocs/sub-docType-mapping.html) constrains the From/To party on every row:
+        // an Inward row is From = Other GSTIN/URP, To = Self. Writing fromGstin = the filer's own GSTIN unconditionally
+        // — as this did — inverted every inward movement the engine can now legally reach.
+        var inward = string.Equals(record.SupplyType, "I", StringComparison.Ordinal);
+
         return new Ewb01Dto
         {
             Version = SchemaVersion,
@@ -86,10 +92,10 @@ public static class EWayBillJson
             DocType = record.DocType ?? "",
             DocNo = EInvoiceService.DocumentNumberOf(company, voucher),
             DocDate = $"{voucher.Date:yyyy-MM-dd}",
-            FromGstin = gst.Gstin,
-            FromStateCode = record.ShipFromStateCode ?? gst.HomeStateCode,
-            ToGstin = partyGst?.Gstin,
-            ToStateCode = record.ShipToStateCode ?? partyGst?.StateCode,
+            FromGstin = inward ? partyGst?.Gstin : gst.Gstin,
+            FromStateCode = record.ShipFromStateCode ?? (inward ? partyGst?.StateCode : gst.HomeStateCode),
+            ToGstin = inward ? gst.Gstin : partyGst?.Gstin,
+            ToStateCode = record.ShipToStateCode ?? (inward ? gst.HomeStateCode : partyGst?.StateCode),
             ShipToGstin = record.ShipToGstin,
             ItemList = items,
             TotInvValuePaisa = record.ConsignmentValuePaisa,

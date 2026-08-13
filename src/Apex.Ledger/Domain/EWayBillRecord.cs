@@ -34,13 +34,18 @@ public sealed class EWayBillRecord
 
     // ----- Part A (assembled locally from the source voucher) -----
 
-    /// <summary>Outward / Inward supply type (NIC supplyType).</summary>
+    /// <summary>NIC <c>supplyType</c> — the CODE <c>I</c> (Inward) or <c>O</c> (Outward), never the description.
+    /// Decided by <see cref="Services.EWayBillService.PartACodesFor"/>, which carries the official citations.</summary>
     public string? SupplyType { get; }
 
-    /// <summary>Supply / Job Work / Export / … (NIC subSupplyType).</summary>
+    /// <summary>NIC <c>subSupplyType</c> — the NUMERIC code 1–12 (1 Supply, 2 Import, 3 Export, 4 Job Work, 5 For Own
+    /// Use, 6 Job work Returns, 7 Sales Return, 8 Others, 9 SKD/CKD/Lots, 10 Line Sales, 11 Recipient Not Known,
+    /// 12 Exhibition or Fairs), never the description.</summary>
     public string? SubSupplyType { get; }
 
-    /// <summary>INV / CRN / DBN / BIL / … (NIC docType).</summary>
+    /// <summary>NIC <c>docType</c> — one of exactly five values: <c>INV</c> Tax Invoice, <c>BIL</c> Bill of Supply,
+    /// <c>BOE</c> Bill of Entry, <c>CHL</c> Delivery Challan, <c>OTH</c> Others. <b>Not</b> CRN/DBN: those belong to
+    /// the separate e-invoice INV-01 <c>DocDtls.Typ</c> domain and are not e-Way values.</summary>
     public string? DocType { get; }
 
     /// <summary>The Rule-138 consignment value in integer paisa (computed off the posted lines, §1.3), stored for audit.</summary>
@@ -151,7 +156,9 @@ public sealed class EWayBillRecord
         if (status == EWayStatus.Cancelled && string.IsNullOrWhiteSpace(ewbNumber))
             throw new ArgumentException("A Cancelled e-Way Bill record requires the EWB number it cancelled.", nameof(ewbNumber));
 
-        return new EWayBillRecord(id, sourceVoucherId, documentNumberUpper, supplyType, subSupplyType, docType,
+        var (supply, sub, doc) = NormaliseLegacyPartA(supplyType, subSupplyType, docType);
+
+        return new EWayBillRecord(id, sourceVoucherId, documentNumberUpper, supply, sub, doc,
             consignmentValuePaisa, shipFromStateCode, shipToStateCode, shipToGstin)
         {
             Status = status,
@@ -170,6 +177,62 @@ public sealed class EWayBillRecord
             CancelReasonCode = cancelReasonCode,
             ErrorCode = errorCode,
             ErrorMessage = errorMessage,
+        };
+    }
+
+    /// <summary>
+    /// <b>W0-8 — re-derives a legacy Part-A triple into NIC master codes.</b> Records prepared before the Part-A
+    /// correction carry human-readable DESCRIPTIONS (<c>"Outward"</c>, <c>"Supply"</c>, <c>"Job Work"</c>,
+    /// <c>"Handicraft"</c>) and two document codes that are not e-Way values at all (<c>CRN</c> / <c>DBN</c>, which
+    /// belong to the e-invoice INV-01 <c>DocDtls.Typ</c> domain). Those rows sit on disk in the normal offline resting
+    /// state — <see cref="EWayStatus.Pending"/>, because an EWB number only ever arrives from the portal (ER-5) — and
+    /// they are <b>unfixable in-app</b>: the three fields are get-only with no mutator, <c>PrepareRecord</c> refuses a
+    /// second record for the same voucher, and <c>Cancel</c> requires a Generated status. Left alone they would be
+    /// filed verbatim by <c>EWayBillJson.BuildEwb01</c>, which is the exact malformed filing W0-2 set out to end.
+    ///
+    /// <para><b>This is a re-derivation, not a guess.</b> The legacy value set is CLOSED — it is the output of the old
+    /// engine's own three switch expressions — so each legacy triple identifies the document it came from, and the
+    /// corrected codes follow. Field-wise substitution would NOT do: legacy <c>("Outward","Supply","CRN")</c> would
+    /// become <c>O | 1 | CHL</c>, and <c>Outward | Supply</c> permits only a Tax Invoice or a Bill of Supply, never a
+    /// challan. So the mapping is combination-aware, keyed on the document:</para>
+    /// <list type="bullet">
+    /// <item><c>CRN</c> ⇒ a credit note ⇒ <c>I | 7 Sales Return | CHL</c> (job-work leg <c>6</c>).</item>
+    /// <item><c>DBN</c> ⇒ a debit note ⇒ <c>O | 8 Others | CHL</c> (job-work leg <c>4</c>).</item>
+    /// <item><c>CHL</c> ⇒ a delivery/receipt note ⇒ the same side it was filed on, sub-type <c>4</c>/<c>6</c> for job
+    /// work else <c>8 Others</c> (<c>Supply</c> forbids a challan on either side).</item>
+    /// <item>anything else ⇒ an invoice movement ⇒ <c>I|O | 1 Supply | INV</c>.</item>
+    /// </list>
+    ///
+    /// <para><b>🔴 Two limits, stated rather than papered over.</b> A legacy row cannot recover (a) <c>BIL</c> for a
+    /// composition/exempt sale or (b) <c>3 Export</c> for an overseas place of supply, because neither is recoverable
+    /// from the stored triple alone — the old engine never wrote the distinction down. Both re-derive to the ordinary
+    /// <c>1 | INV</c>, which is a permitted row and the same value the old record already carried, so nothing is made
+    /// worse; re-preparing the record against the corrected engine is the only way to recover them.</para>
+    ///
+    /// <para>A triple already expressed in NIC codes is returned <b>untouched</b>, and an absent Part-A stays absent —
+    /// normalisation never invents a value.</para>
+    /// </summary>
+    private static (string? Supply, string? Sub, string? Doc) NormaliseLegacyPartA(
+        string? supplyType, string? subSupplyType, string? docType)
+    {
+        // Already in the NIC domains (supplyType ∈ {I,O}, subSupplyType ∈ {1…12}, docType ∈ the five codes) ⇒ verbatim.
+        var inDomain = supplyType is "I" or "O"
+            && subSupplyType is "1" or "2" or "3" or "4" or "5" or "6" or "7" or "8" or "9" or "10" or "11" or "12"
+            && docType is "INV" or "BIL" or "BOE" or "CHL" or "OTH";
+        if (inDomain) return (supplyType, subSupplyType, docType);
+
+        // No Part-A at all (an older import that never carried the fields) ⇒ leave it absent.
+        if (supplyType is null && subSupplyType is null && docType is null) return (null, null, null);
+
+        var inward = string.Equals(supplyType, "Inward", StringComparison.Ordinal) || supplyType == "I";
+        var jobWork = string.Equals(subSupplyType, "Job Work", StringComparison.Ordinal);
+
+        return docType switch
+        {
+            "CRN" => ("I", jobWork ? "6" : "7", "CHL"),
+            "DBN" => ("O", jobWork ? "4" : "8", "CHL"),
+            "CHL" => inward ? ("I", jobWork ? "6" : "8", "CHL") : ("O", jobWork ? "4" : "8", "CHL"),
+            _ => inward ? ("I", "1", "INV") : ("O", "1", "INV"),
         };
     }
 

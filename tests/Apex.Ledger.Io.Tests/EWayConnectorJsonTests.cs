@@ -21,13 +21,20 @@ public sealed class EWayConnectorJsonTests
     private static readonly DateOnly SaleDate = new(2025, 4, 10);
     private static readonly DateTimeOffset Gen = new(2025, 4, 10, 9, 0, 0, TimeSpan.FromHours(5.5));
 
-    private static (Company Company, Voucher Sale, EWayBillService Service) BuildMovement(int rateBasisPoints = 1800)
+    /// <summary>A posted outward goods movement. <paramref name="compositionDealer"/> switches the company to §10
+    /// composition, whose sale is a BILL OF SUPPLY carrying no forward tax — the shape whose corrected
+    /// <c>docType "BIL"</c> reaches the wire (W0-8, review finding #18). Its value is ₹2,04,317.63, odd to the paisa and
+    /// over the Rule-138 threshold, because a composition consignment values off the posted stock value alone.</summary>
+    private static (Company Company, Voucher Sale, EWayBillService Service) BuildMovement(
+        int rateBasisPoints = 1800, bool compositionDealer = false)
     {
         var c = CompanyFactory.CreateSeeded("e-Way Io Co", FyStart);
         var gst = new GstService(c);
         gst.EnableGst(new GstConfig
         {
-            HomeStateCode = "27", Gstin = GstinMaharashtra, RegistrationType = GstRegistrationType.Regular,
+            HomeStateCode = "27", Gstin = GstinMaharashtra,
+            RegistrationType = compositionDealer ? GstRegistrationType.Composition : GstRegistrationType.Regular,
+            CompositionSubType = compositionDealer ? CompositionSubType.Trader : null,
             ApplicableFrom = FyStart, Periodicity = GstReturnPeriodicity.Monthly,
             EWayBillEnabled = true, EWayApplicableFrom = FyStart,
         });
@@ -42,17 +49,26 @@ public sealed class EWayConnectorJsonTests
         var b2b = Add(c, "Local Debtor", "Sundry Debtors", true);
         b2b.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = GstinMaharashtra, StateCode = "27" };
 
-        var tax = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(50000m), rateBasisPoints) },
-            interState: false, GstTaxDirection.Output);
-        var lines = new List<EntryLine>
+        // A composition dealer collects no forward tax, so his bill of supply posts only the party and sales legs.
+        var saleValue = compositionDealer ? 2_04_317.63m : 50000m;
+        var lines = new List<EntryLine>();
+        if (compositionDealer)
         {
-            new(b2b.Id, new Money(50000m + tax.TotalTax.Amount), DrCr.Debit),
-            new(sales.Id, Money.FromRupees(50000m), DrCr.Credit),
-        };
-        lines.AddRange(tax.TaxLines);
+            lines.Add(new EntryLine(b2b.Id, new Money(saleValue), DrCr.Debit));
+            lines.Add(new EntryLine(sales.Id, new Money(saleValue), DrCr.Credit));
+        }
+        else
+        {
+            var tax = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(saleValue), rateBasisPoints) },
+                interState: false, GstTaxDirection.Output);
+            lines.Add(new EntryLine(b2b.Id, new Money(saleValue + tax.TotalTax.Amount), DrCr.Debit));
+            lines.Add(new EntryLine(sales.Id, new Money(saleValue), DrCr.Credit));
+            lines.AddRange(tax.TaxLines);
+        }
+
         var sale = new LedgerService(c).Post(new Voucher(Guid.NewGuid(),
             c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id, SaleDate, lines, partyId: b2b.Id,
-            inventoryLines: new[] { new VoucherInventoryLine(item.Id, c.MainLocation!.Id, 1m, Money.FromRupees(50000m)) }));
+            inventoryLines: new[] { new VoucherInventoryLine(item.Id, c.MainLocation!.Id, 1m, new Money(saleValue)) }));
         return (c, sale, new EWayBillService(c));
     }
 
@@ -123,6 +139,53 @@ public sealed class EWayConnectorJsonTests
         Assert.Equal(0L, item0.GetProperty("ces_amt_paisa").GetInt64());             // post-22-Sep cess trends to 0
         // The EWB number is NEVER in the request payload (ER-5 twin).
         Assert.DoesNotContain("231000000123", Encoding.UTF8.GetString(first));
+    }
+
+    /// <summary>
+    /// <b>W0-2 — the Part-A master codes reach the WIRE.</b> <c>EWayBillJson</c> copies <c>record.SupplyType</c> /
+    /// <c>SubSupplyType</c> / <c>DocType</c> verbatim into the request, so whatever the engine decided is what the
+    /// portal receives — which is why the engine emitting descriptions ("Outward", "Supply") rather than NIC codes was
+    /// a malformed statutory filing, not an internal-representation quibble. The domains are read from NIC's own
+    /// master-codes list, <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>: <c>supplyType</c> ∈
+    /// {I, O}; <c>subSupplyType</c> ∈ {1…12}; <c>docType</c> ∈ {INV, BIL, BOE, CHL, OTH}.
+    /// </summary>
+    [Fact]
+    public void Ewb01_carries_the_NIC_master_codes_verbatim_not_descriptions()
+    {
+        var (company, sale, service) = BuildMovement();
+        var record = Generate(service, sale);
+
+        using var doc = JsonDocument.Parse(EWayBillJson.BuildEwb01(company, sale, record));
+        var root = doc.RootElement;
+        Assert.Equal("O", root.GetProperty("supplyType").GetString());     // was "Outward"
+        Assert.Equal("1", root.GetProperty("subSupplyType").GetString());  // was "Supply"
+        Assert.Equal("INV", root.GetProperty("docType").GetString());
+
+        // W0-8 (review finding #1) — the CONSIGNOR/CONSIGNEE ends, which the mapping constrains alongside the codes:
+        // an Outward row is From = Self, To = Other GSTIN/URP.
+        Assert.Equal(GstinMaharashtra, root.GetProperty("fromGstin").GetString());
+        Assert.Equal("27", root.GetProperty("fromStateCode").GetString());
+        Assert.Equal("27", root.GetProperty("toStateCode").GetString());
+    }
+
+    /// <summary>
+    /// <b>W0-8 (review finding #18) — a CORRECTED value survives serialization onto the wire.</b> The only wire test
+    /// covered the O/1/INV row, so every value the Part-A correction introduced (BIL, CHL, "I", "3", "7", "8") reached
+    /// the portal through a path no test observed: the Desktop suite inspects <c>record.DocType</c> and never
+    /// serializes. <c>EWayBillJson</c> maps the three fields with <c>record.X ?? ""</c>, so a reordered or mistyped
+    /// assignment would be caught for a tax invoice and missed for a bill of supply.
+    /// </summary>
+    [Fact]
+    public void A_bill_of_supply_movement_serializes_docType_BIL_onto_the_wire()
+    {
+        var (company, sale, service) = BuildMovement(compositionDealer: true);
+        var record = Generate(service, sale);
+
+        using var doc = JsonDocument.Parse(EWayBillJson.BuildEwb01(company, sale, record));
+        var root = doc.RootElement;
+        Assert.Equal("BIL", root.GetProperty("docType").GetString());
+        Assert.Equal("O", root.GetProperty("supplyType").GetString());
+        Assert.Equal("1", root.GetProperty("subSupplyType").GetString());
     }
 
     [Fact]
