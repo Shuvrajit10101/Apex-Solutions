@@ -1,4 +1,4 @@
-namespace Apex.Ledger.Domain;
+﻿namespace Apex.Ledger.Domain;
 
 /// <summary>
 /// A per-voucher <b>e-Way Bill artefact</b> (Phase 9 slice 5; RQ-6; ER-5) — the record of one goods movement's EWB-01
@@ -188,7 +188,7 @@ public sealed class EWayBillRecord
     /// state — <see cref="EWayStatus.Pending"/>, because an EWB number only ever arrives from the portal (ER-5) — and
     /// they are <b>unfixable in-app</b>: the three fields are get-only with no mutator, <c>PrepareRecord</c> refuses a
     /// second record for the same voucher, and <c>Cancel</c> requires a Generated status. Left alone they would be
-    /// filed verbatim by <c>EWayBillJson.BuildEwb01</c>, which is the exact malformed filing W0-2 set out to end.
+    /// filed verbatim by <c>EWayBillJson.BuildEwb01</c>, which is the exact malformed filing W0-8 set out to end.
     ///
     /// <para><b>This is a re-derivation, not a guess.</b> The legacy value set is CLOSED — it is the output of the old
     /// engine's own three switch expressions — so each legacy triple identifies the document it came from, and the

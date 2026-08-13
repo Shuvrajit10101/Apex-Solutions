@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -601,7 +601,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
         c.Gst!.RegistrationType = GstRegistrationType.Composition;
         c.Gst!.CompositionSubType = CompositionSubType.Trader;
 
-        Assert.True(GstReportSupport.IsBillOfSupply(c, v));        // he IS now a §10 dealer
+        Assert.True(GstReportSupport.IsCompositionBillOfSupply(c, v)); // he IS now a §10 dealer
         Assert.True(GstReportSupport.HasForwardTaxLines(v));       // …and the GL nonetheless recorded forward tax
 
         // Neither statutory document may be issued for it.
@@ -625,23 +625,38 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
 
     /// <summary>
     /// <b>FIX-W1j — the gate that was the slice's only protection against an understated Grand Total, and had no
-    /// test.</b> Measured: deleting <c>if (HasForwardTaxLines || HasPostedForwardCess) return false;</c> from
-    /// <c>IsBillOfSupply</c> left 31 tests green, because every fixture in the slice either posted no tax (so the gate
-    /// never fires) or failed both limbs anyway (so its result is irrelevant).
+    /// test.</b> Measured: deleting the forward-tax gate (then written inline as
+    /// <c>if (HasForwardTaxLines || HasPostedForwardCess) return false;</c>, now
+    /// <c>if (CarriesForwardTax(company, voucher)) return false;</c> after W0-1's follow-up widened it to the ledger
+    /// side and W0-9 moved the whole rule into <c>GstReportSupport</c>) from <c>IsBillOfSupply</c> left 31 tests green,
+    /// because every fixture in the slice either posted no tax (so the gate never fires) or failed both limbs anyway
+    /// (so its result is irrelevant).
     ///
     /// <para>This exercises it on the limb where nothing else can mask it: a REGULAR dealer whose lines are all
     /// exempt — limb 2 says "bill of supply" — but whose voucher carries POSTED forward tax legs. With the gate the
     /// document keeps its TAX INVOICE title; without it the document is retitled BILL OF SUPPLY and its heads and
     /// breakup are stripped.</para>
     ///
-    /// <para><b>AND IT PINS A SEPARATE, PRE-EXISTING MONEY DEFECT the gate does NOT cure.</b> On the ITEM path,
-    /// <c>ProjectInvoice</c> takes its head totals from a LIVE <c>ComputeInvoiceTax</c> over the lines it can
-    /// classify, not from the POSTED tax legs (the SERVICE path reads the posted legs — the two paths disagree). A
-    /// wholly exempt item feeds that computation nothing, so the printed Grand Total here is ₹47,296.73 against a
-    /// posted party debit of ₹55,810.14: understated by the whole ₹8,513.41. That is NOT introduced by W0-1 and is
-    /// not fixed here — changing the item path's totals source is a money slice of its own — but it is asserted
-    /// rather than left silent, so the day it is fixed this test fails and says so. The in-app-reachable instance of
-    /// the same arithmetic (Regular → Composition, then reprint) IS closed, by FIX-W1c above.</para>
+    /// <para><b>🔴 W0-10 — THE ₹8,513.41 SHORTFALL THIS TEST USED TO PIN IS NOW CLOSED, AND THE ASSERTION IS INVERTED
+    /// ON PURPOSE.</b> Until W0-10 the lines below read <c>Assert.Equal(SupplyValue, data.GrandTotal)</c> and
+    /// <c>Assert.Equal(8_513.41m, postedPartyLeg.Amount - data.GrandTotal.Amount)</c> — they asserted the DEFECT to the
+    /// paisa rather than leaving it silent, with a note saying that the day it was fixed this test would fail and say
+    /// so. That day is this slice, and this is it saying so: <b>the change below is deliberate, not a regression.</b>
+    /// The cause was that <c>ProjectInvoice</c>'s ITEM pass took its head totals from a LIVE <c>ComputeInvoiceTax</c>
+    /// over the lines it could classify, while the SERVICE pass read the POSTED legs — one projector, two sources of
+    /// truth for money. A wholly exempt item feeds the live computation nothing, so this voucher's ₹8,513.41 of POSTED
+    /// forward tax vanished and the document demanded ₹47,296.73 against a posted party debit of ₹55,810.14. The item
+    /// pass now reads <c>GstReportSupport.ReadPostedRateGroups</c> / <c>PostedForwardRouting</c> /
+    /// <c>PostedCessTotal</c> — the same reads the service pass has always made — so the figure is the tax the general
+    /// ledger actually carries. Measured on this exact fixture: the Grand Total moved 47,296.73 ⇒ 55,810.14 and the
+    /// shortfall is 0.00.</para>
+    ///
+    /// <para><b>What it locks now is the positive invariant: the printed Grand Total IS the posted party leg.</b> That
+    /// is strictly stronger than the old pin — the old one would still have passed if the projector had drifted to any
+    /// other wrong figure, so long as the gap stayed 8,513.41. Read with the sibling
+    /// <c>ItemInvoicePostedTaxTests</c>, which drives the same rule from the four master edits that reach it through
+    /// the shipped UI. The in-app-reachable §10 instance of the same arithmetic (Regular → Composition, then reprint)
+    /// was closed earlier and separately, by FIX-W1c above.</para>
     /// </summary>
     [Fact]
     public void An_exempt_supply_that_posted_forward_tax_stays_a_tax_invoice()
@@ -673,23 +688,32 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
         Assert.False(data.IsBillOfSupply);
         Assert.Equal("TAX INVOICE", data.DocumentTitle);
 
-        // --- THE PIN: a pre-existing, separately-owned understatement on the ITEM path. See the doc comment. ---
-        // W0-1 follow-up review, finding #10: the previous pass replaced one tautology with another. `LedgerService
+        // --- W0-10: THE CURE, where the ₹8,513.41 shortfall used to be pinned. See the doc comment. ---
+        // W0-1 follow-up review, finding #10: an earlier pass replaced one tautology with another. `LedgerService
         // .Post` stores the CALLER's own Voucher instance (`_company.AddVoucherInternal(voucher)` — there is no clone
         // anywhere in Post), so re-reading `v.Lines` returns the very object this fixture built four lines earlier:
         // `Assert.Equal(partyDebit, postedPartyLeg)` compared `partyDebit` with `partyDebit` and could not fail on any
-        // input or any change to the ledger engine. It is gone. The load-bearing reconciliation is the shortfall
-        // assertion below, which measures a PRODUCTION output (`data.GrandTotal`) against the debt the GL recorded —
-        // and the leg is now read back through a real save → load round trip, which makes the read genuinely
-        // independent of this fixture's own object graph.
+        // input or any change to the ledger engine. It is gone. The load-bearing reconciliation is the invariant
+        // below, which measures a PRODUCTION output (`data.GrandTotal`) against the debt the GL recorded — and the leg
+        // is read back through a real save → load round trip, which makes the read genuinely independent of this
+        // fixture's own object graph.
         _storage.Save(c);
         var reloaded = _storage.Load(_storage.ListCompanies().Single(e => e.Name == "Exempt WithTax Co"));
         var postedPartyLeg = reloaded.Vouchers
             .Single(x => x.Id == v.Id).Lines
             .Single(l => l.LedgerId == k.CustomerId && l.Side == DrCr.Debit).Amount;
         Assert.Equal(Money.FromRupees(55_810.14m), postedPartyLeg);
-        Assert.Equal(SupplyValue, data.GrandTotal);                                    // 47,296.73 — WRONG, pinned
-        Assert.Equal(8_513.41m, postedPartyLeg.Amount - data.GrandTotal.Amount);       // the exact shortfall
+
+        // The document states the debt: Grand Total == the posted party leg, and the shortfall is gone, not smaller.
+        Assert.Equal(postedPartyLeg, data.GrandTotal);
+        Assert.Equal(0m, postedPartyLeg.Amount - data.GrandTotal.Amount);              // was 8,513.41 before W0-10
+        // …because the printed tax is now the tax the LEGS carry, not a live recomputation over the (exempt) items.
+        Assert.Equal(Money.FromRupees(4_256.71m), data.TotalCgst);
+        Assert.Equal(Money.FromRupees(4_256.70m), data.TotalSgst);
+        Assert.Equal(SupplyValue, data.TotalTaxable);                                  // the goods value, unchanged
+        var pinRow = Assert.Single(data.TaxRows);
+        Assert.Equal("18%", pinRow.RateLabel);
+        Assert.Equal(SupplyValue, pinRow.TaxableValue);
     }
 
     // ================================================================ 12 — FIX-W1k: silence is not an exemption
@@ -889,7 +913,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     /// payload declares a tax invoice while the printed paper says BILL OF SUPPLY. This test fails the day either
     /// side is changed, so the export/SEZ slice cannot land without resolving it.</para>
     ///
-    /// <para><b>🔴 W0-2 — THIS TEST'S ORIGINAL PREMISE WAS FALSIFIED, and the test is restated rather than deleted.</b>
+    /// <para><b>🔴 W0-8 — THIS TEST'S ORIGINAL PREMISE WAS FALSIFIED, and the test is restated rather than deleted.</b>
     /// It used to be named <c>…_an_exempt_supply_to_an_overseas_place_of_supply_…</c> and drove the collision from
     /// state code <b>"97"</b>, on the stated belief that 97 is overseas. It is not. The official state-code master at
     /// <c>https://einvoice1.gst.gov.in/Others/MasterCodes</c> (State Codes table, read from the page DOM) reads
@@ -916,7 +940,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     }
 
     /// <summary>
-    /// <b>W0-2, the corrected half — state code 97 is DOMESTIC and no longer collides.</b> The very shape the test
+    /// <b>W0-8, the corrected half — state code 97 is DOMESTIC and no longer collides.</b> The very shape the test
     /// above used to be built on: an exempt supply to an "Other Territory" party. Officially 97 is a domestic GST
     /// territory (see the citation above), so this is an ordinary domestic exempt supply — a bill of supply on paper
     /// AND an ordinary domestic supply to the e-invoice resolver, with no contradiction to pin. Kept as a test in its

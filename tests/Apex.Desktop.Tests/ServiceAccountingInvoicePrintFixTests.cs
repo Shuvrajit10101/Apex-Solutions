@@ -328,6 +328,12 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// path's invented nearest-rupee round-off was 0.00, so it could not see the ±0.50 defect it was otherwise
     /// perfectly placed to catch. On 7 @ ₹133.33 the posted party leg is 1213.31 and the invented round-off was −0.31,
     /// so this test now bites <c>applyInvoiceRoundOff: true</c> as well as its own F4 mutation.</para>
+    ///
+    /// <para><b>W0-10 — the stated bite is no longer expressible, and the assertions have grown.</b> The item pass no
+    /// longer calls <c>ComputeInvoiceTax</c> at all, so there is no <c>invoiceTax.TotalCess</c> to substitute: the
+    /// posted-cess preference stopped being a branch and became the only code path. What this test now guards is that
+    /// nobody re-introduces one. The GST heads are asserted here for the same reason — before W0-10 they were the LIVE
+    /// figures and a re-rated item would have moved them.</para>
     /// </summary>
     [Fact]
     public void ItemInvoice_cessRateChangedAfterPosting_reprintStillFootsToThePostedPartyLeg()
@@ -365,6 +371,10 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// master, reprint ⇒ <c>InvalidOperationException</c>. Reprinting an issued document must never depend on a live
     /// master still being valid.
     /// <para><b>Bite:</b> resolve the cess unconditionally (before consulting the posted cess legs) and this throws.</para>
+    ///
+    /// <para><b>W0-10 — F3 is now closed STRUCTURALLY rather than caught.</b> The print path resolves no cess at all
+    /// any more (every figure is read off the posted legs), so there is no live resolve left to throw and the bite
+    /// above can only be re-created by re-introducing one. Kept as a standing lock on exactly that.</para>
     /// </summary>
     [Fact]
     public void ItemInvoice_rspCessWhoseRetailSalePriceIsLaterCleared_reprintsWithoutThrowing()
@@ -399,6 +409,14 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// <para><b>Bite:</b> delete the try/catch around the fallback <c>ResolveCess</c> and this throws
     /// <c>InvalidOperationException</c>.</para>
     ///
+    /// <para><b>W0-10 — THE FALLBACK ITSELF IS GONE, and this test's meaning changed with it.</b> "A voucher that
+    /// posted no cess leg falls back to a live resolve" was the residual live-money hole: it also meant that declaring
+    /// a VALUABLE cess on the master after the sale printed cess that is in no ledger. The item pass now reads
+    /// <c>PostedCessTotal</c> and nothing else, so this shape no longer degrades to zero — it IS zero, because zero is
+    /// what the general ledger recorded. The sibling
+    /// <c>ItemInvoicePostedTaxTests.A_cess_added_to_the_master_after_posting_cannot_appear_on_the_reprint</c> drives
+    /// the valuable-cess half, which this test could never see (an unvaluable cess resolves to nothing either way).</para>
+    ///
     /// <para><b>F10 — re-pointed at an ODD-PAISA fixture</b> (7 @ ₹133.33 ⇒ a posted party leg of 1101.31, where the
     /// invented print-time round-off was −0.31). It used to run on 10 @ ₹100, whose round-off was 0.00.</para>
     /// </summary>
@@ -432,6 +450,12 @@ public sealed class ServiceAccountingInvoicePrintFixTests : IDisposable
     /// 22-Sep-2025; an invoice dated BEFORE that must reprint at the historic 18% it posted.
     /// <para><b>Bite:</b> call <c>gst.ResolveRate(item, valueLedger)</c> (drop <c>voucher.Date</c>) and the reprint
     /// states 40% tax on a voucher whose GL carries 18%.</para>
+    ///
+    /// <para><b>W0-10 — the print path resolves NO rate now, dated or otherwise, so this test's meaning changed.</b>
+    /// F4's dated overload was the narrow fix for one way a live resolve could disagree with the posted legs (a rate
+    /// history window); reading <c>ReadPostedRateGroups</c> is the general one, and it subsumes it — the printed "18%"
+    /// below is now the rate the tax LEG carries, not a rate resolved as of the voucher date that happens to match.
+    /// The bite is no longer expressible; what this guards is that no live resolve returns.</para>
     ///
     /// <para><b>F10 — re-pointed at an ODD-PAISA fixture</b> (7 @ ₹133.33 ⇒ a posted party leg of 1101.31). On the old
     /// 10 @ ₹100 fixture the invented print-time round-off was 0.00 and this test could not see it.</para>

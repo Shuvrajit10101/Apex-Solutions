@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Xunit;
@@ -166,7 +166,7 @@ public sealed class B2cQrTests
     // ================================================ W0-8: the overseas suppression, held at THIS call site
 
     /// <summary>
-    /// <b>🔴 The overseas-suppression branch of <c>BuildFor</c> had NO test — not before the W0-2 slice and not after
+    /// <b>🔴 The overseas-suppression branch of <c>BuildFor</c> had NO test — not before the W0-8 slice and not after
     /// it (review findings #10 / #15).</b> Proven, not assumed: deleting the
     /// <c>GstReportSupport.IsOverseasStateCode</c> guard from <c>B2cQrService</c> outright left all 1,390 tests in this
     /// project green, so an export sale could have carried a domestic UPI payment QR under a fully green gate. The

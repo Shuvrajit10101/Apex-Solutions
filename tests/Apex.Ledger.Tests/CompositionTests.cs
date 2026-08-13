@@ -1,4 +1,4 @@
-using Apex.Ledger;
+﻿using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
@@ -107,7 +107,7 @@ public sealed class CompositionTests
             new EntryLine(Add(c, "Cust", "Sundry Debtors", true).Id, Money.FromRupees(500m), DrCr.Debit),
             new EntryLine(Add(c, "Sales", "Sales Accounts", false).Id, Money.FromRupees(500m), DrCr.Credit),
         });
-        Assert.True(GstReportSupport.IsBillOfSupply(c, v));
+        Assert.True(GstReportSupport.IsCompositionBillOfSupply(c, v));
 
         var reg = NewRegularCompany();
         var regSalesType = reg.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id;
@@ -116,11 +116,11 @@ public sealed class CompositionTests
             new EntryLine(Add(reg, "Cust", "Sundry Debtors", true).Id, Money.FromRupees(500m), DrCr.Debit),
             new EntryLine(Add(reg, "Sales", "Sales Accounts", false).Id, Money.FromRupees(500m), DrCr.Credit),
         });
-        Assert.False(GstReportSupport.IsBillOfSupply(reg, rv));
+        Assert.False(GstReportSupport.IsCompositionBillOfSupply(reg, rv));
         Assert.DoesNotContain("Tally", GstReportSupport.BillOfSupplyDeclaration, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>A10 LOW consistency fix: <see cref="GstReportSupport.IsBillOfSupply"/> must also gate on
+    /// <summary>A10 LOW consistency fix: <see cref="GstReportSupport.IsCompositionBillOfSupply"/> must also gate on
     /// <see cref="GstConfig.Enabled"/>, not just <c>RegistrationType == Composition</c>. A company that enabled GST as
     /// Composition and then toggled GST OFF (the F11 disable branch keeps <c>RegistrationType = Composition</c> while
     /// setting <c>Enabled = false</c>) must render an ordinary Sales voucher — NOT a Bill of Supply with the §10
@@ -140,13 +140,13 @@ public sealed class CompositionTests
 
         // Genuine (Enabled) Composition company ⇒ Bill of Supply.
         var enabledSale = new Voucher(Guid.NewGuid(), salesType, D1, SaleLines());
-        Assert.True(GstReportSupport.IsBillOfSupply(c, enabledSale));
+        Assert.True(GstReportSupport.IsCompositionBillOfSupply(c, enabledSale));
 
         // Toggle GST OFF the way the F11 disable branch does: Enabled=false, RegistrationType stays Composition.
         c.Gst!.Enabled = false;
         Assert.Equal(GstRegistrationType.Composition, c.Gst.RegistrationType); // reg-type is intentionally retained
         var disabledSale = new Voucher(Guid.NewGuid(), salesType, D2, SaleLines());
-        Assert.False(GstReportSupport.IsBillOfSupply(c, disabledSale)); // GST-off ⇒ ordinary voucher, not a Bill of Supply
+        Assert.False(GstReportSupport.IsCompositionBillOfSupply(c, disabledSale)); // GST-off ⇒ ordinary voucher, not a Bill of Supply
     }
 
     // ---------------------------------------------------------------- Test 2: ITC blocked (inward)

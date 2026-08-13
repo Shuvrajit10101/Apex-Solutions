@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 
@@ -82,7 +82,7 @@ public sealed class B2cQrService
         // finding #2.
         if (!string.IsNullOrWhiteSpace(partyGst?.Gstin)) return null;
         if (partyGst is { IsB2C: false }) return null;
-        // W0-2 — the third copy of the overseas rule, now routed through the one shared predicate. It used to test
+        // W0-8 — the third copy of the overseas rule, now routed through the one shared predicate. It used to test
         // `is "96" or "97"`: 97 is "Other Territory", a DOMESTIC GST territory (so a B2C sale there was wrongly denied
         // its payment QR), and 99 — a genuine OTHER COUNTRIES code — was missed. Official state-code master:
         // https://einvoice1.gst.gov.in/Others/MasterCodes.

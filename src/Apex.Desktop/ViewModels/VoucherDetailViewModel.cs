@@ -45,8 +45,8 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// Supply (de-branded, ER-11); empty otherwise — including on a <b>regular</b> dealer's exempt Bill of Supply, which
     /// takes the other limb of §31(3)(c) and must not claim composition status.
     /// <para><b>FIX-W1e — this must agree with <see cref="DocumentLabel"/>, and W0-1 briefly let it disagree.</b> The
-    /// two properties were split across two different predicates (this one on the engine's §10-only
-    /// <c>GstReportSupport.IsBillOfSupply</c>, the badge on the wider <c>VoucherPrintProjector.IsBillOfSupply</c>),
+    /// two properties were split across two different predicates (this one on the §10-only limb — since W0-9 spelled
+    /// <c>GstReportSupport.IsCompositionBillOfSupply</c> — and the badge on the whole-of-§31(3)(c) rule),
     /// and MainWindow.axaml renders them one under the other in the same Border, binding this TextBlock's visibility
     /// to the STRING rather than to the document kind. Reachable with no import or tampering: post a taxed sale as a
     /// Regular dealer, then switch Registration Type to Composition in the F11 GST config (which is idempotent and
@@ -57,7 +57,7 @@ public sealed partial class VoucherDetailViewModel : ViewModelBase
     /// <c>InvoicePrintData.TopDeclaration</c> (<c>billOfSupply ? TopDeclarationFor(…) : empty</c>), so the screen and
     /// the paper cannot differ.</para></summary>
     public string BillOfSupplyDeclaration =>
-        IsBillOfSupply && GstReportSupport.IsBillOfSupply(_company, _voucher)
+        IsBillOfSupply && GstReportSupport.IsCompositionBillOfSupply(_company, _voucher)
             ? GstReportSupport.BillOfSupplyDeclaration
             : string.Empty;
 

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 
@@ -94,7 +94,7 @@ public sealed class EInvoiceService
 
         var partyGst = voucher.PartyId is Guid pid ? _company.FindLedger(pid)?.PartyGst : null;
 
-        // Export: an overseas place of supply. W0-2 — this used to test `is "96" or "97"`, which BOTH over-reached and
+        // Export: an overseas place of supply. W0-8 — this used to test `is "96" or "97"`, which BOTH over-reached and
         // under-reached: the official state-code master (https://einvoice1.gst.gov.in/Others/MasterCodes) reads
         // 96 = OTHER COUNTRIES, 97 = Other Territory (a DOMESTIC GST territory), 99 = OTHER COUNTRIES. Routed through
         // the shared predicate so the e-invoice, e-Way and B2C-QR paths can never disagree about what is overseas.

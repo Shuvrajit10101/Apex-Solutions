@@ -1,4 +1,4 @@
-using Apex.Ledger.Domain;
+﻿using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 
 namespace Apex.Ledger.Services;
@@ -343,7 +343,7 @@ public sealed class EWayBillService
     public readonly record struct EWayPartACodes(string SupplyType, string SubSupplyType, string DocType);
 
     /// <summary>
-    /// <b>W0-2 — the NIC Part-A master codes for a goods movement.</b> The single place the
+    /// <b>W0-8 — the NIC Part-A master codes for a goods movement.</b> The single place the
     /// <c>supplyType</c> / <c>subSupplyType</c> / <c>docType</c> triple is decided. Every triple it can return is a row
     /// of NIC's published Supply-Type/Document-Type mapping; the exhaustive proof is
     /// <c>EWayPartACodeTests.Every_triple_the_engine_can_emit_is_a_row_of_the_official_NIC_mapping</c>.
@@ -369,18 +369,35 @@ public sealed class EWayBillService
     /// deliberately NOT shared</b> with <c>EInvoiceJson</c>'s base-type⇒docType switch: they are different domains that
     /// happen to overlap on "INV", and merging them would re-introduce exactly this class of defect.</item>
     /// <item>Every outward Sales voucher stamped <c>INV</c> — including one the app itself titles <b>BILL OF SUPPLY</b>.
-    /// The bill-of-supply limb now runs through the SHARED <see cref="GstReportSupport.IsBillOfSupply"/>, not a sixth
-    /// private copy of the document-kind rule.</item>
+    /// The bill-of-supply limb now runs through the SHARED
+    /// <see cref="GstReportSupport.IsBillOfSupplyForFiling"/>, not a sixth private copy of the document-kind rule.</item>
     /// </list></para>
+    ///
+    /// <para><b>🔴 W0-9 review — the INWARD arm was the SIXTH COPY, and is now routed too.</b> The Purchase arm used to
+    /// hardcode <c>("I","1","INV")</c>: a statutory document kind decided from the BASE TYPE alone, three lines below
+    /// the outward arm W0-9 had just routed through the shared rule. Sales and Purchase are the <b>only two limbs of
+    /// this method that can execute in the shipped app</b> (see the reachability note below), so it was live: a Regular
+    /// dealer buying wholly-exempt goods inter-state above the threshold filed a <b>Tax Invoice</b> for a consignment
+    /// that can only have travelled on a bill of supply. <b>Exemption is a property of the GOODS, not the
+    /// counterparty</b>, and NIC's mapping carries <c>Inward | 1 Supply | BIL</c>, so nothing in the code domain ever
+    /// forced the wrong value. The arm now reads <see cref="GstReportSupport.IsInwardBillOfSupply"/> — the engine's
+    /// inward-facing twin of the outward rule, which shares the outward limb's own "wholly exempt" test so the two
+    /// directions cannot disagree.</para>
     ///
     /// <para><b>The mapping, and why each row is what it is.</b>
     /// <list type="bullet">
     /// <item><b>Sales</b> ⇒ <c>O</c> + (overseas place of supply ? <c>3</c> Export : <c>1</c> Supply) +
-    /// (<see cref="GstReportSupport.IsBillOfSupply"/> ? <c>BIL</c> : <c>INV</c>). The mapping permits
+    /// (<see cref="GstReportSupport.IsBillOfSupplyForFiling"/> ? <c>BIL</c> : <c>INV</c>). The mapping permits
     /// Outward+Supply and Outward+Export with a Tax Invoice <b>or</b> a Bill of Supply. A bill of supply genuinely
     /// needs an e-Way Bill: CGST Rule 138(1) covers movement "in relation to a supply" (not "taxable supply") and
-    /// Explanation 2 reckons the consignment value from "an invoice, <b>a bill of supply</b> or a delivery challan".</item>
-    /// <item><b>Purchase</b> ⇒ <c>I</c> + <c>1</c> Supply + <c>INV</c>.</item>
+    /// Explanation 2 reckons the consignment value from "an invoice, <b>a bill of supply</b> or a delivery challan".
+    /// <b>It is <see cref="GstReportSupport.IsBillOfSupplyForFiling"/>, not
+    /// <see cref="GstReportSupport.IsBillOfSupply"/>, and the difference is a recorded user ruling (R12, 2026-08-14)</b>
+    /// covering one shape: a §10 dealer's movement carrying posted forward tax files <c>BIL</c>, because §31(3)(c) is
+    /// unconditional for him and the print rule's money gate protects a printed TOTAL this field does not carry. That
+    /// predicate's doc comment carries the full reasoning.</item>
+    /// <item><b>Purchase</b> ⇒ <c>I</c> + <c>1</c> Supply +
+    /// (<see cref="GstReportSupport.IsInwardBillOfSupply"/> ? <c>BIL</c> : <c>INV</c>).</item>
     /// <item><b>Credit Note</b> (a sales return) ⇒ <c>I</c> + <c>7</c> Sales Return + <c>CHL</c>. <b>The direction is
     /// corrected here</b>: it used to file OUTWARD. The mapping's only Sales-Return row is
     /// <c>Inward | Sales Return | Delivery Challan</c>, From = Other GSTIN/URP, To = Self — the goods come back to the
@@ -416,7 +433,7 @@ public sealed class EWayBillService
     /// honest fallback if nothing fitted — but for a handicraft <i>sale</i> it would be positively invalid, since
     /// Outward+Others permits only a Delivery Challan or Others, never the Tax Invoice the sale travels on. Separately,
     /// an <b>import</b> purchase should file <c>2</c> Import + <c>BOE</c>; the app has no Bill of Entry document, so it
-    /// files the ordinary <c>I</c>+<c>1</c>+<c>INV</c> rather than claim a customs document it does not hold.</para>
+    /// files the ordinary inward Supply row rather than claim a customs document it does not hold.</para>
     /// </summary>
     public EWayPartACodes PartACodesFor(Voucher voucher, EWayTransactionType txnType = EWayTransactionType.Regular)
     {
@@ -438,10 +455,12 @@ public sealed class EWayBillService
             VoucherBaseType.Sales => new EWayPartACodes(
                 "O",
                 GstReportSupport.IsOverseasStateCode(GstReportSupport.PlaceOfSupply(_company, voucher)) ? "3" : "1",
-                GstReportSupport.IsBillOfSupply(_company, voucher) ? "BIL" : "INV"),
+                GstReportSupport.IsBillOfSupplyForFiling(_company, voucher) ? "BIL" : "INV"),
 
-            // Inward supply on the supplier's invoice. (An import would be 2 + BOE — not modelled; see the note above.)
-            VoucherBaseType.Purchase => new EWayPartACodes("I", "1", "INV"),
+            // Inward supply on the SUPPLIER's document — routed, not assumed. (An import would be 2 + BOE — not
+            // modelled; see the note above.)
+            VoucherBaseType.Purchase => new EWayPartACodes(
+                "I", "1", GstReportSupport.IsInwardBillOfSupply(_company, voucher) ? "BIL" : "INV"),
 
             // A sales return travels INWARD on a delivery challan (the only Sales-Return row in the official mapping).
             VoucherBaseType.CreditNote => new EWayPartACodes("I", jobWork ? "6" : "7", "CHL"),

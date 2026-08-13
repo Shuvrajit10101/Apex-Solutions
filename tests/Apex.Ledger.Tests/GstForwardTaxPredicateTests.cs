@@ -15,10 +15,15 @@ namespace Apex.Ledger.Tests;
 /// <list type="number">
 /// <item><b>Finding #7 (LOW).</b> <c>HasPostedForwardCessLines</c>'s doc comment claimed it was "the exact predicate
 /// <c>PostedCessTotal(voucher) != 0</c> expresses". That equivalence is FALSE: the method answers on the EXISTENCE of a
-/// forward cess line, <c>PostedCessTotal</c> on the SUM of their amounts. A reader who took the comment at its word and
-/// substituted one for the other would flip <c>VoucherPrintProjector.HasPostedForwardCess</c> from "use the POSTED cess"
-/// to "resolve cess live from the master" for any voucher whose cess legs net to zero — reintroducing the exact F4
-/// defect the delegation exists to prevent. The distinction is PINNED here rather than merely described.</item>
+/// forward cess line, <c>PostedCessTotal</c> on the SUM of their amounts. The distinction is PINNED here rather than
+/// merely described.
+/// <para><b>W0-10 review (finding #7) — the CONSEQUENCE named here has moved, and the pin has not.</b> This used to
+/// say that substituting one for the other would flip <c>VoucherPrintProjector.HasPostedForwardCess</c> from "use the
+/// POSTED cess" to "resolve cess live from the master", reintroducing F4. <b>W0-10 deleted that member</b> along with
+/// every live cess resolve on the print path. The surviving consumer is <c>GstReportSupport.CarriesForwardTax</c>,
+/// which <c>IsBillOfSupply</c>'s first gate reads — so for a voucher whose forward cess legs net to zero the swap now
+/// re-classifies the DOCUMENT KIND instead, titling a cess-bearing movement BILL OF SUPPLY and filing NIC
+/// <c>BIL</c>.</para></item>
 /// <item><b>Finding #1 (HIGH).</b> "Carries forward tax" had to stop meaning "carries GST metadata": the As-Voucher
 /// entry path stamps none, so a hand-keyed credit to Output CGST/SGST was invisible to the §10(4) posting guard.
 /// <c>CarriesForwardTax</c> also reads the LEDGER classification, and its exclusions (Input direction, RCM Output) are

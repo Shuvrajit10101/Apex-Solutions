@@ -230,7 +230,7 @@ public static class EWayBillJson
         {
             if (line.Gst is not { } g || g.IsReverseCharge) continue;
             if (g.TaxHead == GstTaxHead.Cess) continue;
-            var rate = GstReportSupport.IntegratedRateOf(g);
+            var rate = GstReportSupport.IntegratedRateOf(g, line.Amount);
             var cur = byRate.TryGetValue(rate, out var acc) ? acc : (0L, 0L, 0L, 0L);
             var amount = MoneyCodec.ToPaisa(line.Amount);
             var taxable = Math.Max(cur.Item4, MoneyCodec.ToPaisa(g.TaxableValue));

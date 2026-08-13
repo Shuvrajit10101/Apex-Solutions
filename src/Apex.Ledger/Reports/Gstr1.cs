@@ -538,7 +538,7 @@ public sealed record Gstr1(
             // rate group. Its (doubled) cess-rate key would otherwise inject a phantom rate row into the rate-wise /
             // B2C consolidation and duplicate the group's taxable value. Skip it here; reports read cess separately.
             if (g.TaxHead == GstTaxHead.Cess) continue;
-            var rate = GstReportSupport.IntegratedRateOf(g);
+            var rate = GstReportSupport.IntegratedRateOf(g, line.Amount);
             if (!byRate.TryGetValue(rate, out var acc)) byRate[rate] = acc = new HeadAmounts();
             switch (g.TaxHead)
             {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -598,7 +598,7 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         Assert.False(GstReportSupport.HasForwardTaxLines(v));
         Assert.False(GstReportSupport.HasPostedForwardCessLines(v));
         // …but the GL says otherwise, and the document kind must follow the GL.
-        Assert.True(GstReportSupport.IsBillOfSupply(c, v));                 // he IS a §10 dealer
+        Assert.True(GstReportSupport.IsCompositionBillOfSupply(c, v));      // he IS a §10 dealer
         Assert.False(VoucherPrintProjector.IsBillOfSupply(c, v));           // …yet neither document may be issued
         Assert.False(VoucherPrintProjector.IsTaxInvoice(c, v));
 
@@ -696,7 +696,7 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         Assert.Equal(Money.FromRupees(55_810.14m),
             loadedVoucher.Lines.Single(l => l.LedgerId == customerId && l.Side == DrCr.Debit).Amount);
         Assert.True(GstReportSupport.HasForwardTaxLines(loadedVoucher));
-        Assert.True(GstReportSupport.IsBillOfSupply(reloaded, loadedVoucher));   // he IS a §10 dealer now
+        Assert.True(GstReportSupport.IsCompositionBillOfSupply(reloaded, loadedVoucher)); // he IS a §10 dealer now
 
         // It DISPLAYS: no statutory badge is claimed for a document neither kind describes.
         var detail = new VoucherDetailViewModel(reloaded, loadedVoucher);
@@ -715,7 +715,7 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
     // ================================================================ 3b — the e-Way Bill docType, NOW ROUTED
 
     /// <summary>
-    /// <b>W0-2 — THE PIN IS RELEASED. This test asserted <c>"INV"</c>; it now asserts <c>"BIL"</c>, and that reversal
+    /// <b>W0-8 — THE PIN IS RELEASED. This test asserted <c>"INV"</c>; it now asserts <c>"BIL"</c>, and that reversal
     /// is a CORRECTION, not a regression.</b>
     ///
     /// <para>What it used to pin: <c>EWayBillService</c> decided the NIC Part-A <c>docType</c> from
@@ -778,21 +778,25 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
     /// <b>🔴 PINNED GAP (W0-8, review findings #3 / #8 / #14) — the OTHER half of §31(3)(c) is still contradictory, and
     /// the slice that closed the composition half left this half with strictly LESS coverage than before.</b>
     ///
-    /// <para>The e-Way engine routes <c>docType</c> through <c>GstReportSupport.IsBillOfSupply</c>, which is the §10
-    /// <b>composition</b> limb only (it gates on <c>Gst is { Enabled: true, RegistrationType: Composition }</c>). The
-    /// printed title comes from <see cref="VoucherPrintProjector.IsBillOfSupply"/>, which adds the §31(3)(c)
-    /// <b>wholly-exempt</b> limb. So a REGULAR dealer moving wholly-exempt goods — the commoner shape by far — has his
-    /// paper titled BILL OF SUPPLY with the Rule-49 captions while the EWB-01 declares <c>docType "INV"</c>, a Tax
-    /// Invoice. One consignment, two mutually exclusive statutory claims: precisely the defect the slice exists to
-    /// remove, still live. The test above was renamed and repurposed to the composition case, and nothing replaced it.</para>
+    /// <para><b>W0-9 — THE PIN IS RELEASED. This test asserted <c>"INV"</c>; it now asserts <c>"BIL"</c>, and the
+    /// reversal is the acceptance criterion of the slice, not a regression.</b></para>
     ///
-    /// <para>This asserts the CURRENT (wrong) value deliberately, in the suite's <c>PINNED_GAP</c> idiom, so the
-    /// contradiction is visible rather than laundered. Closing it means lifting the exempt limb out of this Desktop
-    /// projector into the Ledger layer — writing a second copy of the exempt rule inside the e-Way engine is the exact
-    /// pathology the shared-predicate note exists to prevent. The day it is lifted, this test fails and says so.</para>
+    /// <para>What it used to pin: the e-Way engine routed <c>docType</c> through <c>GstReportSupport.IsBillOfSupply</c>,
+    /// which was the §10 <b>composition</b> limb only (it gated on
+    /// <c>Gst is { Enabled: true, RegistrationType: Composition }</c>), while the printed title came from a predicate of
+    /// the SAME NAME in <c>VoucherPrintProjector</c> that added the §31(3)(c) <b>wholly-exempt</b> limb. So a REGULAR
+    /// dealer moving wholly-exempt goods — the commoner shape by far — had his paper titled BILL OF SUPPLY with the
+    /// Rule-49 captions while the EWB-01 declared <c>docType "INV"</c>, a Tax Invoice. One consignment, two mutually
+    /// exclusive statutory claims, with the wrong one on the government filing.</para>
+    ///
+    /// <para><b>What changed.</b> The exempt limb was lifted out of the Desktop projector into
+    /// <c>GstReportSupport.IsBillOfSupply</c>, which is now the WHOLE of §31(3)(c) and is the one rule the printer, the
+    /// e-Way Part-A and the POS receipt all read. Writing a second copy of the exempt rule inside the e-Way engine was
+    /// never an option — that is the exact pathology the shared-predicate note exists to prevent. The document kind and
+    /// the filed code are now ONE decision, asserted as such below.</para>
     /// </summary>
     [Fact]
-    public void PINNED_GAP_a_regular_dealers_exempt_movement_prints_BILL_OF_SUPPLY_but_files_INV()
+    public void A_regular_dealers_wholly_exempt_movement_prints_BILL_OF_SUPPLY_and_files_BIL()
     {
         var k = NewPosKit(GstRegistrationType.Regular);
         var c = k.Company;
@@ -816,13 +820,17 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         // The paper says BILL OF SUPPLY, via the §31(3)(c) exempt limb …
         Assert.True(VoucherPrintProjector.IsBillOfSupply(c, v));
         Assert.Equal(GstReportSupport.BillOfSupplyTitle, VoucherPrintProjector.ProjectInvoice(c, v).DocumentTitle);
-        // … while the Ledger-layer predicate the e-Way engine consults says no, because this dealer is not §10.
-        Assert.False(GstReportSupport.IsBillOfSupply(c, v));
+        // … and the Ledger-layer predicate the e-Way engine consults now says the SAME thing, because the exempt limb
+        // lives there too. It is still NOT the §10 limb — he is a Regular dealer, so no Rule 5(1)(f) declaration.
+        Assert.True(GstReportSupport.IsBillOfSupply(c, v));
+        Assert.False(GstReportSupport.IsCompositionBillOfSupply(c, v));
+        Assert.Equal(string.Empty, VoucherPrintProjector.ProjectInvoice(c, v).TopDeclaration);
 
         var eway = new EWayBillService(c);
         Assert.Equal(EWayCoverage.Required, eway.CoverageOf(v));
         var record = eway.PrepareRecord(v, D1.AddDays(3));
-        Assert.Equal("INV", record.DocType);   // THE PIN — the contradiction, held where it can be seen.
+        Assert.Equal("BIL", record.DocType);
+        Assert.NotEqual("INV", record.DocType);   // the value this movement used to file — THE PIN, released.
     }
 
     // ================================================================ 4 — the mixed RCM / exempt shape

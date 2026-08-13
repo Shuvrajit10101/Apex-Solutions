@@ -59,6 +59,12 @@ public sealed class InvoicePrintFootingTests : IDisposable
     ///
     /// <para><b>Bite:</b> restore <c>applyInvoiceRoundOff: true</c> on the <c>gst.ComputeInvoiceTax</c> call in
     /// <c>ProjectInvoice</c> and this prints 1101.00 against a posted 1101.31.</para>
+    ///
+    /// <para><b>W0-10 — that call is gone, so the bite is no longer expressible and this test's meaning changed.</b>
+    /// The item pass reads its heads, rows, cess and routing off the POSTED legs; a print-time round-off cannot be
+    /// invented because there is no print-time computation left to invent one. What this now locks is the undrifted
+    /// baseline of the invariant — an ordinary odd-paisa invoice, no master edited, printed Grand Total == posted party
+    /// leg — with the drifted cases driven by the sibling <c>ItemInvoicePostedTaxTests</c>.</para>
     /// </summary>
     [Fact]
     public void ItemInvoice_oddPaisa_printedGrandTotal_equalsPostedPartyLeg()
@@ -602,7 +608,7 @@ public sealed class InvoicePrintFootingTests : IDisposable
         foreach (var l in v.Lines)
         {
             if (l.Gst is not { IsReverseCharge: false } g || g.TaxHead == GstTaxHead.Cess) continue;
-            var rate = GstReportSupport.IntegratedRateOf(g);
+            var rate = GstReportSupport.IntegratedRateOf(g, l.Amount);
             var cur = byRate.TryGetValue(rate, out var m) ? m : 0m;
             if (g.TaxableValue.Amount > cur) byRate[rate] = g.TaxableValue.Amount;
         }

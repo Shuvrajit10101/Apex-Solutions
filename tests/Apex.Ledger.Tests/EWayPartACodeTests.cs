@@ -1,4 +1,4 @@
-using Apex.Ledger.Domain;
+﻿using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Xunit;
@@ -6,7 +6,7 @@ using Xunit;
 namespace Apex.Ledger.Tests;
 
 /// <summary>
-/// <b>W0-2 — the NIC e-Way Part-A master codes.</b> The Part-A <c>supplyType</c> / <c>subSupplyType</c> / <c>docType</c>
+/// <b>W0-8 — the NIC e-Way Part-A master codes.</b> The Part-A <c>supplyType</c> / <c>subSupplyType</c> / <c>docType</c>
 /// triple is a <b>statutory filing</b> field set: it goes verbatim onto the EWB-01 request
 /// (<c>EWayBillJson.BuildEwb01</c>), so an out-of-domain value is a malformed government filing, not a cosmetic defect.
 /// Before this suite the engine emitted human-readable DESCRIPTIONS ("Outward", "Supply", "Job Work") and two codes

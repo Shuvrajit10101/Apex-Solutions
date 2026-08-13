@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
@@ -142,7 +142,7 @@ public sealed class EWayConnectorJsonTests
     }
 
     /// <summary>
-    /// <b>W0-2 — the Part-A master codes reach the WIRE.</b> <c>EWayBillJson</c> copies <c>record.SupplyType</c> /
+    /// <b>W0-8 — the Part-A master codes reach the WIRE.</b> <c>EWayBillJson</c> copies <c>record.SupplyType</c> /
     /// <c>SubSupplyType</c> / <c>DocType</c> verbatim into the request, so whatever the engine decided is what the
     /// portal receives — which is why the engine emitting descriptions ("Outward", "Supply") rather than NIC codes was
     /// a malformed statutory filing, not an internal-representation quibble. The domains are read from NIC's own
