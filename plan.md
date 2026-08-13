@@ -1539,6 +1539,241 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     the **printed-vs-posted money defect** (`VoucherPrintProjector.cs:467` — a party debit understated by the
     whole **₹8,513.41**) · the missing **zero-rated / SEZ** concept, the other half of the pin above · the
     **`CostAllocationStrictness`** naming debt.
+  - **W0-9 (W0-1 follow-up) ONE bill-of-supply rule — collapse the two predicates that disagree** — **DONE.**
+    The §31(3)(c) **exempt limb moved DOWN** into `GstReportSupport`, so `GstReportSupport.IsBillOfSupply` is now the
+    **whole section** and the printer, the e-Way Part-A `docType`, the POS receipt and the drill badge all read it.
+    The §10 limb kept its own name — **`GstReportSupport.IsCompositionBillOfSupply`** — because the Rule 5(1)(f)
+    composition declaration must NOT print on a regular dealer's exempt bill of supply; renaming it forced the
+    compiler to surface every call site rather than let any of them change answer silently. `IsTaxInvoice` /
+    `IsServiceAccountingInvoice` and the posted-tax reads (`ReadPostedRateGroups`, `PostedForwardRouting`,
+    `ResolveValueLedger`) moved with it, since the exempt limb gates on them; the three `VoucherPrintProjector`
+    predicates are now **pure forwards** with no logic of their own, pinned by
+    `OneBillOfSupplyRuleDelegationTests.The_desktop_wrappers_never_answer_differently_from_the_engine`.
+    `VoucherPrintProjector.PostedCess` was deleted as a byte-identical duplicate of `GstReportSupport.PostedCessTotal`.
+    **No new project reference** — every dependency the limb needed (`GstService`, `Gstr1`) was already in
+    `Apex.Ledger`, so the dependency graph is unchanged. **`PINNED_GAP_a_regular_dealers_exempt_movement_prints_
+    BILL_OF_SUPPLY_but_files_INV` failed by design and is restated** as
+    `A_regular_dealers_wholly_exempt_movement_prints_BILL_OF_SUPPLY_and_files_BIL`.
+    **Only ONE caller changed answer, and it is the fix**: `EWayBillService.PartACodesFor` now files `BIL` for a
+    regular dealer's wholly-exempt movement. Original scope below.
+  - **W0-9 REVIEW FIXES (3 adversarial lenses; the two that go to the slice's own central claim)** — **DONE.**
+    **(1) 🔴 R12 USER RULING, taken 2026-08-14 — a §10 dealer's movement carrying posted forward tax files `BIL`.**
+    Before W0-9 it filed `BIL`; unifying the outward rule flipped it to `INV` **accidentally**, because
+    `IsBillOfSupply`'s first gate is `CarriesForwardTax` and that gate exists for a **PRINT-MONEY** reason (its own
+    comment: titling such a document a bill of supply "would print a Grand Total short of the posted party leg") — it
+    was silently handed authority over a **filing field that carries no money at all**. **Dealer status decides:**
+    §31(3)(c) is unconditional for a §10 person ("shall issue, *instead of a tax invoice*, a bill of supply") and
+    §10(4) makes the posted tax an unlawful fact about the ledger, never a re-characterisation of the document. New
+    `GstReportSupport.IsBillOfSupplyForFiling` = `IsCompositionBillOfSupply || IsBillOfSupply`; the e-Way Sales arm
+    reads it. **Confined to the §10 limb** — a REGULAR dealer's exempt supply that posted tax still files `INV`,
+    because nothing bars *him* from collecting tax, so his posted tax is evidence the supply was not exempt.
+    **Edge/legacy data only** (the §10(4) posting guard refuses the shape at entry). **No print/file contradiction**:
+    the shape prints **no statutory title at all** — `ProjectInvoice` refuses it and it prints as the plain Dr/Cr
+    voucher — pinned by
+    `OneBillOfSupplyRuleDelegationTests.The_section_10_contradiction_files_BIL_while_printing_no_statutory_title_at_all`.
+    **(2) 🔴 THE SIXTH COPY — `EWayBillService.cs` Purchase arm hardcoded `("I","1","INV")`**, a document kind decided
+    from the base type alone three lines below the arm W0-9 had just routed, while the class comment claimed the
+    document kind was decided in exactly one place. **Live, not theoretical** — Sales and Purchase are the only two
+    limbs that execute in the shipped app: a Regular dealer buying wholly-exempt goods (Fresh Milk, HSN 040110)
+    inter-state above the threshold filed a **Tax Invoice** for a consignment that can only have travelled on a bill of
+    supply. **Exemption is a property of the GOODS, not the counterparty**, and NIC's mapping carries
+    `Inward | 1 Supply | BIL`. Routed through new `GstReportSupport.IsInwardBillOfSupply` — **both** limbs of
+    §31(3)(c) seen from the buyer's side (composition counterparty; wholly non-taxable goods), sharing the outward
+    limb's own `IsWhollyExemptItemSupply` so the two directions cannot disagree, behind three conservative gates
+    (GST on · unresolved ≠ exempt · **any** recorded GST tax ⇒ `INV`, which also keeps inward RCM on `INV`).
+    **(3) Doc comments that actively misled — corrected.** `IsCompositionSupplyCarryingForwardTax`'s `<see cref>` said
+    `IsBillOfSupply` where the body calls `IsCompositionBillOfSupply`; "correcting" the body to match would have made
+    the conjunction **identically FALSE** (`IsBillOfSupply` returns false whenever `CarriesForwardTax` is true),
+    silently disabling the §10(4) posting guard **and** the projector's structural refusal and re-opening the measured
+    **₹47,296.73-vs-₹55,810.14** understatement. Also: "exactly two call sites, both about the Rule 5(1)(f)
+    declaration" — there are **five**, in two groups, now enumerated.
+    **Imports remain NOT MODELLED** (an import should file `2 Import + BOE`; the app holds no Bill of Entry).
+
+    There are **TWO `IsBillOfSupply` predicates and they do not agree.** `GstReportSupport.IsBillOfSupply`
+    (`src/Apex.Ledger/Reports/GstReportSupport.cs:175` — the **ENGINE** rule) covers the **CGST §10 COMPOSITION limb
+    only**; `VoucherPrintProjector.IsBillOfSupply` (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:340` — the
+    **DESKTOP** rule) calls the engine one and then **adds the §31(3)(c) EXEMPT limb** on top. The **e-Way Bill
+    engine reads the ENGINE rule** (`EWayBillService.cs:441`, `IsBillOfSupply(…) ? "BIL" : "INV"`); the **printed
+    title reads the DESKTOP rule**. **Consequence: a wholly-exempt supply by a REGULAR dealer prints BILL OF SUPPLY
+    on paper and files as `docType` INV on the e-Way Bill** — one voucher, two statutory document kinds, and the
+    wrong one is on the filing.
+  - **▶ THE ROOT CAUSE IS LAYERING, NOT OVERSIGHT — so the fix has exactly one direction.** `VoucherPrintProjector`
+    lives in **`Apex.Desktop`**, which `Apex.Ledger` cannot reference, so the exempt limb could not have been put
+    where the engine would see it. **Move the exempt limb DOWN into `GstReportSupport` and have BOTH layers read the
+    one rule.** Do **not** add a third copy, and do **not** teach the e-Way path its own exempt test.
+  - **▶ THIS IS THE FIFTH INSTANCE THIS SESSION OF ONE DEFECT CLASS: one rule, many copies.** Recorded as a pattern,
+    not an anecdote — W0-8 already had to state in its own doc comment that the e-Way and INV-01 code sets are
+    **deliberately** not shared. Every instance was found by a reviewer; the suite was green for all of them.
+  - **W0-10 (promotes W0-8's `NOT CLOSED BY THIS ROW` money row to a work item) THE PRINTED TOTAL MUST EQUAL THE
+    POSTED DEBT** — **~1–2 days. A money slice — the one row here that is NOT UI over finished plumbing.**
+    `VoucherPrintProjector.ProjectInvoice` takes the **ITEM** path's head totals from a **LIVE
+    `GstService.ComputeInvoiceTax`** (`VoucherPrintProjector.cs:577`), while `ProjectServiceInvoice` reads the
+    **POSTED legs** via `ReadPostedRateGroups` (`:718`). **One projector, two sources of truth for money.** Where
+    they disagree **the printed Grand Total is not the debt the general ledger recorded** — the document misstates
+    the liability it is evidence of.
+  - **▶ PINNED, NOT CURED — and the pin IS the acceptance criterion.**
+    `tests/Apex.Desktop.Tests/BillOfSupplyRoutingTests.cs:647`
+    (`An_exempt_supply_that_posted_forward_tax_stays_a_tax_invoice`) asserts the defect to the paisa rather than
+    leaving it silent: a printed Grand Total of **₹47,296.73** against a posted party debit of **₹55,810.14** — a
+    shortfall of **₹8,513.41**. **The COMPOSITION instance is CLOSED** (FIX-W1c, the W0-1 follow-up); **the
+    REGULAR-dealer instance is LIVE.** **When the fix lands that pinned characterization test MUST fail BY DESIGN**
+    and be **restated** as the cured expectation in the same slice — if it still passes, the fix did not land.
+  - **W0-10 — DONE.** The item pass now reads the **POSTED legs** for every money figure and for the intra/inter
+    routing (`ReadPostedRateGroups` / `PostedCessTotal` / `PostedForwardRouting` / `PostedRoundOff`), exactly as the
+    service pass always has; the live `ComputeInvoiceTax` + `ResolveRate` + `ResolveCess` reads are gone from
+    `ProjectInvoice`, and `ResolveCessOrNone` / `AccumulateRate` were deleted with them.
+    **The pinned test failed by design (measured: Grand Total 47,296.73 ⇒ 55,810.14, shortfall 8,513.41 ⇒ 0.00) and is
+    restated as the positive invariant** with an inline note recording that the change is intentional.
+  - **▶ WHY POSTED IS THE RIGHT SOURCE — established BEFORE switching, not assumed.** The two sources diverge only
+    where a **live master moved after posting**. Enumerated and each checked: an item re-rated (18%⇒28% printed
+    ₹60,539.81 vs a posted ₹55,810.14), a cess declared after the sale (₹5,675.61 conjured, in no ledger), an exempt
+    line reclassified taxable (retrospective tax), a taxable line reclassified exempt (**the pinned ₹8,513.41
+    shortfall**), and the party's State edited (posted CGST+SGST reprinted as IGST under a contradicting Place of
+    Supply). **In every reachable case the POSTING is right and the RECOMPUTATION is wrong**, because a tax invoice is
+    evidence of a liability: CGST Rule 46(m) requires "the amount of tax charged" — the tax the supply bore — and CGST
+    Act §34 changes an issued figure by a **credit/debit note**, a NEW document, never by reprinting the old one at
+    today's rate. Two figures on this same path had already been moved onto the posted legs for that reason (**F4**
+    cess, **FIX-F10** round-off); this was the last live one. The residual risk direction (crafted/imported legs) is
+    unchanged in kind — see the carry-forward below.
+  - **▶ BLAST RADIUS — MEASURED, AND NO FILED FIGURE MOVES.** `ProjectInvoice` has **exactly one `src/` call site**,
+    `VoucherDetailViewModel.BuildPrintPreview`, so the figures that move are the **printed invoice PDF and its
+    on-screen preview mirror only** (they share one DTO and therefore cannot disagree), and only for a voucher whose
+    masters drifted since posting. **GSTR-1/3B, the e-invoice INV-01 payload, the e-Way Part-A/consignment value and
+    the B2C QR read the posted legs through `GstReportSupport`/`Gstr1` and never call this projector.**
+    `GstService.ComputeInvoiceTax` itself is untouched, so every ACCEPT path, the POS cart, `CreditDebitNoteService`
+    and the TCS base are byte-identical. Bill of Supply and POS receipts are unaffected (a BoS posts no tax legs, and
+    POS computes the tax it then posts).
+  - **▶ CARRY-FORWARD (a) — `§206C(1H)` TCS IS ON THE PARTY LEG BUT NOT ON THE DOCUMENT.** Found while establishing
+    the blast radius: `AcceptItemInvoice` builds the Sales party debit as `Σ item value + GST + cess + **TCS**`
+    (`VoucherEntryViewModel.cs:4710`), and `InvoicePrintData` **has no TCS field at all** — so on a TCS-bearing sale
+    the printed Grand Total is short by the collected TCS, and W0-10 does **not** close it (it is not GST tax; the
+    posted-legs switch cannot reach it). Needs a DTO field + an `InvoicePdf`/preview row, i.e. a slice of its own.
+    **Until then the invariant "printed Grand Total == posted party leg" holds for every non-TCS sale, and the class
+    doc must not claim more.** (Purchase additional-costs ride the same party-leg idiom but cannot print: `IsTaxInvoice`
+    is Sales-only.)
+  - **▶ CARRY-FORWARD (b) — the item pass has NO footing guard, and now it could have one.** The service pass demotes
+    a voucher to the plain Dr/Cr print when its projection does not reconcile to the posted party leg
+    (`ServiceInvoiceFoots`, F2) — the guard that stops crafted/imported `GstLineTax` legs printing a fabricated
+    invoice. The item pass has no equivalent, and before W0-10 could not have had one (its total was recomputed, so
+    the comparison was near-meaningless). Now both sides of the comparison are posted data, so the guard is
+    expressible. **It was NOT added in this slice deliberately: a TCS-bearing sale does not foot (carry-forward (a)),
+    so a footing refusal today would stop every TCS invoice printing as a tax invoice — a real regression traded for
+    a crafted-data one.** Sequence it AFTER (a).
+    **▶ W0-10 REVIEW (finding #5) — WHAT THIS ENTRY FAILED TO RECORD: the switch itself flips one shape from footing to
+    NOT footing.** A Sales item voucher whose Output CGST/SGST legs carry no `GstLineTax` (importable — `<gst>` is
+    optional in `CanonicalXml`; also the shipped As-Voucher screen's idiom) used to foot, because the live recompute
+    reconstructed the tax from the item masters; reading the posted legs it prints ₹47,296.73 against ₹55,810.14.
+    **A narrow guard for exactly that shape HAS now landed** (`PostedOutputTaxIsFullyTagged`, above) — it is TCS-immune
+    by construction and therefore did not have to wait for (a). **The FULL footing guard this entry describes is still
+    deferred**, and still behind (a).
+  - **▶ CARRY-FORWARD (c) — the ITEM twin of F9 (a taxable supply billed at NIL GST) is still open.** The service pass
+    refuses to project a voucher whose leg DECLARES a taxable supply at a non-zero rate but posted no tax
+    (`GstReportSupport.TaxedLegsCarryTheirTax`); the item pass has no equivalent. Reachable the same ordinary way: post
+    an item invoice while GST is OFF, then register and classify the item taxable — the already-issued voucher reprints
+    titled TAX INVOICE with a taxable HSN row and an EMPTY breakup. **W0-10 strictly improves this shape and does not
+    close it**: it used to print live-recomputed tax that is in no ledger (the printed demand EXCEEDED the posted party
+    leg), and now it foots exactly — but the document still declares itself a Rule-46 tax invoice charging nothing.
+    Fold into (b), which is the same guard family.
+  - **▶ ONE MORE THING THE SLICE CHANGED ON PURPOSE, so a reader does not mistake it for scope creep.** The two passes'
+    ~18 identical posted-read lines were extracted to `VoucherPrintProjector.ReadPostedMoney` — **the class now has
+    literally one money read, not two that agree today.** Convergence without extraction is how "one rule, many copies"
+    keeps being reborn here (W0-1b POS receipt, W0-8 e-Way `docType`, W0-9 the twin `IsBillOfSupply`). The round-off is
+    deliberately left OUT of the shared method: the item pass prints the posted leg (FIX-F10), the service pass prints
+    none (admitting one would give crafted data a free plug through `ServiceInvoiceFoots`) — a real rule, kept visible
+    at each call site.
+  - **W0-10 REVIEW FIXES (11 findings across 3 adversarial lenses; 3 defect classes, 8 of the 11 were restatements of
+    those 3)** — **DONE.**
+    **(1) 🔴 THE ODD BASIS-POINT RATE — the printed rate stopped describing the printed money (findings #1/#6/#8).**
+    `GstService.ComputeInvoiceTax` stamps the intra heads with `halfBp = integratedBp / 2` using **integer division**,
+    so an ODD integrated rate loses a basis point on the way in; the old item pass printed `res.RateBasisPoints` (the
+    full rate) and was exact, while the posted-legs pass recovered it by DOUBLING the half. Measured on 60.125 Nos
+    @ ₹786.64 = **₹47,296.73** intra at **25 bp** (0.25%, rough diamonds — a rate the app itself seeds a history row
+    for): the breakup row printed **"0.24%"** beside a posted CGST 59.12 + SGST 59.12 that 0.24% cannot produce
+    (it yields ₹113.51, not ₹118.24) — a **self-contradicting CGST Rule 46(m) particular**. Secondary and worse: a
+    25 bp group and a 24 bp group on one invoice **COLLAPSED into a single row** keyed 24 whose taxable was the max of
+    the two bases, so a whole rate group vanished from the breakup. **Money was never wrong** (the accumulator sums
+    every group, so the Grand Total still equalled the party leg) — which is why a green suite saw nothing; **no
+    fixture anywhere used a non-even bp**. Fixed in the ONE shared reader, `GstReportSupport.IntegratedRateOf`, which
+    now takes the leg's own posted tax and keeps whichever of the two arithmetically possible candidates (`2h`, `2h+1`)
+    reproduces it via the engine's own `ComputeLineTax`; **`2h` wins every tie and every no-match, so every even rate,
+    every IGST leg and every crafted leg is byte-identical (ER-13)**. All **five** readers share it — the printed
+    breakup, `InvoiceTaxableValue`, `Gstr1`, `EInvoiceJson`, `EWayBillJson` — so **the document, the return and both
+    payloads move together**; the reviewer noted the loss was engine-wide and pre-existing, and this is where it is
+    cured for every consumer at once.
+    **(2) 🔴 UNTAGGED OUTPUT GST LEGS — the ₹8,513.41 understatement, reached from the other side (finding #5).**
+    Since W0-10 the item pass derives 100% of its tax from `EntryLine.Gst`, so a Sales item voucher whose Output
+    CGST/SGST legs carry **no metadata** printed a Grand Total short by the whole tax — measured ₹47,296.73 printed
+    against a posted party debit of **₹55,810.14**. Reachable without tampering: `CanonicalXml` makes `<gst>` OPTIONAL
+    on an entryLine (`ImportPlan.BuildGstLineTax` returns null when absent) and the shipped Sales As-Voucher screen
+    builds every leg with no `gst:` argument. **The switch REVERSED the direction of failure for this shape** — before
+    W0-10 the live recompute reconstructed the tax from the masters and the document happened to foot — and
+    carry-forward (b) below did not record that. New `GstReportSupport.PostedOutputTaxIsFullyTagged` conjunct on
+    `IsTaxInvoice`'s ITEM limb: every rupee posted to one of the company's own ordinary Output GST ledgers must be
+    visible to the projector as a tagged leg, else the voucher is not an invoice document at all and prints as the
+    plain Dr/Cr voucher (the same conservative direction `ServiceInvoiceFoots`/F2 takes). **Deliberately NARROWER than
+    the deferred full footing guard, and that is what makes it safe to land before (a): TCS Payable is not a GST
+    ledger, so a §206C invoice cannot trip it** — pinned in both directions.
+    **(3) The class doc asserted a universal the slice's own plan entry forbids (findings #3/#10).** It read "the
+    printed Grand Total is the debt the general ledger recorded — always, and by construction", one paragraph above an
+    out-of-scope list that omitted TCS. Now qualified to **"on every non-TCS sale"** verbatim from carry-forward (a),
+    with TCS added to the out-of-scope list and a **characterization test** pinning the measured shortfall (posted
+    party leg **₹56,368.14** vs printed **₹55,810.14**, short by the collected **₹558**) so the day the DTO field lands
+    it fails BY DESIGN and is restated.
+    **(4) A taxable-at-0% supply states no rate row — REAL, but the reviewer's CURE is REFUTED (findings #2/#4/#9).**
+    The facts are right: `AddHead` early-returns on a zero amount, so a 0%-rated group leaves no posted footprint, the
+    item pass stopped emitting the `"0% | value | 0.00 | 0.00"` row, and the comment claiming an ordinary reprint is
+    byte-identical was FALSE for exactly this shape (it now names the exception). **But restoring the row on the item
+    pass alone would re-open the defect W0-10 closed.** The SERVICE pass has never emitted it, and that is settled,
+    shipped and separately pinned — `ServiceAccountingInvoicePrintTests.ZeroRatedServiceInvoice_printsAsTaxInvoice`
+    asserts `Empty(TaxRows)` on a 0% LUT/export invoice ("no rate row — there is no tax"), and
+    `GstReportSupport.RateBreakupReconciles` is built on the same premise. **W0-10 did not create a divergence here; it
+    removed one.** The only source for "this line was rated 0%" is the LIVE master this class refuses to read for a
+    printed particular. Locked by a **convergence test** asserting the item and service passes give the same answer;
+    the statutory question is carried forward below.
+    **(5) A tautological assertion, replaced (finding #11).** `Assert.Equal(data.TotalIgst.Amount,
+    data.TaxRows.Sum(r => r.Igst.Amount))` compared two products of the SAME `foreach` in `ReadPostedMoney` — it could
+    not fail for any input. Now footed against `PostedHead(v, Integrated)`, data the projector's loop never touched.
+    **(6) Doc comments contradicting the code, corrected (finding #7).** `HasPostedForwardCessLines`'s warning was
+    written against `VoucherPrintProjector.HasPostedForwardCess`, **which W0-10 deleted** — restated against its
+    surviving consumer (`CarriesForwardTax` → `IsBillOfSupply`'s first gate, i.e. the swap now re-classifies the
+    DOCUMENT KIND); two unresolvable `<see cref="ServiceInvoiceFoots"/>` in `VoucherPrintProjector` re-pointed at
+    `<c>GstReportSupport.ServiceInvoiceFoots</c>` (it is private one layer down); `ResolveValueLedger`'s note rewritten
+    against its one surviving call site (`IsWhollyExemptItemSupply`) since `ProjectInvoice` resolves no rate any more.
+    **`GenerateDocumentationFile` was NOT enabled** — it would make dead crefs a permanent build gate (CS1574), but it
+    also emits CS1591 for every undocumented public member, which cannot be assessed against the 0-warning gate inside
+    a review-fix pass. Recorded as a carry-forward.
+  - **▶ CARRY-FORWARD (d) — the ENGINE-side rate loss is worked around, not cured.** `GstLineTax.RateBasisPoints` on an
+    intra head is the HALF rate, and halving is integer division, so the odd basis point is **not in the persisted
+    data at all**; `IntegratedRateOf` reconstructs it from the leg's posted tax. That is exact for every leg this app
+    posts (the money can only have come from one of the two candidates) but it is a **recovery, not a record**: a leg
+    whose amount was later adjusted independently of its rate would read back the even neighbour. The real fix is for
+    `GstLineTax` to carry the integrated rate outright — a **persisted-schema change with a migration and a downgrade
+    path** (v50 → v51), i.e. a slice of its own. Sequence it with any other `GstLineTax` shape change, never alone.
+  - **▶ CARRY-FORWARD (e) — does a 0%-rated supply need a printed rate row (CGST Rule 46(m))?** Today neither pass
+    prints one, consistently. Rule 46(m) requires "the rate of tax"; a 0%/LUT/export supply arguably states it as "0%",
+    and a wholly EXEMPT line arguably must NOT (exempt is not zero-rated, and the pre-W0-10 code skipped it
+    explicitly). **Answering yes needs the resolved-at-posting rate snapshotted onto the posted line** — the same
+    schema family as (d) — because reading it live at print time is precisely what W0-10 removed, and it must land on
+    BOTH passes at once or the projector is back to two answers. **R12 user decision required**; it is a statutory
+    question, not a print-path patch.
+  - **▶ CARRY-FORWARD (f) — enable `GenerateDocumentationFile`.** Neither `Apex.Desktop.csproj` nor a
+    `Directory.Build.props` sets it, so **CS1574 (unresolvable `<see cref>`) is never emitted** and the doc rot fixed
+    above was invisible to the build — this is the third slice in a row to find dead crefs by reading. Enabling it
+    turns them into a permanent gate, but pairs with a CS1591 (missing-doc) audit across every public member first,
+    against the 0-warning gate.
+  - **▶ TWO SMALLER CARRY-FORWARDS FOUND WHILE COMMITTING W0-8 — recorded here so they are not lost.**
+    **(a) An overseas place of supply cannot be entered at all.** `IndianState.All`
+    (`src/Apex.Ledger/Domain/IndianState.cs:85`) carries **97** but **neither 96 nor 99**, and
+    `PartyGstDetails.EnsureValid` rejects any code outside that list — so the export path is reachable by import but
+    **never through a validated master edit**. **Simply adding 96/99 is UNSAFE:** `Gstin.Validate` checks a GSTIN's
+    leading two digits against the SAME list and would begin accepting nonexistent **"96"/"99" GSTIN prefixes**.
+    **Splitting the place-of-supply domain from the GSTIN-prefix domain needs DESIGNING — it is not a local edit.**
+    **(b) The in-code labels for the e-Way work are split** — **15 comments say W0-2, 19 say W0-8, for the same
+    item**. **The plan item is W0-8**; W0-2 is the Company Create/Alter screen. Reconcile the comments in whichever
+    slice next opens those files, so that grepping a work-item id returns that work item.
+    **DONE in W0-9.** All **15** `W0-2` occurrences across 12 `.cs` files were e-Way Part-A work (verified one by one,
+    none referred to the Company Create/Alter screen) and are now `W0-8`. Counts: **before W0-2 = 15, W0-8 = 19;
+    after W0-2 = 0, W0-8 = 34.**
 - **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
   1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full
