@@ -1504,6 +1504,41 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     item in the report.** It covers **8 of 23 base types and zero inventory, order, provisional, job-work, POS
     or payroll vouchers**, and **no print or export test uses it at all.** **Nothing else in this wave — or in
     Waves 1–5 — is honestly testable without it.**
+  - **W0-8 (T0-7 follow-up — closes W0-1's own `🔴 UNVERIFIED CARRY-FORWARD`) e-Way Bill Part-A emits
+    DESCRIPTIONS where NIC expects CODES** — **~1–1½ days. The one non-UI row in the wave**, admitted against
+    its "UI over finished plumbing" framing because it is **malformed data in a STATUTORY FILING** (R6
+    deviation, recorded here). `EWayBillService.cs:324-364` stamps `"Inward"/"Outward"`, `"Supply"/"Job
+    Work"/"Handicraft"` and `"CRN"/"DBN"`; `EWayBillJson.cs:84-86` writes them verbatim into the EWB-01
+    request. **All three fields are wrong — a green suite has been validating strings we invented.**
+  - **▶ THE SOURCED TABLE (R7 — read live from NIC; re-verify before coding, never re-derive from memory).**
+    `https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html` (© Eway Bill Team, NIC Karnataka) is the
+    COMPLETE list. **`supplyType` is a code: `I` Inward / `O` Outward.** **`subSupplyType` is NUMERIC 1–12**
+    (1 Supply · 2 Import · 3 Export · 4 Job Work · 5 For Own Use · 6 Job work Returns · 7 Sales Return ·
+    8 Others · 9 SKD/CKD/Lots · 10 Line Sales · 11 Recipient Not Known · 12 Exhibition or Fairs) — **there is
+    NO official "Handicraft" sub-supply type.** **`docType` has exactly FIVE values: `INV` Tax Invoice · `BIL`
+    Bill of Supply · `BOE` Bill of Entry · `CHL` Delivery Challan · `OTH` Others** — **`CRN`/`DBN` do not
+    exist in the e-Way Bill domain at all**, they are INV-01 values that leaked across. Combinations are on the
+    sibling `…/apidocs/sub-docType-mapping.html`, which **permits Outward+Supply+Bill of Supply and
+    Outward+Export+Bill of Supply**. **The host 403s automated fetchers — a bot-block; a browser retrieves it.**
+  - **▶ A BILL OF SUPPLY DOES REQUIRE AN e-WAY BILL.** CGST **Rule 138(1)** says *"in relation to a supply"*,
+    not a taxable one; **Explanation 2** fixes consignment value as the value declared *"in an invoice, a bill
+    of supply or a delivery challan"*; 138(7) repeats it (`taxinformation.cbic.gov.in` …
+    `cgst_rules/active/chapter16/rule138_v1.00.html`; **fetch fails on a TLS chain error, the browser works**).
+    **138(14)'s exemptions are GOODS-LIST driven — do NOT infer "exempt ⇒ no e-way bill".** `DocTypeOf` routes
+    through `GstReportSupport.IsBillOfSupply` to `BIL`, flipping the `PINNED_UNVERIFIED_…docType_INV` pin.
+  - **▶ THE INV-01 PATH IS DELIBERATELY NOT TOUCHED.** `DocDtls.Typ` is String(3), **three values only — INV /
+    CRN / DBN** (`https://einvoice1.gst.gov.in/Documents/E-INVOICE-SCHEMA.pdf` field 9; NIC's sandbox publishes
+    the same set as `^((INV)|(CRN)|(DBN))$`). A Bill of Supply is **outside** e-invoicing (Rule 48(4) covers a
+    *tax* invoice) and `EInvoiceService.CoverageOf` **already refuses correctly**. **Changing both docType
+    paths together is the mistake this row exists to prevent.**
+  - **▶ AND IT FALSIFIES A PINNED TEST'S PREMISE.** Official state codes (`einvoice1.gst.gov.in/Others/MasterCodes`):
+    **96 = OTHER COUNTRIES, 97 = Other Territory, 99 = OTHER COUNTRIES** — **97 is a DOMESTIC GST territory, not
+    overseas**; **99** is the real export code. `EInvoiceService.cs:96-98` and `B2cQrService.cs:85` classify 97 as
+    Export and `BillOfSupplyRoutingTests.cs:894 PINNED_GAP_…overseas…` pins it. Re-cut the pin. **Schema-clean.**
+  - **▶ NOT CLOSED BY THIS ROW (standing carry-forwards, restated so it is not mistaken for closing them):**
+    the **printed-vs-posted money defect** (`VoucherPrintProjector.cs:467` — a party debit understated by the
+    whole **₹8,513.41**) · the missing **zero-rated / SEZ** concept, the other half of the pin above · the
+    **`CostAllocationStrictness`** naming debt.
 - **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
   1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full
