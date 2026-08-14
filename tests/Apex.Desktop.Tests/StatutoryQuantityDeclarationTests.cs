@@ -319,16 +319,21 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         Assert.Equal(Money.FromRupees(20m), printed.TaxableValue);
 
         // ---- DOCUMENT 2 — the INV-01 e-invoice ----
+        // The INV-01 now files NIC's own field names and units — Qty (Number 10,3), UnitPrice (Number 12,3) and
+        // AssAmt (Number 12,2), all rupee/quantity decimals. Source: the "Schema" sheet of
+        // https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx, retrieved 2026-08-14. The invented
+        // qty_millis / unit_price_paisa / ass_amt_paisa keys these lines used to read were never IRP fields; the
+        // e-way assertions below keep their own encoding, which is a DIFFERENT payload and untouched by this.
         var eInvoice = FirstEInvoiceItem(c, posted);
         Assert.Equal("DOZ", eInvoice.GetProperty("Unit").GetString());
-        Assert.Equal(2000L, eInvoice.GetProperty("qty_millis").GetInt64());          // 2.000 DOZ
-        Assert.Equal(1000L, eInvoice.GetProperty("unit_price_paisa").GetInt64());    // ₹10.00 PER DOZ
-        Assert.Equal(2000L, eInvoice.GetProperty("ass_amt_paisa").GetInt64());       // ₹20.00 assessable
+        Assert.Equal(2m, eInvoice.GetProperty("Qty").GetDecimal());              // 2 DOZ
+        Assert.Equal(10.00m, eInvoice.GetProperty("UnitPrice").GetDecimal());    // ₹10.00 PER DOZ
+        Assert.Equal(20.00m, eInvoice.GetProperty("AssAmt").GetDecimal());       // ₹20.00 assessable
         // Quantity × unit price must recompose the assessable value — the invariant that catches a quantity
         // converted without its rate (24 × ₹10 = ₹240) or a rate converted without its quantity (2 × ₹0.83).
         Assert.Equal(
-            eInvoice.GetProperty("ass_amt_paisa").GetInt64(),
-            eInvoice.GetProperty("qty_millis").GetInt64() * eInvoice.GetProperty("unit_price_paisa").GetInt64() / 1000L);
+            eInvoice.GetProperty("AssAmt").GetDecimal(),
+            eInvoice.GetProperty("Qty").GetDecimal() * eInvoice.GetProperty("UnitPrice").GetDecimal());
 
         // ---- DOCUMENT 3 — the EWB-01 e-way bill ----
         var eWay = FirstEWayItem(c, posted);
@@ -346,8 +351,11 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         Assert.Equal(hsn.Uqc, eInvoice.GetProperty("Unit").GetString());
         Assert.Equal(hsn.Uqc, eWay.GetProperty("Unit").GetString());
         Assert.Equal(eInvoice.GetProperty("Unit").GetString(), eWay.GetProperty("Unit").GetString());
-        Assert.Equal(eInvoice.GetProperty("qty_millis").GetInt64(), eWay.GetProperty("qty_millis").GetInt64());
-        Assert.Equal(hsn.Quantity * 1000m, eInvoice.GetProperty("qty_millis").GetInt64());
+        // The two statutory payloads now encode the SAME physical quantity in DIFFERENT units — INV-01 files NIC's
+        // Qty decimal, EWB-01 keeps its own millis — so the cross-document check converts rather than compares raw.
+        // That divergence is deliberate: the e-Way payload answers to a different official code set (W0-8).
+        Assert.Equal(eInvoice.GetProperty("Qty").GetDecimal() * 1000m, eWay.GetProperty("qty_millis").GetInt64());
+        Assert.Equal(hsn.Quantity, eInvoice.GetProperty("Qty").GetDecimal());
         Assert.StartsWith(hsn.Quantity.ToString("0.##"), printed.QuantityText, StringComparison.Ordinal);
 
         // ---- the money is untouched at every site ----
@@ -381,12 +389,12 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
 
         var eInvoice = FirstEInvoiceItem(c, posted);
         Assert.Equal("NOS", eInvoice.GetProperty("Unit").GetString());
-        Assert.Equal(24000L, eInvoice.GetProperty("qty_millis").GetInt64());        // 24 Nos, not 2
-        Assert.Equal(1000L, eInvoice.GetProperty("unit_price_paisa").GetInt64());   // ₹10.00 PER NOS, not ₹120
-        Assert.Equal(24000L, eInvoice.GetProperty("ass_amt_paisa").GetInt64());     // ₹240.00 — unchanged
+        Assert.Equal(24m, eInvoice.GetProperty("Qty").GetDecimal());            // 24 Nos, not 2
+        Assert.Equal(10.00m, eInvoice.GetProperty("UnitPrice").GetDecimal());   // ₹10.00 PER NOS, not ₹120
+        Assert.Equal(240.00m, eInvoice.GetProperty("AssAmt").GetDecimal());     // ₹240.00 — unchanged
         Assert.Equal(
-            eInvoice.GetProperty("ass_amt_paisa").GetInt64(),
-            eInvoice.GetProperty("qty_millis").GetInt64() * eInvoice.GetProperty("unit_price_paisa").GetInt64() / 1000L);
+            eInvoice.GetProperty("AssAmt").GetDecimal(),
+            eInvoice.GetProperty("Qty").GetDecimal() * eInvoice.GetProperty("UnitPrice").GetDecimal());
 
         var eWay = FirstEWayItem(c, posted);
         Assert.Equal("NOS", eWay.GetProperty("Unit").GetString());
@@ -403,23 +411,27 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
     }
 
     /// <summary>
-    /// <b>The e-invoice footing identity: <c>qty × unit_price == ass_amt</c>, EXACTLY, on every path.</b>
+    /// <b>The e-invoice footing identity: <c>Qty × UnitPrice == AssAmt</c>, EXACTLY, on every path.</b>
     ///
-    /// <para>Converting to the base unit is only possible when the per-base rate is representable in paisa.
-    /// ₹10 per Crate of 12 is ₹0.8333…/Nos, and the NIC unit-price field is integer paisa — so a converted
-    /// declaration of 600 NOS would have to round to ₹0.83 and foot to ₹498.00 against an assessable ₹500.00.
-    /// That residual is IRREDUCIBLE (the exact price would be 83.33… paisa, so no rounding rule fixes it) and
-    /// it scales with quantity — half a paisa per base unit, ₹2.00 here, ~₹500 on 100,000 units — which can
-    /// hard-reject the invoice at the IRP.</para>
+    /// <para>Converting to the base unit is only possible when the per-base rate is exactly representable.
+    /// ₹10 per Crate of 12 is ₹0.8333…/Nos — a repeating decimal, so it is representable at NO finite scale;
+    /// a converted declaration of 600 NOS would have to round and would foot short against the assessable
+    /// value. That residual is IRREDUCIBLE and it scales with quantity — which can hard-reject at the IRP.</para>
+    ///
+    /// <para><b>Note the internal guard is stricter than NIC requires, deliberately.</b> The schema types
+    /// <c>UnitPrice</c> as <c>Number(12,3)</c> — three decimals — while this application converts a rate only when
+    /// it lands <b>paisa</b>-exact (two), because that is the precision the posted ledger itself holds. Being
+    /// stricter than the filing format is conservative and cannot produce a wrong declaration; the reverse would.</para>
     ///
     /// <para>So the resolver declines to convert and declares the line's own quantity and raw rate under
-    /// <c>"OTH"</c>, the department's code for a unit absent from the master list. The identity then holds
-    /// exactly. It is asserted AS an identity and never as a tolerance: the test this replaces asserted the
-    /// ₹0.08 residual as acceptable, which pinned the defect in place instead of catching it.</para>
+    /// <c>"OTH"</c>, the department's code for a unit absent from the master list (confirmed present in the
+    /// workbook's "Master Codes" Unit list as <c>OTH — OTHERS</c>). The identity then holds exactly. It is
+    /// asserted AS an identity and never as a tolerance: the test this replaces asserted the residual as
+    /// acceptable, which pinned the defect in place instead of catching it.</para>
     ///
-    /// <para>Deriving <c>ass_amt</c> from qty × price would also make the identity hold and is inadmissible —
+    /// <para>Deriving <c>AssAmt</c> from Qty × UnitPrice would also make the identity hold and is inadmissible —
     /// that field is the amount actually TAXED and must reconcile to the posted Sales leg and to GSTR-1. Hence
-    /// the assertion that it is still exactly ₹500.00.</para>
+    /// the assertion that it is still exactly ₹200.00.</para>
     /// </summary>
     [Fact]
     public void The_einvoice_unit_price_foots_to_the_assessable_value_exactly_on_the_fallback_path()
@@ -433,15 +445,15 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         Assert.Equal(0m, OnHand(c, k.EggId, k.MainGodownId));
 
         var eInvoice = FirstEInvoiceItem(c, posted);
-        var qty = eInvoice.GetProperty("qty_millis").GetInt64();
-        var price = eInvoice.GetProperty("unit_price_paisa").GetInt64();
-        var ass = eInvoice.GetProperty("ass_amt_paisa").GetInt64();
+        var qty = eInvoice.GetProperty("Qty").GetDecimal();
+        var price = eInvoice.GetProperty("UnitPrice").GetDecimal();
+        var ass = eInvoice.GetProperty("AssAmt").GetDecimal();
 
         Assert.Equal("OTH", eInvoice.GetProperty("Unit").GetString());
-        Assert.Equal(20000L, qty);          // 20.000 of the line's own unit, not 240 NOS
-        Assert.Equal(1000L, price);         // ₹10.00 per Crate — the entered rate, untouched
-        Assert.Equal(20000L, ass);          // ₹200.00 — the amount actually taxed, NOT derived
-        Assert.Equal(ass, qty * price / 1000L);   // the identity, exact — pre-fix this was 19920 vs 20000
+        Assert.Equal(20m, qty);             // 20 of the line's own unit, not 240 NOS
+        Assert.Equal(10.00m, price);        // ₹10.00 per Crate — the entered rate, untouched
+        Assert.Equal(200.00m, ass);         // ₹200.00 — the amount actually taxed, NOT derived
+        Assert.Equal(ass, qty * price);     // the identity, exact — pre-fix this was ₹199.20 vs ₹200.00
 
         // The taxable value is untouched by any of this, and the money map is preserved.
         Assert.Equal(200m, Assert.Single(Gstr1.Build(c, posted.Date, posted.Date).HsnSummary).TaxableValue.Amount);
@@ -462,7 +474,7 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
     /// no re-casing. This is the assertion that would catch a "fix" that blanket-converted every line.
     ///
     /// <para><b>The rate here (₹10.00) is a fixed point of every plausible rounding</b>, so the
-    /// <c>unit_price_paisa</c> assertion below pins the LABEL and the QUANTITY but cannot discriminate a rate that
+    /// <c>UnitPrice</c> assertion below pins the LABEL and the QUANTITY but cannot discriminate a rate that
     /// was quietly rounded on the way out. That job belongs to
     /// <see cref="A_unit_less_line_at_a_sub_rupee_rate_foots_exactly_on_the_er13_path"/>, which drives a rate that
     /// is not — do not delete it believing this test covers the same ground.</para>
@@ -480,8 +492,8 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
 
         var eInvoice = FirstEInvoiceItem(c, posted);
         Assert.Equal("NOS", eInvoice.GetProperty("Unit").GetString());
-        Assert.Equal(24000L, eInvoice.GetProperty("qty_millis").GetInt64());
-        Assert.Equal(1000L, eInvoice.GetProperty("unit_price_paisa").GetInt64());   // the RAW rate, untouched
+        Assert.Equal(24m, eInvoice.GetProperty("Qty").GetDecimal());
+        Assert.Equal(10.00m, eInvoice.GetProperty("UnitPrice").GetDecimal());   // the RAW rate, untouched
 
         var eWay = FirstEWayItem(c, posted);
         Assert.Equal("NOS", eWay.GetProperty("Unit").GetString());
@@ -499,7 +511,7 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
     /// <para>The no-line-unit branch of <see cref="UqcResolver.Declare"/> returns the entered rate RAW — that is the
     /// whole of the ER-13 guarantee, and it is what makes <c>qty × unit_price == ass_amt</c> hold on INV-01 for
     /// every pre-v46 line. Nothing tested it: the sibling ER-13 test drives ₹10.00, a fixed point of every
-    /// plausible rounding, so its <c>unit_price_paisa</c> assertion survives a rate mutation unchanged.
+    /// plausible rounding, so its <c>UnitPrice</c> assertion survives a rate mutation unchanged.
     /// <b>Verified by mutation</b> — inserting <c>Math.Round(rate, 1)</c> on that branch left the entire suite
     /// green (Desktop 1053 + Io 344), while emitting ₹3.30 for a ₹3.33 line: 7 × ₹3.30 = ₹23.10 against an
     /// assessable ₹23.31, a 21-paisa INV-01 footing break on the commonest line shape in the product.</para>
@@ -523,15 +535,15 @@ public sealed class StatutoryQuantityDeclarationTests : IDisposable
         Assert.Equal(Money.FromRupees(23.31m), il.Value);
 
         var eInvoice = FirstEInvoiceItem(c, posted);
-        var qty = eInvoice.GetProperty("qty_millis").GetInt64();
-        var price = eInvoice.GetProperty("unit_price_paisa").GetInt64();
-        var ass = eInvoice.GetProperty("ass_amt_paisa").GetInt64();
+        var qty = eInvoice.GetProperty("Qty").GetDecimal();
+        var price = eInvoice.GetProperty("UnitPrice").GetDecimal();
+        var ass = eInvoice.GetProperty("AssAmt").GetDecimal();
 
         Assert.Equal("NOS", eInvoice.GetProperty("Unit").GetString());
-        Assert.Equal(7000L, qty);
-        Assert.Equal(333L, price);      // ₹3.33 per Nos — the RAW rate; ₹3.30 here is the mutation this catches
-        Assert.Equal(2331L, ass);       // ₹23.31 — the amount actually taxed, asserted independently
-        Assert.Equal(ass, qty * price / 1000L);   // the INV-01 footing identity, EXACT — 2310 vs 2331 when rounded
+        Assert.Equal(7m, qty);
+        Assert.Equal(3.33m, price);     // ₹3.33 per Nos — the RAW rate; ₹3.30 here is the mutation this catches
+        Assert.Equal(23.31m, ass);      // ₹23.31 — the amount actually taxed, asserted independently
+        Assert.Equal(ass, qty * price); // the INV-01 footing identity, EXACT — ₹23.10 vs ₹23.31 when rounded
 
         // And the same guarantee stated at its source: the resolver hands back the entered rate UNTOUCHED.
         var decl = UqcResolver.Declare(c, il, il.Quantity);

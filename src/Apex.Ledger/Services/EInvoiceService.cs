@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 
@@ -112,10 +112,29 @@ public sealed class EInvoiceService
     /// <summary>The printed document number used to build the IRN request — the voucher's <b>rendered</b> number
     /// (numbering-design-v2 §2.2: the ONE policy, so the portal DocNo equals the printed invoice number, prefix/suffix
     /// and all), emitted <b>AS-TYPED</b> (case preserved) so paper == IRP == e-Way == GSTR-1 == B2C-QR == Day Book — the
-    /// identical string everywhere. IRP has been case-insensitive since 01-Jun-2025, so a lowercase prefix that prints
-    /// <c>inv/001</c> must file <c>inv/001</c> (not <c>INV/001</c>); the case-insensitivity is honoured in the reuse
-    /// key's COMPARISON (see <see cref="Company.HasEInvoiceDocumentNumber"/>), never by mutating the emitted string.
-    /// Falls back to the voucher id when the number renders empty (an unnumbered voucher).</summary>
+    /// identical string everywhere. A lowercase prefix that prints <c>inv/001</c> therefore files <c>inv/001</c>, not
+    /// <c>INV/001</c>; case is honoured in the reuse key's COMPARISON (see
+    /// <see cref="Company.HasEInvoiceDocumentNumber"/>), never by mutating the emitted string. Falls back to the
+    /// voucher id when the number renders empty (an unnumbered voucher).
+    ///
+    /// <para><b>⚠ UNVERIFIED — and the official source says the opposite.</b> This comment used to justify the
+    /// as-typed rule with the claim that "IRP has been case-insensitive since 01-Jun-2025". That claim carries
+    /// <b>no citation</b> and could not be corroborated. The NIC e-invoice schema workbook
+    /// (<c>https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx</c>, sheet "Validations", V 1.3.1, retrieved
+    /// 2026-08-14 by direct HTTPS GET) states in rule 6: <i>"Document number should not be starting with 0, / and -.
+    /// Also, alphabets in document number should not have alphabets in lower cases. If so, then request is
+    /// rejected."</i> The schema's own pattern agrees — <c>DocDtls.No</c> is
+    /// <c>maxLength: 16, pattern: "^([A-Z1-9]{1}[A-Z0-9/-]{0,15})$"</c>, which admits no lowercase letter, no
+    /// leading zero and no space.</para>
+    ///
+    /// <para><b>The behaviour is deliberately UNCHANGED here, because changing it is a user decision.</b> Emitting
+    /// as-typed is the whole point of the one-string contract (paper == IRP == e-Way == GSTR-1 == B2C-QR == Day
+    /// Book); uppercasing only the IRP copy would break it, and rejecting the configuration belongs at voucher-type
+    /// entry, not in a projection. The four ordinary numbering configurations that violate the pattern — a
+    /// zero-padded width, a space-padded width, a lowercase prefix, and <see cref="NumberingMethod.None"/> (whose
+    /// fallback is a 32-char lowercase GUID, over <c>maxLength: 16</c>) — are pinned by
+    /// <c>EInvoiceInv01SchemaConformanceTests.PINNED_the_document_number_is_not_guarded_against_the_schema_pattern</c>
+    /// so the gap stays visible and a future guard has a red test to turn green.</para></summary>
     public static string DocumentNumberOf(Company company, Voucher voucher)
     {
         var rendered = company.FormatVoucherNumber(voucher);

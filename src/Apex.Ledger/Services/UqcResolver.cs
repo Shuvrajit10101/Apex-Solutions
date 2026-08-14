@@ -67,12 +67,21 @@ public readonly record struct UqcDeclaration(
 /// and hands the caller a matched (quantity, rate) pair — a caller can never convert one and forget the other.</para>
 ///
 /// <para><b>Why the fallback is conditional.</b> Converting is only possible when the per-base rate lands
-/// paisa-exact. ₹10 per Crate of 12 is ₹0.8333…/Nos, and the NIC unit-price field is integer paisa — so a
-/// converted declaration would have to round, and <c>quantity × unit_price</c> would stop recomposing the
+/// paisa-exact. ₹10 per Crate of 12 is ₹0.8333…/Nos — a <b>repeating decimal, representable at no finite scale at
+/// all</b> — so a converted declaration would have to round, and <c>Qty × UnitPrice</c> would stop recomposing the
 /// assessable amount by an amount that grows with the quantity (half a paisa per base unit). That residual is
 /// irreducible, and deriving the assessable amount instead is inadmissible: it is the figure actually TAXED and
 /// must reconcile to the posted Sales leg. So where the conversion is not representable the line is declared in
 /// its OWN unit under <c>"OTH"</c> — which foots exactly and, as a bonus, makes all four documents agree.</para>
+///
+/// <para><b>The guard here is deliberately STRICTER than NIC's field, and that is not an accident.</b> An earlier
+/// revision of this paragraph justified the rule by claiming "the NIC unit-price field is integer paisa". It is
+/// not: the official schema types <c>ItemList[].UnitPrice</c> as a number with <c>maximum: 999999999999.999</c> —
+/// three decimal places (<c>https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx</c>, sheet "Schema",
+/// retrieved 2026-08-14). The real reason to refuse the conversion is the repeating decimal above plus the
+/// <b>internal</b> paisa-exactness contract the posted ledger keeps: relaxing this guard to NIC's 3 dp because "the
+/// field allows it" would start converting rates the posted Sales leg cannot represent, reintroducing exactly the
+/// footing break this type exists to prevent.</para>
 ///
 /// <para><b>Why the FIRST unit's UQC.</b> A compound unit is <c>1 × First = factor × Tail</c> ("1 Doz = 12 Nos"),
 /// and a quantity stated in the compound is a count of FIRST units — so the First unit's UQC (DOZ) is precisely

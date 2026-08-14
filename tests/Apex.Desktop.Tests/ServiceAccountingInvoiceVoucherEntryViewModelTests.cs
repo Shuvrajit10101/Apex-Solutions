@@ -785,10 +785,12 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         // …and it is the SAME code GSTR-1 files, which is the whole point.
         var g1 = Report.BuildGstr1(c, FyStart, AsOf(c));
         Assert.Equal(g1.HsnSummary.Single().HsnSac, hsnCd);
-        // Footing preserved: Σ item assessable == the declared assessable value.
+        // Footing preserved: Σ item assessable == the declared assessable value. The NIC field names are AssVal /
+        // AssAmt in rupees (schema sheet of https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx); the
+        // invented ass_val_paisa / ass_amt_paisa this line used to read were never IRP fields.
         Assert.Equal(
-            doc.RootElement.GetProperty("ValDtls").GetProperty("ass_val_paisa").GetInt64(),
-            items.EnumerateArray().Sum(i => i.GetProperty("ass_amt_paisa").GetInt64()));
+            doc.RootElement.GetProperty("ValDtls").GetProperty("AssVal").GetDecimal(),
+            items.EnumerateArray().Sum(i => i.GetProperty("AssAmt").GetDecimal()));
     }
 
     /// <summary>A multi-rate service invoice e-invoices ONE item per service leg, each with its own SAC — and the
@@ -812,9 +814,10 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         var sacs = items.EnumerateArray().Select(i => i.GetProperty("HsnCd").GetString()).OrderBy(s => s, StringComparer.Ordinal).ToList();
         Assert.Equal(new[] { "996511", "998311" }, sacs);
         Assert.DoesNotContain(items.EnumerateArray(), i => string.IsNullOrEmpty(i.GetProperty("HsnCd").GetString()));
+        // NIC names + rupee units (see the note on the single-SAC test above).
         Assert.Equal(
-            doc.RootElement.GetProperty("ValDtls").GetProperty("ass_val_paisa").GetInt64(),
-            items.EnumerateArray().Sum(i => i.GetProperty("ass_amt_paisa").GetInt64()));
+            doc.RootElement.GetProperty("ValDtls").GetProperty("AssVal").GetDecimal(),
+            items.EnumerateArray().Sum(i => i.GetProperty("AssAmt").GetDecimal()));
     }
 
     /// <summary>ER-13 lock for FIX-6: a hand-keyed As-Voucher sale with NO SAC-bearing service leg still emits the
@@ -848,7 +851,23 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         var items = doc.RootElement.GetProperty("ItemList");
         Assert.Equal(1, items.GetArrayLength());
         Assert.Equal("", items[0].GetProperty("HsnCd").GetString());   // unchanged: no SAC to resolve
-        Assert.Equal(500000L, items[0].GetProperty("ass_amt_paisa").GetInt64());
+        // ₹5,000.00 assessable, declared in the schema's rupee units under the NIC name AssAmt (was: 500000 paisa
+        // under the invented key ass_amt_paisa).
+        Assert.Equal(5_000m, items[0].GetProperty("AssAmt").GetDecimal());
+
+        // IsServc declares the NATURE OF THE SUPPLY, and this voucher is not a service invoice: "Misc Income"
+        // carries no SalesPurchaseGst, isAccountingInvoice is false, so GstReportSupport.IsServiceAccountingInvoice
+        // is false. The writer used to hard-code "Y" on this very branch — the branch reached precisely BECAUSE no
+        // SAC-bearing leg exists — so a trader's accounts-only sale of GOODS declared itself a service. The
+        // official "Validations" sheet (Validations on Items, rule 3) binds the flag to the code: "If Is_Service is
+        // selected, then the HSN codes must belong to services."
+        Assert.Equal("N", items[0].GetProperty("IsServc").GetString());
+
+        // A ledger leg carries value, not a quantity: Qty/Unit are Optional in the schema and are OMITTED rather
+        // than declared 0, which would make "Gross Amount of Item = Quantity X Selling Unit Price" computable and
+        // false by the whole line value.
+        Assert.False(items[0].TryGetProperty("Qty", out _));
+        Assert.False(items[0].TryGetProperty("Unit", out _));
     }
 
     // ================================================================ (21) FIX-7 + the uncovered display gates
