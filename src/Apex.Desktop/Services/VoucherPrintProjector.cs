@@ -300,7 +300,10 @@ public static class VoucherPrintProjector
             items.Add(new InvoiceItemRow
             {
                 Description = ReportPrintProjector.Ascii(item?.Name ?? "(item)"),
-                HsnSac = ReportPrintProjector.Ascii(item?.Gst?.HsnSac ?? item?.HsnSacCode ?? string.Empty),
+                // Resolution order is the ONE rule (drift lock D7); a Rule-46 document leaves an undeclared
+                // HSN column blank rather than printing a placeholder.
+                HsnSac = ReportPrintProjector.Ascii(
+                    Apex.Ledger.Reports.GstReportSupport.HsnSacOf(item) ?? string.Empty),
                 QuantityText = ReportPrintProjector.Ascii(qtyText),
                 RateText = IndianFormat.Amount(il.Rate),
                 TaxableValue = il.Value,

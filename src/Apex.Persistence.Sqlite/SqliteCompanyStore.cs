@@ -2846,7 +2846,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         if (overrides.Count == 0) return string.Empty;
         return string.Join(';', overrides.Select(o =>
             $"{o.Month.ToString(System.Globalization.CultureInfo.InvariantCulture)}:" +
-            $"{((long)(o.Amount.Amount * 100m)).ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+            $"{(Paisa.FromDecimal(o.Amount.Amount)).ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
     }
 
     /// <summary>v25: a threshold stored as rupees × 1,000,000 ("micros") → exact <see cref="Money"/> (rupees).</summary>
@@ -4618,15 +4618,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v37 (Phase 8 slice 9): the establishment Gratuity config. NULL/defaults for a company not provisioning (ER-13).
         var gratuity = c.GratuityConfig;
         cmd.Parameters.AddWithValue("$graten", gratuity is not null ? 1 : 0);
-        cmd.Parameters.AddWithValue("$gratcap", (long)((gratuity?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount) * 100m));
+        cmd.Parameters.AddWithValue("$gratcap", Paisa.FromDecimal((gratuity?.CapAmount.Amount ?? GratuityConfig.DefaultCapAmount)));
         cmd.Parameters.AddWithValue("$gratbasis", (int)(gratuity?.WageBasis ?? GratuityWageBasis.BasicAndDearnessAllowance));
         cmd.Parameters.AddWithValue("$gratpop", (int)(gratuity?.Population ?? GratuityProvisionPopulation.AllActiveEmployees));
         // v37 (Phase 8 slice 9): the establishment statutory-Bonus config. NULL/defaults for a company not enrolled (ER-13).
         var bonus = c.BonusConfig;
         cmd.Parameters.AddWithValue("$bonusen", bonus is not null ? 1 : 0);
         cmd.Parameters.AddWithValue("$bonusrate", bonus?.RateBasisPoints ?? BonusConfig.DefaultRateBasisPoints);
-        cmd.Parameters.AddWithValue("$bonusceil", (long)((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling) * 100m));
-        cmd.Parameters.AddWithValue("$bonusminwage", (long)((bonus?.MinimumWage.Amount ?? 0m) * 100m));
+        cmd.Parameters.AddWithValue("$bonusceil", Paisa.FromDecimal((bonus?.CalculationCeiling.Amount ?? BonusConfig.DefaultCalculationCeiling)));
+        cmd.Parameters.AddWithValue("$bonusminwage", Paisa.FromDecimal((bonus?.MinimumWage.Amount ?? 0m)));
         cmd.Parameters.AddWithValue("$bonusprorate", (bonus?.Prorate ?? true) ? 1 : 0);
         // v40 (Phase 9 slice 3): the composition-scheme config. NULL for a non-composition company (ER-13).
         cmd.Parameters.AddWithValue("$compsub", gst?.CompositionSubType is { } st ? (int)st : (object)DBNull.Value);
@@ -4697,15 +4697,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 """;
             s.Parameters.AddWithValue("$eid", declaration.EmployeeId.ToString("D"));
             s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
-            s.Parameters.AddWithValue("$c80", (long)(declaration.Section80C.Amount * 100m));
-            s.Parameters.AddWithValue("$d80", (long)(declaration.Section80D.Amount * 100m));
-            s.Parameters.AddWithValue("$ccd1b", (long)(declaration.Section80CCD1B.Amount * 100m));
-            s.Parameters.AddWithValue("$ccd2", (long)(declaration.Section80CCD2Employer.Amount * 100m));
-            s.Parameters.AddWithValue("$hra", (long)(declaration.HouseRentAllowanceExempt.Amount * 100m));
-            s.Parameters.AddWithValue("$loan", (long)(declaration.HomeLoanInterest24b.Amount * 100m));
-            s.Parameters.AddWithValue("$other", (long)(declaration.OtherIncome.Amount * 100m));
-            s.Parameters.AddWithValue("$prevsal", (long)(declaration.PreviousEmployerSalary.Amount * 100m));
-            s.Parameters.AddWithValue("$prevtds", (long)(declaration.PreviousEmployerTds.Amount * 100m));
+            s.Parameters.AddWithValue("$c80", Paisa.FromDecimal(declaration.Section80C.Amount));
+            s.Parameters.AddWithValue("$d80", Paisa.FromDecimal(declaration.Section80D.Amount));
+            s.Parameters.AddWithValue("$ccd1b", Paisa.FromDecimal(declaration.Section80CCD1B.Amount));
+            s.Parameters.AddWithValue("$ccd2", Paisa.FromDecimal(declaration.Section80CCD2Employer.Amount));
+            s.Parameters.AddWithValue("$hra", Paisa.FromDecimal(declaration.HouseRentAllowanceExempt.Amount));
+            s.Parameters.AddWithValue("$loan", Paisa.FromDecimal(declaration.HomeLoanInterest24b.Amount));
+            s.Parameters.AddWithValue("$other", Paisa.FromDecimal(declaration.OtherIncome.Amount));
+            s.Parameters.AddWithValue("$prevsal", Paisa.FromDecimal(declaration.PreviousEmployerSalary.Amount));
+            s.Parameters.AddWithValue("$prevtds", Paisa.FromDecimal(declaration.PreviousEmployerTds.Amount));
             s.ExecuteNonQuery();
         }
 
@@ -4731,9 +4731,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     s.Parameters.AddWithValue("$state", slab.StateCode);
                     s.Parameters.AddWithValue("$scope", (int)slab.GenderScope);
                     s.Parameters.AddWithValue("$ord", bandOrder++);
-                    s.Parameters.AddWithValue("$from", (long)(band.FromWage.Amount * 100m));
-                    s.Parameters.AddWithValue("$to", band.ToWage is { } tw ? (long)(tw.Amount * 100m) : (object)DBNull.Value);
-                    s.Parameters.AddWithValue("$amt", (long)(band.MonthlyAmount.Amount * 100m));
+                    s.Parameters.AddWithValue("$from", Paisa.FromDecimal(band.FromWage.Amount));
+                    s.Parameters.AddWithValue("$to", band.ToWage is { } tw ? Paisa.FromDecimal(tw.Amount) : (object)DBNull.Value);
+                    s.Parameters.AddWithValue("$amt", Paisa.FromDecimal(band.MonthlyAmount.Amount));
                     s.Parameters.AddWithValue("$ovr", FormatPtMonthOverrides(band.MonthOverrides));
                     s.ExecuteNonQuery();
                 }

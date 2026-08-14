@@ -230,7 +230,9 @@ public static class PosReceiptPdf
         return writer.Build();
     }
 
-    private static string Fmt(Money m) => m.Amount.ToString("#,##0.00", CultureInfo.InvariantCulture);
+    /// <summary>Money on the POS receipt, Indian-grouped via <see cref="IndianMoneyFormat"/> — the ONE grouping
+    /// rule (drift lock D2); previously Western-grouped against the invariant culture.</summary>
+    private static string Fmt(Money m) => IndianMoneyFormat.Amount(m.Amount);
 
     private static void Center(PdfWriter w, string text, double left, double right, double y, double size, bool bold)
     {

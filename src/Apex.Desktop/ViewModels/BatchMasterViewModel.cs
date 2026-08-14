@@ -327,7 +327,7 @@ public sealed partial class BatchMasterViewModel : ViewModelBase, IMasterListExp
                   + (b.ExpiryPeriod is { } p ? $" ({p.RawText})" : string.Empty)
                 : "—";
             var openingValue = b.InwardQuantity is { } iq && b.InwardRate is { } ir && iq > 0m
-                ? "₹" + Money.ForexBase(ir, iq).Amount.ToString("#,##0.00", CultureInfo.InvariantCulture)
+                ? "₹" + Money.ForexBase(ir, iq).Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)
                 : "—";
             Existing.Add(new BatchListRow
             {

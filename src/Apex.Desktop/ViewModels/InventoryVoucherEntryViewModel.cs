@@ -502,7 +502,9 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         return sum;
     }
 
-    private static string Qty(decimal q) => q.ToString("#,##0.######", CultureInfo.InvariantCulture);
+    /// <summary>Quantity with the ONE grouping rule (drift lock D2) — previously Western-grouped against the
+    /// invariant culture while <c>IndianFormat.Quantity</c> grouped the Indian way for the same quantity.</summary>
+    private static string Qty(decimal q) => Apex.Ledger.IndianMoneyFormat.Quantity(q);
 
     /// <summary>
     /// A built allocation's quantity normalised into the stock item's BASE unit — the same conversion the

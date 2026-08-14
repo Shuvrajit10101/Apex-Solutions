@@ -529,11 +529,15 @@ public static class InvoicePdf
         return y;
     }
 
-    private static string Fmt(Money m) => m.Amount.ToString("#,##0.00", CultureInfo.InvariantCulture);
+    /// <summary>Money on the tax invoice, Indian-grouped via <see cref="IndianMoneyFormat"/> — the ONE grouping
+    /// rule (drift lock D2). This previously formatted against <see cref="CultureInfo.InvariantCulture"/>, whose
+    /// flat group size of 3 printed ₹1,00,000 as "100,000.00" on the invoice while the very same assembly printed
+    /// "1,00,000.00" on a Form-16A/27D certificate.</summary>
+    private static string Fmt(Money m) => IndianMoneyFormat.Amount(m.Amount);
 
     private static string FmtSigned(Money m)
     {
-        string s = Math.Abs(m.Amount).ToString("#,##0.00", CultureInfo.InvariantCulture);
+        string s = IndianMoneyFormat.Amount(Math.Abs(m.Amount));
         return m.Amount < 0m ? "-" + s : s;
     }
 

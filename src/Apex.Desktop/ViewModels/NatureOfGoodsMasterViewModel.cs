@@ -178,7 +178,9 @@ public sealed partial class NatureOfGoodsMasterViewModel : ViewModelBase, IMaste
                 Name = n.Name,
                 RateWithPan = $"{n.RateWithPanBp / 100m:0.##}%",
                 RateWithoutPan = $"{n.RateWithoutPanBp / 100m:0.##}%",
-                Threshold = n.Threshold is { } t ? $"₹{t.Amount:#,##0}" : "—",
+                // Whole rupees through the ONE grouping rule (drift lock D2) — an interpolated ":#,##0" specifier
+                // binds to CurrentCulture, so a lakh-scale §206C threshold grouped the Western way on an en-US host.
+                Threshold = n.Threshold is { } t ? $"₹{IndianFormat.RupeesAlways(t)}" : "—",
                 Kind = kind,
             });
         }

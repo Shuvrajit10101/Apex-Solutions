@@ -128,7 +128,11 @@ public sealed class GstConfig
     public int ReconDateWindowDays { get; set; }
 
     /// <summary>The reconciliation tolerance as a value object (paisa + days), built from the two config fields.</summary>
-    public ReconTolerance ReconTolerance => new((long)(ReconValueTolerance.Amount * 100m), ReconDateWindowDays);
+    // Rupees→paisa via the ONE rule (drift lock D3), ROUNDED: a comparison tolerance is derived, not stored, so
+    // it quantises rather than aborting. This was a bare (long) cast, i.e. a THIRD semantics — truncation toward
+    // zero — which narrowed a sub-paisa tolerance by a paisa instead of rounding it.
+    public ReconTolerance ReconTolerance =>
+        new(PaisaConversion.ToPaisaRounded(ReconValueTolerance), ReconDateWindowDays);
 
     /// <summary>The per-state / per-transaction-type consignment-threshold overrides (Phase 9 slice 5; §2.6). <b>Empty</b>
     /// for a company that never provisions them — every state then uses the flat <see cref="EWayThreshold"/> (ER-13

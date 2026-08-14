@@ -809,7 +809,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                 Valuation = ValuationLabel(item.ValuationMethod),
                 OpeningValue = opening == Money.Zero
                     ? "—"
-                    : "₹" + opening.Amount.ToString("#,##0.00", CultureInfo.InvariantCulture),
+                    : "₹" + opening.Amount.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture),
             });
         }
 

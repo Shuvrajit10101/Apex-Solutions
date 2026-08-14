@@ -43,7 +43,7 @@ public static class AdditionalCostApportionment
         if (n == 0) return zeros;
 
         // Pool is a paisa-exact Money; work in integer paisa so the split can never leak a sub-paisa tail.
-        var poolPaisa = (long)decimal.Round(pool.Amount * 100m, 0, MidpointRounding.AwayFromZero);
+        var poolPaisa = PaisaConversion.ToPaisaRounded(pool); // ONE rupees→paisa rule (drift lock D3), ROUNDED
         if (poolPaisa <= 0L) return zeros;
 
         var totalWeight = 0m;

@@ -12,22 +12,14 @@ namespace Apex.Ledger.Io;
 /// </summary>
 internal static class CertificatePdfSupport
 {
-    private static readonly CultureInfo Indian = CreateIndianCulture();
-
-    private static CultureInfo CreateIndianCulture()
-    {
-        var ci = (CultureInfo)CultureInfo.InvariantCulture.Clone();
-        ci.NumberFormat.NumberGroupSizes = new[] { 3, 2 };
-        ci.NumberFormat.NumberGroupSeparator = ",";
-        ci.NumberFormat.NumberDecimalSeparator = ".";
-        return ci;
-    }
-
-    /// <summary>Formats a rupee amount with Indian (3;2;2) digit grouping and 2 decimals, e.g. "1,00,000.00".</summary>
+    /// <summary>Formats a rupee amount with Indian (3;2;2) digit grouping and 2 decimals, e.g. "1,00,000.00".
+    /// Delegates to <see cref="IndianMoneyFormat"/> — the ONE grouping rule (drift lock D2). This file previously
+    /// built its own private Indian culture and claimed in doc to mirror <c>InvoicePdf</c>, which in fact grouped
+    /// the Western way; the certificate's grouping was the correct one and is what the shared rule kept.</summary>
     internal static string Rupees(Money m) => Rupees(m.Amount);
 
     /// <summary>Formats a rupee amount with Indian grouping and 2 decimals.</summary>
-    internal static string Rupees(decimal v) => v.ToString("#,##0.00", Indian);
+    internal static string Rupees(decimal v) => IndianMoneyFormat.Amount(v);
 
     /// <summary>Formats a date as "dd-MM-yyyy" (invariant), the certificate/return date convention.</summary>
     internal static string Date(DateOnly d) => d.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);

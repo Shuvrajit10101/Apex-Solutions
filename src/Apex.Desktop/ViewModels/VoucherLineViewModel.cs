@@ -252,7 +252,7 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
             BillSummary = $"Allocated {Fmt(allocated)} of {Fmt(line)}  —  over-allocated by {Fmt(-diff)}";
     }
 
-    private static string Fmt(decimal v) => v.ToString("#,##0.00", CultureInfo.InvariantCulture);
+    private static string Fmt(decimal v) => v.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture);
 
     /// <summary>
     /// The domain bill allocations for this line — the complete rows turned into <see cref="BillAllocation"/>.
@@ -564,7 +564,7 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         // Snap to the paisa (the same rounding ForexInfo.BaseValue uses) so the base the engine sees is
         // paisa-exact even on a non-round rate — an unrounded sub-paisa base cannot persist (INTEGER paisa).
         var baseValue = Money.ForexBase(new Money(forex), rate).Amount;
-        ForexBaseText = $"₹ {baseValue.ToString("#,##0.00", CultureInfo.InvariantCulture)}";
+        ForexBaseText = $"₹ {baseValue.ToString("#,##0.00", Apex.Ledger.IndianMoneyFormat.Culture)}";
         // Drive the authoritative base amount (the engine enforces base == forex × rate rounded to the paisa).
         AmountText = baseValue.ToString(CultureInfo.InvariantCulture);
     }

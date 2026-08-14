@@ -470,7 +470,8 @@ public static class EInvoiceJson
                 // A stock line's nature comes from the item's own GST block, which defaults to Goods — so this is
                 // "N" for every existing item (ER-13) and reads the declaration rather than assuming it.
                 isService: item?.Gst?.SupplyType == GstSupplyType.Services,
-                hsnCd: item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "",
+                // Resolution order is the ONE rule (drift lock D7); "" is the NIC schema's own "not declared".
+                hsnCd: GstReportSupport.HsnSacOf(item) ?? "",
                 // Schema: Qty is Number(10,3) — a quantity, not millis.
                 qty: Math.Round(decl.Quantity, 3, MidpointRounding.AwayFromZero),
                 unit: decl.Code ?? "OTH",
@@ -523,8 +524,9 @@ public static class EInvoiceJson
         return byRate;
     }
 
+    /// <summary>Delegates to <see cref="ProRata.Paisa"/> — the ONE apportionment rule (drift lock D1).</summary>
     private static long Apportion(long total, long value, long totalValue) =>
-        totalValue == 0 ? 0 : (long)Math.Round((decimal)total * value / totalValue, MidpointRounding.AwayFromZero);
+        ProRata.Paisa(total, value, totalValue);
 
     /// <summary>
     /// Per-(integrated rate) posted head totals + taxable + <b>that group's own compensation cess</b>, read off the

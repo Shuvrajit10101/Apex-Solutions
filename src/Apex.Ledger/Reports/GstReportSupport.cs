@@ -79,6 +79,33 @@ public static class GstReportSupport
     }
 
     /// <summary>
+    /// <b>The ONE home for resolving a stock item's HSN/SAC</b> (drift lock D7): the item's GST block wins, then
+    /// the Phase-3 <see cref="StockItem.HsnSacCode"/> field, and <c>null</c> means the item declares <b>no</b>
+    /// HSN/SAC at all.
+    ///
+    /// <para><b>The divergence this replaces.</b> The two-level fallback
+    /// <c>item?.Gst?.HsnSac ?? item?.HsnSacCode</c> was written out by hand at four call sites — the GSTR-1 HSN
+    /// summary, the INV-01 e-invoice payload, the e-Way Bill payload and the printed invoice — so the resolution
+    /// ORDER (GST block over legacy field) was four independent copies of one rule, free to drift apart.</para>
+    ///
+    /// <para><b>Why this returns <c>null</c> instead of a sentinel, and why the sentinels stay different.</b>
+    /// The four consumers legitimately render "absent" differently and <b>must</b> keep doing so, so the shared
+    /// rule stops at resolution and hands the caller the absence to spell:</para>
+    /// <list type="bullet">
+    /// <item>The GSTR-1 HSN summary buckets by HSN for a <b>human-read report</b> and labels the unclassified
+    /// bucket <c>(none)</c> — a blank row key would read as a rendering fault.</item>
+    /// <item>The NIC INV-01 and EWB-01 payloads file <c>HsnCd: ""</c> because the schema types the field as a
+    /// string and the department's own convention for "not declared" is the empty string; filing the literal
+    /// text <c>(none)</c> into a statutory code field would be a malformed submission.</item>
+    /// <item>The printed invoice leaves the HSN column blank, because a Rule-46 document omits a field it has no
+    /// value for rather than printing a placeholder.</item>
+    /// </list>
+    /// <para>These are four correct answers to four different questions, so unifying the <i>sentinel</i> would
+    /// break three of them. What was genuinely duplicated — and is now unified — is the <i>resolution order</i>.</para>
+    /// </summary>
+    public static string? HsnSacOf(StockItem? item) => item?.Gst?.HsnSac ?? item?.HsnSacCode;
+
+    /// <summary>
     /// True iff a GST state code denotes an <b>overseas</b> place of supply — i.e. the supply leaves India, so it is an
     /// export rather than a domestic supply. <b>The ONE copy of this rule</b> (W0-8): the e-invoice supply-category
     /// resolver, the B2C dynamic-QR suppressor and the e-Way sub-supply router all call this, because a state code

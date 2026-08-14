@@ -661,15 +661,23 @@ public sealed record Gstr1(
     private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
         company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
 
+    /// <summary>Delegates to <see cref="ProRata.Rupees"/> — the ONE apportionment rule (drift lock D1). This was a
+    /// pure de-duplication: this copy carried no zero-denominator guard of its own, but it never needed one, because
+    /// BOTH call sites (the stock/HSN loop and the service-SAC loop) already <c>continue</c> on
+    /// <c>groupValue == 0m</c> before reaching here. Those caller-side guards are LOAD-BEARING — they skip the group
+    /// entirely, which is the observable behaviour; do not delete them believing the shared rule's <c>== 0</c>
+    /// replaces them, or the group's whole posted tax would land on its last leg via the remainder branch.</summary>
     private static decimal Apportion(decimal total, decimal value, decimal totalValue) =>
-        Math.Round(total * value / totalValue, 2, MidpointRounding.AwayFromZero);
+        ProRata.Rupees(total, value, totalValue);
 
     private static void AddHsnRow(
         Company company, VoucherInventoryLine il, decimal value, decimal cgst, decimal sgst, decimal igst,
         Dictionary<string, HsnAcc> hsnAcc)
     {
         var item = company.FindStockItem(il.StockItemId);
-        var hsn = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "(none)";
+        // Resolution order is the ONE rule (GstReportSupport.HsnSacOf, drift lock D7); the "(none)" bucket label
+        // is this report's own rendering of absence — see that method's note on why the sentinels differ.
+        var hsn = GstReportSupport.HsnSacOf(item) ?? "(none)";
         // WI-10 Gap 2 follow-on: declare the quantity in the unit the LINE is stated in when that unit maps to a
         // valid UQC ("2 DOZ"), exactly as the printed invoice already does — NOT the line quantity beside the
         // item's BASE UQC, which would file "2 NOS" for a Table-12 row in which 24 Nos were actually supplied.

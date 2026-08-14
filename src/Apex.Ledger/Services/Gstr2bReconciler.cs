@@ -239,7 +239,9 @@ public static class Gstr2bReconciler
         return trimmed.Length == 0 ? null : trimmed;
     }
 
-    private static long ToPaisa(Money money) => (long)Math.Round(money.Amount * 100m, MidpointRounding.AwayFromZero);
+    /// <summary>Delegates to <see cref="PaisaConversion.ToPaisaRounded(Money)"/> — the ONE rupees→paisa rule
+    /// (drift lock D3), ROUNDED semantics: reconciliation quantises to compare, it does not abort.</summary>
+    private static long ToPaisa(Money money) => PaisaConversion.ToPaisaRounded(money);
 
     /// <summary>A books-register entry (internal; the report surfaces <see cref="ReconBooksEntry"/>).</summary>
     private readonly record struct BooksEntry(

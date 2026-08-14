@@ -14,19 +14,13 @@ internal static class Paisa
     /// <summary>Rupees → paisa. Throws if the amount is not exact to 2 decimal places.</summary>
     public static long FromMoney(Money money) => FromDecimal(money.Amount);
 
-    /// <summary>Rupees → paisa. Throws if the amount is not exact to 2 decimal places.</summary>
-    public static long FromDecimal(decimal rupees)
-    {
-        var scaled = rupees * 100m;
-        var rounded = decimal.Truncate(scaled);
-        if (scaled != rounded)
-            throw new InvalidOperationException(
-                $"Amount {rupees} is not paisa-exact (more than 2 decimal places); cannot persist without loss.");
-        return (long)rounded;
-    }
+    /// <summary>Rupees → paisa. Throws if the amount is not exact to 2 decimal places. Delegates to
+    /// <see cref="PaisaConversion.ToPaisaExact(decimal)"/> — the ONE rupees→paisa rule (drift lock D3). This is
+    /// the EXACT semantics: the store is the system of record, so silent precision loss is unacceptable.</summary>
+    public static long FromDecimal(decimal rupees) => PaisaConversion.ToPaisaExact(rupees);
 
     /// <summary>Paisa → rupees as an exact decimal.</summary>
-    public static decimal ToDecimal(long paisa) => paisa / 100m;
+    public static decimal ToDecimal(long paisa) => PaisaConversion.ToRupees(paisa);
 
     /// <summary>Paisa → <see cref="Money"/>.</summary>
     public static Money ToMoney(long paisa) => Money.FromRupees(ToDecimal(paisa));

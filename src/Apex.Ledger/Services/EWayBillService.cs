@@ -484,10 +484,13 @@ public sealed class EWayBillService
         };
     }
 
-    /// <summary>Integer-paisa value of a paisa-exact <see cref="Money"/> (consignment values are sums of posted
-    /// paisa-exact amounts, so this is exact). Kept in the Ledger layer (no dependency on the Io <c>MoneyCodec</c>).</summary>
-    private static long ToPaisa(Money money) =>
-        (long)Math.Round(money.Amount * 100m, MidpointRounding.AwayFromZero);
+    /// <summary>Integer-paisa value of a consignment <see cref="Money"/>. Kept in the Ledger layer (no dependency on
+    /// the Io <c>MoneyCodec</c>). Delegates to <see cref="PaisaConversion.ToPaisaRounded(Money)"/> — the ONE
+    /// rupees→paisa rule (drift lock D3), ROUNDED semantics: a consignment value is a DERIVED total, so it
+    /// quantises a sub-paisa tail rather than aborting the e-Way Bill. In practice the inputs are sums of posted
+    /// paisa-exact amounts, so the rounding is a safety net and not an expected path — but the semantics in force
+    /// here are the rounding ones, which is what a reader auditing this call site needs to know.</summary>
+    private static long ToPaisa(Money money) => PaisaConversion.ToPaisaRounded(money);
 }
 
 /// <summary>A consolidated EWB-02 header (Phase 9 slice 5; §2.4) — a light join over the child EWB numbers travelling in

@@ -203,8 +203,12 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         var cumulative = n.CumulativeThreshold;
         if (single is null && cumulative is null) return "—";
         var parts = new List<string>();
-        if (single is { } s) parts.Add($"₹{s.Amount:#,##0} single");
-        if (cumulative is { } c) parts.Add($"₹{c.Amount:#,##0}/FY");
+        // Whole rupees through the ONE grouping rule (drift lock D2). An interpolated ":#,##0" specifier binds to
+        // CurrentCulture, so on the en-US host this app targets a §194C ₹1,00,000 threshold printed "₹100,000"
+        // while the tax invoice for the same company printed "₹1,00,000" — the same-assembly contradiction D2
+        // exists to eliminate — and on a de-DE host "₹100.000", which reads as a decimal.
+        if (single is { } s) parts.Add($"₹{IndianFormat.RupeesAlways(s)} single");
+        if (cumulative is { } c) parts.Add($"₹{IndianFormat.RupeesAlways(c)}/FY");
         return string.Join(" · ", parts);
     }
 }

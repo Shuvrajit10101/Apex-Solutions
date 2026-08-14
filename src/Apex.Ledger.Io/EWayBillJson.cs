@@ -201,7 +201,8 @@ public static class EWayBillJson
             items.Add(new ItemDto
             {
                 SlNo = sl++,
-                HsnCd = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? "",
+                // Resolution order is the ONE rule (drift lock D7); "" is the NIC schema's own "not declared".
+                HsnCd = GstReportSupport.HsnSacOf(item) ?? "",
                 QtyMillis = (long)Math.Round(decl.Quantity * 1000m, MidpointRounding.AwayFromZero),
                 Unit = decl.Code ?? "OTH",
                 TaxableAmtPaisa = MoneyCodec.ToPaisa(il.Value),
@@ -218,8 +219,9 @@ public static class EWayBillJson
     private static int LineIntegratedRate(Company company, VoucherInventoryLine il) =>
         company.FindStockItem(il.StockItemId)?.Gst is { IsTaxable: true, RateBasisPoints: { } bp } ? bp : 0;
 
+    /// <summary>Delegates to <see cref="ProRata.Paisa"/> — the ONE apportionment rule (drift lock D1).</summary>
     private static long Apportion(long total, long value, long totalValue) =>
-        totalValue == 0 ? 0 : (long)Math.Round((decimal)total * value / totalValue, MidpointRounding.AwayFromZero);
+        ProRata.Paisa(total, value, totalValue);
 
     /// <summary>Per-(integrated rate) posted head totals + taxable, read off the tax lines (ER-9). Excludes the ring-fenced
     /// Cess head and reverse-charge lines (consistent with <see cref="GstReportSupport.InvoiceTaxableValue"/>).</summary>
