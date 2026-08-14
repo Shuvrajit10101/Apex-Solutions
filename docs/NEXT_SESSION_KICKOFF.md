@@ -2,7 +2,8 @@
 
 **Paste the COPY-PASTE PROMPT below as your first message in the new session.**
 Written **2026-08-14**. This file was previously dated 2026-07-05 and claimed schema v13 / 570 tests /
-a branch that no longer exists — it was recorded as an active defect (census P7) and is now rewritten.
+a branch that no longer exists — ~37 schema versions and ~3,500 tests out of date, so anyone following it
+verbatim would have resumed from a state that has not existed since Phase 4. Now rewritten.
 
 ---
 
