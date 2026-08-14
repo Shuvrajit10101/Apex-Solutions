@@ -1526,6 +1526,28 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     already exist** on the domain, in the schema and in the printer. Fixes the **blank seller address block on
     every future invoice** (CGST Rule 46) — unfixable from inside the UI today because the field cannot be
     typed anywhere — and **unblocks prior-FY books** (creation captures one field: Name).
+    **▶ R7 GROUNDING — `docs/w0-2-company-screen-grounding.md`** (written 2026-08-14 at `fa651ae`; this row had
+    NO pointer to it until then, which left the gate below governing nothing). It is the A14 corpus pass written
+    down: TallyPrime's Company Creation fields in screen order, Alter-vs-Creation, the F11 GST Details screen
+    where the **GSTIN actually lives** (not on Creation), the Rule 46 mapping, our own `file:line` state at
+    `fa651ae`, a **§9 UNVERIFIED list** that exists to stop a future session inventing, and a corpus-hygiene
+    ruling **REJECTING `tally/659947760-Tally-Prime-Short-Key.pdf`** as a shortcut source. **Read it before
+    designing this screen; do not re-derive the corpus from memory.**
+    **🔴 USER GATE (R12) — `Company.State`. W0-2 MUST NOT START UNTIL THE USER RULES ON THIS.** The **party**
+    side of the schema carries a standing prohibition — `src/Apex.Persistence.Sqlite/Schema.cs:808-811`,
+    verbatim: *"there is deliberately NO `mailing_state` column … Do not add `mailing_state`"* — because a
+    second stored State could contradict the GST one and **silently produce the wrong tax head**. The **company**
+    side **already has exactly that duplication**: postal `companies.state` (`Schema.cs:172`) alongside GST
+    `companies.gst_home_state` (`Schema.cs:188`), **with the printer reading ONLY the GST one** —
+    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:687` is `StateText = StateText(company.Gst?.HomeStateCode)`,
+    so a postal State typed into `Company.State` (`src/Apex.Ledger/Domain/Company.cs:69`) goes nowhere. **And the
+    corpus points AWAY from duplication:** TallyPrime's GST Details State *"by default shows the State name as
+    selected in the Company Creation screen"* (`664311548-Tally-Prime-Book.pdf` PDF p.177) — it **INHERITS**.
+    Three shapes are on the table: **expose both** (ships the divergence the party side was explicitly designed
+    to prevent, and worse than the party case because the divergent column already exists and already persists),
+    **suppress the postal one** (breaks the field map and Tally's own screen), or **wire one to the other as
+    Tally does** (matches the corpus, but changes what `gst_home_state` means and touches the GST screen, which
+    is outside W0-2 as written). **Grounding doc §8 lays out the evidence and deliberately chooses none of them.**
   - **W0-3 (T1-7) Restore reachable from Company Select** — **~½ day.** The engine already restores a company
     this machine never had; the screen is gated on an **open** company. **The difference between a backup
     feature and a disaster-recovery one.**
@@ -1961,7 +1983,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     the same `IsPaisaExact` front-line guard already written for `TaxDeclarationViewModel.TryMoney` — do it before
     any other row here.** **▶ DISCHARGED BY `W0-12` BELOW — DONE (working tree)**, which carries that guard **plus**
     four things this row did not ask for and could not have: a magnitude bound (the guard itself overflowed on a
-    17-digit figure), rollback-on-failure across **eleven** methods on that screen (without which the guard still
+    17-digit figure), rollback-on-failure across **twelve** methods on that screen (without which the guard still
     leaves memory and disk diverged whenever `Save` throws for any OTHER reason), a catch filter that no longer
     decides whether the rollback runs, and the `TryParseWholeRupees` behaviour change — which also turned out to be
     stripping decimal commas into 100× wrong figures. **Read W0-12 before touching either screen.**
@@ -2067,18 +2089,34 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `InsertCompany` **rolls the whole write back — the DATABASE IS NEVER CORRUPTED.** The damage is entirely to the
     **in-memory aggregate every other screen shares**: "every later save throws until the app is restarted" is true;
     "the book is corrupted" is not. W0-11's carry-forward (a) did not make that distinction; this row does.
-  - **▶ WHAT ACTUALLY SHIPPED — eleven methods on one screen, not the two the design scoped.** Line numbers are
+  - **▶ WHAT ACTUALLY SHIPPED — twelve methods on one screen, not the two the design scoped.** Line numbers are
     post-change, in `src/Apex.Desktop/ViewModels/GstConfigViewModel.cs` unless stated.
     **(a) FRONT-LINE GUARD** — `TryStatutoryRupees` (`:1407`), three call sites, four ordered branches:
-    non-numeric/negative (the field's own pre-existing message, reused byte-for-byte) → **too large** → sub-paisa
-    (`Money.IsPaisaExact`, message in the `TaxDeclarationViewModel.cs:253` convention) → not a whole rupee.
+    non-numeric/negative (`:1411`, the field's own pre-existing message, reused byte-for-byte) → **too large**
+    (`:1423`) → sub-paisa (`:1430`, `Money.IsPaisaExact`, message in the `TaxDeclarationViewModel.cs:253`
+    convention) → not a whole rupee (`:1444`).
+    **⚠️ THE BRANCH ORDER ABOVE IS THE SHIPPED ONE; `fa651ae`'s COMMIT BODY STATES IT WRONGLY, AND SINCE THAT
+    COMMIT IS PUSHED AND CANNOT BE AMENDED, THIS LINE IS THE ONLY PLACE THE CORRECTION CAN LIVE.** Under its
+    "(a) the front-line guard" heading that body reads "magnitude ceiling `MaxStatutoryRupees` → paisa-exactness
+    (`Money.IsPaisaExact`) → sign/parse → whole rupee" — it puts the **parse/sign branch third**, below two
+    branches that both test the parsed `decimal` which only the parse branch produces, so that order is not the
+    shipped code and could not be implemented as written. The same body then argues at length that "the ordering
+    is load-bearing and not cosmetic" — so a reader who trusts its prose and re-orders the method to match would
+    break the exact invariant it is defending. **Read `:1411`–`:1450` of the source, never the commit message.**
+    (Re-read at `fa651ae` on 2026-08-14; the shipped order is parse/sign → magnitude → `IsPaisaExact` →
+    whole-rupee, as stated above.)
     **(b) `TryParseWholeRupees` HONOURS ITS NAME** (`:1462`) and the two loaders (`:1178`, `:1278`) render with
     `"0.##"` instead of a truncating `(long)` cast, so a stored fractional figure is shown in full and refused
     rather than silently rewritten on the next Ctrl+A.
-    **(c) ROLLBACK-ON-FAILURE, on ELEVEN methods.** Capture-before / restore-in-catch, always **before** the
-    toggle-revert (which re-derives from the field being restored): `ApplyGratuity` (`:1201`), `ApplyBonus`
-    (`:1298`), and — the four siblings the first draft left out, all reached from the SAME Ctrl+A — `ApplyPf`
-    (`:847`), `ApplyEsi` (`:919`), `ApplyPt` (`:995`), `ApplySalaryTds` (`:1129`); plus the toggle handlers whose
+    **(c) ROLLBACK-ON-FAILURE, on TWELVE methods = SIX `Apply*` + SIX `On*Changed`.** ⚠️ **The subtotal is stated
+    per side on purpose: this row and `fa651ae`'s body both said "eleven" over a list of twelve, and the body
+    shows where the loss happened — its own subtotal reads "plus five toggle handlers" and then names six.
+    Re-counted against the shipped file 2026-08-14; every line below opened and confirmed.**
+    Capture-before / restore-in-catch, always **before** the
+    toggle-revert (which re-derives from the field being restored). **The SIX `Apply*`:** `ApplyGratuity`
+    (`:1201`), `ApplyBonus` (`:1298`), and — the four siblings the first draft left out, all reached from the
+    SAME Ctrl+A — `ApplyPf` (`:847`), `ApplyEsi` (`:919`), `ApplyPt` (`:995`), `ApplySalaryTds` (`:1129`).
+    **The SIX `On*Changed`,** whose
     "revert" was a comparison that could never be true: `OnPayrollEnabledChanged` (`:754`, which must capture BOTH
     payroll flags because `DisablePayroll` clears them both), `OnPayrollStatutoryEnabledChanged` (`:798`),
     `OnMaintainBatchwiseDetailsChanged` (`:647`), `OnSetComponentsBomChanged` (`:676`),
@@ -2123,7 +2161,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     left the session computing Professional Tax off a state the book does not have. That is a wrong-FIGURES
     divergence and is why `ApplyPt` captures the two mutated fields, not just the reference. **A loud crash and a
     silent divergence are different severities and the record must not collapse them.**
-  - **▶ THE KEYBOARD ACCEPT REACHES SEVEN APPLY METHODS, NOT TWO.** `AcceptStatutoryConfig` (`:1788`) runs
+  - **▶ THE KEYBOARD ACCEPT REACHES NINE APPLY METHODS, NOT TWO.** (⚠️ This row read "SEVEN" over a list of
+    **nine** until 2026-08-14 — the same miscount class as (c) above; re-counted at `:1790-1813`.)
+    `AcceptStatutoryConfig` (`:1788`) runs
     `Apply` → `ApplyTds` → `ApplyTcs` → `ApplyPf` → `ApplyEsi` → `ApplyPt` → `ApplySalaryTds` → `ApplyGratuity` →
     `ApplyBonus`, **the four siblings BEFORE the two the design scoped**, and it **discards the `bool` each
     returns**. So one Ctrl+A against a company whose save fails used to leave PF, ESI and PT in memory while the
@@ -2162,7 +2202,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   - **▶ CARRY-FORWARD (a) — 🔴 SEVEN MORE UNGUARDED TYPED-MONEY PATHS: A DIFFERENT BUG CLASS, DELIBERATELY OUT OF
     THIS SLICE'S SCOPE, RECORDED HERE SO IT IS NOT LOST.** W0-11's carry-forward (a) scoped the class to
     `Paisa.FromDecimal` and the three statutory fields; **the same throw is reachable through `Paisa.FromMoney`**
-    (`src/Apex.Persistence.Sqlite/Paisa.cs:14`, the same `ToPaisaExact`) wherever a **domain constructor** takes a
+    (`src/Apex.Persistence.Sqlite/Paisa.cs:15` — this row cited `:14`, which is the doc comment; corrected
+    2026-08-14 — the same `ToPaisaExact`) wherever a **domain constructor** takes a
     `Money` the UI parsed with a bare `decimal.TryParse`. Seven found, each traced UI-parse ⇒ domain-construct ⇒
     persist site: **1** `BudgetMasterViewModel.cs:131` ⇒ `:138`/`:139`, `Domain/BudgetLine.cs:33` validating only
     "exactly one target" and `≥ 0`, persisted at `SqliteCompanyStore.cs:6596` · **2**
@@ -2186,20 +2227,30 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `AccountingInvoiceLineViewModel.cs:92`, `AdditionalCostLine.cs:24`, plus the **15 `src/Apex.Desktop` files
     (18 occurrences, measured)** that already call `IsPaisaExact`. **Genuinely out of scope:** forex amounts/rates
     and the TDS/TCS thresholds persist as **micros** and never pass through `Paisa.From*`.
-  - **▶ CARRY-FORWARD (b) — THE MUTATE-THEN-SAVE IDIOM IS SYSTEMIC; W0-12 CLOSED ELEVEN METHODS ON ONE SCREEN.**
+  - **▶ CARRY-FORWARD (b) — THE MUTATE-THEN-SAVE IDIOM IS SYSTEMIC; W0-12 CLOSED TWELVE METHODS ON ONE SCREEN.**
     There are **99 `_storage.Save(` call sites in `src/Apex.Desktop/` (measured, unchanged)**, **18 of them in
     `GstConfigViewModel.cs`**. The shape (c) cures — mutate the shared `Company` aggregate, then persist, with no
-    restore when the persist throws — is now closed on eleven methods there and **remains unaudited everywhere
+    restore when the persist throws — is now closed on twelve methods there and **remains unaudited everywhere
     else**. **Named residue, so the next slice does not have to rediscover it rather than a bag of anonymous save
     sites:**
     **(i) IN THIS SAME FILE, deliberately NOT fixed:** `OnEnableJobOrderProcessingChanged` (`:729`) routes through
-    `JobWorkService.SetEnabled` (`src/Apex.Ledger/Services/JobWorkService.cs:44-58`), which stamps `IsActive` /
-    `UseForJobWork` / `AllowConsumption` on **every Job-Work voucher type** as well as the company flag — restoring
-    one bool would not undo the mutation, so it needs a per-type capture and is left whole rather than half-fixed.
-    `Apply` (GST, `:1514`, saving at `:1526`/`:1587`), `ApplyTds` (`:1651`) and `ApplyTcs` (`:1717`) also
-    mutate-then-save; they
-    now inherit the widened `IsReportableSaveFailure` set through `TrySave`, so an `SqliteException` there is a
-    message instead of a crash, but **they still do not roll back** and no test covers that.
+    `JobWorkService.SetEnabled` (`src/Apex.Ledger/Services/JobWorkService.cs:44-58`) — **re-verified 2026-08-14
+    and the reason HOLDS**, with the stamping stated precisely rather than loosely: it sets the company flag
+    (`:46`), then walks `_company.VoucherTypes` setting `IsActive` on **every** Job-Work-base-type voucher type
+    (`:50-51`), `UseForJobWork` on the **two Material types** (`:53-54`) and `AllowConsumption` on **Material In
+    only** (`:55-56`). Restoring one bool would undo none of that, so it needs a per-type capture and is left
+    whole rather than half-fixed. It also still carries the OLD narrow
+    `when (ex is InvalidOperationException or ArgumentException)` filter (`:736`), so a locked or read-only `.db`
+    crashes it.
+    **⚠️ CORRECTED 2026-08-14 — this row previously claimed `Apply` / `ApplyTds` / `ApplyTcs` "now inherit the
+    widened `IsReportableSaveFailure` set through `TrySave`". THEY LARGELY DO NOT, and the correction matters
+    because it is the difference between a message and a crash.** `TrySave` has exactly **seven** call sites in
+    this file — `:857`, `:928`, `:1004`, `:1213`, `:1307` (the PF/ESI/PT and Gratuity/Bonus DISABLE branches),
+    plus `:1660` and `:1726`. So `ApplyTds` (`:1651`) and `ApplyTcs` (`:1717`) inherit the widened set **only on
+    their disable branch**; their ENABLE branches still save at `:1696`/`:1762` under the narrow filter
+    (`:1698`/`:1764`). `Apply` (GST, `:1514`) inherits it **nowhere** — both its saves (`:1526`, `:1587`) keep the
+    narrow filter (`:1528`, `:1589`). **Five narrow filters survive in the file: `:736`, `:1528`, `:1589`,
+    `:1698`, `:1764`.** All three methods also still **do not roll back**, and no test covers either gap.
     **(ii) ELSEWHERE:** `BudgetMasterViewModel.cs:198` is the one with no `try`/`catch` at all (carry-forward (a)
     #1). **This is a survey, not a rewrite:** the audit is cheap, the cure is per-site, and it belongs with (a)
     because the same call sites appear in both lists. **Do not read W0-12 as having closed the class.**
