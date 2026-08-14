@@ -10,20 +10,42 @@
 > slabs. The domain model, phases, tests, and gates are stack-agnostic and unchanged.
 > **Phases 0–9 and Phase 10.5 (CA-audit remediation, slices S1–S9) are COMPLETE and merged** (PRs #19–#25);
 > the UI-defect campaign that followed is also merged (PRs #26–#33). `origin/main` = `c655dc2`, schema **v46**
-> there. **Everything since lives UNPUSHED on `claude/confident-ellis-dedef5` — no PR, no upstream:**
-> Phase 10.7 (voucher numbering S1–S5) and the service-invoicing work carried the schema **v46 → v49**;
-> **Phase 10.8 is STOPPED AND BANKED** (2026-07-29, R12); and **Phase 10.9 — Tally-gap remediation is BUILT,
-> reviewed and MERGED onto that branch** (2026-08-03 — five parallel streams, cross-stream interaction tests
-> and the Tally version/voucher-entry audit). Suite **3651 tests green — Ledger 1281 · Io 361 · Sqlite 210 ·
-> Desktop 1799**; build **0W/0E**; schema **v49** (Phase 10.9 is schema-clean). **Quote the FOUR numbers, never
-> the total alone — a green total with the wrong per-project counts is a CONTAMINATED RUN, not a pass** (§6.2).
+> there. **Everything since lives UNPUSHED — no PR, no upstream, and NOTHING IS ON A REMOTE**
+> (`git branch -r --contains HEAD` is EMPTY, measured 2026-08-14): Phase 10.7 (voucher numbering S1–S5) and the
+> service-invoicing work carried the schema **v46 → v49**; **Phase 10.8 is STOPPED AND BANKED** (2026-07-29,
+> R12) — **⚠️ but slice S-B shipped anyway in `a12e651`; this section and §Phase 10.8 have NOT been amended for
+> that, and the file is internally contradictory until they are**; and **Phase 10.9 — Tally-gap remediation is
+> BUILT, reviewed and MERGED** (2026-08-03 — five parallel streams, cross-stream interaction tests and the
+> Tally version/voucher-entry audit).
+> **⚠️ 2026-08-14 — THE BRANCH MOVED AND THIS HEADER'S OLD FIGURES WERE STALE IN THREE FACTS.** The live branch
+> is **`claude/apex-wrong-figures-bc45f4`, HEAD `f327abb`, 66 commits ahead of `origin/main`** (measured
+> `git rev-list --count origin/main..f327abb`); `claude/confident-ellis-dedef5` stopped at `18bf524` and the
+> wrong-figures campaign continued past it. Schema is **v50, not v49** (`src/Apex.Persistence.Sqlite/Schema.cs:146`
+> — moved by `a12e651` and by nothing else; `git log --all -S "CurrentVersion = 50"` returns exactly that one
+> commit, which is the check that proves it). **The suite figures that stood here — 3651 / Ledger 1281 · Io 361
+> · Sqlite 210 · Desktop 1799 — were 34 commits stale and are DELETED FROM THIS HEADER rather than guessed at:
+> read the four per-project counts from the commit body of whichever slice you are standing on, or
+> re-measure.** **⚠️ THE DELETION IS SCOPED TO THIS HEADER AND NOWHERE ELSE. The identical figures SURVIVE
+> DELIBERATELY further down as Phase 10.9's own historical gate records — `:1033-1035` (the gate bullet),
+> `:1095-1101` (the per-slice delta table) and `:1152` (the exit gate) — where they are a true record of what
+> was measured AT `6124a25`. They are NOT current and must never be quoted as such; any other phase's gate
+> figures are the same kind of record.** The last
+> figure MEASURED rather than relayed is in `memory.md`'s **▶ STATE AT CLOSE** for 2026-08-14, at `f327abb`.
+> **⚠️ TO RE-MEASURE, USE `C:\Users\dkpho\.dotnet\dotnet.exe`** — the `dotnet` on PATH is a runtime-only
+> install with **no SDK**, and piping a build through `tail` under Git Bash returns **exit 0 having built
+> nothing**: a false green of the same class as the truncated Desktop run below.
+> **Quote the FOUR numbers, never the total alone — a green total with the wrong per-project counts is a
+> CONTAMINATED RUN, not a pass** (§6.2).
 > **Phase 11 and the REST of Phase 10 — TallyVault, Security Control / roles, Edit Log / Tally Audit,
 > split-by-FY, group company, repair/rewrite — remain EXCLUDED by standing user decision.**
 > **`backup/restore` was CARVED OUT of Phase 10 and is BUILT** (user decision 2026-08-02) — this closes the
 > contradiction where the plan named it as the mitigation for its own top-ranked data-loss risk **R-7** (§9.1)
 > while placing it inside an excluded phase.
-> **Current work: the Phase 10.9 R9 real-app run** (§5) — nine merged features have never been seen working
-> outside a test harness.
+> **Current work: the outstanding R9 real-app run — and it is now the WIDE one.** **⚠️ 2026-08-14 — this line
+> read "the Phase 10.9 R9 real-app run … nine merged features" and that scope is SUPERSEDED:** the run now
+> owes the **whole 34-commit wrong-figures range** `6124a25..f327abb` (measured `git rev-list --count`),
+> **none of which has been exercised in the running app** — three statutory-payload fixes among it. The
+> Phase 10.9 nine are a subset, not the scope.
 >
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
@@ -317,8 +339,12 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > GitHub Expert commits/pushes → run the real app → memory.md updated → **user go-ahead**) and satisfies the
 > **R11** Definition of Done for its features. Agents are those in `agents.md` (finalised in Phase 0).
 
-> **▶ CENSUS BANNER — READ THIS BEFORE ANY PHASE BLOCK BELOW (R6, 2026-08-10).** A seven-agent capability
-> census — **`docs/full-clone-census.md`** — established the real denominator for the first time. **A full
+> **▶ CENSUS BANNER — READ THIS BEFORE ANY PHASE BLOCK BELOW (R6, 2026-08-10).** A **three**-mapping-agent
+> capability census — **`docs/full-clone-census.md`** — established the real denominator for the first time.
+> (**⚠️ 2026-08-14 — this banner read "seven-agent" until now and that was WRONG**: the census states its own
+> provenance as three mapping agents at `docs/full-clone-census.md:7` and `:51`, and the count is load-bearing
+> — §1.3's whole point is how thin the measurement is, so inflating the agent count reads as corroboration the
+> document explicitly disclaims.) **A full
 > clone is ~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined** (census §1.2). The
 > counting rule is **§1.1 and it is open to argument** — report families count as one row each, so the ~14
 > registers hidden inside them would push the denominator past 200. **115 is the *most favourable defensible*
@@ -753,7 +779,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   remain the intent, but **none of the valuation work has landed**. The engine is **reverted to HEAD
   byte-for-byte** and the suite is back at the pre-session baseline **3491 green — Ledger 1261 · Io 359 ·
   Sqlite 184 · Desktop 1687** (build 0W/0E, schema
-  **v49** — negative stock never reached its **v50**). **Eight attempts** (three in earlier sessions, five on
+  **v49** — negative stock never reached its **v50**). **⚠️ 2026-08-14 — THAT PARENTHESIS IS NOW FALSE AND IS
+  THE FOURTH SITE OF THE SAME CONTRADICTION** (the other three, re-derived 2026-08-14: `:15` "Phase 10.8 is
+  STOPPED AND BANKED", `:940-943` the S-B "Do not reorder" prohibition, `:1187` the "NS-3/NS-4 shipped"
+  note): **`a12e651` shipped S-B and took the schema to v50**
+  (`src/Apex.Persistence.Sqlite/Schema.cs:146`; `git log --all -S "CurrentVersion = 50"` returns that one
+  commit). **Valuation is still untouched** — what is stale here is the schema figure and the "never reached"
+  clause, NOT the statement that the valuation work has not landed. **Eight attempts** (three in earlier sessions, five on
   `claude/confident-ellis-dedef5`) **each passed the FULL TEST SUITE; four also passed the ORACLE** and were
   then **convicted by adversarial review**. **What is BANKED:** the committed **HEAD-oracle harness**
   (`275c395`, extended since — **198 hand-derived goldens**, audit chain closed at **TRUSTWORTHY**, now
@@ -1474,10 +1506,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **▶ NUMBERING (R6).** **10.12** — the next free slot in the **10.x insertion band**; 10.10 (wrong figures)
   and 10.11 (voucher lifecycle) are taken, and like them this is a **precondition to release**, not Phase-10
   scope. **Phase 10 and Phase 11 stay excluded and unchanged.**
-- **Goals:** ship census §5 **Wave 0** — the items that are **cheap and stop active harm**. **Every one is UI
-  over plumbing that already exists, already persists and is already tested**: no new engine, no new
-  arithmetic, no new statutory figure. This is also the wave that makes the registers honest, without which
-  nothing downstream can be planned.
+- **Goals:** ship census §5 **Wave 0** — the items that are **cheap and stop active harm**. **W0-1, W0-2, W0-3,
+  W0-4 and W0-5 are UI over plumbing that already exists, already persists and is already tested**: no new
+  engine, no new arithmetic, no new statutory figure. **THE OTHER SIX W0 ROWS AND THE F14 ROW ARE NOT UI AND
+  THIS SENTENCE MUST NOT BE READ OVER THEM.** **⚠️ W0-8, W0-9, W0-10, W0-11 and F14 are ENGINE work, recorded
+  R6 deviations, each stating its reason in its own entry** — W0-9 in particular moved the §31(3)(c) exempt
+  limb **DOWN into `Apex.Ledger`/`GstReportSupport`** (see its own row), which is engine work by the same test
+  the other four are judged by. **W0-6 (register & plan corrections) and W0-7 (`PopulatedCompanyFixture`
+  extension) are neither UI nor engine** — documentation and test-fixture work respectively. It originally read
+  "every one", then said "W0-1…W0-7", and three separate rows each claimed to be the sole exception; the next
+  row that does not fit **amends this sentence** rather than appending another exception to it. This is also
+  the wave that makes the registers honest, without which nothing downstream can be planned.
 - **Work items (id — one-line; the evidence for every row is in `docs/full-clone-census.md` §2, not here):**
   - **W0-1 (T0-7) Bill of Supply routing + `DocumentTitle`** — **~1 day. Highest urgency in the wave.** The
     screen **already computes the answer** (`IsBillOfSupply` and the s10 / Rule-5(f) declaration render in the
@@ -1505,11 +1544,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     or payroll vouchers**, and **no print or export test uses it at all.** **Nothing else in this wave — or in
     Waves 1–5 — is honestly testable without it.**
   - **W0-8 (T0-7 follow-up — closes W0-1's own `🔴 UNVERIFIED CARRY-FORWARD`) e-Way Bill Part-A emits
-    DESCRIPTIONS where NIC expects CODES** — **~1–1½ days. The one non-UI row in the wave**, admitted against
-    its "UI over finished plumbing" framing because it is **malformed data in a STATUTORY FILING** (R6
-    deviation, recorded here). `EWayBillService.cs:324-364` stamps `"Inward"/"Outward"`, `"Supply"/"Job
-    Work"/"Handicraft"` and `"CRN"/"DBN"`; `EWayBillJson.cs:84-86` writes them verbatim into the EWB-01
-    request. **All three fields are wrong — a green suite has been validating strings we invented.**
+    DESCRIPTIONS where NIC expects CODES** — **~1–1½ days. The FIRST non-UI row in the wave** (it wrote "the
+    one" here; W0-9, W0-10, W0-11 and F14 all followed, and the Goals sentence above is amended to say so),
+    admitted against its "UI over finished plumbing" framing because it is **malformed data in a STATUTORY
+    FILING** (R6 deviation, recorded here). **⚠️ PRE-FIX STATE — the two citations below are line numbers AT
+    `7540d84` (this row's own plan commit), NOT at HEAD; the defect was fixed in `4223996`. Retrieve them with
+    `git show 7540d84:src/Apex.Ledger/Services/EWayBillService.cs` and
+    `git show 7540d84:src/Apex.Ledger.Io/EWayBillJson.cs`; the surviving description of what was wrong is the
+    doc comment at `EWayBillService.cs:360-368` at HEAD.** `EWayBillService.cs:324-364` stamped
+    `"Inward"/"Outward"`, `"Supply"/"Job Work"/"Handicraft"` and `"CRN"/"DBN"`; `EWayBillJson.cs:84-86` wrote
+    them verbatim into the EWB-01 request. **All three fields were wrong — a green suite had been validating
+    strings we invented.**
   - **▶ THE SOURCED TABLE (R7 — read live from NIC; re-verify before coding, never re-derive from memory).**
     `https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html` (© Eway Bill Team, NIC Karnataka) is the
     COMPLETE list. **`supplyType` is a code: `I` Inward / `O` Outward.** **`subSupplyType` is NUMERIC 1–12**
@@ -1605,7 +1650,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     not an anecdote — W0-8 already had to state in its own doc comment that the e-Way and INV-01 code sets are
     **deliberately** not shared. Every instance was found by a reviewer; the suite was green for all of them.
   - **W0-10 (promotes W0-8's `NOT CLOSED BY THIS ROW` money row to a work item) THE PRINTED TOTAL MUST EQUAL THE
-    POSTED DEBT** — **~1–2 days. A money slice — the one row here that is NOT UI over finished plumbing.**
+    POSTED DEBT** — **~1–2 days. A money slice — NOT UI over finished plumbing** (it wrote "the one row here"
+    that is; W0-8 and W0-9 before it and W0-11 / F14 after it are engine rows — see the amended Goals sentence).
     `VoucherPrintProjector.ProjectInvoice` takes the **ITEM** path's head totals from a **LIVE
     `GstService.ComputeInvoiceTax`** (`VoucherPrintProjector.cs:577`), while `ProjectServiceInvoice` reads the
     **POSTED legs** via `ReadPostedRateGroups` (`:718`). **One projector, two sources of truth for money.** Where
@@ -1774,6 +1820,213 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **DONE in W0-9.** All **15** `W0-2` occurrences across 12 `.cs` files were e-Way Part-A work (verified one by one,
     none referred to the Company Create/Alter screen) and are now `W0-8`. Counts: **before W0-2 = 15, W0-8 = 19;
     after W0-2 = 0, W0-8 = 34.**
+  - **W0-11 (NO plan entry existed when it shipped — this item IS the R6 record; commit `6a0268a`) ONE RULE, MANY
+    COPIES — four rules that were each built more than once, and 16 truncating money casts** — **DONE.** **🔴 R6
+    DEVIATION, RECORDED WITH ITS REASON: the slice was designed, built, reviewed and committed with NO `plan.md`
+    item at all**, so nothing bounded its scope and nothing gated it. *Why it happened:* it grew directly out of
+    the W0-10 review's own observation — the "**THIS IS THE FIFTH INSTANCE THIS SESSION OF ONE DEFECT CLASS: one
+    rule, many copies**" bullet above — and was treated as the continuation of a review finding rather than as new
+    work. *Why it is admitted here rather than reverted:* **three of the four rules were already answering
+    DIFFERENTLY depending on which copy a caller happened to reach**, and the money casts were silently truncating
+    rupees on the way into the database. **It is ENGINE-side consolidation, admitted against this phase's "UI over
+    plumbing that already exists" framing exactly as W0-8 and W0-10 were.** **⚠️ THAT FRAMING WAS BROKEN THREE
+    TIMES AND IS NOW FIXED AT SOURCE:** W0-8 called itself "the one non-UI row in the wave" and W0-10 "the one row
+    here that is NOT UI over finished plumbing" — both could not be true, and with W0-11 neither was. **The wave's
+    Goals sentence has been amended in this same edit** to scope the UI framing to **W0-1…W0-5** and to name **W0-8,
+    W0-9, W0-10, W0-11 and F14** as engine rows, with **W0-6 and W0-7 as neither** (documentation and test-fixture
+    work); **both "the one …" clauses are struck.** *(The first cut of this amendment wrote "W0-1…W0-7" and omitted
+    W0-9 — corrected the same day: W0-9 moved the §31(3)(c) exempt limb DOWN into `Apex.Ledger`, and W0-7 is a
+    fixture extension, not UI.)* A future row that does not fit amends that sentence again — it does not append
+    another exception to it.
+  - **▶ THE FOUR RULES, AND WHERE EACH NOW LIVES — 46 files, +2000/−113, 11 new files, 0 deleted, schema-clean.**
+    `Schema.cs` is not in the diff and `Schema.CurrentVersion` is still **50**
+    (`src/Apex.Persistence.Sqlite/Schema.cs:146`). **⚠️ THE D-NUMBERS IN THIS ENTRY ARE THE DIVERGED-RULE ids from
+    `docs/NEXT_SESSION_KICKOFF.md:93-98` AND THEY COLLIDE WITH TWO OTHER REGISTERS** — `docs/tally-fidelity-defects.md`
+    (its D1 = Single Entry, D3 = bill reference, D4 = opening balance, D7 = negative stock) and
+    `docs/tally-gap-decisions.md` (its D3 = goods-return stock parity, D12/D13 = the backup carve-out). **Never cite a
+    bare D-number.** **D1 pro-rata apportionment ⇒ `src/Apex.Ledger/ProRata.cs`** (`Rupees` :44 decimal, `Paisa` :52
+    integer paisa, both `AwayFromZero`); the three private copies in `Gstr1.cs:670`, `EInvoiceJson.cs:528` and
+    `EWayBillJson.cs:223` are now one-line delegations. **D2 Indian digit grouping (3;2;2) ⇒
+    `src/Apex.Ledger/IndianMoneyFormat.cs`**, whose `Culture` (:61) is **frozen** with `CultureInfo.ReadOnly` (:70)
+    so the one rule cannot be rewritten from anywhere; **two private Indian-culture CONSTRUCTIONS were deleted**
+    and both sites collapsed onto the shared rule.
+    **⚠️ This row said "two private Indian cultures were deleted" and that was too strong.** What went from both
+    files is the `private static readonly CultureInfo Indian = CreateIndianCulture();` field together with its
+    `CreateIndianCulture()` builder (verified against `git show 6a0268a^:…`). At HEAD **`IndianFormat.cs:19`
+    still declares the member**, now as the delegating `private static CultureInfo Indian =>
+    IndianMoneyFormat.Culture;`, while **`CertificatePdfSupport` kept no culture member at all** and delegates
+    from its formatter instead (`CertificatePdfSupport.cs:22`). Four PDF formatters plus eight Desktop sites
+    also came **off
+    `CultureInfo.InvariantCulture`**, whose flat group size of 3 is Western grouping. **D3 rupees→paisa ⇒
+    `src/Apex.Ledger/PaisaConversion.cs`**, verified at **12 `ToPaisaRounded` call sites, 2 `ToPaisaExact`, 2
+    `TryToPaisaExact`, 2 `IsPaisaExact`** in `src/` (the 18 `PaisaConversion.ToPaisaRounded(` hits include 6 `<see
+    cref>` lines). **D7 HSN/SAC resolution order ⇒ `GstReportSupport.HsnSacOf`**
+    (`src/Apex.Ledger/Reports/GstReportSupport.cs:106`); four hand-written `item?.Gst?.HsnSac ?? item?.HsnSacCode`
+    copies now call it. **Two answers changed on purpose beyond de-duplication:** `GstConfig.ReconTolerance`
+    (`Domain/GstConfig.cs:135`) moved from a **truncating** cast to `ToPaisaRounded`, and `TaxDeclarationViewModel`
+    gained a front-line sub-paisa refusal (`:251-256`).
+  - **▶ THE 16 TRUNCATING MONEY CASTS — the rule that replaces truncation, and what does NOT enforce it.** All 16
+    were in `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs`, every one the bare `(long)(x * 100m)` — **truncation
+    toward zero, i.e. persisted rupees quietly losing their third decimal**: the PT month override (`:2849`), the
+    Gratuity cap (`:4621`), the Bonus ceiling and minimum wage (`:4628`, `:4629`), the nine Chapter-VI-A /
+    previous-employer declaration fields (`:4700-4708`) and the three PT-band values (`:4734-4736`). All 16 now call
+    `Paisa.FromDecimal`; **verified: `Paisa.FromDecimal` occurs exactly 16 times IN `SqliteCompanyStore.cs` — 19
+    across `src/` as a whole, the three extras being doc comments at `PaisaConversion.cs:12` and
+    `ForexGainLoss.cs:150,:153` — and the `(long)(… * 100m)` form occurs ZERO times in `src/` as a whole.** **THE
+    RULE: rupees→paisa has exactly TWO named semantics — `ToPaisaExact` at a persist/export boundary, which REFUSES
+    a sub-paisa amount, and `ToPaisaRounded` for a derived report or set-off figure, which quantises. Truncation is
+    banned outright.** The two were deliberately **not** collapsed into one (`PaisaConversion.cs:17-35`), which is
+    the right call and is why the class is not simply "one rule": it is **one rule with two named, documented
+    answers**.
+  - **▶ WHAT ENFORCES IT IS A TEST, NOT AN ANALYZER — and it is the best-built part of the slice.** There is **no
+    Roslyn analyzer, no `.editorconfig` rule and no build-time check**;
+    `tests/Apex.Ledger.Tests/OneRuleDriftLockTests.cs` (322 lines, 10 `[Fact]`s) **regex-scans the shipped `src/`
+    tree** — eight single-pattern locks plus a file-level co-occurrence lock. It is **self-non-vacuity-tested**,
+    which is rare here and worth copying: `EveryLockBitesOnAReintroducedCopy` (17 inline cases) and
+    `TheFileLevelPaisaLockBitesOnAReintroducedCopy` (3 whole-file bodies) run the **same named pattern constants**
+    against faithful reconstructions of the copies that were removed, including renamed and line-split variants;
+    `TheFileLevelPaisaLockIgnoresOtherIntegerScales` proves no false positive on millis/micros;
+    `TheScanActuallyReadsTheShippedTree` proves the scan is not scanning nothing. **Three verified weaknesses, so no
+    one over-trusts it:** home files are exempted **by bare file name** (`:117`, `:147`), so a new file called
+    `ProRata.cs` anywhere under `src/` is silently exempt; the locks are **line-oriented regexes** and, as the file
+    admits at `:26-28`, a restructured copy walks past; and **the scan does not cover `tests/`**.
+  - **▶ WHAT THE SLICE DID NOT CLOSE — stated because overstating closure is the failure this project keeps making.**
+    The census list of eight diverged rules lives at `docs/NEXT_SESSION_KICKOFF.md:93-98` (**it is NOT in
+    `docs/full-clone-census.md` — grepped, zero hits for "diverged"**, so the eight rows are not census rows and this
+    entry is their only plan-side record). Verdicts, each re-checked against current source: **CLOSED 3** — (a)
+    apportionment, (b) Indian-vs-Western grouping *with one surviving site, see (d) below*, (c) rupees→paisa.
+    **CLOSED BY DESIGN 1** — (g) the HSN sentinel: the resolution ORDER is single-homed, the **sentinel is
+    deliberately kept different per consumer** (`"(none)"` for the GSTR-1 bucket label · `""` for the INV-01 and
+    EWB-01 payloads · `string.Empty` for the printed invoice) and each is now pinned by its own test. **REFUSED WITH
+    REASONS 2** — (f) `ApplyRounding` and (h) the basis-point format, **both refusals only partly complete** (see the
+    carry-forwards). **UNTOUCHED 2** — (d) `IsInterState` and (e) place of supply, **which are the two rows where the
+    copies genuinely disagree today.** **So: 3 of 8 closed, and the two most consequential rows are still open.**
+  - **▶ ONE PREMISE REFUTED AND ONE JUSTIFICATION WRONG — both recorded, neither silently corrected.** The D1 row was
+    opened as a **live divide-by-zero in a filed return**; that is **REFUTED and the refutation is correct**:
+    `Gstr1.cs:629` and `:808` each `continue` on `groupValue == 0m` **before** the apportionment loop, and the six
+    `Apportion(` calls (`:646-648`, `:824-826`) are the only way in. D1 therefore **changed no answer** — a pure
+    de-duplication, now documented as one, with `Gstr1ZeroValueRateGroupTests` pinning that the caller-side guards
+    are **load-bearing** (they SKIP the group; deleting one would dump the group's whole posted tax onto its last
+    leg). **🔴 But the commit's stated reason for SKIPPING rows (d)/(e) is itself wrong.** It says `IsInterState` "was
+    already single-homed by W0-8 (`4223996`) — which is why that file already carries 'The ONE copy of this rule'."
+    **Verified false:** that sentence sits on **`IsOverseasStateCode`** (`GstReportSupport.cs:110`, predicate at
+    `:131`), a different rule, and `git log --all -S "private bool IsInterState(Voucher voucher)"` returns **only
+    `c915318`** (Phase 9 S5) — it predates W0-8 and W0-8 did not remove it.
+  - **▶ A NEW TEST THAT CANNOT FAIL — flagged here rather than left to be discovered.**
+    `UnifiedRuleBehaviourTests.BasisPointFormatsAreIdenticalForEveryRepresentableRate` (`:274-283`) **touches no
+    product code at all**: it loops 200,001 integers formatting `bp / 100m` two ways and comparing them. **It would
+    stay green if every basis-point rendering in the app were rewritten.** It is a **decision record wearing a
+    `[Fact]`**, and the file should say so. Three smaller ones: `CorrectingTheFigureAfterARejectionSavesCleanly` does
+    not bite under its own mutation (its doc honestly admits this);
+    `TheSharedRuleAnswersZeroButThatIsNotWhatTheCallerDoes` (`Gstr1ZeroValueRateGroupTests.cs:116`) **OVERLAPS**
+    `ZeroGroupValueApportionsToZeroInsteadOfDividingByZero` (`UnifiedRuleBehaviourTests.cs:37`) — **⚠️ this row
+    said "duplicates" and that overstates it: same branch and same outcome, but different inputs** — the first
+    passes a NON-ZERO leg value against a zero group (`ProRata.Rupees(1234.57m, 567.89m, 0m)`), the second a
+    zero leg (`…, 0m, 0m)`), and the first exists to CONTRAST the shared rule's `0` answer with what a caller
+    actually observes (it skips the group), which its own doc comment states. Redundant coverage, not a copy;
+    and one new test's doc comment **understates its own
+    test** (it claims a sibling passes either way, when that sibling asserts `Contains("80C")` and the store's own
+    message does not contain it). **The "vacuous test deleted rather than left standing" line in the commit message
+    describes a draft, not a shipped test — the commit deletes 0 files and 0 test methods.**
+  - **▶ THE GATE — NOT RE-RUN BY THIS ENTRY, AND DELIBERATELY NOT RESTATED HERE.** `6a0268a`'s own body carries the
+    four per-project counts it measured, its stated `23e0df1` baseline and the four deltas — **read them there.**
+    This entry does not copy them in, because **§6.2 makes the four per-project counts written into `plan.md` the
+    check itself**, and a relayed set becomes indistinguishable from a measurement the moment it is pasted here.
+    Build was **0W/0E** and schema **v50 UNCHANGED** per that body. **⚠️ Whatever the numbers are, they sit on the
+    `claude/apex-wrong-figures-bc45f4` lineage, NOT on the `claude/stream-a-figures` baseline this phase's Exit-gate
+    bullet below names — do not predict one from the other.**
+  - **▶ CARRY-FORWARD (a) — 🔴 THE SLICE CONVERTED A SILENT-TRUNCATION DEFECT INTO A PERSISTENT ONE ON TWO SCREENS.
+    This is the highest-value open item it creates.** `Paisa.FromDecimal` now **throws** where it used to truncate,
+    and the tax-declaration screen got the paired front-line guard — but the **Gratuity cap** and the **Bonus ceiling
+    / minimum wage** (`SqliteCompanyStore.cs:4621, :4628, :4629`) did not. `GstConfigViewModel` is their only writer;
+    it parses with `TryParseWholeRupees` (`:1254-1256`), which **accepts a decimal point despite the name** (it is a
+    plain `decimal.TryParse`), and the only further check is `< 0m`. `ApplyGratuity` then calls
+    `PayrollService.EnableGratuity` (`src/Apex.Ledger/Services/PayrollService.cs:218-230`), which sets
+    `PayrollStatutoryEnabled` and `GratuityConfig` **on the shared Company BEFORE `_storage.Save`**, and the catch
+    reverts only the toggle, not the config; `ApplyBonus` is the identical shape. **So a sub-paisa cap now poisons
+    the in-memory aggregate and every LATER save throws — worse than the truncation it replaced.** The other 13 casts
+    are safe: the nine declaration fields are guarded, and the four PT values **have no UI writer at all** (no `new
+    ProfessionalTaxBand` in `src/`; the only inbound path is canonical XML through `MoneyCodec.FromPaisa(long)`,
+    exact by construction). **Fix is the same `IsPaisaExact` front-line guard already written for
+    `TaxDeclarationViewModel.TryMoney` — do it before any other row here.**
+  - **▶ CARRY-FORWARD (b) — 🔴 ROWS (d) AND (e) ARE UNTOUCHED, AND NO DRIFT LOCK COVERS EITHER.** **Two live
+    `IsInterState` implementations that disagree on the null-home case**, which is representable because
+    `GstConfig.HomeStateCode` is `string?`: `GstService.cs:332-339` **throws** `InvalidOperationException` when there
+    is no home state, while `EWayBillService.cs:145-150` **returns false** (i.e. routes it intra-state) for that
+    book. Six `src/` callers reach the throwing form. **Three place-of-supply derivations:**
+    `GstReportSupport.cs:74-79` (party state, else company home), `VoucherPrintProjector.cs:755-760` (home-state
+    fallback **only** on an intra-state supply — on an inter-state one it deliberately returns **blank**), and
+    `EInvoiceJson.cs:267` (`"96"` for export/SEZ, else party, else home). **For a B2C inter-state supply with no
+    recorded party state the first two answer differently — home code versus blank.** Deciding these is a
+    **statutory** question (what an unrouteable supply IS), not a de-duplication, which is why the slice was right to
+    leave them — but it must not be read as having closed them. **Sequence with any GST routing work; do NOT unify by
+    picking whichever copy is convenient.**
+  - **▶ CARRY-FORWARD (c) — 🔴 ROW (h) IS TWO-THIRDS DISCHARGED.** The proof compares `"0.##"` against `"0.###"`, both
+    **against InvariantCulture** — sound for those two spellings. **It never examined the third form:** 10
+    host-culture-bound interpolated rate renderings survive (`Cmp08ReportViewModel.cs:173`,
+    `GstConfigViewModel.cs:413`, `InterestReportViewModel.cs:74`, `LedgerMasterViewModel.cs:1169`,
+    `NatureOfGoodsMasterViewModel.cs:134,179,180`, `NatureOfPaymentMasterViewModel.cs:144,191,192`), all
+    `$"{x:0.##}"`, which binds to **`CurrentCulture`** — so 1.25% prints "1,25%" on a de-DE host while every
+    invariant path prints "1.25%". **The irony is worth recording: the same commit fixed the interpolated MONEY
+    specifiers in two of those very files and left the interpolated RATE specifiers on the adjacent lines**, because
+    the D2 interpolation lock matches `:#,##0` and not `:0.##`. **Separately, `GstConfigViewModel.cs:413` renders the
+    CGST/SGST half-rate as `{bp / 200m:0.##}`, which genuinely CAN carry a third decimal** (125 bp ⇒ 0.625% ⇒ prints
+    "0.63"); the exhaustive proof only covers `bp / 100m`. Reachability of an odd half-rate on that screen is
+    **unverified**.
+  - **▶ CARRY-FORWARD (d) — the D2 residual: one money site still prints WESTERN-grouped and escapes all four
+    locks.** `ForexReportViewModel.cs:260` is `v.ToString("#,##0.##", CultureInfo.InvariantCulture)` and is used at
+    `:124` for `l.ForexBalance.Amount` — **money**. It escapes every D2 lock because the format string is
+    `"#,##0.##"` and the locks match `"#,##0.00"` and `"#,##0.######"`. **Whether a FOREIGN-currency balance should
+    be Indian-grouped at all is a genuine design question the slice never asks** — answer it before widening the
+    lock, or the answer gets decided by a regex. (Exchange rates at `CurrencyMasterViewModel.cs:256-258` and
+    `ForexReportViewModel.cs:126` are also invariant-Western and are also uncovered; rates are not money, so they may
+    well be correct as they are.)
+  - **▶ CARRY-FORWARD (e) — D6 is pinned on ONE side only, so a "cleanup" could still break it.** The two
+    `ApplyRounding` implementations are untouched and **genuinely differ**: `Domain/InterestParameters.cs:91-109`
+    rounds the **magnitude** and restores the sign (Upward on −100.4 ⇒ **−101**), while
+    `Services/PayrollComputationService.cs:747-771` is **signed** and rounds to a multiple of `RoundingLimit`
+    (`Math.Ceiling(raw / limit) * limit`, so −100.4 ⇒ **−100**). The commit says the divergence "is pinned by a test
+    instead" — **only the INTEREST half is** (`InterestRoundingIsMagnitudeBasedAndIsPinnedAsSuch`,
+    `UnifiedRuleBehaviourTests.cs:298-313`). **Grepped `tests/`: zero references to `PayHeadRoundingMethod.Upward` or
+    `.Downward`**, so converting the payroll side to magnitude semantics would still pass green. **Pin the payroll
+    side before anyone reads the two as an inconsistency to fix.**
+  - **▶ CARRY-FORWARD (f) — an UNCOMMITTED design draft exists that is more ambitious and CONTRADICTS the shipped
+    D7.** Seven files (5 `src/` + 2 `tests/`) sit in the session scratchpad under `diverged-partial`, written ~2.5
+    hours before the commit. They are **a different design, not an earlier version**: different class names
+    (`PaisaCodec`), lock tests named `D1_…` through `D8_…` **including `D4_…routing…` and `D5_…place_of_supply…`** —
+    the two rows the commit left untouched. **Three things in the draft the shipped slice does not have:** (i) **the
+    OPPOSITE D7 answer** — it unifies the sentinel to `""` and calls `"(none)"` "a fabricated HSN code", directly
+    incompatible with the shipped per-consumer pinning, so **one of the two is wrong and nothing has adjudicated
+    it**; (ii) a **corpus-sourced (R7)** D6 treatment citing `tally/664311548-Tally-Prime-Book.pdf` printed p. 118
+    and pp. 333/335, recording that **every corpus example is positive so the negative behaviour is UNVERIFIED**, and
+    flagging that Tally's interest rounding takes a **Limit** where `InterestParameters` carries `RoundingDecimals` —
+    **the two coincide only at limit 1 / 0 decimals, and nothing in the shipped code or commit mentions this**; (iii)
+    the `bp / 200m` half-rate carve-out in (c). **The files were never compiled and reference classes that do not
+    exist under those names — treat them as a DESIGN RECORD, not a patch.** The R7 sourcing in particular should be
+    lifted into the code before the draft is discarded.
+  - **▶ R5 — `memory.md` DID NOT CARRY THIS UNTIL THE ENTRY LANDING ALONGSIDE THIS ITEM.** The commit `6a0268a`
+    touched neither `plan.md` nor `memory.md`; before this edit, grepping `plan.md` for
+    `ProRata`/`IndianMoneyFormat`/`PaisaConversion`/`one rule, one home`/`W0-11` returned **zero hits**, so the slice
+    had **no record in either governing file** and a new session reading `memory.md` alone would not have known the
+    three new `Apex.Ledger` classes, the drift locks or carry-forward (a) exist. **Both records land together; neither
+    is the only one.**
+  - **F14 (NO plan entry existed when it shipped — this item IS the R6 record; commit `23e0df1`) THE INV-01
+    e-INVOICE PAYLOAD FILES NIC'S FIELD NAMES AND UNITS, NOT OURS** — **DONE.** **🔴 R6 DEVIATION, RECORDED WITH ITS
+    REASON: built with no `plan.md` item and no `docs/` item — grepped BEFORE this edit, `F14` appeared nowhere in
+    either**, its only occurrence in the whole repository being a doc comment at
+    `tests/Apex.Ledger.Tests/EInvoiceInv01SchemaConformanceTests.cs:206`, i.e. **the ID was minted in the code and
+    never written into the plan; THIS ROW is the first plan-side occurrence.** *Why admitted rather than reverted:*
+    it is **the same statutory-filing defect
+    class W0-8 fixed on the e-Way path, left live on the other filing** — all fifteen INV-01 keys were invented
+    snake_case, and the units were wrong too (money in integer PAISA against NIC's RUPEE-scale `number`, `Qty` in
+    MILLIS against Number(10,3), `GstRt` in BASIS POINTS against a percentage capped at 999.999, so the 40% slab
+    filed `4000`, outside the field's declared range). **R7 sourcing is the PRIMARY artefact**, the NIC schema
+    workbook `EInvoice_Schema.xlsx` retrieved by direct HTTPS GET (HTTP 200, 198,376 bytes) and transcribed into
+    `EInvoiceInv01SchemaConformanceTests`. **CARRY-FORWARD — the THIRD instance of the class is still open:**
+    `src/Apex.Ledger.Io/GstReturnJson.cs:17-23` carries the identical "R7 (A14 to confirm)" confession across
+    CMP-08 / GSTR-4 / GSTR-9 / GSTR-9C. It is **dead code with no production caller, so there is no live filing harm
+    today** — which is the only reason it is deferred, not a reason it is fine. **It is already this wave's W0-4**,
+    which is GATED on exactly that A14/R7 confirmation.
 - **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
   1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full
@@ -2059,5 +2312,15 @@ unsolved `NS-8` valuation prerequisite, **NEXT-4** the unanswered decisions D2/D
 **status header** was corrected to the real state (unpushed branch `claude/confident-ellis-dedef5`, **no PR**,
 **3651 green — Ledger 1281 · Io 361 · Sqlite 210 · Desktop 1799**, schema v49, current work = the **outstanding
 R9 real-app run** across nine merged features never yet seen outside a test harness).
+**⚠️ 2026-08-14 — THAT PARENTHESIS IS A RECORD OF WHAT THE 2026-08-03 REVISION WROTE, NOT THE CURRENT STATE.
+It carries FIVE facts; FOUR have moved and ONE has not.** **MOVED:** the branch is now
+`claude/apex-wrong-figures-bc45f4` @ `f327abb` (66 commits ahead of `origin/main`, measured
+`git rev-list --count origin/main..f327abb`); schema is **v50**; the suite figures are **34 commits stale** —
+see the amended status header at the top of this file, which deletes them rather than guessing; and **the
+outstanding R9 real-app run is no longer "nine merged features" — it is the WHOLE 34-commit wrong-figures
+range** (`git rev-list --count 6124a25..f327abb` = 34), nothing in which has been exercised in the running app.
+**NOT MOVED:** there is still **no PR** — and it is now worse than that, since nothing is on any remote either
+(`git branch -r --contains f327abb` is EMPTY). **⚠️ The same superseded "nine merged features" wording also
+sat in the header's Current-work line and is corrected there (`plan.md:44-48`).**
 Any deviation during execution is
 recorded in `memory.md` with its reason (R6).*
