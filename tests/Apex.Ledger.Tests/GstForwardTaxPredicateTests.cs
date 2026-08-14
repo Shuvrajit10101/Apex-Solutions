@@ -74,6 +74,22 @@ public sealed class GstForwardTaxPredicateTests
     /// <c>HasPostedForwardCessLines</c> TRUE while <c>PostedCessTotal</c> is exactly <see cref="Money.Zero"/>. The two
     /// are therefore NOT interchangeable, and the day someone rewrites the caller as
     /// <c>PostedCessTotal(v) != Money.Zero</c> this test says so.
+    ///
+    /// <para><b>🔴 W0-9 TAIL review (findings #1/#3) — WHAT THIS FIXTURE ACTUALLY IS, ASSERTED RATHER THAN DESCRIBED.</b>
+    /// <c>GstReportSupport.HasPostedForwardCessLines</c>'s doc used to say this test posts its netting pair to "the
+    /// company's own Output Cess ledger", so <c>PostsToAnOrdinaryOutputTaxLedger</c> holds <c>CarriesForwardTax</c> true
+    /// here. That was FALSE about this very fixture. <c>GstService.EnableGst</c> seeds only Central/State/Integrated for
+    /// each direction — the Cess pair is created lazily by <c>EnsureCessLedgers</c>, which
+    /// <see cref="NewRegularCompany"/> never reaches — so <c>FindTaxLedger(Cess, Output)</c> returns <c>null</c> and the
+    /// <c>??</c> fallback below builds an <b>UNCLASSIFIED</b> "Output Cess" ledger. The three assertions that open the
+    /// act block pin exactly that, so any future seeding change breaks the shipped doc's premise LOUDLY instead of
+    /// leaving a warning whose cited pin quietly stopped meaning what it says.</para>
+    ///
+    /// <para><b>And this test still cannot demonstrate the document-kind flip</b> — for a reason that has nothing to do
+    /// with the ledger. Its voucher carries no stock lines and no v49 accounting-invoice flag, so
+    /// <c>GstReportSupport.IsTaxInvoice</c> is false and <c>IsBillOfSupply</c> returns false at limb 2's
+    /// <c>if (!IsTaxInvoice(…)) return false;</c> gate whatever <c>CarriesForwardTax</c> answers. The shape that DOES
+    /// bite is <see cref="A_netting_cess_pair_off_the_tax_ledgers_still_decides_the_document_kind"/>.</para>
     /// </summary>
     [Fact]
     public void A_cess_line_exists_even_when_the_posted_cess_sums_to_zero()
@@ -88,6 +104,17 @@ public sealed class GstForwardTaxPredicateTests
                 gst: new GstLineTax(GstTaxHead.Cess, 1800, taxable)),
             new EntryLine(cess.Id, Money.FromRupees(-8_513.41m), DrCr.Credit,
                 gst: new GstLineTax(GstTaxHead.Cess, 1800, taxable)));
+
+        // W0-9 tail findings #1/#3 — EnableGst seeds no Cess pair, so this ledger is the UNCLASSIFIED fallback and the
+        // ledger-side disjunct is BLIND to this voucher. The shipped doc said the opposite about this exact fixture.
+        Assert.Null(new GstService(c).FindTaxLedger(GstTaxHead.Cess, GstTaxDirection.Output));
+        Assert.Null(cess.GstClassification);
+        Assert.False(GstReportSupport.PostsToAnOrdinaryOutputTaxLedger(c, v));
+
+        // …and the flip is out of reach here anyway: no stock lines, no v49 flag ⇒ not an invoice document at all, so
+        // IsBillOfSupply bails at its limb-2 `!IsTaxInvoice` gate whatever the money gate says.
+        Assert.False(GstReportSupport.IsTaxInvoice(c, v));
+        Assert.False(GstReportSupport.IsBillOfSupply(c, v));
 
         Assert.True(GstReportSupport.HasPostedForwardCessLines(v));       // a forward cess line EXISTS …
         Assert.Equal(Money.Zero, GstReportSupport.PostedCessTotal(v));    // … and the amounts sum to zero
@@ -150,5 +177,87 @@ public sealed class GstForwardTaxPredicateTests
             new EntryLine(c.FindLedgerByName("Local Customer")!.Id, Money.FromRupees(47_296.73m), DrCr.Debit),
             new EntryLine(c.FindLedgerByName("Sales")!.Id, Money.FromRupees(47_296.73m), DrCr.Credit));
         Assert.False(GstReportSupport.CarriesForwardTax(c, v));
+    }
+
+    /// <summary>
+    /// <b>🔴 W0-9 review finding #3 — the finding-#7 warning, pinned on a shape that can actually demonstrate it.</b>
+    /// <c>HasPostedForwardCessLines</c>'s doc says that substituting <c>PostedCessTotal(…) != Money.Zero</c> for it
+    /// would re-classify the DOCUMENT KIND for a voucher whose forward cess legs net to zero.
+    /// <see cref="A_cess_line_exists_even_when_the_posted_cess_sums_to_zero"/> cannot show that — <b>not</b>, as this
+    /// comment and the shipped doc both used to claim, because that test posts its pair to the company's own classified
+    /// Output Cess ledger (W0-9 tail findings #1/#3: <c>EnableGst</c> seeds no Cess pair at all, so its ledger is an
+    /// UNCLASSIFIED fallback and <c>PostsToAnOrdinaryOutputTaxLedger</c> is FALSE there, now asserted in that test).
+    /// The real reason is that its voucher is neither an item invoice nor a v49 accounting invoice, so
+    /// <c>IsTaxInvoice</c> is false and <c>IsBillOfSupply</c> returns false at limb 2's
+    /// <c>if (!IsTaxInvoice(…)) return false;</c> gate whatever <c>CarriesForwardTax</c> answers. A warning whose only
+    /// cited pin cannot bite is how a maintainer talks himself past it.
+    ///
+    /// <para><b>The shape that does bite</b> puts the same netting pair on a ledger the company does NOT classify as a
+    /// GST tax ledger, on a voucher that IS an invoice document — reachable on imported or hand-keyed data, since
+    /// <c>CanonicalXml</c> makes <c>&lt;gst&gt;</c> optional per entryLine and never requires the ledger it names to
+    /// carry a classification. All three disjuncts are then decided by this one predicate, and the voucher is a
+    /// <b>Regular</b> dealer's wholly-exempt outward supply (see the fourth paragraph for why not a §10 one), so the
+    /// flip is visible on the statutory title and on the NIC <c>docType</c>.</para>
+    ///
+    /// <para><b>Bite (measured, then restored):</b> rewrite <c>CarriesForwardTax</c>'s middle disjunct as
+    /// <c>PostedCessTotal(voucher) != Money.Zero</c> and this voucher is titled BILL OF SUPPLY and files <c>BIL</c>,
+    /// while its books record two forward cess legs.</para>
+    ///
+    /// <para><b>Why a REGULAR dealer's wholly-exempt supply and not a §10 one.</b> On the §10 limb the FILING would not
+    /// move at all — <c>IsBillOfSupplyForFiling</c> is <c>IsCompositionBillOfSupply || IsBillOfSupply</c> under the R12
+    /// ruling, so it already answers <c>BIL</c> for a composition dealer whatever the money gate says, and only the
+    /// printed title could flip. On the exempt limb BOTH move, which is exactly the pairing the doc comment claims.</para>
+    ///
+    /// <para>Odd to the paisa (₹8,513.41) and deliberately NOT round — a netting pair is the whole point, so the pair
+    /// must be one a rounding shortcut could not produce.</para>
+    /// </summary>
+    [Fact]
+    public void A_netting_cess_pair_off_the_tax_ledgers_still_decides_the_document_kind()
+    {
+        var c = NewRegularCompany("Netting Cess Off-Ledger Co");
+        // W0-9 tail finding #6 — the dealer this test runs on, PINNED. The doc above once called this "a §10 dealer's
+        // outward supply" while its fourth paragraph explained why it deliberately is NOT one; asserting the fixture
+        // means the two can never disagree again.
+        Assert.Equal(GstRegistrationType.Regular, c.Gst!.RegistrationType);
+
+        var inv = new InventoryService(c);
+        var grp = inv.CreateStockGroup("Goods");
+        var nos = inv.CreateSimpleUnit("Nos", "Numbers", unitQuantityCode: "NOS");
+        var exempt = inv.CreateStockItem("Fresh Milk", grp.Id, nos.Id);
+        exempt.Gst = new StockItemGstDetails { HsnSac = "040110", Taxability = GstTaxability.Exempt };
+
+        // A ledger the company does NOT classify — no GstClassification, so the ledger-side disjunct cannot see it.
+        var suspense = AddLedger(c, "Cess Suspense", "Duties & Taxes", openingIsDebit: false);
+        Assert.Null(suspense.GstClassification);
+
+        var customerId = c.FindLedgerByName("Local Customer")!.Id;
+        var taxable = Money.FromRupees(47_296.73m);
+        var v = new Voucher(Guid.NewGuid(),
+            c.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive).Id,
+            FyStart.AddDays(9), new[]
+            {
+                new EntryLine(customerId, Money.FromRupees(47_296.73m), DrCr.Debit),
+                new EntryLine(c.FindLedgerByName("Sales")!.Id, Money.FromRupees(47_296.73m), DrCr.Credit),
+                new EntryLine(suspense.Id, Money.FromRupees(8_513.41m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Cess, 1800, taxable)),
+                new EntryLine(suspense.Id, Money.FromRupees(-8_513.41m), DrCr.Credit,
+                    gst: new GstLineTax(GstTaxHead.Cess, 1800, taxable)),
+            },
+            partyId: customerId, inventoryLines: new[]
+            {
+                new VoucherInventoryLine(exempt.Id, c.MainLocation!.Id, 1m, Money.FromRupees(47_296.73m)),
+            });
+
+        // The other two disjuncts are BLIND to this voucher — so this predicate alone decides the document kind.
+        Assert.False(GstReportSupport.HasForwardTaxLines(v));
+        Assert.False(GstReportSupport.PostsToAnOrdinaryOutputTaxLedger(c, v));
+        Assert.Equal(Money.Zero, GstReportSupport.PostedCessTotal(v));      // the sum the substitution would read
+        Assert.True(GstReportSupport.HasPostedForwardCessLines(v));         // the existence it must read instead
+
+        // …and that is what keeps a cess-bearing movement off the BILL OF SUPPLY title and off NIC `BIL`.
+        Assert.True(GstReportSupport.CarriesForwardTax(c, v));
+        Assert.True(GstReportSupport.IsTaxInvoice(c, v));                   // it IS an invoice document …
+        Assert.False(GstReportSupport.IsBillOfSupply(c, v));                // … and the gate is the only thing
+        Assert.False(GstReportSupport.IsBillOfSupplyForFiling(c, v));       // …so the EWB-01 declares INV, not BIL
     }
 }

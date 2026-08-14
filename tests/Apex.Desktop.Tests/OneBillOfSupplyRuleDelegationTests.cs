@@ -61,8 +61,20 @@ public sealed class OneBillOfSupplyRuleDelegationTests
         public required Guid NilRatedItemId { get; init; }
         public required Guid UnclassifiedItemId { get; init; }
         public required Guid SalesLedgerId { get; init; }
+        public required Guid PurchaseLedgerId { get; init; }
+        /// <summary>An income ledger declaring an EXEMPT SAC supply — the wholly-exempt service invoice.</summary>
+        public required Guid ExemptServiceLedgerId { get; init; }
+        /// <summary>An income ledger declaring a TAXABLE SAC supply at a 0% (LUT/export) rate — a genuine Rule-46 tax
+        /// invoice that posts no tax leg, so it needs no seeded tax ledger and exists under BOTH registrations.</summary>
+        public required Guid ZeroRatedServiceLedgerId { get; init; }
+        /// <summary>The Gujarat (24) buyer — the INTER-state routing.</summary>
         public required Guid PartyId { get; init; }
+        /// <summary>A Maharashtra (27) buyer — the INTRA-state routing, and the only routing CGST §10(2)(c) permits a
+        /// composition dealer ("he is not engaged in making any inter-State outward supplies of goods").</summary>
+        public required Guid LocalPartyId { get; init; }
+        public required Guid SupplierId { get; init; }
         public Guid SalesTypeId => Company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id;
+        public Guid PurchaseTypeId => Company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id;
     }
 
     private static DomainLedger Add(Company c, string name, string groupName, bool openingIsDebit)
@@ -102,10 +114,34 @@ public sealed class OneBillOfSupplyRuleDelegationTests
         var unclassified = inv.CreateStockItem("Mystery Crate", grp.Id, nos.Id);   // no GST master anywhere
 
         var sales = Add(c, "Sales", "Sales Accounts", false);
+        var purchases = Add(c, "Purchases", "Purchase Accounts", true);
+
+        // The two SERVICE-income legs. Both are SAC-bearing (so `Gstr1.ServiceLegs` sees them) and neither carries a
+        // GstClassification (so neither is read as a tax ledger). The zero-rated one declares a TAXABLE supply at 0%,
+        // which is why it is a tax invoice and NOT a bill of supply while still posting no tax leg — so it needs none
+        // of the six Output tax ledgers and therefore exists under the Composition build too.
+        var exemptService = Add(c, "Exempt Service Income", "Sales Accounts", false);
+        exemptService.SalesPurchaseGst = new StockItemGstDetails
+        { HsnSac = "999999", Taxability = GstTaxability.Exempt, SupplyType = GstSupplyType.Services };
+        var zeroRatedService = Add(c, "Export Consultancy (LUT)", "Sales Accounts", false);
+        zeroRatedService.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998311", Taxability = GstTaxability.Taxable, RateBasisPoints = 0,
+            SupplyType = GstSupplyType.Services,
+        };
+
         // A Gujarat (24) buyer against a Maharashtra (27) home State — the inter-state routing, so an IGST-taxed
         // control posts a single head and the e-Way threshold is comfortably met.
         var party = Add(c, "Gujarat Buyer", "Sundry Debtors", true);
         party.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = GstinGujarat, StateCode = "24" };
+        // …and a Maharashtra (27) buyer, the INTRA-state routing. CGST §10(2)(c) permits a composition dealer only
+        // this one, so the §10 limb cannot be exercised honestly without it.
+        var localParty = Add(c, "Mumbai Buyer", "Sundry Debtors", true);
+        localParty.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Consumer, StateCode = "27" };
+        var supplier = Add(c, "Gujarat Supplier", "Sundry Creditors", false);
+        supplier.PartyGst = new PartyGstDetails
         { RegistrationType = GstRegistrationType.Regular, Gstin = GstinGujarat, StateCode = "24" };
 
         return new Fx
@@ -118,20 +154,74 @@ public sealed class OneBillOfSupplyRuleDelegationTests
             NilRatedItemId = nil.Id,
             UnclassifiedItemId = unclassified.Id,
             SalesLedgerId = sales.Id,
+            PurchaseLedgerId = purchases.Id,
+            ExemptServiceLedgerId = exemptService.Id,
+            ZeroRatedServiceLedgerId = zeroRatedService.Id,
             PartyId = party.Id,
+            LocalPartyId = localParty.Id,
+            SupplierId = supplier.Id,
         };
     }
 
-    private static Voucher Sale(Fx f, params (Guid ItemId, decimal Value)[] items)
+    private static Voucher Sale(Fx f, params (Guid ItemId, decimal Value)[] items) => SaleTo(f, f.PartyId, items);
+
+    /// <summary>An item-invoice sale billed to <paramref name="partyId"/> — the routing (24 ⇒ 27 inter-state, or
+    /// 27 ⇒ 27 intra-state) is the ONLY thing that varies between it and <see cref="Sale"/>.</summary>
+    private static Voucher SaleTo(Fx f, Guid partyId, params (Guid ItemId, decimal Value)[] items)
     {
         var total = items.Sum(i => i.Value);
         return new Voucher(Guid.NewGuid(), f.SalesTypeId, MoveDate, new List<EntryLine>
         {
-            new(f.PartyId, new Money(total), DrCr.Debit),
+            new(partyId, new Money(total), DrCr.Debit),
             new(f.SalesLedgerId, new Money(total), DrCr.Credit),
-        }, partyId: f.PartyId,
+        }, partyId: partyId,
         inventoryLines: items.Select(i =>
             new VoucherInventoryLine(i.ItemId, f.GodownId, 1m, new Money(i.Value))).ToArray());
+    }
+
+    /// <summary>A LEDGER-ONLY Sales voucher — no stock lines at all. <paramref name="accountingInvoice"/> is the v49
+    /// persisted flag <c>IsServiceAccountingInvoice</c> gates on, so the same two legs are a service tax invoice with
+    /// it and a plain As-Voucher sale without it.</summary>
+    private static Voucher LedgerOnlySale(Fx f, Guid incomeLedgerId, decimal value, bool accountingInvoice) =>
+        new(Guid.NewGuid(), f.SalesTypeId, MoveDate, new List<EntryLine>
+        {
+            new(f.PartyId, new Money(value), DrCr.Debit),
+            new(incomeLedgerId, new Money(value), DrCr.Credit),
+        }, partyId: f.PartyId, isAccountingInvoice: accountingInvoice);
+
+    /// <summary>An item PURCHASE — a goods movement that is never an outward invoice document on any reading.</summary>
+    private static Voucher PurchaseItem(Fx f, Guid itemId, decimal value) =>
+        new(Guid.NewGuid(), f.PurchaseTypeId, MoveDate, new List<EntryLine>
+        {
+            new(f.PurchaseLedgerId, new Money(value), DrCr.Debit),
+            new(f.SupplierId, new Money(value), DrCr.Credit),
+        }, partyId: f.SupplierId, inventoryLines: new[]
+        {
+            new VoucherInventoryLine(itemId, f.GodownId, 1m, new Money(value)),
+        });
+
+    /// <summary>An item sale whose Output CGST/SGST legs are hand-keyed with NO <see cref="GstLineTax"/> metadata — the
+    /// As-Voucher shape. <c>PostedOutputTaxIsFullyTagged</c> answers false for it, so it is not an invoice document at
+    /// all: the one item shape for which <c>IsTaxInvoice</c> is FALSE. Returns null when the company has no seeded
+    /// Output tax ledgers (every Composition company the app itself creates).</summary>
+    private static Voucher? UntaggedOutputTaxSale(Fx f, decimal value, decimal cgst, decimal sgst)
+    {
+        var outCgst = f.Company.Ledgers.SingleOrDefault(l => l.GstClassification is
+        { Direction: GstTaxDirection.Output, TaxHead: GstTaxHead.Central, IsReverseCharge: false });
+        var outSgst = f.Company.Ledgers.SingleOrDefault(l => l.GstClassification is
+        { Direction: GstTaxDirection.Output, TaxHead: GstTaxHead.State, IsReverseCharge: false });
+        if (outCgst is null || outSgst is null) return null;
+
+        return new Voucher(Guid.NewGuid(), f.SalesTypeId, MoveDate, new List<EntryLine>
+        {
+            new(f.PartyId, new Money(value + cgst + sgst), DrCr.Debit),
+            new(f.SalesLedgerId, new Money(value), DrCr.Credit),
+            new(outCgst.Id, new Money(cgst), DrCr.Credit),   // hand-keyed: no GstLineTax metadata at all
+            new(outSgst.Id, new Money(sgst), DrCr.Credit),
+        }, partyId: f.PartyId, inventoryLines: new[]
+        {
+            new VoucherInventoryLine(f.TaxableItemId, f.GodownId, 1m, new Money(value)),
+        });
     }
 
     /// <summary>What every consumer of the document-kind rule answered for one voucher, gathered so they can be
@@ -164,12 +254,37 @@ public sealed class OneBillOfSupplyRuleDelegationTests
     // ================================================================ both limbs of §31(3)(c)
 
     /// <summary><b>Limb 1 — §10 composition.</b> Already agreed before this slice (W0-8 routed it); asserted here so the
-    /// matrix covers the whole section and a regression on the composition half cannot hide.</summary>
-    [Fact]
-    public void The_section_10_limb_is_one_decision_across_print_filing_and_screen()
+    /// matrix covers the whole section and a regression on the composition half cannot hide.
+    ///
+    /// <para><b>🔴 W0-9 REVIEW FINDING #4 — IT USED TO DRIVE ONE ROUTING, AND THE WRONG ONE.</b> The test claimed
+    /// "one decision across print, filing and screen" for the §10 limb while driving a single voucher billed to the
+    /// fixture's Gujarat (24) buyer against a Maharashtra (27) home State — an <b>INTER-state</b> outward supply by a
+    /// composition dealer, which CGST <b>§10(2)(c)</b> forbids outright: a §10 person is eligible only if "he is not
+    /// engaged in making any inter-State outward supplies of goods". So the one shape it exercised was the one shape
+    /// a lawful §10 dealer can never make, and the INTRA-state supply — the whole of his permitted trade — was never
+    /// driven at all. It is now a <see cref="Theory"/> over both routings.</para>
+    ///
+    /// <para><b>Both are kept, deliberately.</b> The intra-state case is the lawful one and carries the claim. The
+    /// inter-state case stays because it is REACHABLE on real data — F11 lets a Regular dealer opt into composition
+    /// after posting inter-state sales, and §10(2)(c) is an ELIGIBILITY condition on the person, not a rule about what
+    /// document an already-posted movement bears — and because the two must not answer differently: §31(3)(c) is
+    /// unconditional for a §10 person, so the routing has no say in the document kind. A drift between them would be
+    /// a place-of-supply test leaking into a document-kind decision.</para>
+    ///
+    /// <para>Source (R7): CGST Act §10(2)(c), §31(3)(c) —
+    /// <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(true)]    // 27 ⇒ 27 intra-state — the ONLY routing §10(2)(c) permits him
+    [InlineData(false)]   // 27 ⇒ 24 inter-state — ineligible under §10(2)(c), but reachable after an F11 switch
+    public void The_section_10_limb_is_one_decision_across_print_filing_and_screen(bool intraState)
     {
         var f = Build(GstRegistrationType.Composition);
-        var v = Sale(f, (f.TaxableItemId, 1_63_059.37m));
+        var v = SaleTo(f, intraState ? f.LocalPartyId : f.PartyId, (f.TaxableItemId, 1_63_059.37m));
+
+        // The routing really did change — otherwise the two cases would be the same test twice.
+        Assert.Equal(intraState ? "27" : "24", GstReportSupport.PlaceOfSupply(f.Company, v));
+
         AssertOneDecision(Ask(f, v), expectBillOfSupply: true);
         // The Rule 5(1)(f) declaration belongs to THIS limb, and only to it.
         Assert.True(GstReportSupport.IsCompositionBillOfSupply(f.Company, v));
@@ -331,36 +446,92 @@ public sealed class OneBillOfSupplyRuleDelegationTests
     /// <c>IsBillOfSupply</c> predicates came to disagree in the first place. This drives the whole document matrix
     /// through both layers and fails on the first divergence, so re-adding a condition to any wrapper is caught by a
     /// test rather than by a reviewer.
+    ///
+    /// <para><b>🔴 W0-9 REVIEW FINDING #1 — TWO OF THE THREE COMPARISONS USED TO BE CONSTANT-VALUED.</b> The matrix was
+    /// five ITEM-invoice Sales vouchers, and on every one of them <c>IsTaxInvoice</c> is true (a Sales voucher with
+    /// stock lines and no untagged Output tax) and <c>IsServiceAccountingInvoice</c> is false (it returns false the
+    /// moment <c>HasInventoryLines</c> is true). Two of the three lines therefore compared <c>true == true</c> and
+    /// <c>false == false</c> on every iteration and <b>could not have failed under any implementation of their
+    /// wrappers</b>. The single test that advertised itself as the lock on all three was one third of a lock — the same
+    /// failure mode W0-10 found in the old characterization test (an assertion that reads as a strong guarantee and
+    /// enforces nothing).</para>
+    ///
+    /// <para><b>What the matrix now contains, and why each shape earns its place.</b> Five ledger-only and inward
+    /// shapes join the five item ones, chosen so that each predicate takes BOTH values across the matrix:</para>
+    /// <list type="bullet">
+    /// <item><c>ledger-only/plain-sale</c> — a Sales voucher with no stock lines and no v49 accounting-invoice flag:
+    /// <c>IsServiceAccountingInvoice</c> false ⇒ <c>IsTaxInvoice</c> false. Under Composition it is <b>still</b> a bill
+    /// of supply (limb 1 tests the base type alone), so it is also the shape on which the three predicates most sharply
+    /// disagree with one another — a wrapper mutation cannot hide behind its neighbours.</item>
+    /// <item><c>ledger-only/service-exempt</c> — the v49 flag plus an exempt SAC leg: all three TRUE.</item>
+    /// <item><c>ledger-only/service-zero-rated</c> — a taxable SAC leg at 0% (LUT/export): a genuine Rule-46 tax
+    /// invoice that posts no tax leg, so <c>IsServiceAccountingInvoice</c> and <c>IsTaxInvoice</c> are true while the
+    /// exempt limb correctly refuses it. It needs no seeded Output tax ledger, so it exists under both registrations.</item>
+    /// <item><c>item/untagged-output-tax</c> — Output CGST/SGST hand-keyed with no <c>GstLineTax</c>:
+    /// <c>PostedOutputTaxIsFullyTagged</c> false, so <c>IsTaxInvoice</c> is FALSE on an ITEM voucher. Regular only —
+    /// a Composition company has no seeded Output tax ledgers to key.</item>
+    /// <item><c>purchase/item</c> — an inward goods movement: all three false on the base-type gate.</item>
+    /// </list>
+    ///
+    /// <para><b>And the non-vacuity is itself asserted, not merely intended.</b> The engine's answers are collected and
+    /// each predicate is required to have produced both <c>true</c> and <c>false</c> somewhere in the matrix. Deleting
+    /// or narrowing a shape can therefore no longer quietly return this test to two-thirds vacuous — it fails with the
+    /// name of the predicate that went constant. That check is the actual fix for finding #1; the extra shapes are how
+    /// it is satisfied.</para>
     /// </summary>
     [Fact]
     public void The_desktop_wrappers_never_answer_differently_from_the_engine()
     {
+        var sawBillOfSupply = new HashSet<bool>();
+        var sawTaxInvoice = new HashSet<bool>();
+        var sawServiceInvoice = new HashSet<bool>();
+
         foreach (var registration in new[] { GstRegistrationType.Regular, GstRegistrationType.Composition })
         {
             var f = Build(registration);
-            var shapes = new (string Name, Voucher V)[]
+            var shapes = new List<(string Name, Voucher V)>
             {
-                ("taxable",      Sale(f, (f.TaxableItemId, 94_271.63m))),
-                ("exempt",       Sale(f, (f.ExemptItemId, 2_17_483.91m))),
-                ("nil-rated",    Sale(f, (f.NilRatedItemId, 1_63_059.37m))),
-                ("unresolved",   Sale(f, (f.UnclassifiedItemId, 2_17_483.91m))),
-                ("mixed",        Sale(f, (f.ExemptItemId, 2_17_483.91m), (f.TaxableItemId, 41.09m))),
+                ("item/taxable",         Sale(f, (f.TaxableItemId, 94_271.63m))),
+                ("item/exempt",          Sale(f, (f.ExemptItemId, 2_17_483.91m))),
+                ("item/nil-rated",       Sale(f, (f.NilRatedItemId, 1_63_059.37m))),
+                ("item/unresolved",      Sale(f, (f.UnclassifiedItemId, 2_17_483.91m))),
+                ("item/mixed",           Sale(f, (f.ExemptItemId, 2_17_483.91m), (f.TaxableItemId, 41.09m))),
+                ("ledger-only/plain-sale",
+                    LedgerOnlySale(f, f.SalesLedgerId, 1_63_059.37m, accountingInvoice: false)),
+                ("ledger-only/service-exempt",
+                    LedgerOnlySale(f, f.ExemptServiceLedgerId, 2_17_483.91m, accountingInvoice: true)),
+                ("ledger-only/service-zero-rated",
+                    LedgerOnlySale(f, f.ZeroRatedServiceLedgerId, 94_271.63m, accountingInvoice: true)),
+                ("purchase/item",        PurchaseItem(f, f.TaxableItemId, 2_17_483.91m)),
             };
+            // Regular only: a Composition company has none of the six Output tax ledgers to hand-key against.
+            if (UntaggedOutputTaxSale(f, 2_17_483.91m, 19_573.55m, 19_573.56m) is { } untagged)
+                shapes.Add(("item/untagged-output-tax", untagged));
 
             foreach (var (name, v) in shapes)
             {
                 var why = $"{registration}/{name}";
-                Assert.True(
-                    GstReportSupport.IsBillOfSupply(f.Company, v) ==
-                    VoucherPrintProjector.IsBillOfSupply(f.Company, v), $"IsBillOfSupply diverged for {why}");
-                Assert.True(
-                    GstReportSupport.IsTaxInvoice(f.Company, v) ==
-                    VoucherPrintProjector.IsTaxInvoice(f.Company, v), $"IsTaxInvoice diverged for {why}");
-                Assert.True(
-                    GstReportSupport.IsServiceAccountingInvoice(f.Company, v) ==
-                    VoucherPrintProjector.IsServiceAccountingInvoice(f.Company, v),
+
+                var engineBos = GstReportSupport.IsBillOfSupply(f.Company, v);
+                var engineTax = GstReportSupport.IsTaxInvoice(f.Company, v);
+                var engineSvc = GstReportSupport.IsServiceAccountingInvoice(f.Company, v);
+                sawBillOfSupply.Add(engineBos);
+                sawTaxInvoice.Add(engineTax);
+                sawServiceInvoice.Add(engineSvc);
+
+                Assert.True(engineBos == VoucherPrintProjector.IsBillOfSupply(f.Company, v),
+                    $"IsBillOfSupply diverged for {why}");
+                Assert.True(engineTax == VoucherPrintProjector.IsTaxInvoice(f.Company, v),
+                    $"IsTaxInvoice diverged for {why}");
+                Assert.True(engineSvc == VoucherPrintProjector.IsServiceAccountingInvoice(f.Company, v),
                     $"IsServiceAccountingInvoice diverged for {why}");
             }
         }
+
+        // 🔴 Finding #1's actual fix: a comparison that cannot fail proves nothing, so the matrix must be shown to
+        // exercise BOTH answers of every predicate. If a future edit narrows the shapes, this fails by name.
+        Assert.True(sawBillOfSupply.Count == 2, "IsBillOfSupply was constant-valued across the matrix");
+        Assert.True(sawTaxInvoice.Count == 2, "IsTaxInvoice was constant-valued across the matrix");
+        Assert.True(sawServiceInvoice.Count == 2, "IsServiceAccountingInvoice was constant-valued across the matrix");
     }
 }

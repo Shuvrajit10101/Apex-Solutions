@@ -1,4 +1,4 @@
-﻿using Apex.Ledger;
+using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;

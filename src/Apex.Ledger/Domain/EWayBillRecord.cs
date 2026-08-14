@@ -1,4 +1,4 @@
-﻿namespace Apex.Ledger.Domain;
+namespace Apex.Ledger.Domain;
 
 /// <summary>
 /// A per-voucher <b>e-Way Bill artefact</b> (Phase 9 slice 5; RQ-6; ER-5) — the record of one goods movement's EWB-01

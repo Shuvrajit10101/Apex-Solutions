@@ -1,4 +1,4 @@
-﻿using Apex.Ledger.Domain;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 
 namespace Apex.Ledger.Reports;
@@ -417,6 +417,34 @@ public static class GstReportSupport
     /// DOCUMENT KIND, titling as a BILL OF SUPPLY (and filing NIC <c>BIL</c>) a movement that recorded cess legs. The
     /// two are not interchangeable; the question is "did this voucher record a forward cess leg?", never "do they add
     /// up to something?".</para>
+    ///
+    /// <para><b>🔴 W0-9 review (finding #3) — AND THE ROUTE IS NARROWER THAN THAT PARAGRAPH SAID, SO IT IS NOW PINNED
+    /// RATHER THAN ASSERTED.</b> <see cref="CarriesForwardTax"/> is a THREE-WAY disjunction, and its third disjunct
+    /// <see cref="PostsToAnOrdinaryOutputTaxLedger"/> answers off the LEDGER. On every <b>shipped</b> path a posted
+    /// cess line lands on a ledger the company CLASSIFIES as Output Cess, because <c>GstService.ComputeInvoiceTax</c>
+    /// calls <c>EnsureCessLedgers</c> (<c>if (totalCess != 0m) …</c>) immediately before it emits one — so that disjunct
+    /// holds <see cref="CarriesForwardTax"/> true whatever this predicate answers, and the document kind does NOT move
+    /// for any voucher this app posts. The substitution bites only where the cess legs are tagged but do NOT land on a
+    /// classified GST tax ledger: imported or hand-keyed data, which the canonical importer accepts
+    /// (<c>&lt;gst&gt;</c> is optional per entryLine and the ledger it names need carry no classification). That is a
+    /// real shape, and it is now pinned in the direction that matters — the DOCUMENT KIND — by
+    /// <c>GstForwardTaxPredicateTests.A_netting_cess_pair_off_the_tax_ledgers_still_decides_the_document_kind</c>.
+    /// A warning whose only cited pin cannot demonstrate it is how a maintainer talks himself past it.</para>
+    ///
+    /// <para><b>🔴 W0-9 TAIL review (findings #1/#3) — WHY THE OLD PIN CANNOT DEMONSTRATE THE FLIP, STATED CORRECTLY.</b>
+    /// The paragraph above previously said the old pin
+    /// <c>GstForwardTaxPredicateTests.A_cess_line_exists_even_when_the_posted_cess_sums_to_zero</c> posts its netting
+    /// pair to "the company's own Output Cess ledger". <b>It does not, and the sentence was false about its own cited
+    /// fixture.</b> <c>GstService.EnableGst</c> seeds Central/State/Integrated for each direction and <b>never</b> the
+    /// Cess pair (<c>EnsureCessLedgers</c> is lazy — <c>SeedAdvancedGst</c>, <c>ComputeInvoiceTax</c>, the deposit /
+    /// reversal / set-off / RCM paths), and that test's company calls only <c>EnableGst</c>; so its
+    /// <c>FindTaxLedger(Cess, Output)</c> returns <c>null</c>, its <c>??</c> fallback builds an <b>UNCLASSIFIED</b>
+    /// ledger named "Output Cess", and <see cref="PostsToAnOrdinaryOutputTaxLedger"/> is <b>FALSE</b> for it. The real
+    /// reason it cannot show the flip is elsewhere: its voucher carries no stock lines and no v49 accounting-invoice
+    /// flag, so <see cref="IsTaxInvoice"/> is false and <see cref="IsBillOfSupply"/> returns false at limb 2's
+    /// <c>if (!IsTaxInvoice(…)) return false;</c> gate whatever <see cref="CarriesForwardTax"/> answers. Both facts are
+    /// now <b>asserted inside that test</b> rather than described here, so a maintainer who checks the pin finds the
+    /// stated mechanism reproducing instead of concluding the whole warning is stale.</para>
     /// </summary>
     public static bool HasPostedForwardCessLines(Voucher voucher)
     {

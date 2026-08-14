@@ -22,6 +22,15 @@ namespace Apex.Ledger.Tests;
 /// (<c>INV</c> Tax Invoice / <c>BIL</c> Bill of Supply) —
 /// <c>https://docs.ewaybillgst.gov.in/apidocs/master-codes-list.html</c>.</para>
 ///
+/// <para><b>🔴 WHAT THIS SUITE DOES NOT DECIDE — e-Way COVERAGE.</b> Every assertion here is about the DOCUMENT KIND
+/// (<c>BIL</c> vs <c>INV</c>), which <c>EWayBillService.PartACodesFor</c> answers independently of whether an e-way
+/// bill is required at all. Whether a wholly-exempt consignment needs one is CGST <b>Rule 138(14)</b>'s question, and
+/// clauses (e) and (f) answer it from GOODS LISTS this application does not hold — see
+/// <see cref="PINNED_GAP_the_rule_138_14_goods_relief_lists_are_not_modelled"/>. The two coverage-dependent tests here
+/// are deliberately driven on <b>de-oiled cake</b>, the good clause (e) expressly carves OUT of its own relief, so
+/// their <c>EWayCoverage.Required</c> is a statement about the statute rather than about our engine (W0-9 review
+/// finding #2 — the previous fixtures asserted <c>Required</c> for fresh milk, which the rule relieves).</para>
+///
 /// <para>Every money fixture is odd to the paisa (₹2,17,483.91, ₹1,63,059.37, ₹94,271.63) — a round figure would pass
 /// under a rounding defect and assert nothing.</para>
 /// </summary>
@@ -41,11 +50,19 @@ public sealed class OneBillOfSupplyRuleTests
         public required Guid ExemptItemId { get; init; }
         public required Guid NilRatedItemId { get; init; }
         public required Guid NonGstItemId { get; init; }
+        public required Guid DeOiledCakeItemId { get; init; }
         public required Guid UnclassifiedItemId { get; init; }
         public required Guid SalesLedgerId { get; init; }
         public required Guid RcmSalesLedgerId { get; init; }
         public required Guid PurchaseLedgerId { get; init; }
         public required Guid PartyId { get; init; }
+
+        /// <summary>A Gujarat (24) BUYER against the Maharashtra (27) home State — so an OUTWARD sale billed to him is
+        /// genuinely inter-State (27 ⇒ 24) and its Rule-138 coverage rides the flat ₹50,000 inter-state threshold
+        /// alone, never <see cref="GstConfig.EWayIntraStateApplicable"/> or a per-state override (W0-9 tail findings
+        /// #2/#4). <see cref="PartyId"/> stays the INTRA-State walk-in the rest of the suite bills.</summary>
+        public required Guid OutOfStatePartyId { get; init; }
+
         public required Guid SupplierId { get; init; }
 
         public Guid SalesTypeId => Company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales).Id;
@@ -72,6 +89,11 @@ public sealed class OneBillOfSupplyRuleTests
             Periodicity = GstReturnPeriodicity.Monthly,
             EWayBillEnabled = true,
             EWayApplicableFrom = FyStart,
+            // 🔴 LOAD-BEARING, NOT DEAD SETUP (W0-9 tail findings #2/#4). Every outward movement in this suite except
+            // A_wholly_exempt_de_oiled_cake_movement_is_genuinely_covered_and_files_BIL bills the "Local Debtor",
+            // whose State is the home State — so those movements are INTRA-State and clearing this flag sends
+            // EWayBillService.CoverageOf down its `if (!interState && !gst.EWayIntraStateApplicable)` guard. Measured:
+            // clearing it reds PINNED_GAP_… (×3) and RULING_a_composition_movement_carrying_posted_forward_tax_still_files_BIL.
             EWayIntraStateApplicable = true,
         });
 
@@ -88,6 +110,15 @@ public sealed class OneBillOfSupplyRuleTests
         nilRated.Gst = new StockItemGstDetails { HsnSac = "250100", Taxability = GstTaxability.NilRated };
         var nonGst = inv.CreateStockItem("Petrol", grp.Id, nos.Id);
         nonGst.Gst = new StockItemGstDetails { HsnSac = "271019", Taxability = GstTaxability.NonGst };
+        // 🔴 THE ONE EXEMPT GOOD RULE 138(14)(e) KEEPS INSIDE THE e-WAY NET, BY NAME. Clause (e) relieves goods
+        // "specified in the Schedule appended to Notification No 2/2017- Central tax (Rate)" — but only "the goods,
+        // OTHER THAN DE-OILED CAKE". De-oiled cake is in that Schedule (S. No. 102, tariff 2302/2304/2305/2306/2308/
+        // 2309, "…concentrates & additives, wheat bran & de-oiled cake"), so it is exempt from GST AND expressly
+        // carved out of the e-way relief. It is therefore the fixture on which "wholly exempt + e-Way Bill genuinely
+        // Required" is a statement about the STATUTE rather than about our implementation. See
+        // A_wholly_exempt_de_oiled_cake_movement_is_genuinely_covered_and_files_BIL.
+        var deOiledCake = inv.CreateStockItem("De-oiled Cake", grp.Id, nos.Id);
+        deOiledCake.Gst = new StockItemGstDetails { HsnSac = "230630", Taxability = GstTaxability.Exempt };
         // No GST block anywhere — the UNRESOLVED shape. Silence is not an exemption.
         var unclassified = inv.CreateStockItem("Mystery Crate", grp.Id, nos.Id);
 
@@ -97,6 +128,11 @@ public sealed class OneBillOfSupplyRuleTests
         { HsnSac = "996511", Taxability = GstTaxability.NilRated, ReverseChargeApplicable = true };
         var party = Add(c, "Local Debtor", "Sundry Debtors", true);
         party.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Consumer, StateCode = "27" };
+        // W0-9 tail findings #2/#4: an OUT-OF-STATE buyer, so the two coverage-dependent outward tests can be driven on
+        // a movement that is inter-State in fact and not merely in their prose.
+        var outOfStateParty = Add(c, "Gujarat Buyer", "Sundry Debtors", true);
+        outOfStateParty.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = GstinGujarat, StateCode = "24" };
 
         // The INWARD side: a Gujarat (24) supplier against a Maharashtra (27) home State, so an inward movement is
         // inter-state and comfortably over the Rule-138 threshold.
@@ -114,11 +150,13 @@ public sealed class OneBillOfSupplyRuleTests
             ExemptItemId = exempt.Id,
             NilRatedItemId = nilRated.Id,
             NonGstItemId = nonGst.Id,
+            DeOiledCakeItemId = deOiledCake.Id,
             UnclassifiedItemId = unclassified.Id,
             SalesLedgerId = sales.Id,
             RcmSalesLedgerId = rcmSales.Id,
             PurchaseLedgerId = purchases.Id,
             PartyId = party.Id,
+            OutOfStatePartyId = outOfStateParty.Id,
             SupplierId = supplier.Id,
         };
     }
@@ -138,15 +176,19 @@ public sealed class OneBillOfSupplyRuleTests
 
     /// <summary>A balanced outward goods movement carrying <paramref name="itemId"/> at <paramref name="value"/> —
     /// over the ₹50,000 Rule-138 threshold and odd to the paisa. Posts no tax leg, exactly as a no-tax supply must.
+    /// <para>Bills <see cref="Fx.PartyId"/> — the "Local Debtor" whose recorded State is 27, the same as the home
+    /// State, so the DEFAULT movement is <b>intra-State</b> (27 ⇒ 27). Pass <paramref name="partyId"/> =
+    /// <see cref="Fx.OutOfStatePartyId"/> for a genuinely inter-State one (27 ⇒ 24).</para>
     /// </summary>
-    private static Voucher Sale(Fx f, Guid itemId, decimal value, Guid? salesLedgerId = null)
+    private static Voucher Sale(Fx f, Guid itemId, decimal value, Guid? salesLedgerId = null, Guid? partyId = null)
     {
         var salesId = salesLedgerId ?? f.SalesLedgerId;
+        var buyerId = partyId ?? f.PartyId;
         return new Voucher(Guid.NewGuid(), f.SalesTypeId, MoveDate, new List<EntryLine>
         {
-            new(f.PartyId, new Money(value), DrCr.Debit),
+            new(buyerId, new Money(value), DrCr.Debit),
             new(salesId, new Money(value), DrCr.Credit),
-        }, partyId: f.PartyId, inventoryLines: new[]
+        }, partyId: buyerId, inventoryLines: new[]
         {
             new VoucherInventoryLine(itemId, f.GodownId, 1m, new Money(value)),
         });
@@ -185,8 +227,27 @@ public sealed class OneBillOfSupplyRuleTests
     /// <summary>
     /// <b>The filing follows the document.</b> NIC's document-type master carries <c>BIL</c> = Bill of Supply, and the
     /// Supply-Type/Document-Type mapping permits <c>Outward | Supply | Bill of Supply</c>, so there was never any need
-    /// to misdeclare this movement as <c>INV</c>. Rule 138 Explanation 2 reckons the consignment value from "an
-    /// invoice, <b>a bill of supply</b> or a delivery challan", so the movement genuinely carries an e-Way Bill.
+    /// to misdeclare this movement as <c>INV</c>.
+    ///
+    /// <para><b>🔴 W0-9 REVIEW FINDING #2 — WHAT THIS TEST NO LONGER CLAIMS, AND WHY.</b> It used to open with
+    /// <c>Assert.Equal(EWayCoverage.Required, …)</c> on this very voucher — a fresh-milk movement — and that
+    /// expectation was verified against the IMPLEMENTATION, never against the statute. CGST <b>Rule 138(14)</b> opens
+    /// "Notwithstanding anything contained in this rule, <b>no e-way bill is required to be generated</b>-", and clause
+    /// <b>(e)</b> reaches "the goods, <b>other than de-oiled cake</b>, being transported, are specified in the Schedule
+    /// appended to Notification No 2/2017- Central tax (Rate) dated the 28th June, 2017". <b>Fresh milk is in that
+    /// Schedule</b> (S. No. 25, tariff 0401), so on the law this consignment needs <b>no e-way bill at all</b> and the
+    /// old assertion was asserting the wrong thing about it. <c>PartACodesFor</c> is <b>independent of coverage</b> —
+    /// it answers "IF an EWB-01 is filed for this movement, what document kind does it declare?" — so the
+    /// document-kind claim, which is what this suite exists for, survives intact and is asserted here alone. The
+    /// covered end-to-end path (<c>CoverageOf</c> + <c>PrepareRecord</c>) moved to
+    /// <see cref="A_wholly_exempt_de_oiled_cake_movement_is_genuinely_covered_and_files_BIL"/>, whose goods the same
+    /// clause (e) expressly keeps INSIDE the net; the engine's inability to see clause (e) at all is pinned by
+    /// <see cref="PINNED_GAP_the_rule_138_14_goods_relief_lists_are_not_modelled"/>.</para>
+    ///
+    /// <para>Sources (R7): CGST Rule 138(14)(e) —
+    /// <c>https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter16/rule138_v1.00.html</c>
+    /// (read in a browser; <c>WebFetch</c> fails on that host with a TLS chain error). Schedule entry S. No. 25 =
+    /// 0401 fresh milk — read from CBIC's own copy of the notification.</para>
     /// </summary>
     [Fact]
     public void A_regular_dealers_wholly_exempt_movement_files_the_eWay_docType_BIL()
@@ -194,15 +255,140 @@ public sealed class OneBillOfSupplyRuleTests
         var f = Build(GstRegistrationType.Regular);
         var v = Sale(f, f.ExemptItemId, 2_17_483.91m);
 
-        Assert.Equal(EWayCoverage.Required, f.Service.CoverageOf(v));
         var codes = f.Service.PartACodesFor(v);
         Assert.Equal("O", codes.SupplyType);
         Assert.Equal("1", codes.SubSupplyType);
         Assert.Equal("BIL", codes.DocType);
         Assert.NotEqual("INV", codes.DocType);   // the value this movement used to file
+    }
 
-        var record = f.Service.PrepareRecord(v, MoveDate);
-        Assert.Equal("BIL", record.DocType);
+    /// <summary>
+    /// <b>🔴 W0-9 REVIEW FINDING #2 — the wholly-exempt movement that genuinely IS covered, chosen off the statute.</b>
+    /// CGST Rule 138(14)(e) relieves goods in the Schedule to Notification 2/2017-Central Tax (Rate) from the e-way
+    /// bill <b>"other than de-oiled cake"</b>. De-oiled cake is in that Schedule (S. No. 102, tariff 2302, 2304, 2305,
+    /// 2306, 2308, 2309 — "Aquatic feed … concentrates &amp; additives, wheat bran &amp; de-oiled cake"), so it is the
+    /// one good that is <b>exempt from GST and expressly inside the e-way net</b>: §31(3)(c) makes its document a bill
+    /// of supply, and Rule 138(1) covers the movement because the carve-out withdraws the only relief that would have
+    /// reached it. Both halves of "a Bill of Supply movement is e-way-billed, and files <c>BIL</c>" are therefore
+    /// asserted here against the statute rather than against our own coverage engine.
+    ///
+    /// <para>Rule 138 <b>Explanation 2</b> reckons the consignment value from "an invoice, <b>a bill of supply</b> or a
+    /// delivery challan", so the rule itself contemplates an e-way bill whose base document is a bill of supply —
+    /// and ₹2,17,483.91 is comfortably over the ₹50,000 threshold.</para>
+    ///
+    /// <para><b>🔴 W0-9 TAIL review (findings #2/#4) — THE MOVEMENT IS NOW THE ONE THIS PARAGRAPH DESCRIBES.</b> This
+    /// used to close "the movement is inter-State (24 ⇒ 27)", which was a sentence about the INWARD twin (the Gujarat
+    /// supplier) copied onto an outward sale that in fact billed <c>Fx.PartyId</c> — the "Local Debtor" whose recorded
+    /// State is <b>27</b>, the home State. It was an <b>intra-State</b> (27 ⇒ 27) movement, and it reached the threshold
+    /// test only because <see cref="Build"/> leaves <c>EWayIntraStateApplicable</c> on: delete that one line as dead
+    /// fixture setup — which the old prose positively invited, since it said the movement was inter-State — and
+    /// <c>CoverageOf</c> returns <c>NotRequired</c> at <c>EWayBillService.cs</c>'s
+    /// <c>if (!interState &amp;&amp; !gst.EWayIntraStateApplicable)</c> guard, the coverage assertion reds, and
+    /// <c>PrepareRecord</c> throws. The sale is now billed to <c>Fx.OutOfStatePartyId</c> (Gujarat, 24), so it is
+    /// inter-State <b>in fact</b> (27 ⇒ 24), the flat ₹50,000 inter-state threshold is the only one that can apply
+    /// (<c>EffectiveThreshold</c> consults the per-state overrides for INTRA-state movements only), and the routing the
+    /// whole argument rests on is <b>asserted</b> below rather than narrated.</para>
+    ///
+    /// <para>Sources (R7): CGST Rule 138(14)(e), Rule 138(1), Explanation 2 —
+    /// <c>https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter16/rule138_v1.00.html</c>
+    /// (browser; <c>WebFetch</c> gets a TLS chain error from that host). Schedule S. No. 102 read from CBIC's own PDF of
+    /// the notification — the Central Tax (Rate) copy on <c>cbic-gst.gov.in</c> is a malformed PDF that will not parse
+    /// (<c>Couldn't read xref table</c>), so the entry was read from the Integrated Tax (Rate) twin on the same host,
+    /// <c>https://cbic-gst.gov.in/hindi/pdf/integrated-tax-rate/Notification%20for%20IGST%20exemption-2.pdf</c>, whose
+    /// Schedule of goods is the same list. <b>The clause (e) carve-out is self-proving in any case</b>: naming de-oiled
+    /// cake as the exception is only meaningful if de-oiled cake is in the Schedule.</para>
+    /// </summary>
+    [Fact]
+    public void A_wholly_exempt_de_oiled_cake_movement_is_genuinely_covered_and_files_BIL()
+    {
+        var f = Build(GstRegistrationType.Regular);
+        var v = Sale(f, f.DeOiledCakeItemId, 2_17_483.91m, partyId: f.OutOfStatePartyId);
+
+        // §31(3)(c) first limb — the goods are exempt, so the document is a bill of supply.
+        Assert.True(GstReportSupport.IsBillOfSupply(f.Company, v));
+
+        // W0-9 tail findings #2/#4 — the ROUTING the coverage argument rests on, pinned: 27 ⇒ 24 is inter-State, so
+        // this movement's coverage cannot depend on EWayIntraStateApplicable or on any per-state threshold override.
+        Assert.Equal("27", f.Company.Gst!.HomeStateCode);
+        Assert.Equal("24", GstReportSupport.PlaceOfSupply(f.Company, v));
+
+        // Rule 138(1) covers it, and clause (e) does NOT relieve it — "other than de-oiled cake".
+        Assert.Equal(EWayCoverage.Required, f.Service.CoverageOf(v));
+        Assert.Equal(new Money(2_17_483.91m), f.Service.ConsignmentValue(v));
+
+        var codes = f.Service.PartACodesFor(v);
+        Assert.Equal(("O", "1", "BIL"), (codes.SupplyType, codes.SubSupplyType, codes.DocType));
+        Assert.Equal("BIL", f.Service.PrepareRecord(v, MoveDate).DocType);
+    }
+
+    /// <summary>
+    /// <b>🔴 PINNED GAP (W0-9 review finding #2) — THE ENGINE CANNOT SEE RULE 138(14) AT ALL, AND THIS RECORDS IT
+    /// RATHER THAN ASSERTING A COVERAGE VERDICT WE CANNOT JUSTIFY.</b> CGST Rule 138(14) relieves fifteen classes of
+    /// movement from the e-way bill outright, and two of them are decided by <b>WHICH GOODS</b> are on the truck:
+    /// <list type="bullet">
+    /// <item><b>(e)</b> — goods, other than de-oiled cake, specified in the Schedule to <b>Notification 2/2017-Central
+    /// Tax (Rate)</b>. Fresh milk (S. No. 25, 0401) and salt (S. No. 103, 2501) are both in it.</item>
+    /// <item><b>(f)</b> — "alcoholic liquor for human consumption, petroleum crude, high speed diesel, motor spirit
+    /// (commonly known as petrol), natural gas or aviation turbine fuel", named individually in the rule.</item>
+    /// </list>
+    ///
+    /// <para><b>Our data cannot answer either question.</b> A stock item carries one <see cref="GstTaxability"/> and an
+    /// HSN string; the company holds <b>no Notification-2/2017 goods list, no Annexure list and no clause-(f)
+    /// commodity list</b>, and <c>EWayBillService.CoverageOf</c> reads none of the three. And taxability is not a
+    /// substitute for them in EITHER direction: de-oiled cake is Exempt yet expressly covered, while clause (f) reaches
+    /// goods that are outside GST rather than exempt under it. <b>Inferring "exempt ⇒ no e-way bill" would be a
+    /// fabrication</b>, and it is the inference plan.md already warns against by name.</para>
+    ///
+    /// <para><b>So the engine over-generates, and the direction is the safe one.</b> It answers
+    /// <see cref="EWayCoverage.Required"/> for every one of these movements. Generating an e-way bill that Rule 138(14)
+    /// did not require is not an offence; FAILING to generate a required one is (§122(1)(xiv), and the goods are liable
+    /// to detention under §129). A conservative over-answer is therefore the only honest default until the goods lists
+    /// are actually modelled — which is a DATA slice, not a predicate tweak.</para>
+    ///
+    /// <para>This test asserts the ENGINE's answer and labels it a gap. It is deliberately NOT written as
+    /// <c>Assert.Equal(NotRequired, …)</c>: that would be a red test for work nobody has scheduled. When the goods
+    /// lists land, this test must FAIL and be re-cut — that is what it is for.</para>
+    ///
+    /// <para><b>🔴 W0-9 tail findings #2/#4 — these three movements are INTRA-State (27 ⇒ 27), and that is load-bearing.</b>
+    /// <see cref="Sale"/> bills the "Local Debtor", whose recorded State equals the home State, so the coverage answer
+    /// below reaches the value test only because <see cref="Build"/> sets <c>EWayIntraStateApplicable = true</c>.
+    /// <c>EWayIntraStateApplicable</c> is therefore NOT dead fixture setup: clearing it sends
+    /// <c>EWayBillService.CoverageOf</c> down its <c>if (!interState &amp;&amp; !gst.EWayIntraStateApplicable)</c> guard
+    /// and reds all three cases here for a reason that has nothing to do with Rule 138(14). The suite's only genuinely
+    /// inter-State outward movement is
+    /// <see cref="A_wholly_exempt_de_oiled_cake_movement_is_genuinely_covered_and_files_BIL"/>, which bills
+    /// <c>Fx.OutOfStatePartyId</c> and pins its own routing.</para>
+    ///
+    /// <para>Sources (R7): CGST Rule 138(14)(e)/(f) —
+    /// <c>https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter16/rule138_v1.00.html</c>
+    /// (browser). Notification 2/2017 Schedule entries 25 (0401) and 103 (2501) — CBIC's own notification PDF.</para>
+    /// </summary>
+    [Theory]
+    // Fresh milk 0401 — Sch. 2/2017 S. No. 25, relieved by Rule 138(14)(e).
+    [InlineData(GstTaxability.Exempt)]
+    // Salt 2501 — Sch. 2/2017 S. No. 103, relieved by Rule 138(14)(e).
+    [InlineData(GstTaxability.NilRated)]
+    // Petrol 271019 — "motor spirit (commonly known as petrol)", named in Rule 138(14)(f) itself.
+    [InlineData(GstTaxability.NonGst)]
+    public void PINNED_GAP_the_rule_138_14_goods_relief_lists_are_not_modelled(GstTaxability taxability)
+    {
+        var f = Build(GstRegistrationType.Regular);
+        var itemId = taxability switch
+        {
+            GstTaxability.Exempt => f.ExemptItemId,
+            GstTaxability.NilRated => f.NilRatedItemId,
+            _ => f.NonGstItemId,
+        };
+        var v = Sale(f, itemId, 2_17_483.91m);
+
+        // The engine has no goods list to consult, so it covers the movement on value alone. Recorded, not endorsed.
+        Assert.Equal(EWayCoverage.Required, f.Service.CoverageOf(v));
+
+        // The gap is in COVERAGE only. The document kind is decided correctly on the statute either way, and it is
+        // what this suite exists to lock — a movement that is e-way-billed unnecessarily must still not declare the
+        // wrong document.
+        Assert.True(GstReportSupport.IsBillOfSupply(f.Company, v));
+        Assert.Equal("BIL", f.Service.PartACodesFor(v).DocType);
     }
 
     /// <summary>The §10 limb is untouched by the widening: a composition dealer's outward supply is a bill of supply
@@ -470,6 +656,15 @@ public sealed class OneBillOfSupplyRuleTests
     ///
     /// <para>§2(47) folds nil-rated and non-taxable supplies into "exempt supply", so all three taxabilities take the
     /// limb, exactly as on the outward side.</para>
+    ///
+    /// <para><b>🔴 W0-9 REVIEW FINDING #2, applied to the inward twin as well.</b> This carried the same
+    /// <c>Assert.Equal(EWayCoverage.Required, …)</c> the outward test did, on the same three goods — and every one of
+    /// them is relieved of the e-way bill by Rule 138(14)(e) (fresh milk 0401, salt 2501 — both in the Schedule to
+    /// Notification 2/2017-Central Tax (Rate)) or named outright in 138(14)(f) (petrol). The expectation was verified
+    /// against our engine, not the statute, so it is gone from here: <c>PartACodesFor</c> answers the document-kind
+    /// question independently of coverage, and that is the question this test asks. The covered end-to-end inward path
+    /// is asserted on de-oiled cake — clause (e)'s express carve-out — by
+    /// <see cref="A_wholly_exempt_de_oiled_cake_PURCHASE_is_genuinely_covered_and_files_BIL"/>.</para>
     /// </summary>
     [Theory]
     [InlineData(GstTaxability.Exempt)]
@@ -487,13 +682,35 @@ public sealed class OneBillOfSupplyRuleTests
         var v = Purchase(f, itemId, 2_17_483.91m);
 
         Assert.True(GstReportSupport.IsInwardBillOfSupply(f.Company, v));
-        Assert.Equal(EWayCoverage.Required, f.Service.CoverageOf(v));
 
         var codes = f.Service.PartACodesFor(v);
         Assert.Equal("I", codes.SupplyType);
         Assert.Equal("1", codes.SubSupplyType);
         Assert.Equal("BIL", codes.DocType);
         Assert.NotEqual("INV", codes.DocType);          // the value this movement used to file
+    }
+
+    /// <summary>The inward twin of <see cref="A_wholly_exempt_de_oiled_cake_movement_is_genuinely_covered_and_files_BIL"/>:
+    /// an inward consignment of de-oiled cake is exempt goods that Rule 138(14)(e) expressly keeps in the e-way net
+    /// ("other than de-oiled cake"), so the supplier's document was a bill of supply AND the movement genuinely carries
+    /// an e-Way Bill — the whole inward path, coverage included, asserted on a shape the statute justifies.</summary>
+    [Fact]
+    public void A_wholly_exempt_de_oiled_cake_PURCHASE_is_genuinely_covered_and_files_BIL()
+    {
+        var f = Build(GstRegistrationType.Regular);
+        var v = Purchase(f, f.DeOiledCakeItemId, 2_17_483.91m);
+
+        Assert.True(GstReportSupport.IsInwardBillOfSupply(f.Company, v));
+
+        // The routing this coverage claim rests on — the Gujarat supplier, 24 ⇒ 27 — pinned, exactly as its outward
+        // twin now pins 27 ⇒ 24 (W0-9 tail findings #2/#4).
+        Assert.Equal("27", f.Company.Gst!.HomeStateCode);
+        Assert.Equal("24", GstReportSupport.PlaceOfSupply(f.Company, v));
+
+        Assert.Equal(EWayCoverage.Required, f.Service.CoverageOf(v));
+
+        var codes = f.Service.PartACodesFor(v);
+        Assert.Equal(("I", "1", "BIL"), (codes.SupplyType, codes.SubSupplyType, codes.DocType));
         Assert.Equal("BIL", f.Service.PrepareRecord(v, MoveDate).DocType);
     }
 

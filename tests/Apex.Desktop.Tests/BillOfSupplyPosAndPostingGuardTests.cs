@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -74,6 +74,15 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         public required Guid TaxableItemId { get; init; }
         public required Guid ExemptItemId { get; init; }
 
+        /// <summary>De-oiled cake (HSN 230630) — GST-exempt AND the one good CGST Rule 138(14)(e) expressly keeps
+        /// inside the e-way net, "the goods, <b>other than de-oiled cake</b>, being transported, are specified in the
+        /// Schedule appended to notification No. 2/2017- Central tax (Rate)". Any assertion here that an e-Way Bill is
+        /// genuinely <b>Required</b> for a wholly-exempt movement must ride this item, never
+        /// <see cref="ExemptItemId"/> (fresh milk 0401 is Schedule S. No. 25 — clause (e) RELIEVES it, so asserting
+        /// Required for it states our engine's over-generation as though it were the statute). W0-9 tail finding #5.
+        /// </summary>
+        public required Guid DeOiledCakeItemId { get; init; }
+
         /// <summary>A Gujarat (24) buyer against a Maharashtra (27) home State — the INTER-State routing the whole
         /// bill-of-supply suite never rendered once (W0-1 follow-up review, finding #8).</summary>
         public required Guid OutOfStatePartyId { get; init; }
@@ -108,6 +117,10 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         taxable.Gst = new StockItemGstDetails { HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
         var exempt = masters.CreateStockItem("Fresh Milk", grp.Id, nos.Id, valuationMethod: StockValuationMethod.Fifo);
         exempt.Gst = new StockItemGstDetails { HsnSac = "040110", Taxability = GstTaxability.Exempt };
+        // W0-9 tail finding #5 — the exempt good Rule 138(14)(e) carves OUT of its own relief, so a coverage assertion
+        // driven on it is a statement about the statute rather than about our (deliberately over-generating) engine.
+        var deOiledCake = masters.CreateStockItem("De-oiled Cake", grp.Id, nos.Id, valuationMethod: StockValuationMethod.Fifo);
+        deOiledCake.Gst = new StockItemGstDetails { HsnSac = "230630", Taxability = GstTaxability.Exempt };
         var main = c.MainLocation!.Id;
 
         AddLedger(c, "Sales (POS)", "Sales Accounts", openingIsDebit: false);
@@ -139,19 +152,20 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
             c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id, D1,
             new[]
             {
-                new EntryLine(purchases.Id, Money.FromRupees(20_000m), DrCr.Debit),
-                new EntryLine(creditor.Id, Money.FromRupees(20_000m), DrCr.Credit),
+                new EntryLine(purchases.Id, Money.FromRupees(30_000m), DrCr.Debit),
+                new EntryLine(creditor.Id, Money.FromRupees(30_000m), DrCr.Credit),
             },
             inventoryLines: new[]
             {
                 new VoucherInventoryLine(taxable.Id, main, 5m, Money.FromRupees(2_000m)),
                 new VoucherInventoryLine(exempt.Id, main, 5m, Money.FromRupees(2_000m)),
+                new VoucherInventoryLine(deOiledCake.Id, main, 5m, Money.FromRupees(2_000m)),
             }));
 
         return new PosKit
         {
             Company = c, PosType = posType, TaxableItemId = taxable.Id, ExemptItemId = exempt.Id,
-            OutOfStatePartyId = gujaratBuyer.Id,
+            DeOiledCakeItemId = deOiledCake.Id, OutOfStatePartyId = gujaratBuyer.Id,
         };
     }
 
@@ -794,6 +808,30 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
     /// e-Way Part-A and the POS receipt all read. Writing a second copy of the exempt rule inside the e-Way engine was
     /// never an option — that is the exact pathology the shared-predicate note exists to prevent. The document kind and
     /// the filed code are now ONE decision, asserted as such below.</para>
+    ///
+    /// <para><b>🔴 W0-9 TAIL review (finding #5) — THE CONSIGNMENT IS NOW A GOOD THE STATUTE ACTUALLY COVERS.</b> This
+    /// drove its <c>EWayCoverage.Required</c> + <c>PrepareRecord</c> half on <c>k.ExemptItemId</c> — <b>Fresh Milk, HSN
+    /// 040110</b> — which CGST <b>Rule 138(14)(e)</b> RELIEVES of the e-way bill outright (Schedule to Notification
+    /// 2/2017-Central Tax (Rate), S. No. 25, tariff 0401). Asserting <c>Required</c> for it re-stated our engine's
+    /// deliberate over-generation as though it were the law, and the over-generation is exactly what this slice's own
+    /// <c>OneBillOfSupplyRuleTests.PINNED_GAP_the_rule_138_14_goods_relief_lists_are_not_modelled</c> records as a GAP
+    /// ("when the goods lists land, this test must FAIL and be re-cut"). The two Ledger-layer tests were re-based off
+    /// fresh milk for that reason; this one was missed, so when the goods lists land it would have failed at the same
+    /// moment in TWO places — <c>CoverageOf</c> and <c>PrepareRecord</c>'s "Only a covered goods movement …" throw —
+    /// while its doc framed the whole test as the bill-of-supply document-kind pin, making the failure read as a
+    /// regression in <c>IsBillOfSupply</c> / the BIL routing. It now moves <b>de-oiled cake</b> (HSN 230630), which
+    /// clause (e) expressly carves OUT of its own relief ("the goods, <b>other than de-oiled cake</b>, being
+    /// transported, …"), so every assertion below — the exempt limb, the printed title AND the coverage — is a
+    /// statement about the statute. The good is pinned by HSN off the voucher, so re-basing it back onto a relieved
+    /// good reds here first, with a name that says why.</para>
+    ///
+    /// <para>Sources (R7): CGST Rule 138(14)(e) and the Rule 138(14) opening, read verbatim from CBIC's own
+    /// consolidated rules PDF <c>https://cbic-gst.gov.in/pdf/01062021-CGST-Rules-2017-Part-A-Rules.pdf</c>
+    /// (fetched, then extracted with <c>pdftotext -layout</c>); Schedule to Notification 2/2017 S. No. 25 = 0401 fresh
+    /// milk and S. No. 102 = 2302/2304/2305/2306/2308/2309 "…concentrates &amp; additives, wheat bran &amp; de-oiled
+    /// cake", read the same way from CBIC's copy of the notification
+    /// <c>https://cbic-gst.gov.in/hindi/pdf/integrated-tax-rate/Notification%20for%20IGST%20exemption-2.pdf</c> (the
+    /// Central Tax (Rate) twin on that host is a malformed PDF; the Schedule of goods is the same list).</para>
     /// </summary>
     [Fact]
     public void A_regular_dealers_wholly_exempt_movement_prints_BILL_OF_SUPPLY_and_files_BIL()
@@ -813,7 +851,7 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
             new EntryLine(c.FindLedgerByName("Sales (POS)")!.Id, Money.FromRupees(2_04_317.63m), DrCr.Credit),
         }, partyId: customer.Id, inventoryLines: new[]
         {
-            new VoucherInventoryLine(k.ExemptItemId, c.MainLocation!.Id, 1m, Money.FromRupees(2_04_317.63m)),
+            new VoucherInventoryLine(k.DeOiledCakeItemId, c.MainLocation!.Id, 1m, Money.FromRupees(2_04_317.63m)),
         });
         new LedgerService(c).Post(v);
 
@@ -825,6 +863,14 @@ public sealed class BillOfSupplyPosAndPostingGuardTests : IDisposable
         Assert.True(GstReportSupport.IsBillOfSupply(c, v));
         Assert.False(GstReportSupport.IsCompositionBillOfSupply(c, v));
         Assert.Equal(string.Empty, VoucherPrintProjector.ProjectInvoice(c, v).TopDeclaration);
+
+        // 🔴 W0-9 tail finding #5 — the coverage half below is a statement about the STATUTE only while the goods on
+        // the truck are the ONE exempt good Rule 138(14)(e) refuses to relieve. Pinned off the VOUCHER, so re-basing it
+        // onto a relieved good (fresh milk 0401, Sch. 2/2017 S. No. 25) reds HERE, before the coverage assertion, with
+        // a message that names the good instead of looking like a BIL-routing regression.
+        var movedItem = c.FindStockItem(v.InventoryLines.Single().StockItemId)!;
+        Assert.Equal("230630", movedItem.Gst!.HsnSac);
+        Assert.Equal(GstTaxability.Exempt, movedItem.Gst!.Taxability);
 
         var eway = new EWayBillService(c);
         Assert.Equal(EWayCoverage.Required, eway.CoverageOf(v));

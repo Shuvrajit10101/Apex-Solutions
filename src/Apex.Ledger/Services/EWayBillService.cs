@@ -1,4 +1,4 @@
-﻿using Apex.Ledger.Domain;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 
 namespace Apex.Ledger.Services;

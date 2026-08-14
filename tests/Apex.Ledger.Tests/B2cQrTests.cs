@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Xunit;

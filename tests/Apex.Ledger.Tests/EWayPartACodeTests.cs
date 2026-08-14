@@ -1,4 +1,4 @@
-﻿using Apex.Ledger.Domain;
+using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Xunit;
