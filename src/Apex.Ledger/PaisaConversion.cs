@@ -88,6 +88,31 @@ public static class PaisaConversion
         return true;
     }
 
+    /// <summary>
+    /// The largest rupee amount the INTEGER-paisa store can carry: <c>long.MaxValue</c> paisa, i.e.
+    /// ₹92,23,37,20,36,85,47,758.07. It lives here, beside the conversion whose narrowing cast defines it, because
+    /// it IS part of the rupees→paisa rule (drift lock D3) — a screen that re-derived its own ceiling would drift
+    /// from the conversion the moment either changed.
+    /// </summary>
+    public static readonly decimal MaxStorableRupees = long.MaxValue / 100m;
+
+    /// <summary>
+    /// True iff <paramref name="rupees"/> can be persisted as INTEGER paisa at all: within
+    /// <see cref="MaxStorableRupees"/> <b>and</b> paisa-exact.
+    ///
+    /// <para><b>The magnitude test comes FIRST, and must stay first.</b> <see cref="IsPaisaExact"/> itself scales
+    /// by a hundred, which overflows <c>decimal</c> past ~7.9e26, and <see cref="ToPaisaExact(decimal)"/> then
+    /// narrows to <c>long</c>, which overflows past 17 rupee digits. Both raise <see cref="OverflowException"/> —
+    /// an <see cref="ArithmeticException"/> that no domain-refusal filter in the app treats as a refusal — so a
+    /// predicate that tested exactness first would THROW on the very input it exists to reject. This is the same
+    /// branch order <c>GstConfigViewModel.TryStatutoryRupees</c> earned.</para>
+    ///
+    /// <para><see cref="Math.Abs(decimal)"/> is deliberately not used: it throws on
+    /// <see cref="decimal.MinValue"/>, which is precisely the extreme this predicate must answer for.</para>
+    /// </summary>
+    public static bool FitsPaisaStore(decimal rupees) =>
+        rupees >= -MaxStorableRupees && rupees <= MaxStorableRupees && IsPaisaExact(rupees);
+
     /// <summary>Integer paisa → rupees, exact (paisa ÷ 100). Shared by both semantics — the inverse never loses.</summary>
     public static decimal ToRupees(long paisa) => paisa / 100m;
 

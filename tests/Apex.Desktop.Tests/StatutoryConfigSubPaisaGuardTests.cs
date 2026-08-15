@@ -127,6 +127,42 @@ public sealed class StatutoryConfigSubPaisaGuardTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// <b>The screen's ceiling must BE the store's carrier bound, not a hand-derivation that happens to match it
+    /// today</b> (W0-13, drift lock D3). <c>MaxStatutoryRupees</c> shipped as the literal
+    /// <c>92_233_720_368_547_758m</c> — <see cref="PaisaConversion.MaxStorableRupees"/> floored, re-typed by hand
+    /// in the very file the shared guard was extracted from — and is now
+    /// <c>decimal.Floor(PaisaConversion.MaxStorableRupees)</c>.
+    ///
+    /// <para><b>Why the boundary and not the constant.</b> The field is <c>private static readonly</c>, so a test
+    /// cannot read it; and asserting a computed expectation against a computed actual would pass on the
+    /// hand-typed literal too. Driving the two figures either side of the floor through the real screen does
+    /// discriminate: if the screen's ceiling ever drifts from the carrier IN EITHER DIRECTION, exactly one of
+    /// these two assertions fails. Whole rupees are the screen's own constraint, which is why the bound is the
+    /// FLOOR of the carrier and not the carrier itself.</para>
+    /// </summary>
+    [Fact]
+    public void TheStatutoryScreensCeilingIsTheStoresCarrierBoundFlooredToTheWholeRupee()
+    {
+        var ceiling = decimal.Floor(PaisaConversion.MaxStorableRupees);
+
+        var vm = NewPayrollCompany("Statutory Ceiling Boundary Co");
+        var page = StatutoryPage(vm);
+
+        // …one whole rupee past the carrier is refused, and says so as a magnitude, not as a paisa problem.
+        var over = ApplyField(page, "the gratuity cap", (ceiling + 1m).ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.False(over.Applied);
+        Assert.NotNull(over.Message);
+        Assert.Contains("too large", over.Message);
+        Assert.DoesNotContain("finer than a paisa", over.Message);
+        Assert.Null(vm.Company!.GratuityConfig);
+
+        // …and the ceiling itself is accepted, so the guard is not merely over-refusing.
+        var at = ApplyField(page, "the gratuity cap", ceiling.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.True(at.Applied, at.Message);
+        Assert.Equal(ceiling, vm.Company!.GratuityConfig!.CapAmount.Amount);
+    }
+
     /// <summary>The enrolment the named field belongs to — the one that must NOT appear after a refusal.</summary>
     private static object? EnrolmentFor(Company company, string fieldLabel) =>
         fieldLabel == "the gratuity cap" ? company.GratuityConfig : company.BonusConfig;

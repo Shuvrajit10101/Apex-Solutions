@@ -549,6 +549,35 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>
+    /// The first typed amount on the plain Dr/Cr grid that the INTEGER-paisa store could not carry — the line
+    /// amount itself, then its bill-wise and cost allocation rows — or <c>null</c> when every figure is storable
+    /// (W0-13 S2a).
+    ///
+    /// <para>Scoped exactly like the gates it precedes: blank rows are skipped (an untouched trailing row is not
+    /// an error), allocation rows are read only on a line whose panel is actually in play, and the FIRST offender
+    /// wins so the operator gets one specific message rather than a list.</para>
+    ///
+    /// <para>The line amount is checked before its allocations deliberately: a line that is itself unstorable will
+    /// have unstorable allocations too (they must sum to it), and naming the line is the more useful diagnosis.</para>
+    /// </summary>
+    private string? UnstorableGridAmountError()
+    {
+        foreach (var line in Lines)
+        {
+            if (!line.IsBlank && line.AmountError is { } lineError) return lineError;
+
+            if (line.IsBillWise)
+                foreach (var bill in line.BillAllocations)
+                    if (!bill.IsBlank && bill.AmountError is { } billError) return billError;
+
+            if (line.IsCostApplicable)
+                foreach (var cost in line.CostAllocations)
+                    if (!cost.IsBlank && cost.AmountError is { } costError) return costError;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// The shared Accept-time refusal for the invoice bill split, used by BOTH invoice Accept paths. Re-derives the
     /// split against the party total the Accept path actually computed — never against a stale display figure — so a
     /// tax or TCS change that moved the total after the last recalc cannot post a mis-footed allocation.
@@ -558,6 +587,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (!InvoiceBillWiseApplies) return true;
         SyncInvoiceBillWise(partyTotal);
         if (InvoiceBillSplitOk) return true;
+
+        // W0-13 S2a — an unstorable row amount is named for what it is, ABOVE the two generic branches below.
+        // This is the sharpest instance of the defect: the invoice Accept paths Post (which appends the voucher to
+        // the shared Company) and only then Save — so before this guard a sub-paisa split that footed to the party
+        // total EXACTLY left the refused invoice on the aggregate and made every later, unrelated save throw.
+        // That is the CAUSE; the missing rollback it relied on is closed separately, in the save guard both Accept
+        // paths now carry (S2b), so this is a front line over a closed site rather than over an open one.
+        var unstorable = InvoiceBillAllocations
+            .Where(a => !a.IsBlank)
+            .Select(a => a.AmountError)
+            .FirstOrDefault(e => e is not null);
+        if (unstorable is not null)
+        {
+            Message = unstorable;
+            return false;
+        }
 
         Message = InvoiceBillAllocations.Any(a => !a.IsBlank && !a.IsComplete)
             ? "Every bill-wise row needs a positive amount and (except On Account) a bill reference name."
@@ -2773,6 +2818,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Accounting-invoice (service) mode routes to its own accept path (income ledger legs + auto SAC GST; no stock).
         if (IsAccountingInvoice) return AcceptAccountingInvoice();
 
+        // W0-13 S2a — an amount the INTEGER-paisa store cannot carry is refused HERE, naming the field, before any
+        // of the gates below. It has to come first: a sub-paisa line amount also reads as "half-filled" (the
+        // storability test is folded into IsComplete), and a sub-paisa ALLOCATION reads as a bad split even though
+        // the split foots exactly — so without this, the operator would be told to fix the one thing that is
+        // already right. Left unguarded the figure reached Paisa.FromMoney and came back as a raw persistence
+        // exception; see UnstorableGridAmountError.
+        if (UnstorableGridAmountError() is { } unstorable)
+        {
+            Message = unstorable;
+            return false;
+        }
+
         // Reject half-filled rows up front with a clear message (before touching the engine).
         if (Lines.Any(l => !l.IsBlank && !l.IsComplete))
         {
@@ -4194,7 +4251,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         try
         {
             var posted = _service.Post(voucher); // enforces pairing/atomicity — never persisted on failure
-            _storage.Save(_company);
+
+            // W0-13 S2b — THE SAVE GETS ITS OWN GUARD, and the restore runs FIRST and UNCONDITIONALLY. This is the
+            // shape PostAndSave already had; the two invoice Accepts never got it. Post has appended the voucher to
+            // the shared Company, Save is transactional, and the narrow filter below matches neither a
+            // SqliteException (SQLITE_BUSY / READONLY / FULL) nor an OverflowException — so an ordinary locked-file
+            // failure escaped Accept UNHANDLED with the refused invoice still on the aggregate, and every LATER
+            // save diverged from the .db. A type filter must never be what decides whether the rollback runs.
+            try
+            {
+                _storage.Save(_company);
+            }
+            catch (Exception ex)
+            {
+                _company.RemoveVoucher(posted);
+                if (!SaveFailure.IsReportable(ex)) throw;
+                Message = $"Could not save the company: {ex.Message} " +
+                          "The voucher was not kept — nothing was changed.";
+                return false;
+            }
+
             SavedNumber = posted.Number;
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
@@ -4765,7 +4841,23 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         try
         {
             var posted = _service.Post(voucher); // enforces pairing + atomic stock + no-negative — never persisted on failure
-            _storage.Save(_company);
+
+            // W0-13 S2b — the same save guard as AcceptAccountingInvoice and PostAndSave: restore FIRST and
+            // UNCONDITIONALLY, and only then let SaveFailure.IsReportable decide message-vs-rethrow. See the note
+            // there; on this path Post has also applied the stock movement, which RemoveVoucher reverses with it.
+            try
+            {
+                _storage.Save(_company);
+            }
+            catch (Exception ex)
+            {
+                _company.RemoveVoucher(posted);
+                if (!SaveFailure.IsReportable(ex)) throw;
+                Message = $"Could not save the company: {ex.Message} " +
+                          "The voucher was not kept — nothing was changed.";
+                return false;
+            }
+
             SavedNumber = posted.Number;
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();

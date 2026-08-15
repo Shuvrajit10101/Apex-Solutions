@@ -728,13 +728,34 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// </summary>
     partial void OnEnableJobOrderProcessingChanged(bool value)
     {
+        // Capture the WHOLE mutation, not just the company flag. JobWorkService.SetEnabled ALSO stamps IsActive on
+        // the four seeded Job-Work voucher types and UseForJobWork / AllowConsumption on the two Material types, so
+        // one bool is not the aggregate's state. And re-calling SetEnabled(previous) would not be a restore either:
+        // it rewrites all four types UNIFORMLY, so a type activated on its own would be silently switched off BY the
+        // rollback. The exact per-type triple is captured instead.
+        var previousFlag = _company.EnableJobOrderProcessing;
+        var previousTypes = _company.VoucherTypes
+            .Where(t => t.BaseType is VoucherBaseType.JobWorkInOrder or VoucherBaseType.MaterialIn
+                                   or VoucherBaseType.JobWorkOutOrder or VoucherBaseType.MaterialOut)
+            .Select(t => (Type: t, t.IsActive, t.UseForJobWork, t.AllowConsumption))
+            .ToList();
         try
         {
             new JobWorkService(_company).SetEnabled(value);
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore FIRST — see the matching note in OnPayrollEnabledChanged: the re-sync below compares the VM
+            // property against the very field SetEnabled has just written, so without this it can never be true.
+            _company.EnableJobOrderProcessing = previousFlag;
+            foreach (var (type, isActive, useForJobWork, allowConsumption) in previousTypes)
+            {
+                type.IsActive = isActive;
+                type.UseForJobWork = useForJobWork;
+                type.AllowConsumption = allowConsumption;
+            }
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             if (EnableJobOrderProcessing != _company.EnableJobOrderProcessing)
                 EnableJobOrderProcessing = _company.EnableJobOrderProcessing;
@@ -1380,8 +1401,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// The largest amount these three fields accept: <c>long.MaxValue</c> paisa is ₹92,23,37,20,36,85,47,758.07,
     /// floored to the whole rupee this screen deals in. Anything above it cannot round-trip the INTEGER-paisa
     /// store — and, worse, would make the CONVERSION itself throw rather than the store refuse politely.
+    ///
+    /// <para><b>DERIVED, never re-typed</b> (drift lock D3). This shipped as the hand-written literal
+    /// <c>92_233_720_368_547_758m</c>, which is <see cref="PaisaConversion.MaxStorableRupees"/> floored — the same
+    /// value, re-derived by hand, in the very file whose guard <see cref="StorableAmount"/> was extracted from. A
+    /// change to the store's carrier would move the shared constant and silently leave this screen behind. The
+    /// FLOOR is the part that is genuinely this screen's own: these three fields are whole rupees.
+    /// <c>static readonly</c> rather than <c>const</c> because the source is.</para>
     /// </summary>
-    private const decimal MaxStatutoryRupees = 92_233_720_368_547_758m;
+    private static readonly decimal MaxStatutoryRupees = decimal.Floor(PaisaConversion.MaxStorableRupees);
 
     /// <summary>
     /// Parses one of the three establishment whole-rupee amounts — the gratuity cap, the bonus calculation ceiling
@@ -1520,14 +1548,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             // Turn GST off: keep the (already-seeded) config/tax ledgers but mark it disabled, and persist.
             if (_company.Gst is { } existing)
             {
+                var previousEnabled = existing.Enabled;
                 existing.Enabled = false;
-                try
+                // The mirror-image divergence — see the matching branch in ApplyGratuity. Save is transactional, so
+                // the .db still HAS the enrolment; memory must not silently lose it, or the rest of the session
+                // computes with GST off over a book that has it on. The restore is passed to TrySave rather than
+                // written after it, so it runs on EVERY failure (a locked or read-only .db included) and lands
+                // before RevertToggle(), which re-derives the toggle from the very flag being restored.
+                if (!TrySave(m => Message = m, () => existing.Enabled = previousEnabled))
                 {
-                    _storage.Save(_company);
-                }
-                catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-                {
-                    Message = ex.Message;
+                    RevertToggle();
                     return false;
                 }
             }
@@ -1561,6 +1591,17 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         var config = _company.Gst ?? new GstConfig();
+        // Capture BEFORE the six in-place writes below. On an ALREADY-ENABLED company `config` IS _company.Gst, so
+        // those writes land on the shared aggregate before the store is ever reached — the same shape as ApplyPt's
+        // SetProfessionalTaxState. HomeStateCode is what makes this a wrong-FIGURES divergence rather than a stale
+        // flag: it decides intra- vs inter-state supply, i.e. CGST+SGST versus IGST on every invoice for the rest
+        // of the session, and a failed save otherwise left the session on a state the book does not have.
+        var previousGst = _company.Gst;
+        var previousGstFields = previousGst is null ? default : CaptureGstFields(previousGst);
+        // EnableGst also AUTO-CREATES the six tax ledgers + Round Off — or re-tags and RELOCATES same-named ledgers
+        // the user pre-created (GstService.EnsureTaxLedger). Putting the config reference back leaves all of that
+        // behind, so the ledger collection is snapshotted too.
+        var ledgersBefore = SnapshotLedgers();
         config.Gstin = gstinOrNull;
         config.HomeStateCode = HomeState.Code;
         config.RegistrationType = (RegistrationType ?? RegistrationTypes.First()).Value;
@@ -1586,8 +1627,16 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             service.EnableGst(config);           // idempotent: seeds slabs + auto-creates the 6 tax ledgers
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // EnableGst mutates the SHARED aggregate before the store is reached — see the matching note in
+            // ApplyGratuity. The restore is OUTSIDE any type filter (see IsReportableSaveFailure) and BEFORE
+            // RevertToggle(), which re-derives the toggle from _company.GstEnabled, i.e. from the config being
+            // restored: reverting first would read the poisoned config and leave the toggle ON over it.
+            _company.Gst = previousGst;
+            if (previousGst is not null) RestoreGstFields(previousGst, previousGstFields);
+            RestoreLedgers(ledgersBefore);
+            if (!IsReportableSaveFailure(ex)) throw;
             Message = ex.Message;
             RevertToggle();
             return false;
@@ -1656,8 +1705,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         {
             if (_company.Tds is { } existing)
             {
+                var previousEnabled = existing.Enabled;
                 existing.Enabled = false;
-                if (!TrySave(m => TdsMessage = m)) return false;
+                // TrySave already carried the widened filter here; what it never carried was the RESTORE, so a
+                // failed disable left memory with TDS off over a book that still has it on. See ApplyGratuity.
+                if (!TrySave(m => TdsMessage = m, () => existing.Enabled = previousEnabled))
+                {
+                    RevertTdsToggle();
+                    return false;
+                }
             }
             RefreshTdsTcsLedgers();
             TdsMessage = "TDS is now OFF for this company. Existing masters are unchanged.";
@@ -1687,6 +1743,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         var config = _company.Tds ?? new TdsConfig();
+        // Capture BEFORE WriteDeductorIdentity: on an already-enabled company `config` IS _company.Tds, so its eight
+        // identity writes land on the shared aggregate before the store is reached (the ApplyPt shape again).
+        var previousTds = _company.Tds;
+        var previousTdsIdentity = previousTds is null ? default : CaptureIdentity(previousTds);
+        // …and the COLLECTOR side with it. SyncSharedIdentityToTcs rewrites the live TcsConfig's TAN + responsible
+        // person IN PLACE, so a failed TDS enable otherwise left the 27EQ side of the session filing under a TAN the
+        // book does not hold — a silent wrong-identity divergence in a screen the user never touched.
+        var previousTcs = _company.Tcs;
+        var previousTcsIdentity = previousTcs is null ? default : CaptureIdentity(previousTcs);
+        // EnableTds also auto-creates "TDS Payable" — or re-tags AND RELOCATES a same-named ledger the user
+        // pre-created (TdsTcsService.EnsurePayableLedger moves it under Duties & Taxes unconditionally).
+        var ledgersBefore = SnapshotLedgers();
         WriteDeductorIdentity(config, tan, pan);
 
         try
@@ -1695,8 +1763,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             SyncSharedIdentityToTcs(tan, pan);   // keep 27EQ under the same TAN if TCS is already on
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            // Restore unconditionally and BEFORE RevertTdsToggle(), which re-derives the toggle from
+            // _company.TdsEnabled — see the matching note in ApplyGratuity.
+            _company.Tds = previousTds;
+            if (previousTds is not null) RestoreIdentity(previousTds, previousTdsIdentity);
+            if (previousTcs is not null) RestoreIdentity(previousTcs, previousTcsIdentity);
+            RestoreLedgers(ledgersBefore);
+            if (!IsReportableSaveFailure(ex)) throw;
             TdsMessage = ex.Message;
             RevertTdsToggle();
             return false;
@@ -1722,8 +1797,14 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         {
             if (_company.Tcs is { } existing)
             {
+                var previousEnabled = existing.Enabled;
                 existing.Enabled = false;
-                if (!TrySave(m => TcsMessage = m)) return false;
+                // The restore TrySave never received here either — see the matching branch in ApplyTds.
+                if (!TrySave(m => TcsMessage = m, () => existing.Enabled = previousEnabled))
+                {
+                    RevertTcsToggle();
+                    return false;
+                }
             }
             RefreshTdsTcsLedgers();
             TcsMessage = "TCS is now OFF for this company. Existing masters are unchanged.";
@@ -1753,6 +1834,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
 
         var config = _company.Tcs ?? new TcsConfig();
+        // The exact mirror of ApplyTds's capture — including the DEDUCTOR side, because SyncSharedIdentityToTds
+        // rewrites the live TdsConfig's identity in place. See the notes there.
+        var previousTcs = _company.Tcs;
+        var previousTcsIdentity = previousTcs is null ? default : CaptureIdentity(previousTcs);
+        var previousTds = _company.Tds;
+        var previousTdsIdentity = previousTds is null ? default : CaptureIdentity(previousTds);
+        var ledgersBefore = SnapshotLedgers();
         WriteCollectorIdentity(config, tan, pan);
 
         try
@@ -1761,8 +1849,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             SyncSharedIdentityToTds(tan, pan);   // keep 26Q under the same TAN if TDS is already on
             _storage.Save(_company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        catch (Exception ex)
         {
+            _company.Tcs = previousTcs;
+            if (previousTcs is not null) RestoreIdentity(previousTcs, previousTcsIdentity);
+            if (previousTds is not null) RestoreIdentity(previousTds, previousTdsIdentity);
+            RestoreLedgers(ledgersBefore);
+            if (!IsReportableSaveFailure(ex)) throw;
             TcsMessage = ex.Message;
             RevertTcsToggle();
             return false;
@@ -1852,13 +1945,124 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <see cref="ArithmeticException"/>, not an <see cref="ArgumentException"/>. The two concerns are now
     /// separated: the caller restores unconditionally, and only the message/crash decision consults this list.</para>
     /// </summary>
-    private static bool IsReportableSaveFailure(Exception ex) =>
-        ex is InvalidOperationException      // the domain's own refusals, and the paisa store's sub-paisa throw
-           or ArgumentException              // incl. ArgumentOutOfRangeException from a domain config constructor
-           or OverflowException              // an amount beyond long paisa / decimal range
-           or IOException                    // the company file could not be opened / written
-           or UnauthorizedAccessException    // …or is read-only for this user
-           or DbException;                   // SqliteException: BUSY (another instance), READONLY, FULL
+    /// <remarks>
+    /// The list itself moved to <see cref="SaveFailure.IsReportable"/> when the Budget, Salary-Details and
+    /// Pay-Head masters needed the same decision (slice S2b) — three more copies of a six-type list is the
+    /// divergence this campaign removes. This name stays because eighteen call sites and this doc comment are
+    /// what make the rule readable at each catch.
+    /// </remarks>
+    private static bool IsReportableSaveFailure(Exception ex) => SaveFailure.IsReportable(ex);
+
+    // =========================================================== rollback capture (see TrySave / IsReportableSaveFailure)
+    //
+    // Three shapes of aggregate mutation on this screen cannot be undone by putting a reference back, because the
+    // mutation is IN PLACE on an object the capture points at, or is an addition to a collection the capture does not
+    // own. Each has its own capture/restore pair below, used by Apply / ApplyTds / ApplyTcs.
+    //
+    // ⚠️ ONE residue is deliberately NOT covered, and is recorded rather than papered over: EnableGst seeds
+    // GstConfig.RateSlabs, and EnableTds/EnableTcs seed the Nature-of-Payment / Nature-of-Goods masters, both only
+    // WHEN THE LIST IS EMPTY, and both collections are add-only (no public remove). It is unreachable as a
+    // divergence: a company whose config is non-null was enabled through this same path and therefore already has
+    // them (so nothing is added), and a company whose config was null has its config restored to null here — which
+    // orphans the object the seeds went into. If a public remove ever appears, close it.
+
+    /// <summary>The <see cref="GstConfig"/> fields <see cref="Apply"/> overwrites IN PLACE before persisting.</summary>
+    private readonly record struct GstFields(
+        bool Enabled, string? Gstin, string? HomeStateCode, GstRegistrationType Registration,
+        GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate);
+
+    private static GstFields CaptureGstFields(GstConfig c) => new(
+        c.Enabled, c.Gstin, c.HomeStateCode, c.RegistrationType, c.Periodicity,
+        c.CompositionSubType, c.CompositionOptInDate);
+
+    private static void RestoreGstFields(GstConfig c, GstFields f)
+    {
+        c.Enabled = f.Enabled;
+        c.Gstin = f.Gstin;
+        c.HomeStateCode = f.HomeStateCode;          // the wrong-FIGURES one: intra- vs inter-state supply
+        c.RegistrationType = f.Registration;
+        c.Periodicity = f.Periodicity;
+        c.CompositionSubType = f.SubType;
+        c.CompositionOptInDate = f.OptInDate;
+    }
+
+    /// <summary>
+    /// The shared deductor/collector identity <see cref="WriteDeductorIdentity"/> / <see cref="WriteCollectorIdentity"/>
+    /// overwrite IN PLACE — captured as one record rather than nine hand-copied locals per call site, because a
+    /// hand-copied field list is exactly where a field gets forgotten.
+    /// </summary>
+    private readonly record struct StatutoryIdentity(
+        bool Enabled, string? Tan, DeductorType Party, string? Name, string? Pan,
+        string? Designation, string? Address, bool Surcharge, bool Cess);
+
+    private static StatutoryIdentity CaptureIdentity(TdsConfig c) => new(
+        c.Enabled, c.Tan, c.DeductorType, c.ResponsiblePersonName, c.ResponsiblePersonPan,
+        c.ResponsiblePersonDesignation, c.ResponsiblePersonAddress, c.SurchargeApplicable, c.CessApplicable);
+
+    private static StatutoryIdentity CaptureIdentity(TcsConfig c) => new(
+        c.Enabled, c.Tan, c.CollectorType, c.ResponsiblePersonName, c.ResponsiblePersonPan,
+        c.ResponsiblePersonDesignation, c.ResponsiblePersonAddress, c.SurchargeApplicable, c.CessApplicable);
+
+    private static void RestoreIdentity(TdsConfig c, StatutoryIdentity s)
+    {
+        c.Enabled = s.Enabled;
+        c.Tan = s.Tan;
+        c.DeductorType = s.Party;
+        c.ResponsiblePersonName = s.Name;
+        c.ResponsiblePersonPan = s.Pan;
+        c.ResponsiblePersonDesignation = s.Designation;
+        c.ResponsiblePersonAddress = s.Address;
+        c.SurchargeApplicable = s.Surcharge;
+        c.CessApplicable = s.Cess;
+    }
+
+    private static void RestoreIdentity(TcsConfig c, StatutoryIdentity s)
+    {
+        c.Enabled = s.Enabled;
+        c.Tan = s.Tan;
+        c.CollectorType = s.Party;
+        c.ResponsiblePersonName = s.Name;
+        c.ResponsiblePersonPan = s.Pan;
+        c.ResponsiblePersonDesignation = s.Designation;
+        c.ResponsiblePersonAddress = s.Address;
+        c.SurchargeApplicable = s.Surcharge;
+        c.CessApplicable = s.Cess;
+    }
+
+    /// <summary>What one ledger carried before an enable that can create, re-tag or relocate ledgers.</summary>
+    private readonly record struct LedgerState(
+        Apex.Ledger.Domain.Ledger Ledger, Guid GroupId,
+        LedgerGstClassification? Gst, TdsTcsLedgerKind? TdsTcs);
+
+    /// <summary>
+    /// Snapshots the ledger collection ahead of <c>EnableGst</c> / <c>EnableTds</c> / <c>EnableTcs</c>, which
+    /// auto-create the six GST tax ledgers + Round Off / the TDS/TCS payable — and, when a same-named ledger already
+    /// exists, instead TAG it in place. All three are aggregate mutations a config-reference rollback would leave
+    /// behind. <b>The two tag paths differ and both are covered:</b> <c>EnsureTaxLedger</c> stamps
+    /// <c>GstClassification</c> and relocates only a ledger whose group is unset, while <c>EnsurePayableLedger</c>
+    /// stamps <c>TdsTcsClassification</c> and relocates under Duties &amp; Taxes <i>unconditionally</i> — hence
+    /// both the classification and the <c>GroupId</c> are captured.
+    /// </summary>
+    private List<LedgerState> SnapshotLedgers() => _company.Ledgers
+        .Select(l => new LedgerState(l, l.GroupId, l.GstClassification, l.TdsTcsClassification))
+        .ToList();
+
+    /// <summary>Puts the group + classifications back on the ledgers that were edited, and drops the ones added.</summary>
+    private void RestoreLedgers(List<LedgerState> snapshot)
+    {
+        foreach (var s in snapshot)
+        {
+            s.Ledger.GroupId = s.GroupId;
+            s.Ledger.GstClassification = s.Gst;
+            s.Ledger.TdsTcsClassification = s.TdsTcs;
+        }
+
+        // Identity, not value: an auto-created ledger is a brand-new object, and nothing has posted against it yet.
+        var kept = new HashSet<Apex.Ledger.Domain.Ledger>(
+            snapshot.Select(s => s.Ledger), ReferenceEqualityComparer.Instance);
+        foreach (var added in _company.Ledgers.Where(l => !kept.Contains(l)).ToList())
+            _company.RemoveLedger(added);
+    }
 
     /// <summary>Writes the shared deductor identity from the form into a <see cref="TdsConfig"/>.</summary>
     private void WriteDeductorIdentity(TdsConfig config, string tan, string? pan)

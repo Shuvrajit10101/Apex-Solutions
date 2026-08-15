@@ -133,6 +133,17 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             Message = "Budget amount must be a number ≥ 0.";
             return false;
         }
+        // FRONT LINE (W0-13 A1). The parse above tests only "a number ≥ 0", and BudgetLine's own ctor validated
+        // only the target and the sign — so a sub-paisa figure was accepted here, built into a line, and only
+        // refused by Paisa.FromMoney deep inside the store, where this file had no catch block to turn it into a
+        // message. Refusing at the field the operator typed into is the whole point: the message names the field
+        // and echoes the text, which the store's own wording cannot do. Shared with the voucher-entry family via
+        // StorableAmount, whose magnitude-then-exactness branch order is load-bearing.
+        if (StorableAmount.ErrorFor(amount, LineAmountText, "the budget amount") is { } error)
+        {
+            Message = error;
+            return false;
+        }
 
         var line = SelectedTarget.IsGroup
             ? BudgetLine.ForGroup(SelectedTarget.GroupId!.Value, SelectedType, new Money(amount))
@@ -194,8 +205,24 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             Guid.NewGuid(), name, from, to,
             lines: PendingLines.Select(r => r.Line).ToList());
 
+        // W0-13 A1 — this file previously held NO catch block at all, so ANY failure of the two lines below was an
+        // unhandled exception out of a Ctrl+A keystroke, and the budget stayed on the shared aggregate so every
+        // LATER save threw too. The shape is the one TrySave earned on the statutory screen and must not be
+        // re-invented: the restore runs FIRST and UNCONDITIONALLY — a type filter must never be what decides
+        // whether the rollback happens — and only then does SaveFailure.IsReportable decide message vs rethrow.
+        // The restore is exact rather than a list snapshot: AddBudget appends this one budget and nothing else.
         _company.AddBudget(budget);
-        _storage.Save(_company);
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.RemoveBudget(budget);
+            if (!SaveFailure.IsReportable(ex)) throw;
+            Message = ex.Message;
+            return false;   // PendingLines are deliberately kept, so the operator can retry without retyping.
+        }
 
         RefreshList();
         Message = $"Budget '{name}' created with {budget.Lines.Count} line(s).";

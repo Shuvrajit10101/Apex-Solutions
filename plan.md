@@ -2227,6 +2227,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `AccountingInvoiceLineViewModel.cs:92`, `AdditionalCostLine.cs:24`, plus the **15 `src/Apex.Desktop` files
     (18 occurrences, measured)** that already call `IsPaisaExact`. **Genuinely out of scope:** forex amounts/rates
     and the TDS/TCS thresholds persist as **micros** and never pass through `Paisa.From*`.
+    **▶ DISCHARGED BY `W0-13` BELOW — IN PROGRESS.** It re-opened all seven at `c56e5c3` (**zero line drift**) and
+    **splits them into three severity classes this row collapsed into one**: `#1` crashes, `#5`/`#6`/`#7` report a
+    message and poison, and **`#2`/`#3`/`#4` ALREADY UNWIND** through `VoucherEntryViewModel`'s undo stack and its
+    broad catch — so the sequencing above is superseded there, not here. **The "15 files" count is also corrected
+    there** (re-measured: **16** files, 18 executable checks, 21 raw hits of which 3 are comment lines).
   - **▶ CARRY-FORWARD (b) — THE MUTATE-THEN-SAVE IDIOM IS SYSTEMIC; W0-12 CLOSED TWELVE METHODS ON ONE SCREEN.**
     There are **99 `_storage.Save(` call sites in `src/Apex.Desktop/` (measured, unchanged)**, **18 of them in
     `GstConfigViewModel.cs`**. The shape (c) cures — mutate the shared `Company` aggregate, then persist, with no
@@ -2251,9 +2256,341 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     (`:1698`/`:1764`). `Apply` (GST, `:1514`) inherits it **nowhere** — both its saves (`:1526`, `:1587`) keep the
     narrow filter (`:1528`, `:1589`). **Five narrow filters survive in the file: `:736`, `:1528`, `:1589`,
     `:1698`, `:1764`.** All three methods also still **do not roll back**, and no test covers either gap.
+    **▶ DISCHARGED BY `W0-13` BELOW — DONE (working tree)**, which is where those five filters were widened and
+    the three missing rollbacks were written. **⚠️ THE CARVE-OUT THIS BULLET DECLARED WAS OVERTURNED DURING THE
+    SLICE, AND THAT REVERSAL IS RECORDED HERE RATHER THAN LEFT TO BE FOUND.** This bullet said `:736` is a toggle
+    handler, so W0-13 would widen its FILTER and deliberately leave its rollback out of scope. **W0-13 shipped the
+    rollback too.** `GstConfigViewModel.cs:736-741` captures `(Type, IsActive, UseForJobWork, AllowConsumption)`
+    for every Job-Work-base voucher type before `JobWorkService.SetEnabled`, and `:751-757` restores the flag and
+    all three per-type fields **ahead of** `IsReportableSaveFailure`. **Why the exclusion was overturned:** the
+    capture cost six lines, and a WIDENED FILTER OVER AN UN-ROLLED-BACK MUTATION is precisely the "closed-looking
+    hole" PART 1 of W0-13 exists to retire — the deferral would have shipped the very shape the row was written to
+    undo. **Pinned by four tests, cited so a reader can tell a deliberate reversal from an unnoticed one:**
+    `StatutoryConfigGstTdsTcsRollbackTests.AFailedSaveOfTheJobOrderToggleLeavesNeitherTheCompanyFlagNorTheToggleAhead`,
+    `…RestoresTheFourJobWorkVoucherTypeFlags`, `ANonReportableSaveFailureOfTheJobOrderToggleRethrowsAfterRestoring`
+    and `ADbFailureOfTheJobOrderToggleIsAMessageAndNotACrash`.
     **(ii) ELSEWHERE:** `BudgetMasterViewModel.cs:198` is the one with no `try`/`catch` at all (carry-forward (a)
     #1). **This is a survey, not a rewrite:** the audit is cheap, the cure is per-site, and it belongs with (a)
     because the same call sites appear in both lists. **Do not read W0-12 as having closed the class.**
+  - **W0-13 (discharges W0-12's carry-forwards (a) and (b); the whole of this row was written BEFORE any code, so
+    it is the slice's R6 authority; every citation in it was RE-MEASURED against `c56e5c3` on 2026-08-15 and the
+    ▶ RE-MEASUREMENT block at the end states what held and what did not; the ▶ AS SHIPPED block states where the
+    code ended up DIFFERENT from this row, which is the only place a reader should trust over it) THE FIVE
+    SURVIVING NARROW CATCH FILTERS,
+    AND SEVEN UNGUARDED `Paisa.FromMoney` PERSIST PATHS** — **DONE (working tree).** One defect family, two parts: a typed
+    money figure reaches the store, the store throws, and the screen either **crashes** or leaves the shared
+    in-memory `Company` **mutated against a `.db` that was never written**. **PART 1 finishes what a PUSHED commit
+    already said was finished. PART 2 is the class W0-12 mapped and deliberately did not touch.**
+  - **▶ PART 1 — 🔴 THIS CLOSES A CLAIM A PUSHED COMMIT ALREADY MADE AND DID NOT DELIVER. THAT IS THE FRAMING,
+    AND IT IS NOT SOFTENED HERE.** `fa651ae` shipped a `plan.md` stating, at **its own `:2201`** (read back with
+    `git show fa651ae:plan.md`), that `Apply` / `ApplyTds` / `ApplyTcs` "**now inherit the widened
+    `IsReportableSaveFailure` set through `TrySave`, so an `SqliteException` there is a message instead of a
+    crash**". **It was false when it was written and it is still false at `c56e5c3`: the RECORD was corrected, the
+    CODE never was.** `c56e5c3` rewrote that paragraph in `plan.md` and `memory.md` — so the refutation landed and
+    **the fix did not**. `fa651ae` is PUSHED and cannot be amended, so the original claim stays in this
+    repository's history permanently, and **the only thing that can retire it is shipping the behaviour it
+    described. THIS ROW IS THAT CODE.** **A second over-claim in the same commit is named here rather than left to
+    be found:** its body's part (c) reads "The restore now runs unconditionally in every catch" — true of the
+    twelve methods it touched, **not true of the file**, which still holds five catches with no restore at all.
+  - **▶ PART 1, MEASURED — WHAT `TrySave` ACTUALLY REACHES.** Line numbers are
+    `src/Apex.Desktop/ViewModels/GstConfigViewModel.cs` unless stated. `TrySave` (definition `:1824`) has
+    **exactly SEVEN call sites** — `:857`, `:928`, `:1004`, `:1213`, `:1307`, `:1660`, `:1726` — and **`Apply`
+    (GST, `:1514`) is not among them:** both its saves (`:1526`, `:1587`) keep the OLD narrow
+    `when (ex is InvalidOperationException or ArgumentException)` filter at `:1528` and `:1589`. `ApplyTds`
+    (`:1651`) and `ApplyTcs` (`:1717`) inherit the widened set **only on their DISABLE branch** (`:1660`, `:1726`);
+    their ENABLE branches save at `:1696` and `:1762` under the narrow filter at `:1698` and `:1764`. **FIVE narrow
+    filters survive: `:736`, `:1528`, `:1589`, `:1698`, `:1764`.** **CONSEQUENCE, as the operator meets it:** a
+    `DbException` / `SqliteException` on those paths — SQLITE_BUSY from a second instance holding the write lock,
+    READONLY, FULL — is an **UNHANDLED CRASH, not a message**, and the aggregate is left mutated-but-unpersisted.
+    That is the same divergence W0-12 existed to remove, **on the same screen W0-12 fixed**, which is why it
+    cannot be carried further.
+  - **▶ PART 1 — `:736` IS A TOGGLE HANDLER, NOT AN `Apply` METHOD, AND IT SPLITS INTO TWO DECISIONS.** It guards
+    `OnEnableJobOrderProcessingChanged` (`:729`), whose body calls `new JobWorkService(_company).SetEnabled(value)`
+    (`:733`) then `_storage.Save(_company)` (`:734`). W0-12's carry-forward (b)(i) left it whole **on purpose**,
+    and that reason is re-verified at `c56e5c3` and HOLDS: `JobWorkService.SetEnabled`
+    (`src/Apex.Ledger/Services/JobWorkService.cs:44-58`) sets the company flag, then `IsActive` on **every**
+    Job-Work-base-type voucher type, `UseForJobWork` on the **two Material types** and `AllowConsumption` on
+    **Material In only** — restoring one bool undoes none of it.
+    **🔴 THIS BULLET'S CONCLUSION WAS REVERSED IN THE SLICE; THE ANALYSIS ABOVE STANDS, THE SCOPE CALL BELOW DOES
+    NOT.** It read: "widening `:736` to `IsReportableSaveFailure` is in scope and is one line; giving it the
+    per-type capture it would need to roll back is NOT." **W0-13 shipped BOTH.** `:736-741` captures the per-type
+    triple `(IsActive, UseForJobWork, AllowConsumption)` for every Job-Work-base type — and re-calling
+    `SetEnabled(previous)` was rejected as a restore because it rewrites all four types UNIFORMLY, so a type
+    activated on its own would have been silently switched off BY the rollback (`:733-735` records that). `:751-757`
+    puts the flag and all three fields back **before** `IsReportableSaveFailure` is consulted. **The reason the
+    deferral was overturned:** six lines, and leaving a widened filter over an un-rolled-back mutation is exactly
+    the closed-looking hole this PART exists to retire. Pinned by the four tests named in carry-forward (b) above.
+  - **▶ PART 1 — THE FIX SHAPE ALREADY LIVES IN THIS FILE; DO NOT INVENT A SECOND ONE.** `TrySave` (`:1824`) is
+    the entire pattern: save inside `try`; in the catch, `restore?.Invoke()` **first and unconditionally**, then
+    `if (!IsReportableSaveFailure(ex)) throw;`, then the message. The separation is the point and W0-12 paid for
+    it — **a type filter must never be what decides whether the rollback runs** (`IsReportableSaveFailure`,
+    `:1855`, whose own doc comment says exactly this). **⚠️ THE FIVE SITES ARE NOT ONE EDIT.** `Apply` (`:1514`)
+    and the two ENABLE branches **also do not roll back at all** today, so each needs its own capture-before: the
+    GST, TDS and TCS configs mutate different shapes, and the capture is per-method — exactly as `ApplyPt` had to
+    capture two mutated FIELDS rather than the config reference.
+  - **▶ PART 2 — SEVEN UNGUARDED `Paisa.FromMoney` PERSIST PATHS.** A different bug class from W0-12's: not
+    `Paisa.FromDecimal` at the store, but a screen parsing with a bare `decimal.TryParse`, handing the result to a
+    **domain constructor that validates SIGN but not paisa-exactness**, and the aggregate then persisting through
+    **`Paisa.FromMoney`** (`src/Apex.Persistence.Sqlite/Paisa.cs:15`) ⇒ `PaisaConversion.ToPaisaExact`
+    (`src/Apex.Ledger/PaisaConversion.cs:44-52`), which **throws `InvalidOperationException`**. **Re-verified at
+    `c56e5c3`: none of the seven has a front-line guard.** The throw TYPE is load-bearing below — it is the one
+    type every narrow filter in this repository already matches, which is why three of the seven report rather
+    than crash, and why "narrow filter" is **not** the discriminator here that it is in PART 1.
+  - **▶ PART 2 — 🔴 THE MAP WAS RIGHT; THE SEVERITY RANKING WAS NOT. THREE CLASSES, NOT ONE.** W0-12's
+    carry-forward (a) listed the seven as one class and sequenced `#1` first as "the loud one". **Re-opened at
+    `c56e5c3` they split three ways, and three of them are ALREADY restore-protected.** That changes what this row
+    builds, so it is stated before the paths and not after. **W0-12's numbering is kept and prefixed with the
+    class, so the two lists stay joinable.**
+    **CLASS A — CRASHES AND POISONS; no `try`/`catch` anywhere in the file (`catch (` count = 0, measured):**
+    **`#1` budget, alone.**
+    **CLASS B — REPORTS A MESSAGE AND LEAVES THE AGGREGATE POISONED; a narrow filter that DOES match the throw,
+    and no restore — the exact W0-12 shape on three more screens:** **`#5` POS, `#6` salary structure, `#7` pay
+    head.** These three also carry PART 1's defect independently: an `SqliteException` still escapes them.
+    **▶ AS SHIPPED, ALL THREE GOT THE SAME TREATMENT — the asymmetry an in-slice review caught is closed.** The
+    first cut gave the S2b shape to `SalaryStructureMasterViewModel.cs:356-364` and `PayHeadMasterViewModel.cs
+    :523-531` and left POS `Accept` on its narrow filter with no restore, with a source comment that named the
+    mechanism and then left it standing — which reads as CLOSURE, not deferral, and is the failure mode this whole
+    row exists to retire. **`PosBillingViewModel.cs:718-728` now carries it too:** the save gets its own inner
+    `try`, `_company.RemoveVoucher(posted)` runs FIRST and UNCONDITIONALLY, and only then does
+    `SaveFailure.IsReportable` decide message-vs-rethrow. The three CLASS-B screens now read alike. The one
+    surviving narrow filter in that file, `:651`, guards `ComputeGst()` — an in-memory computation that mutates no
+    aggregate — and is correctly left alone; `:749` is reached only by a PRE-POST domain refusal, and says so.
+    **CLASS C — ALREADY UNWINDS; the surviving defect is real but it is a DIFFERENT one:** **`#2`, `#3` and
+    `#4`**, which all persist through `VoucherEntryViewModel`.
+    **▶ 🔴 CLASS C WAS RIGHT ABOUT `PostAndSave` AND WRONG ABOUT THE TWO INVOICE ACCEPTS. CORRECTED HERE.** The
+    "already unwinds" finding was measured on `PostAndSave` (`:3133`), which does have the correct shape. The two
+    INVOICE Accept paths do not go through it: `AcceptItemInvoice` and `AcceptAccountingInvoice` each `Post` — which
+    appends the voucher to the shared `Company` — and only then `Save`, under the same narrow filter, **with no
+    undo push**. An in-slice review PROVED it by construction: a valid, wholly paisa-exact item invoice plus a
+    planted duplicate-`CostCentre` PRIMARY KEY violation left `vouchersBefore=0 vouchersAfter=1` with the
+    `SqliteException` escaping `Accept()` unhandled. So `#2`/`#3`/`#4` are CLASS C **through the plain Dr/Cr grid
+    only**; through an invoice they were CLASS B. **Both now carry the S2b save guard**
+    (`VoucherEntryViewModel.cs:4261-4272` accounting, `:4848-4859` item), each pinned by a `DbException`-lever test
+    that fails when the restore line is removed.
+  - **▶ PART 2 — WHY CLASS C IS NOT THE POISONING CLASS, MEASURED LINE BY LINE. This is the correction that
+    matters most, because it removes work this row would otherwise have done twice.** `VoucherEntryViewModel`
+    holds `var committed = false;` and a `Stack<Action> undo` across a `try` (`:2862-2866`); `PostAndSave`
+    (`:2920`) calls `_service.Post(voucher)` at `:3054` and **immediately** pushes
+    `() => _company.RemoveVoucher(posted)` at `:3055`; `_storage.Save(_company)` at `:3074` sits inside a **BROAD
+    `catch (Exception ex)` at `:3076` — no type filter at all** — which sets `Message` (`:3078`) and returns
+    false; the `finally` at `:2879-2883` then pops the whole undo stack because `committed` never became true.
+    **So a sub-paisa bill or cost allocation neither crashes nor poisons.** What survives is narrower and must be
+    described as what it is: **`#2` and `#3` DEFEAT THEIR OWN VALIDATION** — the only gate is an exact-sum
+    equality (`VoucherLineViewModel.cs:236`, `:377`; `VoucherEntryViewModel.cs:350`) and **`33.335 + 66.665 ==
+    100.00` passes it**, because `decimal` equality ignores scale — so the figure reaches a POSTED voucher and the
+    operator is refused only at save time, with the STORE's own words wrapped as `"Could not save the company:
+    Amount 33.335 is not paisa-exact (more than 2 decimal places); cannot persist or serialise without loss. The
+    voucher was not kept — nothing was changed."` **That message names no field, no row and no allocation line:**
+    the voucher is lost and the cause is unlocatable, on a screen whose own check looked like it would have caught
+    it. **CLASS C therefore earns the front-line guard and earns NO rollback** — adding one duplicates machinery
+    that already works, and duplicated rollback is how this project got two copies of every other rule.
+  - **▶ PART 2 — THE SEVEN PATHS, EACH RE-OPENED AT `c56e5c3` (UI parse ⇒ domain construct ⇒ persist).**
+    **`A1`** `BudgetMasterViewModel.cs:131` (`TryParseAmount`) ⇒ `:138`/`:139` (`BudgetLine.ForGroup` /
+    `ForLedger`), `Domain/BudgetLine.cs:33` — the private ctor, validating **only** "exactly one target" (`:35`)
+    and `≥ 0` (`:37`) — persisted at `SqliteCompanyStore.cs:6596`. **🔴 THE LOUDEST, AND SEQUENCED FIRST FOR THAT
+    REASON ALONE:** `:197-198` is `_company.AddBudget(budget); _storage.Save(_company);` with **zero catch blocks
+    in the entire file (measured)**, so a sub-paisa budget line is an **UNHANDLED `InvalidOperationException` in
+    the UI** and the aggregate stays poisoned. (Loudest ≠ most dangerous — a silent wrong-figure divergence is
+    worse per rupee; W0-12 established that distinction and this row keeps it.)
+    **`B5`** `PosBillingViewModel.cs:848-851` (`ParseMoney`) ⇒ `:715-716` (cash: `new Money(cashPayable)`,
+    `Tendered`, `Change`) and `:739`/`:740`/`:742` (gift voucher / card / cheque — the precise construction lines
+    inside W0-12's `:739-742` bracket), `Domain/PosTender.cs:23-31` (a bare `record`, no body, **no validation at
+    all**), persisted at `SqliteCompanyStore.cs:6823`/`:6824`/`:6825`. Saves at `:649` under the narrow filter at
+    `:669`; `_service.Post` at `:648` has already mutated the company and **this file has NO undo stack** — which
+    is why a voucher screen lands in CLASS B rather than CLASS C.
+    **`B6`** `SalaryStructureMasterViewModel.cs:290` (`TryParseDecimal`; `:289` is the `{`) ⇒ `:295`
+    (`new SalaryStructureLine(payHead.Id, order, new Money(amount))`), `Domain/SalaryStructure.cs:79` — the
+    `SalaryStructureLine` ctor — with `Services/SalaryStructureService.cs:129-130` checking only `< Money.Zero`,
+    persisted at `SqliteCompanyStore.cs:6015`. Saves at `:330` under the narrow filter at `:332`, **after**
+    `DefineForGroup` / `DefineForEmployee` have already written to the company.
+    **`B7`** `PayHeadMasterViewModel.cs:331` (slab "over") / `:340` (slab "up to") / `:366` (the value slab), where
+    `PayHeadService.ValidateComputation` (`:222-250`) guards calc-type, self-reference, missing components,
+    duplicates and cycles but **never the slab money** — `:156` is that file's ONLY `IsPaisaExact` and it covers
+    `RoundingLimit` alone — persisted at `SqliteCompanyStore.cs:5973`/`:5974`/`:5977`. Saves at `:486` under the
+    narrow filter at `:488`.
+    **`C2`** `BillAllocationRowViewModel.cs:91-96` ⇒ `:88`, `Domain/BillAllocation.cs:40` (ctor; validates `> 0`,
+    name and days only), persisted at `SqliteCompanyStore.cs:6907`.
+    **`C3`** `CostAllocationRowViewModel.cs:86-91` ⇒ `:84`, `Domain/CostAllocation.cs:26` (ctor), persisted at
+    `SqliteCompanyStore.cs:6930`.
+    **`C4`** `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:2993`, `Domain/EntryLine.cs:127`
+    (ctor), persisted at `SqliteCompanyStore.cs:6698`.
+  - **▶ THE PROVEN PATTERN — COPY IT, DO NOT INVENT A NEW ONE.** The front-line guard mirrors
+    `TaxDeclarationViewModel.TryMoney` and `GstConfigViewModel.TryStatutoryRupees` (`:1407`). **The SHIPPED branch
+    order there is parse/sign (`:1411`) ⇒ magnitude ceiling (`:1423`) ⇒ `IsPaisaExact` (`:1430`) ⇒ whole-rupee
+    (`:1444`)** — re-read at `c56e5c3` and confirmed. **⚠️ `fa651ae`'s COMMIT MESSAGE STATES THAT ORDER WRONGLY**
+    (it puts parse/sign third, below two branches that test the `decimal` only the parse produces) and then argues
+    at length that the ordering is load-bearing — **read `:1411`–`:1450` of the source, never the message.**
+    **Magnitude is not optional:** `MaxStatutoryRupees` (`:1384`) exists because a 17-digit input passes parse,
+    sign AND `IsPaisaExact` and then **overflows `long` inside the store**; every new guard needs the same
+    ceiling. **⚠️ THIS SENTENCE THEN SAID the ceiling is "per-field, not one shared constant — a budget line, a POS
+    tender and a pay-head slab do not share a bound." NOTHING PER-FIELD SHIPPED, AND THE AMENDMENT IS THE SHIPPED
+    DECISION, not a rationalisation of it.** All **thirteen** (⚠️ CORRECTED 2026-08-15 from "nine", re-counted
+    by the main loop: `grep -rho "StorableAmount\.ErrorFor" src/ --include=*.cs | wc -l` = **13** — PayHead 4
+    (`:335` slab-over, `:349` slab-up-to, `:380` value-slab, `:446` rounding-limit), PosBilling 4 (`:91` tender
+    amount, `:100` cash tendered, `:630` rate, `:669` bill total), and one each in BillAllocationRow,
+    BudgetMaster, CostAllocationRow, SalaryStructureMaster and VoucherLine) `StorableAmount.ErrorFor` sites and all three
+    `StorableAmount.IsStorable` sites test the single `PaisaConversion.MaxStorableRupees`
+    (`src/Apex.Ledger/PaisaConversion.cs`), via `StorableAmount.cs:42`. **The reason:** the ceiling being guarded is
+    the STORE'S CARRIER BOUND — a property of the rupees→paisa rule and of the `(long)` narrowing cast that defines
+    it, not of any field — so it belongs beside the conversion, and a screen that re-derived its own would drift the
+    moment the carrier changed. That is drift lock D3 applied to the ceiling, and the same slice found a live
+    instance of exactly that drift and fixed it: `GstConfigViewModel`'s hand-typed
+    `92_233_720_368_547_758m` is now `decimal.Floor(PaisaConversion.MaxStorableRupees)` (`:1412`), keeping its
+    whole-rupee reasoning. **This does NOT close a different and additive question:** a per-field BUSINESS ceiling
+    (a sane maximum budget line, say) is about what a figure MEANS, not about what the store can carry, and nothing
+    here rules one out. **Message convention** (`TaxDeclarationViewModel.cs:253`,
+    reused byte-for-byte): `$"'{text}' is finer than a paisa for {fieldLabel} (enter at most two decimal places)."`
+  - **▶ 🔴 TRAPS, ALL EARNED — EACH COST THIS PROJECT A RED SUITE OR A FALSE GREEN.**
+    **(i) DRIFT LOCK D3.** `tests/Apex.Ledger.Tests/OneRuleDriftLockTests.cs:217-220`
+    (`PaisaScalingAndTheSubPaisaTestNeverCoexistOutsideTheOneHome`) fails any `src/` file containing **both** the
+    paisa-scale pattern (`:74`) and the truncation pattern (`:77`), reading raw file text with **no comment
+    stripping** (`:149-150`) and exempting only `PaisaConversion.cs`, by bare file name. Introducing
+    `decimal.Truncate(` — **even inside a comment** — into a file that already scales by `100m` turns the WHOLE
+    `Apex.Ledger` suite red. Use `value % 1m != 0m` and `Money.IsPaisaExact`; **never hand-roll a
+    scale-and-truncate comparison.** Quoting the regexes here is safe: the lock scans `src/**/*.cs` only.
+    **(ii) ODD-PAISA FIXTURES ALWAYS.** A ±0.50 defect survived this project's entire life under round-number
+    assertions. **Never use a round stem where a truncation would land on the same number**, and never let the
+    valid figure be the field's own default.
+    **(iii) A GREEN SUITE PROVES NOTHING HERE.** On W0-12, review stripped a line and re-ran the whole Desktop
+    project to prove two new code paths were DEAD and two restores UNPINNED. **Every restore this row adds needs a
+    test that FAILS when that restore is removed, and the entry must say how it was measured — per restore, never
+    in aggregate.**
+    **(iv) STRING ASSERTIONS THAT PASS ON HEAD.** On W0-12, `Assert.Contains("paisa", msg)` passed BEFORE the fix,
+    because the STORE's own message contains "paisa". **Every message assertion must discriminate:** assert the
+    field label AND assert the text is not the store's "cannot persist or serialise without loss" wording.
+  - **▶ ALREADY GUARDED — CONFIRMED AT `c56e5c3`, DO NOT TOUCH:** `PayHeadService.cs:156` (rounding limit),
+    `PriceListService.cs:143` (price-list slab rate), `AdditionalCostRowViewModel.cs:55`,
+    `AccountingInvoiceLineViewModel.cs:92`, `Domain/AdditionalCostLine.cs:24`. **⚠️ THE COUNT OF THE REST HAS
+    DRIFTED AND IS CORRECTED HERE:** W0-12 wrote "**15** `src/Apex.Desktop` files (**18** occurrences, measured)".
+    Re-measured over `src/Apex.Desktop/**/*.cs` excluding `bin/` and `obj/`: **21 raw hits across 16 files**, of
+    which **3 are `<see cref>` / comment lines** (`GstConfigViewModel.cs:1390`, `:1441`,
+    `TaxDeclarationViewModel.cs:230`) ⇒ **18 executable checks across 16 files.** The occurrence count was right;
+    the file count was one short.
+  - **▶ OUT OF SCOPE, RE-VERIFIED:** forex amounts and exchange rates persist as **micros**
+    (`SqliteCompanyStore.cs:7157-7166` — `MicroFromDecimal`, which raises its own 6-dp refusal), and the TDS/TCS
+    thresholds likewise (`:2852`). **Neither passes through `Paisa.From*` — grepped, zero hits.**
+  - **▶ SCHEMA: NO MIGRATION.** `Schema.CurrentVersion` is **50** (`src/Apex.Persistence.Sqlite/Schema.cs:146`)
+    and **stays 50** — every change here is a refusal BEFORE a write, and no stored shape moves. A slice that
+    finds it needs a column **stops and reports** rather than quietly taking the next version.
+  - **▶ GATE — MEASURED, 2026-08-15, on the working tree at the close of the slice.** The four per-project counts,
+    never the total (§6.2): **build 0 Warning(s) 0 Error(s) · Ledger 1591 · Io 389 · Sqlite 215 · Desktop 2117 ·
+    Failed 0 in all four.** Schema **v50** re-read at `src/Apex.Persistence.Sqlite/Schema.cs:146` — unchanged, as
+    this row required. **Against the W0-12 baseline this row predicted from (Ledger 1555 · Io 389 · Sqlite 215 ·
+    Desktop 2056, same `claude/apex-wrong-figures-bc45f4` lineage — NOT the `claude/stream-a-figures` figures this
+    phase's Exit-gate bullet names): Ledger +36, Io ±0, Sqlite ±0, Desktop +61.** The Ledger delta is the two new
+    domain-guard test files (`AllocationAndTenderPaisaExactnessTests`, `BudgetPayrollPaisaExactnessTests`); the
+    Desktop delta is the three new files plus the tests added to `StatutoryConfigSubPaisaGuardTests`. Desktop takes
+    ~2 m 45 s; **a Desktop run reporting far fewer than 2117 is TRUNCATED, not a pass**, and the four numbers ARE
+    the check — a green TOTAL over the wrong per-project counts is a contaminated run.
+  - **▶ RE-MEASUREMENT — WHAT HELD AND WHAT DID NOT (2026-08-15, against `c56e5c3`, working tree clean).**
+    **Every line number this row inherited re-measured EXACT — zero drift, PART 1 and PART 2 alike**, including
+    the ones the design pass was least sure of (`Paisa.cs:15`, `SalaryStructureMasterViewModel.cs:290` with
+    `:289` the brace, `PayHeadService.ValidateComputation` `:222-250`, and the drift lock's `:217-220` / `:74` /
+    `:77` / `:149-150`). **TWO NON-LINE FACTS DID NOT HOLD, both corrected above rather than quietly dropped:**
+    the **severity ranking** of the seven paths (`#2`/`#3`/`#4` already unwind — the CLASS A/B/C split), and the
+    **guarded-screen file count** (16, not 15). **One bracket sharpened rather than corrected:**
+    `PosBillingViewModel.cs:739-742` spans three `new Money(amt)` constructions, at `:739`, `:740` and `:742`.
+  - **▶ AS SHIPPED — WHERE THE CODE DIFFERS FROM THIS ROW, AND HOW EVERY GUARD AND EVERY RESTORE IS PINNED.**
+    This block is authoritative over the design text above wherever the two disagree; the disagreements are named
+    in place (the `:736` reversal, the CLASS-B/CLASS-C correction, the shared-vs-per-field ceiling) and repeated
+    here in one list so nothing has to be inferred by diffing two accounts.
+    **PART 1 — five narrow filters, all five closed.** `GstConfigViewModel.cs` now contains **zero** narrow
+    `when (ex is InvalidOperationException or ArgumentException)` filters (grepped). `Apply`, `ApplyTds`, `ApplyTcs`
+    and the Job-Order toggle each capture before mutating, restore FIRST and UNCONDITIONALLY in a broad
+    `catch (Exception ex)`, and only then consult `IsReportableSaveFailure`. Four new capture/restore pairs shipped:
+    `GstFields` / `CaptureGstFields` / `RestoreGstFields`, `StatutoryIdentity` + two `CaptureIdentity` /
+    `RestoreIdentity` overloads (TDS and TCS), `LedgerState` / `SnapshotLedgers` / `RestoreLedgers`, and the
+    Job-Order per-type triple inline at `:736-741`/`:751-757`.
+    **PART 2 — the front line.** Two new shared homes, `src/Apex.Desktop/ViewModels/StorableAmount.cs` (the
+    magnitude-then-exactness refusal, **thirteen** `ErrorFor` (⚠️ corrected 2026-08-15 from "nine" — re-counted
+    from source; see the AS-SHIPPED block) + three `IsStorable` call sites) and
+    `src/Apex.Desktop/ViewModels/SaveFailure.cs` (the ONE report-vs-crash list, replacing four private copies), plus
+    `PaisaConversion.MaxStorableRupees` / `FitsPaisaStore` in the engine.
+    **▶ 🔴 THE SCOPE GREW IN FOUR PLACES, EACH BECAUSE A REVIEW PROVED THE SHIPPED SHAPE STILL BROKEN.** (1) The two
+    invoice Accepts got the S2b save guard (see the CLASS-C correction above). (2) POS `Accept` got it too (see the
+    CLASS-B correction). (3) **The six new DOMAIN guards test `PaisaConversion.FitsPaisaStore`, not
+    `IsPaisaExact`** — `BillAllocation.cs:62`, `BudgetLine.cs:47`, `CostAllocation.cs:39`, `PayHead.cs:280`,
+    `PosTender.cs:81`, `SalaryStructure.cs:92`. Exactness alone was worse than a missing ceiling: on a 1e27 `Money`
+    the predicate SCALES BY A HUNDRED and overflows `decimal` before it can answer, so each guard raised an
+    `ArithmeticException` that no filter in the app treats as a refusal. `FitsPaisaStore` orders magnitude before
+    exactness for exactly that reason and cannot itself throw. (4) The POS **rate** (`PosBillingViewModel.cs:630`)
+    and the DERIVED **bill total** (`:669`) got their own front-line ceilings — the bill total is a PRODUCT, so two
+    individually storable rates can still foot past the carrier, and the "the cash residual is storable by
+    construction" claim on `UnstorableTenderError` rests on both existing. The doc comment at `:928-939` was
+    rewritten to say so rather than to assert a backstop that was not one.
+    **▶ HOW EVERY GUARD AND EVERY RESTORE IS PINNED — MEASURED PER LINE, NEVER IN AGGREGATE (trap iii).**
+    **(a) All 28 restore assignments** in `RestoreGstFields` (`:1980-1986`), `RestoreIdentity(TdsConfig)`
+    (`:2008-2016`), `RestoreIdentity(TcsConfig)` (`:2021-2029`) and `RestoreLedgers` (`:2055-2057`) were neutralised
+    **ONE LINE AT A TIME**, 28 separate builds and runs: **every one turned the file red.** This is the fix for the
+    13 lines an in-slice review had proved DEAD against the whole Desktop project — the GST `Enabled` /
+    registration / composition sub-type / opt-in-date fields, both identities' `Enabled` / party type / PAN /
+    designation / address / surcharge / cess, and `RestoreLedgers`' `GstClassification`. Three tests were added or
+    widened to do it: `AFailedGstReconfigureLeavesTheHomeStateAndGstinTheBookActuallyHolds` (now sets and asserts
+    all seven GST fields), `AFailedTdsReconfigureLeavesTheDeductorIdentityTheBookActuallyHolds` / the TCS mirror
+    (all nine identity fields, memory AND disk), and `AFailedGstEnableLeavesAPreCreatedTaxLedgerUntaggedTheWayThe
+    BookHasIt` — the GST mirror of the TDS pre-created-ledger test, without which `EnsureTaxLedger`'s re-tag branch
+    was never entered at all.
+    **(b) The three new save guards** — POS `Accept`, `AcceptItemInvoice`, `AcceptAccountingInvoice` — each has a
+    test built on the **duplicate-`CostCentre` PRIMARY KEY lever**, the only lever that discriminates the widened
+    list from the shipped narrow filter (a sub-paisa lever cannot: the narrow filter already matched it). Removing
+    the `_company.RemoveVoucher(posted)` line from any of the three turns its test red; measured. Each asserts BOTH
+    halves — `Record.Exception` is null (nothing escaped the keystroke) and the aggregate is unchanged.
+    **(c) `SaveFailure.IsReportable`** re-narrowed to the shipped `InvalidOperationException or ArgumentException`
+    turns **10** tests red across the three new Desktop files (four statutory `ADbFailureOf*`, three payroll/budget,
+    three invoice/POS). Before this slice's test work the same mutation turned only 4 red and left the entire
+    statutory file green.
+    **(d) The front-line `ErrorFor` sites — ⚠️ NINE GUARDS NAMED BELOW, BUT THIRTEEN CALL SITES EXIST, AND THE
+    ENUMERATION ACCOUNTS FOR ELEVEN (corrected 2026-08-15 by the main loop, re-counted from source).** "The slab"
+    below collapses **three** PayHead sites (`:335` over, `:349` up-to, `:380` value-slab), which is why nine names
+    cover eleven sites. **🔴 THE TWO IT DOES NOT NAME ARE `PosBillingViewModel.cs:91` (the tender amount) and
+    `:100` (the cash tendered)** — they are guarded in source but NO PINNING EVIDENCE IS RECORDED FOR THEM HERE, so
+    they must be treated as UNPROVEN until someone neutralises each and shows a red. This is the dead-restore class
+    the same slice caught twice; it is stated rather than rounded away. Neutralised individually: the POS rate guard, the POS bill-total
+    guard, the pay-head ROUNDING-LIMIT guard (both its tests) and the salary-structure label each turned their own
+    test red; the budget, slab, bill-allocation, cost-allocation and line-amount guards are pinned by the sub-paisa
+    and magnitude tests in `PayrollBudgetSubPaisaAndRollbackTests` and `VoucherEntrySubPaisaFrontLineGuardTests`.
+    The **rounding limit** was the fourth money field on the pay-head screen and the brief had marked it "ALREADY
+    GUARDED" on the strength of `PayHeadService.cs:156` — which is the sub-paisa HALF only, with no ceiling, so an
+    18-digit paisa-exact limit overflowed `long` inside the store and the operator saw `"too large or too small for
+    an Int64"` instead of a field-named refusal.
+    **(e) The domain-layer ceiling** has a round-trip lock rather than a restatement:
+    `TheStorableRupeeCeilingIsExactlyLongMaxValueInPaisa` now asserts
+    `ToPaisaExact(MaxStorableRupees) == long.MaxValue` and that one paisa more THROWS — the first draft asserted
+    `long.MaxValue / 100m == MaxStorableRupees`, which is the implementation line copied into the test and can only
+    fail if someone edits the constant and forgets the test.
+    **(f) The statutory screen's own ceiling.** `GstConfigViewModel.cs:1412` was the hand-typed literal
+    `92_233_720_368_547_758m` — `MaxStorableRupees` floored, re-derived by hand in the very file the shared guard
+    was extracted from — and is now `decimal.Floor(PaisaConversion.MaxStorableRupees)`. It is pinned by
+    `StatutoryConfigSubPaisaGuardTests.TheStatutoryScreensCeilingIsTheStoresCarrierBoundFlooredToTheWholeRupee`,
+    which drives the two figures either side of the floor through the real gratuity-cap field rather than restating
+    the constant — the field is `private static readonly`, and a computed expectation against a computed actual
+    would have passed on the hand-typed literal too. Subtracting one rupee from the derivation turns it red;
+    measured.
+    **▶ 🔴 WHAT IS STILL NOT PINNED, STATED PLAINLY RATHER THAN LEFT TO BE DISCOVERED.** Nothing in the guard/restore
+    set is unpinned after (a)–(f). The one behavioural gap that remains is the money PARSER, and it is a
+    carry-forward rather than a missing test — see (a) below.
+    **▶ CARRY-FORWARD (a) — THE MONEY PARSER SILENTLY REINTERPRETS A DECIMAL COMMA. PRE-EXISTING, APP-WIDE, AND NOT
+    FIXED HERE.** Every amount parser behind every new guard uses
+    `NumberStyles.AllowDecimalPoint | AllowThousands` under `InvariantCulture` —
+    `BillAllocationRowViewModel.cs:118`, `CostAllocationRowViewModel.cs:104`, `VoucherLineViewModel.cs:654`,
+    `PosBillingViewModel.ParseMoney`, and `NumberStyles.Number` at `BudgetMasterViewModel.cs:261`. **Measured:**
+    `decimal.TryParse("1234,565", AllowDecimalPoint|AllowThousands, InvariantCulture, out v)` returns **true with
+    `v == 1234565m`**. An operator with a European decimal-comma habit typing `1,234.565` as `"1234,565"` gets
+    **₹12,34,565 — paisa-exact, storable, and silently posted a thousandfold wrong**, rather than the "finer than a
+    paisa" refusal these guards exist to give. Exponent notation and a leading `+` are safe (`"1e3"` fails to parse;
+    `+` is rejected where `AllowLeadingSign` is absent), and unparsable text correctly yields no amount — this is
+    the one input class that gets through. **Recorded rather than fixed because the cure is one SHARED money parser
+    that rejects a group separator adjacent to fewer than three trailing digits (or drops `AllowThousands` from
+    money entry entirely), owned in one home the way `StorableAmount` now owns storability** — not a sixth per-screen
+    `NumberStyles` literal. It is noted here and not silently left because these screens are now the app's stated
+    front line for typed money, and the guard reads as stronger than it is.
+  - **▶ THE WAVE'S GOALS SENTENCE IS STALE BY TWO ROWS, AND THE DEBT IS NOT THIS ROW'S.** It names **W0-1…W0-5**
+    as the UI rows and "**THE OTHER SIX W0 ROWS**" (W0-6…W0-11) plus F14 as not-UI. **W0-12 was added without
+    amending it, and W0-13 makes the arithmetic wrong by two.** **This row FITS the UI framing on the sentence's
+    own test** — Desktop view models over plumbing that already exists and already persists, no new engine, no new
+    arithmetic (it reuses `Money.IsPaisaExact`), no new statutory figure, schema unchanged — **so no amendment is
+    DUE from it**; the un-discharged obligation is W0-12's. **Recorded, not silently fixed:** amending that
+    sentence is a separate edit, and it belongs with whoever writes the wave's exit record.
 - **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
   1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full

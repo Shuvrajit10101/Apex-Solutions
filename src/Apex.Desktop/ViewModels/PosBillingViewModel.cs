@@ -77,6 +77,28 @@ public sealed partial class PosTenderRowViewModel : ViewModelBase
     /// <summary>The parsed cash tendered (0 when blank/unparsable). Cash rows only.</summary>
     public decimal ParsedCashTendered => PosBillingViewModel.ParseMoney(CashTenderedText);
 
+    /// <summary>
+    /// The field-level refusal for this row's TYPED tender amount, or <c>null</c> when it can be stored
+    /// (W0-13 S2a). Only the Gift/Card/Cheque rows type this — the Cash box is parent-written
+    /// (<see cref="SetAutoValues"/>) and read-only — so the parent reads it on the non-cash rows alone.
+    ///
+    /// <para><b>Why the row and not the parent.</b> Every tender flows through <c>TryBuildTenders</c>, which
+    /// builds a <see cref="Apex.Ledger.Domain.PosTender"/> OUTSIDE the Accept try-block: a domain throw there
+    /// escapes the keystroke entirely. The refusal has to happen while the value is still text, and the text
+    /// lives here.</para>
+    /// </summary>
+    public string? AmountError =>
+        StorableAmount.ErrorFor(ParsedAmount, AmountText, $"the {Label} tender amount");
+
+    /// <summary>
+    /// The field-level refusal for the typed <see cref="CashTenderedText"/>, or <c>null</c>. Blank legitimately
+    /// means "exact tender", so it is never an error. Cash rows only.
+    /// </summary>
+    public string? CashTenderedError =>
+        string.IsNullOrWhiteSpace(CashTenderedText)
+            ? null
+            : StorableAmount.ErrorFor(ParsedCashTendered, CashTenderedText, "the cash tendered");
+
     /// <summary>Sets the Cash amount / change WITHOUT re-triggering the change callback (parent-driven auto-fill).</summary>
     public void SetAutoValues(decimal amount, decimal change)
     {
@@ -489,7 +511,11 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
                  && everyLineRateOk
                  && bill > 0m
                  && !residualNegative
-                 && change >= 0m;
+                 && change >= 0m
+                 // W0-13 S2a — the Accept gate must close on a tender the paisa store cannot carry. The
+                 // Σ-tenders reconciliation below does NOT catch it: a sub-paisa tender and its sub-paisa
+                 // residual foot to the bill exactly.
+                 && UnstorableTenderError() is null;
 
         if (ok)
         {
@@ -595,6 +621,17 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
                 Message = $"Item '{l.SelectedItem!.Name}' needs a rate greater than zero.";
                 return false;
             }
+            // W0-13 S2a, FRONT LINE ON THE RATE. InventoryVoucherLineViewModel.ParsedRate is a bare TryParse and
+            // RefreshCanAccept tests only `r > 0m`, so a 17-digit rate — PAISA-EXACT, therefore invisible to every
+            // sub-paisa guard — sailed through to the store and raised OverflowException from the (long) narrowing
+            // cast inside PaisaConversion.ToPaisaExact. OverflowException is an ArithmeticException, so it is NOT
+            // an InvalidVoucherException and it was not matched by the narrow filter this Accept used to carry:
+            // the bill was already on the shared Company and the keystroke crashed.
+            if (StorableAmount.ErrorFor(rate, l.RateText, $"the rate for '{l.SelectedItem!.Name}'") is { } rateError)
+            {
+                Message = rateError;
+                return false;
+            }
             var effRate = l.EffectiveRate ?? new Money(rate);
             inventoryLines.Add(new VoucherInventoryLine(
                 l.SelectedItem!.Id, l.SelectedGodown!.Id, l.ParsedActualQuantity, effRate,
@@ -625,6 +662,29 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             billTotal = new Money(taxable.Amount + gst.Tax.TotalTax.Amount);
         }
 
+        // W0-13 S2a — the DERIVED bill total is a persisted paisa figure too (it becomes the Cash tender amount),
+        // and it is a product: two storable rates over two lines can still foot to more than the store can carry.
+        // Guarding it here is what makes the "storable by construction" claim on UnstorableTenderError TRUE for the
+        // cash residual and the change, both of which are bounded by it.
+        if (StorableAmount.ErrorFor(billTotal.Amount, IndianFormat.AmountAlways(billTotal.Amount), "the bill total")
+            is { } billError)
+        {
+            Message = billError;
+            return false;
+        }
+
+        // W0-13 S2a — refuse an unstorable typed tender BEFORE TryBuildTenders, which constructs PosTender records
+        // outside this method's try-block: a domain throw there would escape Accept as an unhandled crash. Before
+        // this guard a sub-paisa card tender left the cash residual sub-paisa too, Σ tenders still footed to the
+        // bill EXACTLY, so the screen accepted it — then Post appended the bill to the shared Company and Save
+        // threw. The refused bill stayed on the aggregate and bricked every later save. This guard closes the
+        // sub-paisa CAUSE; the missing rollback it used to rely on is closed separately, at the save below.
+        if (UnstorableTenderError() is { } unstorableTender)
+        {
+            Message = unstorableTender;
+            return false;
+        }
+
         // Build the tender records (Cash posts the residual/bill — never the tendered; change is informational).
         if (!TryBuildTenders(billTotal.Amount, out var tenders, out var change))
             return false; // Message already set
@@ -645,8 +705,28 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
 
         try
         {
-            var posted = _service.Post(voucher);
-            _storage.Save(_company);
+            var posted = _service.Post(voucher);   // appends the bill to the SHARED Company; throws ⇒ nothing added
+
+            // W0-13 S2b — THE SAVE GETS ITS OWN GUARD, and the restore runs FIRST and UNCONDITIONALLY. Post has
+            // already appended the bill to the shared aggregate; Save is transactional, so a store failure leaves
+            // the .db without it. Under the old single narrow `when (ex is InvalidOperationException or
+            // ArgumentException)` filter a SqliteException (SQLITE_BUSY from a second instance holding the write
+            // lock, READONLY, FULL) — or an OverflowException from a figure past long paisa — escaped Accept
+            // UNHANDLED with the refused bill still on the aggregate, so every LATER save diverged. This is the
+            // shape VoucherEntryViewModel.PostAndSave already had; a type filter must never be what decides
+            // whether the rollback runs.
+            try
+            {
+                _storage.Save(_company);
+            }
+            catch (Exception ex)
+            {
+                _company.RemoveVoucher(posted);
+                if (!SaveFailure.IsReportable(ex)) throw;
+                Message = $"Could not save the bill: {ex.Message} The bill was not kept — nothing was changed.";
+                return false;
+            }
+
             SavedNumber = posted.Number;
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
 
@@ -668,6 +748,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
+            // Reached only by a PRE-POST refusal (Post's own domain throws) — the save has its own guard above.
             Message = $"Cannot accept: {ex.Message}";
             return false;
         }
@@ -842,6 +923,31 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         if (group is null) return false;
         return string.Equals(ClassificationRules.PrimaryAncestorOf(group, _company).Name,
             "Sales Accounts", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The first TYPED tender figure the INTEGER-paisa store could not carry, or <c>null</c> (W0-13 S2a).
+    ///
+    /// <para>Only the figures the operator actually types are read: the three non-cash amounts (multi mode only —
+    /// in single mode those boxes are not in play) and the cash tendered. The Cash tender AMOUNT is the derived
+    /// residual (bill − non-cash) and the change is (tendered − residual). Those two are storable by construction
+    /// ONLY because <see cref="Accept"/> separately refuses an unstorable per-line rate and an unstorable BILL
+    /// TOTAL before it gets here: the residual is bounded by the bill total and the change by the tendered cash,
+    /// so once those three are storable and non-negative, so are these. The
+    /// <see cref="Apex.Ledger.Domain.PosTender"/> constructor is the backstop if that ever stops being true — and
+    /// it is a real one, because it tests <c>PaisaConversion.FitsPaisaStore</c> (magnitude AND exactness), not
+    /// exactness alone.</para>
+    /// </summary>
+    private string? UnstorableTenderError()
+    {
+        if (Tenders.Count < 4) return null;
+        if (IsMultiTender)
+        {
+            if (Gift.AmountError is { } giftError) return giftError;
+            if (Card.AmountError is { } cardError) return cardError;
+            if (Cheque.AmountError is { } chequeError) return chequeError;
+        }
+        return Cash.CashTenderedError;
     }
 
     /// <summary>Parses a money string (invariant, allows thousands/sign); 0 on failure.</summary>

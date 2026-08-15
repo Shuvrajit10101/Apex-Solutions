@@ -610,9 +610,34 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         }
     }
 
-    /// <summary>True when this line is fully specified: a ledger picked and a positive amount typed.</summary>
+    /// <summary>
+    /// True when this line is fully specified: a ledger picked and a positive, <b>storable</b> amount typed.
+    ///
+    /// <para>Storability is folded in (W0-13 S2a) because <c>VoucherEntryViewModel</c> builds its
+    /// <see cref="EntryLine"/> set from <c>Lines.Where(l =&gt; l.IsComplete)</c>, and the line amount persists
+    /// through <c>Paisa.FromMoney</c>. A touched-but-incomplete line is refused up front by the existing
+    /// <c>Lines.Any(l =&gt; !l.IsBlank &amp;&amp; !l.IsComplete)</c> gate, so this can never silently DROP a line —
+    /// which would be the far worse failure. <see cref="AmountError"/> supplies the discriminating message.</para>
+    /// </summary>
     public bool IsComplete => SelectedLedger is not null && TryParseAmount(out var amt) && amt > 0m
+        && StorableAmount.IsStorable(amt)
         && ForexOk;
+
+    /// <summary>
+    /// The field-level refusal for this line's own amount, or <c>null</c> when it can be stored.
+    ///
+    /// <para><b>Why the guard is here and NOT on the <see cref="EntryLine"/> constructor.</b> The three sibling
+    /// value objects this slice guards (<c>BillAllocation</c>, <c>CostAllocation</c>, <c>PosTender</c>) are leaf
+    /// records whose every non-screen caller — the canonical-XML import and the SQLite read path — builds from
+    /// INTEGER paisa, so a domain guard there cannot regress anything. <see cref="EntryLine"/> is not that: it is
+    /// the posting primitive, built at 62 sites across 17 engine services (GST, TDS, TCS, RCM, advance receipts,
+    /// payroll, set-off, reversals, deposits) plus <c>ForexGainLoss</c>, which synthesises report-only lines that
+    /// never persist. Moving the refusal into that constructor is a separate slice with its own engine sweep to
+    /// justify. The value an OPERATOR types enters at exactly one place — <see cref="AmountText"/> — and that is
+    /// what this guards.</para>
+    /// </summary>
+    public string? AmountError =>
+        TryParseAmount(out var amt) ? StorableAmount.ErrorFor(amt, AmountText, "the line amount") : null;
 
     /// <summary>True when the row has been touched at all (ledger or amount) — a blank row is ignored.</summary>
     public bool IsBlank => SelectedLedger is null && string.IsNullOrWhiteSpace(AmountText);

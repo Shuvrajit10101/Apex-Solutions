@@ -46,6 +46,23 @@ public sealed class BillAllocation
     {
         if (amount.Amount <= 0m)
             throw new ArgumentException("A bill allocation amount must be > 0.", nameof(amount));
+        // The allocation persists through Paisa.FromMoney (SqliteCompanyStore InsertBillAllocations), which
+        // THROWS on a sub-paisa figure. Refuse it at the one choke point every caller flows through instead, the
+        // way AdditionalCostLine / GstLineTax / TcsLineTax / GstChallan already do. Without it the screens' only
+        // gate is an exact-SUM check — and 33.335 + 66.665 == 100.00 passes it, so a sub-paisa allocation reached
+        // a POSTED voucher and blew up in the store, on two Accept paths that Post before they Save and do not
+        // roll back. Both the canonical-XML import (ImportPlan.BuildBillAllocation) and the SQLite read path
+        // build from INTEGER paisa, so neither can ever trip this.
+        //
+        // FitsPaisaStore, not IsPaisaExact: "storable" is magnitude AND exactness, and a guard that tested only
+        // the second half would THROW OverflowException on the very input it exists to refuse — the paisa
+        // predicate scales by a hundred, which overflows decimal past ~7.9e26, and the store's own conversion then
+        // narrows to long, which overflows past 17 rupee digits. FitsPaisaStore owns that branch ORDER (magnitude
+        // first); re-deriving it here would be the D3 drift the campaign removes.
+        if (!PaisaConversion.FitsPaisaStore(amount.Amount))
+            throw new InvalidOperationException(
+                $"A bill allocation amount {amount.Amount} cannot be stored as integer paisa: it must be "
+              + $"paisa-exact (2 decimal places) and no larger than {PaisaConversion.MaxStorableRupees}.");
         if (refType != BillRefType.OnAccount && string.IsNullOrWhiteSpace(name))
             throw new ArgumentException(
                 "A bill reference name is required for New/Agst/Advance allocations.", nameof(name));
