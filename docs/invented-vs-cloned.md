@@ -5,6 +5,49 @@
 **Question this document answers:** *where did we build our own behaviour when TallyPrime already publishes one,
 and what does the customer suffer for it?*
 
+---
+
+## ⚠️ RE-VERIFIED 2026-08-15 AGAINST HEAD `c56e5c3` — READ THIS BEFORE TRUSTING ANY ROW
+
+Every one of the 35 rows was re-opened against the current worktree on **2026-08-15**. Corrections are marked
+**†** and carried as a `†` line directly under the affected row's severity line, and in the Index. **Nothing was
+silently rewritten** — the original claim is always quoted beside the correction. Four classes of change:
+
+**1 · FOUR ROWS ARE NOW FIXED IN CODE.** They are left in place, struck through in the Index and re-verdicted in
+the body, because a register that quietly deletes a row loses the record of why the fix was needed:
+
+| Row | Fixed by | Proof at HEAD |
+|---|---|---|
+| **IV-5** Ctrl+B posts vouchers | `f2abdbb` | The app-wide arm is gone; `MainWindow.axaml.cs:386-409` is a RESERVED block that says "Ctrl+B IS FREE AND RESERVED — DO NOT BIND IT". `BillSettlementService.SettleAndPost` is deleted; settlement is now Alt+A scoped to Outstandings (`MainWindow.axaml.cs:604-615`) and **opens** a voucher. |
+| **IV-7** Interest "Always" on the opening balance | `c408037` | `InterestCalculation.AlwaysLines` (`:218-239`) now accrues off `WalkRunningBalance` (`:258-275`), per movement inside the window. |
+| **IV-9** Negative stock hard block | `a12e651` (schema v50) | `EnsureNoNegativeStockAnywhere` is **deleted**; `InventoryPostingService.cs:176` `DetectNegativeStock()` never throws, and `Company.cs:268` `WarnOnNegativeStock = true` gates the warning at `:184-185`. |
+| **IV-10** Reorder Status ignores Sales Orders Due | `7e0457b` | `ReorderStatus.cs:120` `var nettAvailable = closing + pendingPO - soDue;`, shortfall off Nett Available at `:123`, `max(shortfall, MOQ)` at `:128-130`, DD-4 retired at `:63-67`. |
+
+**2 · THREE ROWS ARE HALF-FIXED and their unqualified wording is now misleading** — IV-4, IV-8, IV-20. Each
+carries a `†` correction naming which half moved and which half is live.
+
+**3 · ~30 ROWS CARRY DRIFTED `file:line` CITATIONS.** `MainWindow.axaml.cs` moved ~+84 lines in the 800-900
+band, `MainWindowViewModel.cs` ~+41 in the 5800 band, and **every `plan.md:NNN` citation in this register is
+stale** (`plan.md` shifted +20 to +70 depending on the region). Corrected in place.
+
+**4 · TWO SOURCING CLAIMS ARE OVERSTATED** — see the `†` lines on **IV-1** (the corpus is *not* silent on the
+GST hierarchy *levels*, only on their ordering) and **IV-19** (the census measured 71 of 77, not "~50").
+
+🔴 **The counts in §1 and §2 below were NOT re-cut and are now wrong as totals.** They still say 35 rows /
+8 CRITICAL / 11 HIGH, which counted IV-5, IV-7, IV-9 and IV-10 as open. **31 rows are open at HEAD** (5 CRITICAL,
+9 HIGH). The per-row detail is authoritative; the summary arithmetic is not. Re-cutting the tables was declined
+deliberately — it would have rewritten the document's own history of what it found on 2026-08-06.
+
+🔴 **`659947760-Tally-Prime-Short-Key.pdf` (SHORTKEY) is now REJECTED outright, not merely "untrusted".**
+`docs/w0-2-company-screen-grounding.md:52-76` (2026-08-14) rules it out as a source: its table is misaligned
+against its own key column, the break is visible in the extraction (row 36 `Alt+2 → Sales Order` followed by two
+key-less orphan labels), and it asserts `F3` = Email, `Ctrl+A` = Zoom, `F6` = Contra. **No row here rests on it
+alone** — every SHORTKEY mention below is flagged "corroboration only" and is independently carried by
+`help.tallysolutions.com` or BOOK — but **do not add a new citation to it, and do not treat its corroboration as
+adding confidence.** The corpus-tag note below still calls it "shifted by one"; the measured shift is **two rows**.
+
+---
+
 **Inputs merged** — four independent hunts, run this session, deduplicated here:
 
 | Hunt | Lens | Raw findings |
@@ -57,6 +100,12 @@ diverges, but the consequence is posted vouchers the customer cannot remove.
 **GSTN** = `703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf` · **TB2** = `719244897-Tally-Book.pdf` ·
 **SHORTKEY** = `659947760-Tally-Prime-Short-Key.pdf` (**untrusted** — its voucher-key block is shifted by one;
 used only as corroboration, never alone).
+
+> 🔴 **† 2026-08-15 — NEVER CITE A BARE `D`-NUMBER. Three registers use the same letter for different rows.**
+> `docs/tally-fidelity-defects.md` has its own **D1/D3/D4/D7**; `docs/tally-gap-decisions.md` has a *different*
+> **D3/D7/D12/D13**; and the eight "diverged rule" copies use yet a third **D1–D8**. Every `D`-reference in this
+> document has been qualified with its owning file as part of this pass. Confusion between them has already cost
+> this project real time.
 
 **Companion documents.** `docs/tally-fidelity-defects.md` holds the 19-row defect register (D1–D18, U-A);
 `docs/tally-gap-decisions.md` holds the decision set (D22, D23, X1, X6); `docs/voucher-entry-specification.md`
@@ -140,48 +189,64 @@ Four root causes produce most of the thirty-five:
 
 ### Index
 
+**† = citation or verdict corrected 2026-08-15 against HEAD `c56e5c3`. ~~Struck rows are FIXED IN CODE~~ and
+are no longer open defects — they are kept for the record, with the fixing commit named in the row body.**
+
 | # | Sev | Class | Area | Item | Primary `file:line` |
 |---|---|---|---|---|---|
 | **IV-1** | CRITICAL | A | TAX | GST rate hierarchy runs backwards; 3 of 5 levels missing | `GstService.cs:396` |
 | **IV-2** | CRITICAL | A | TAX | §194Q TDS on the whole purchase value, not the excess | `TdsService.cs:74` |
 | **IV-3** | CRITICAL | B | ENT | A saved voucher can never be altered | `VoucherDetailViewModel.cs:15` |
-| **IV-4** | CRITICAL | B | ENT | Nothing can delete a voucher, ledger, group or company | `LedgerService.cs:112` |
-| **IV-5** | CRITICAL | C | ENT | Ctrl+B posts real, irreversible receipt/payment vouchers | `OutstandingsViewModel.cs:117` |
+| **IV-4** | CRITICAL | B | ENT | Nothing can delete a voucher, ledger, group or company | **†** `LedgerService.cs:99` *(was `:112`)* |
+| ~~**IV-5**~~ | ~~CRITICAL~~ | C | ENT | ~~Ctrl+B posts real, irreversible receipt/payment vouchers~~ — **† FIXED `f2abdbb`** | **†** binding deleted; `MainWindow.axaml.cs:386-409` reserves Ctrl+B |
 | **IV-6** | CRITICAL | A | VAL | "Last Sale Cost" values closing stock at selling price | `StockValuationMethod.cs:31` |
-| **IV-7** | CRITICAL | A | TAX | Interest "Always" accrues only on the opening balance | `InterestCalculation.cs:110` |
-| **IV-8** | CRITICAL | A | TAX | Interest "Per" divisors annualised; Calendar Month × 12 | `InterestCalculation.cs:213` |
-| **IV-9** | HIGH | B | VAL | Negative stock is an unrelaxable hard block | `InventoryPostingService.cs:348` |
-| **IV-10** | HIGH | A | VAL | Reorder Status never nets Sales Orders Due | `ReorderStatus.cs:77` |
+| ~~**IV-7**~~ | ~~CRITICAL~~ | A | TAX | ~~Interest "Always" accrues only on the opening balance~~ — **† FIXED `c408037`** | **†** `InterestCalculation.cs:218-239` now walks the running balance |
+| **IV-8** | CRITICAL | A | TAX | Interest "Per" divisors annualised; Calendar Month × 12 — **† half fixed; ×12 held on purpose pending T8** | **†** `InterestCalculation.cs:473-484` *(was `:213`)* |
+| ~~**IV-9**~~ | ~~HIGH~~ | B | VAL | ~~Negative stock is an unrelaxable hard block~~ — **† FIXED `a12e651`, schema v50** | **†** guard deleted; `InventoryPostingService.cs:176`, `Company.cs:268` |
+| ~~**IV-10**~~ | ~~HIGH~~ | A | VAL | ~~Reorder Status never nets Sales Orders Due~~ — **† FIXED `7e0457b`** | **†** `ReorderStatus.cs:120-133` *(was `:77`)* |
 | **IV-11** | HIGH | A | VAL | Rateless-inward "best-available-cost chain" contaminates FIFO/LIFO | `StockValuationService.cs:496` |
 | **IV-12** | HIGH | B | MST | A top-level (Primary) account group cannot be created | `GroupService.cs:13` |
-| **IV-13** | HIGH | B | ENT | No Voucher No. field; Manual and None are unreachable | `VoucherEntryViewModel.cs:935` |
+| **IV-13** | HIGH | B | ENT | No Voucher No. field; Manual and None are unreachable | **†** `VoucherEntryViewModel.cs:984` *(was `:935`)* |
 | **IV-14** | HIGH | A | TAX | Intra-state CGST and SGST deliberately differ by one paisa | `GstService.cs:526` |
-| **IV-15** | HIGH | B | TAX | e-invoice number guard is not FY-scoped; FY restart deferred on a circular rationale | `Company.cs:660` |
+| **IV-15** | HIGH | B | TAX | e-invoice number guard is not FY-scoped; FY restart deferred on a circular rationale | **†** `Company.cs:681-682` *(was `:660`)* |
 | **IV-16** | HIGH | C | ENT | Alt+X means the opposite of Tally's Alt+X | `MainWindowViewModel.cs:4831` |
 | **IV-17** | HIGH | A | ENT | 2-digit years resolve on .NET's 1930–2029 pivot | `ApexDate.cs:36` |
 | **IV-18** | HIGH | B | ENT | Alt+G "Go To" does not exist | `MainWindow.axaml.cs:182` |
-| **IV-19** | HIGH | B | RPT | Drill-down stops at two screens; ~50 reports are dead ends | `MainWindowViewModel.cs:2083` |
-| **IV-20** | MEDIUM | C | ENT | Entry mode: wrong default, and never remembered | `VoucherEntryViewModel.cs:91` |
+| **IV-19** | HIGH | B | RPT | Drill-down stops at two screens; **† 71 of 77 report surfaces** are dead ends *(the "~50" below is the census-corrected figure)* | `MainWindowViewModel.cs:2083` |
+| **IV-20** | MEDIUM | C | ENT | Entry mode: ~~wrong default~~ **† (a) FIXED `f277318`**, and (b) never remembered — **still open** | **†** `VoucherEntryViewModel.cs:100` + `:141-144` *(was `:91`)* |
 | **IV-21** | MEDIUM | B | MST | No Alt+H Multi-Masters — one form per ledger | `MainWindowViewModel.cs:1180` |
 | **IV-22** | MEDIUM | A | TAX | Invoice round-off hardcoded to the rupee, and never switched on | `GstService.cs:729` |
 | **IV-23** | MEDIUM | C | RPT | Ageing buckets are ours; no age-by-bill-date | `Outstandings.cs:85` |
-| **IV-24** | MEDIUM | C | ENT | Automatic numbering is `max+1`: gaps, and not date-ordered | `LedgerService.cs:171` |
-| **IV-25** | MEDIUM | B | ENT | Three of TallyPrime's five numbering methods | `NumberingMethod.cs:8` |
+| **IV-24** | MEDIUM | C | ENT | Automatic numbering is `max+1`: gaps, and not date-ordered | **†** `LedgerService.cs:154` *(was `:171`, past EOF — the file is 162 lines)* |
+| **IV-25** | MEDIUM | B | ENT | Three of TallyPrime's five numbering methods | **†** `NumberingMethod.cs:9` *(was `:8`)* |
 | **IV-26** | MEDIUM | C | MST | Predefined groups cannot be renamed | `MasterAlterationRules.cs:211` |
-| **IV-27** | MEDIUM | C | ENT | "Accept? Yes/No" exists on masters only; vouchers save silently | `MainWindowViewModel.cs:4873` |
-| **IV-28** | MEDIUM | C | ENT | Three TallyPrime report keys squatted app-wide | `MainWindow.axaml.cs:290` |
+| **IV-27** | MEDIUM | C | ENT | "Accept? Yes/No" exists on masters only; vouchers save silently | **†** `MainWindowViewModel.cs:4882` *(was `:4873`)* |
+| **IV-28** | MEDIUM | C | ENT | Three TallyPrime report keys squatted app-wide | **†** `MainWindow.axaml.cs:331` *(was `:290`)* |
 | **IV-29** | MEDIUM | C | ENT | Gateway sections and vocabulary are ours; no "Alter" row | `MainWindowViewModel.cs:912` |
 | **IV-30** | MEDIUM | C | ENT | Bare-letter menu hotkeys auto-assigned by row position | `GatewayColumn.cs:381` |
-| **IV-31** | MEDIUM | C | ENT | The button bar paints seven non-keys in the accelerator colour | `MainWindowViewModel.cs:6756` |
-| **IV-32** | LOW | C | ENT | Report-line gestures absent: Alt+2, Ctrl+U, Alt+U, Ctrl+N | `MainWindow.axaml.cs:875` |
+| **IV-31** | MEDIUM | C | ENT | The button bar paints seven non-keys in the accelerator colour | **†** `MainWindowViewModel.cs:6742` *(was `:6756`)* |
+| **IV-32** | LOW | C | ENT | Report-line gestures absent: Alt+2, Ctrl+U, Alt+U, Ctrl+N | **†** `MainWindow.axaml.cs:182` — a pointer into the dispatcher, not a positive citation *(was `:875`)* |
 | **IV-33** | LOW | A | VAL | A by-value additional-cost pool silently becomes a by-quantity spread | `AdditionalCostApportionment.cs:217` |
 | **IV-34** | LOW | C | ENT | Ctrl+F7 = Physical Stock is attributed to a source with no locator | `SeedVoucherTypes.cs:33` |
-| **IV-35** | LOW | C | RPT | "Tally-faithful blank-at-zero" is uncited and governs 100 call sites | `IndianFormat.cs:37` |
+| **IV-35** | LOW | C | RPT | "Tally-faithful blank-at-zero" is uncited and governs 100 call sites | **†** `IndianFormat.cs:30` *(was `:37`)* |
 
 ---
 
 ### IV-1 · GST rate resolution runs TallyPrime's hierarchy backwards, and three of its five levels do not exist
-**CRITICAL** · Class **A** · Area **TAX** · relates to D8
+**CRITICAL** · Class **A** · Area **TAX** · relates to `tally-fidelity-defects.md` D8
+
+> **† 2026-08-15 — verdict STANDS, one sourcing claim CORRECTED.** All code citations re-read and **unchanged**
+> (`GstService.cs:396-415`, `:14-15`, `:412-414`; `StockGroup.cs` still has no GST member; `memory.md:405` and
+> `:380-381` exact). **But the Citation cell's "Corpus **silent**" is overstated.** Re-extracted this session with
+> `pdftotext -layout`: `703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf`, extracted **lines 2661-2665**, enumerates
+> *"GST can be implemented in Tally prime by using any one method of the following: 1. Defining at Company Level
+> 2. Defining at Stock Group Level 3. Defining at Stock item level 4. Defining at Ledger Level 5. Creating GST
+> Classification"*. **The corpus therefore names Company, Stock Group, Stock Item and Ledger as GST-rate levels —
+> so "we have no source for the missing levels" is false.** What the corpus does *not* give is the **resolution
+> order**, and the literal grep is still right: 0 hits for "hierarchy" in a GST-rate sense across all ten PDFs
+> (the only two hits, BOOK :546 and SG :1969, are about *account-group* hierarchy). Note the corpus's fifth item
+> is **GST Classification**, not the accounting **Group** that TallyHelp's order carries — the two lists are not
+> the same five. Also recorded at `plan.md:1188-1190`.
 
 | | |
 |---|---|
@@ -197,6 +262,13 @@ Four root causes produce most of the thirty-five:
 ### IV-2 · §194Q TDS is computed on the whole purchase value, not on the value exceeding ₹50 lakh
 **CRITICAL** · Class **A** · Area **TAX**
 
+> **† 2026-08-15 — verdict STANDS; every citation exact, zero drift.** `TdsService.cs:74`, `ThresholdCrossed`
+> `:88-94`, `TcsService.cs:139-146`, `SeedTdsTcsRates.cs:63` and `memory.md:1035` are all unchanged.
+> `NatureOfPayment` still has **no** "calculate on value exceeding the threshold" field — its members are
+> Id / SectionCode / Name / RateWithPanBp / RateWithoutPanBp / SingleTransactionThreshold / CumulativeThreshold /
+> FvuSectionCode / EffectiveFrom / IsPredefined. Corroborated by `docs/full-clone-census.md` T0-1, which names
+> this row and records that WF-2 was planned in Phase 10.10 and **has not landed**.
+
 | | |
 |---|---|
 | **What the customer experiences** | A trader whose annual purchases from one supplier reach ₹60,00,000 has **₹6,000 withheld by us where TallyPrime withholds ₹1,000**. The supplier is short-paid ₹5,000 and disputes the payment. The Form 26Q we produce reports a ₹60,00,000 assessable value against a ₹6,000 deduction that the seller's 26AS cannot be reconciled to. The over-deduction repeats on **every subsequent bill in the year**, because the full value is charged each time rather than the incremental excess. |
@@ -210,6 +282,12 @@ Four root causes produce most of the thirty-five:
 
 ### IV-3 · A saved voucher can never be altered — the drill target is read-only and no alter path exists
 **CRITICAL** · Class **B** · Area **ENT**
+
+> **† 2026-08-15 — verdict STANDS** (`AlterVoucher|OpenVoucherForAlter|EditVoucher|ReplaceVoucher|UpdateVoucher`
+> still returns **zero hits** repo-wide; `IsAltering` still exists only on the three master VMs).
+> **Citations corrected:** `OpenVoucherDetail` `:2124-2135` → **`:2125-2133`** · the "exactly as Tally does it"
+> comment `:5804-5817` → **`:5845-5847`** and the `IsAltering` block `:5804-5842` → **`:5846-5881`** ·
+> `plan.md:335` → **`plan.md:399`**. `VoucherDetailViewModel.cs:15`, `:3144` and `:3312` are unchanged.
 
 | | |
 |---|---|
@@ -225,6 +303,20 @@ Four root causes produce most of the thirty-five:
 ### IV-4 · Alt+D exists nowhere: nothing in the UI can delete a voucher, ledger, group or company
 **CRITICAL** · Class **B** · Area **ENT**
 
+> **† 2026-08-15 — the DEFECT STANDS; two of its supporting sub-claims are now FALSE and the title overstates.**
+> **(1) "The string 'Alt+D' appears zero times anywhere in `src/`" is no longer true** — commit `6a28d15` added
+> `MainWindow.axaml.cs:1080, 1085-1087`, and it also appears at `LedgerService.cs:8, 99` and
+> `InventoryPostingService.cs:136`. **(2) The bare `Key.D` Day-Book jump moved and narrowed**: it is now
+> `MainWindow.axaml.cs:959` `case Key.D when CanQuickJump(vm, e):`, and `CanQuickJump` (`:1096-1097`) requires
+> `e.KeyModifiers == KeyModifiers.None`, **so Alt+D no longer opens the Day Book** — `:1084-1087` reserves the
+> chord for a later delete slice. **What has NOT changed is the defect itself:** Alt+D still deletes nothing.
+> The only `.Delete(` calls in `src/Apex.Desktop` remain `CompanyStorage.cs:105/142` and
+> `MainWindowViewModel.cs:2488 DeleteSelectedSavedView`; `LedgerService.Delete` still has no Desktop caller.
+> **Citations corrected:** `LedgerService.cs:112` → **`:99`** · `MainWindow.axaml.cs:875` → **`:959`** ·
+> `plan.md:268` → **`plan.md:290`** · `MainWindowViewModel.cs:4895-4923` → **`:4893-4930`** (`RequestMasterAccept()`
+> at `:4904`). `docs/voucher-entry-specification.md:101` is **unchanged and still false** — the Fix instruction to
+> correct it had not been carried out; it is corrected there now, dated 2026-08-15.
+
 | | |
 |---|---|
 | **What the customer experiences** | A duplicated or plainly wrong voucher stays in the books forever; a ledger created by mistake can never be removed and clutters every picker and every Trial Balance from then on. The operator's first reflex — select the row, press Alt+D — produces **nothing at all**: no action, no message. That reads as the app being broken rather than as a missing feature, and it is the state they are in every time they mis-key something. |
@@ -236,8 +328,25 @@ Four root causes produce most of the thirty-five:
 
 ---
 
-### IV-5 · Ctrl+B posts real receipt/payment vouchers — in TallyPrime it only changes how a report displays figures
-**CRITICAL** · Class **C** · Area **ENT**
+### IV-5 · ~~Ctrl+B posts real receipt/payment vouchers~~ — **FIXED IN CODE**
+**CRITICAL** · Class **C** · Area **ENT** · ✅ **CLOSED 2026-08-15**
+
+> **† 2026-08-15 — FIXED by `f2abdbb` ("settlement comes off Ctrl+B — Alt+A now OPENS a voucher instead of
+> posting one", Phase 10.11 S2). Everything below describes the pre-fix state and is retained only as the record
+> of why the fix was needed. Do not schedule it.** Verified at HEAD `c56e5c3`:
+> - The app-wide arm at `MainWindow.axaml.cs:346-351` is **deleted**. In its place `:386-409` is a reservation
+>   block: *"Ctrl+B IS FREE AND RESERVED — DO NOT BIND IT. (Phase 10.11 S2 / VL-4 / register row IV-5.)"*
+> - `MainWindowViewModel.SettleBills()` (`:5617-5620`) is **deleted**, replaced by
+>   `OpenSettlementVoucherFromOutstandings()` (doc at `:5626-5648`), bound to **Alt+A scoped to Outstandings**
+>   (`MainWindow.axaml.cs:604-615`) — it **opens** a Receipt/Payment pre-loaded with the bills, which is exactly
+>   what the Fix cell below prescribed.
+> - `OutstandingsViewModel.SettleSelected()` (`:117`) is **deleted** (`:44-47` records the removal);
+>   `BillSettlementService.SettleAndPost` is **deleted** and `:9` now reads *"it only produces domain objects, and
+>   it **posts nothing**"*. The literal-"Cash" ledger (`:127`) and full-amount rule (`:163`) are gone with it.
+>
+> **One residual, deliberately NOT closed by that commit:** Basis of Values still does not exist (grep for
+> "Basis of Values" / "ScaleFactor" still returns zero), so Ctrl+B is free but does nothing. That is an
+> *absence*, not the defect this row recorded, and it belongs with IV-32's report-gesture backlog.
 
 | | |
 |---|---|
@@ -253,6 +362,16 @@ Four root causes produce most of the thirty-five:
 ### IV-6 · Our costing-method list mixes in a market-valuation method and omits four of Tally's; "Last Sale Cost" values closing stock at selling price
 **CRITICAL** · Class **A** · Area **VAL**
 
+> **† 2026-08-15 — verdict STANDS; every citation exact, zero drift.** `StockValuationMethod.cs:13-32` and `:31`,
+> `StockValuationService.cs:82-83` and `:85`, `StockItem.cs:43`, `StockValuationMethod.cs:3-8` and `memory.md:362`
+> are all unchanged. A repo-wide grep for `MarketValuation|AtZeroCost|MonthlyAverageCost|FifoPerpetual` returns
+> **zero hits across zero files** — no split, no added Tally method. Corroborated by `docs/full-clone-census.md`
+> **T0-2**, which names this row; and its **T0-3** adds a defect this row did not record — **`StandardCost` is
+> offered in the dropdown (`StockItemMasterViewModel.cs:333`) while its input field does not exist anywhere in
+> `MainWindow.axaml`**, so choosing it silently falls through to `LastPurchaseRate` (`StockValuationService.cs:86-87`).
+> ⚠️ One incidental note: `memory.md:362`'s companion phrase *"hard no-negative-stock guard"* is itself now stale
+> (see IV-9).
+
 | | |
 |---|---|
 | **What the customer experiences** | An operator picks "Last Sale Cost" believing it a Tally option and gets **closing stock valued at his own selling price**. Buy 100 @ ₹100, sell 40 @ ₹150, closing 60: we report Stock-in-Hand ₹9,000; every TallyPrime costing method reports ₹6,000. **Balance Sheet overstated ₹3,000, COGS understated ₹3,000, profit overstated ₹3,000** — unrealised margin booked as profit, which an auditor will reject. Separately, an operator who wants At Zero Cost (the documented way to hold consumables at nil), Monthly Avg. Cost, or annual FIFO/LIFO cannot get them; our FIFO is silently Tally's **FIFO Perpetual**, which values differently the moment the books cross a year end. |
@@ -264,8 +383,18 @@ Four root causes produce most of the thirty-five:
 
 ---
 
-### IV-7 · Interest "Always" accrues only on the balance that existed at the start of the report window
-**CRITICAL** · Class **A** · Area **TAX**
+### IV-7 · ~~Interest "Always" accrues only on the balance that existed at the start of the report window~~ — **FIXED IN CODE**
+**CRITICAL** · Class **A** · Area **TAX** · ✅ **CLOSED 2026-08-15**
+
+> **† 2026-08-15 — FIXED by `c408037` (WF-4 + WF-5). Retained as the record of the defect; do not schedule it.**
+> The flat-opening-balance code at `InterestCalculation.cs:110-119` **no longer exists**. `AlwaysLines` is now
+> `:218-239`, and its principal comes from `:226` `var carriedIn = WalkRunningBalance(company, ledger, windowStart,
+> to, out var movements);` with per-movement segmentation at `:227-236` — i.e. exactly the running-balance accrual
+> the Fix cell below prescribed. `WalkRunningBalance` (`:258-275`) reads every dated movement inside the window, so
+> a zero opening no longer suppresses the row. The uncited comment at `:108-109` is gone; the class doc now states
+> the behaviour at `:127-130`: *"**Always** — accrues on the **running balance** … A bill raised inside the window
+> therefore starts earning the day after it is raised."* **Other citations in this row drifted too:**
+> `PostDueLines` `:134-165` → **`:285`**; the day+1 rule `:145` → **`:298`**.
 
 | | |
 |---|---|
@@ -279,7 +408,22 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-8 · Interest "Per" divisors are all annualised — and Calendar Month multiplies the month length by twelve
-**CRITICAL** · Class **A** · Area **TAX**
+**CRITICAL** · Class **A** · Area **TAX** · **† HALF FIXED — the ×12 defect is LIVE, and held live ON PURPOSE**
+
+> **† 2026-08-15 — the arithmetic defect STANDS and is deliberate; the documentation half is FIXED.**
+> **(1) The defect is still live.** `BasisFor` moved from `:213-220` to **`InterestCalculation.cs:473-484`**, and
+> **`:481` still reads `InterestPer.CalendarMonth => DateTime.DaysInMonth(segmentStart.Year, segmentStart.Month) * 12,`**
+> with `ThirtyDayMonth => 360` at `:480`. Applied at `:410` (was `:183`), basis now resolved **per accrual segment**
+> at `:408` — a real improvement from `c408037`, but not this defect. **(2) It is held live by an explicit gate,
+> not by neglect.** `InterestCalculation.cs:157-183` is a banner: *"THE DIVISOR VALUES BELOW ARE NOT THIS SLICE'S
+> TO CHANGE … the `DaysInMonth × 12` arm — the IV-8b defect — STAYS until T8 lands"*, with the reasoning that the
+> two possible answers prescribe **different** replacements and there is no safe interim (hedging toward per-annum
+> would move a live figure *further* from the corpus answer, and `DaysInYear` would collapse Calendar Month into
+> Calendar Year). **T8 is the blocking user measurement** — ₹44,000 at 10%, Per = 30-Day Month, 30-day window
+> (`docs/NEXT_SESSION_KICKOFF.md:154-156`; §6 U-2 below). **(3) One sub-claim is now FALSE:** *"the code contradicts
+> its own domain doc"*. `InterestPer.cs` was rewritten — `CalendarMonth` is now at `:48` and its doc at `:39-47`
+> states the real behaviour: *"⚠ Resolves to that month's length × 12 today — 336, 348, 360 or 372 — which is not a
+> real period length and is the defect IV-8b records."* The paraphrase formerly at `:56-58` no longer exists.
 
 | | |
 |---|---|
@@ -292,8 +436,32 @@ Four root causes produce most of the thirty-five:
 
 ---
 
-### IV-9 · Negative stock ships as an unconditional, unrelaxable block — stricter than the decision that authorised it, and Tally only warns
-**HIGH** · Class **B** · Area **VAL** · D7
+### IV-9 · ~~Negative stock ships as an unconditional, unrelaxable block~~ — **FIXED IN CODE (posting half)**
+**HIGH** · Class **B** · Area **VAL** · `tally-fidelity-defects.md` D7 · ✅ **CLOSED 2026-08-15 for the posting half**
+
+> **† 2026-08-15 — THIS ROW READ THE OPPOSITE OF THE CODE. FIXED by `a12e651` ("negative stock warns instead of
+> blocking", schema **v50**), which landed the same day this register was written and was never folded back in.**
+> Everything below describes the pre-fix state. Verified at HEAD `c56e5c3`:
+> - **`EnsureNoNegativeStockAnywhere` is deleted.** `InventoryPostingService.cs:348` is now an unrelated Job-Work
+>   throw, and the message *"Negative stock is not allowed."* (`:400`) does not exist anywhere in `src/`.
+> - The guard became a **detector**: `:176` `public IReadOnlyList<NegativeStockShortfall> DetectNegativeStock()`
+>   — never throws, never mutates (doc `:158-176`). All four old call sites (`LedgerService.cs:60`,
+>   `InventoryPostingService.cs:81/:101/:117`) are un-blocked; the class doc at `:37-44` now states
+>   *"⚠️ Negative stock is NOT blocked (plan.md NS-3; changed at schema v50)."*
+> - **The "no relaxation anywhere" grep claim is FALSE.** The flag exists: `Company.cs:268`
+>   `public bool WarnOnNegativeStock { get; set; } = true;`, consulted at exactly one place,
+>   `InventoryPostingService.cs:184-185` `NegativeStockWarnings()`. DP-7's deferred company flag **shipped**.
+> - **The "permanently dead menu item" sub-claim is FALSE.** `ReportsViewModel.BuildNegativeStock` (`:2656`, over
+>   `NegativeStock.Build`) can now return rows, because negative stock is reachable.
+>
+> 🔴 **TWO HALVES REMAIN OPEN, and they are CODE defects, not documentation ones:**
+> **(a) The warning never reaches the operator.** `NegativeStockWarnings()` has **zero callers outside
+> `Apex.Ledger`** — no `src/Apex.Desktop` file references it, so "warn-only" currently warns nobody.
+> **(b) There is no control surface for the flag** — zero `WarnOnNegativeStock` hits in `src/Apex.Desktop`, so a
+> company that wants the block back cannot ask for it. Both are tracked as `docs/NEXT_SESSION_KICKOFF.md` queue
+> item 4 (W0-5). **The valuation half (NS-8) is untouched and still blocked** — see
+> `docs/NEXT_SESSION_KICKOFF.md:113-146`: eight reverted attempts, and the fix is now believed to be *deleting*
+> the invented repayment model rather than writing a ninth.
 
 | | |
 |---|---|
@@ -306,8 +474,23 @@ Four root causes produce most of the thirty-five:
 
 ---
 
-### IV-10 · Reorder Status never nets Sales Orders Due, and measures shortfall against closing stock instead of Nett Available
-**HIGH** · Class **A** · Area **VAL**
+### IV-10 · ~~Reorder Status never nets Sales Orders Due~~ — **FIXED IN CODE**
+**HIGH** · Class **A** · Area **VAL** · ✅ **CLOSED 2026-08-15**
+
+> **† 2026-08-15 — FIXED by `7e0457b` (WF-7). Retained as the record; do not schedule it.** Verified at HEAD:
+> `var shortfall = reorderLevel - closing;` (`:77-78`) is **gone**. `ReorderStatus.cs:120` now reads
+> `var nettAvailable = closing + pendingPO - soDue;`, shortfall off Nett Available at `:123`, `max(shortfall, MOQ)`
+> at `:128-130`, and Nett Available is emitted as a row column. The `:98` "drop any item whose closing exceeds the
+> level" filter is gone (`:69-73`: *"No listing filter beyond the reorder level itself"*), the double-subtraction
+> at `:90` is gone (`:125-130`), and **DD-4 is retired by user decision** at `:63-67`; `DD-4` no longer appears in
+> `docs/phase6-advanced-inventory-requirements.md` at all.
+>
+> ⚠️ **The Fix cell below is REFUTED IN BOTH CLAUSES and must not be re-applied** (WF-7 review, recorded at
+> `plan.md:1191-1195`). (i) An **unguarded** `max(shortfall, MOQ)` returns the MOQ at *zero* shortfall — the very
+> PR-8 behaviour the user retired. (ii) *"list every item with a positive shortfall"* still filters — on shortfall
+> instead of closing quantity — and drops the PO-covered row the corpus shows on screen `[CORPUS-BOOK p.164]`.
+> What shipped instead: every item that resolves a reorder level is listed, per TallyHelp's *"all stock items in
+> the selected group/category display"* with **F8 (Reorder Only)** as the operator's filter.
 
 | | |
 |---|---|
@@ -323,6 +506,11 @@ Four root causes produce most of the thirty-five:
 ### IV-11 · The no-rate-inward "best-available-cost chain" is our own invention, and it costs a FIFO/LIFO lot at the weighted average
 **HIGH** · Class **A** · Area **VAL**
 
+> **† 2026-08-15 — verdict STANDS; every citation exact, zero drift.** `StockValuationService.cs:496-502`,
+> `:18-29`, `:400-407`, `:415-423`, `:86-87` and — the one that proves the cross-method contamination without any
+> Tally fact — **`:286`** `var unit = e.Rate ?? cost.NoRateInwardCost(RunningAverage(runningQty, runningCost));`
+> are all unchanged. `AtZeroCost` still does not exist anywhere in `src/`.
+
 | | |
 |---|---|
 | **What the customer experiences** | A FIFO item with In 100 @ ₹100 and In 100 @ ₹200, then a Stock-Journal destination of 50 units carrying no rate: we push a FIFO layer of 50 at the running average ₹150, **adding ₹7,500 to Stock-in-Hand**. A Stock Journal does not post to accounts, so that ₹7,500 arrives on the Balance Sheet **with no counter-entry**. The customer sees Stock-in-Hand rise ₹7,500 with no purchase behind it, and the item's stated method (FIFO) did not produce the number. Under Last Purchase Cost the same chain means an item never purchased at a rate is valued at an averaged figure rather than the ₹0 its stated method implies. |
@@ -335,7 +523,12 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-12 · A top-level (Primary) account group cannot be created — and the comment that forbids it is uncited and wrong
-**HIGH** · Class **B** · Area **MST** · relates to D17
+**HIGH** · Class **B** · Area **MST** · relates to `tally-fidelity-defects.md` D17
+
+> **† 2026-08-15 — verdict STANDS; one citation off by one.** `GroupService.cs:13-17`, `:96`,
+> `AccountGroupMasterViewModel.cs:26`, `:156`, `:226` and all five sibling-master "Primary" pickers are
+> **unchanged and exact**. **Corrected:** the throw is at **`GroupService.cs:53-55`**, not `:52-54`
+> (`:53` `if (parentId is not { } pid)`, `:55` the message); the nature is derived at `:61`.
 
 | | |
 |---|---|
@@ -349,7 +542,14 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-13 · There is no Voucher No. field: the number is an int, the screen renders it read-only, and Manual/None are unreachable
-**HIGH** · Class **B** · Area **ENT** · D9, D23
+**HIGH** · Class **B** · Area **ENT** · `tally-fidelity-defects.md` D9 · `tally-gap-decisions.md` D23
+
+> **† 2026-08-15 — verdict STANDS; heavy citation drift.** `Voucher.cs:20`, `VoucherNumberFormatter.cs:22`,
+> `VoucherNumberingConfigViewModel.cs:114-115`, `MainWindow.axaml:2056` and `:3544` are unchanged, and no
+> voucher-number `TextBox` exists anywhere. **Corrected:** `VoucherEntryViewModel.cs:935` → **`:984`** ·
+> `MainWindow.axaml:3879` → **`:3882`** · `:4104` → **`:4107`** · `LedgerService.cs:48` → **`:51-52`** ·
+> `InventoryPostingService.cs:53` → **`:91-92`** · `plan.md:611-613` → **`plan.md:677-679`** ·
+> `docs/tally-gap-decisions.md:563` → D23's heading is now **`:560`**.
 
 | | |
 |---|---|
@@ -365,6 +565,11 @@ Four root causes produce most of the thirty-five:
 ### IV-14 · Intra-state CGST and SGST are deliberately allowed to differ by one paisa
 **HIGH** · Class **A** · Area **TAX**
 
+> **† 2026-08-15 — verdict STANDS.** `GstService.cs:526-527` and `:518` are byte-for-byte unchanged;
+> `memory.md:414-417` exact. **Corrected:** the per-rate-group re-split `:671` → **`:702`** (accumulated at
+> `:713-714`; `:671` is now `var cgst = 0m; var sgst = 0m; var igst = 0m;`) · the "differ by exactly 1 paisa"
+> doc sentence `:510-513` → **`:511-513`** · the original Tally-shaped code in `memory.md:381-382` is at **`:382`**.
+
 | | |
 |---|---|
 | **What the customer experiences** | Taxable ₹1,000.05 at 18% intra-state: we post **CGST ₹90.00 and SGST ₹90.01**. TallyPrime posts ₹90.00 and ₹90.00. The printed invoice shows two "9%" lines with **different amounts** — the first thing any Indian accountant or GST officer reads as an error — and the GSTR-1 rate-wise table inherits the asymmetry. On an e-invoice the payload trips **IRP validation 2227**. It is one paisa, but it is on the face of the document. |
@@ -377,7 +582,14 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-15 · The e-invoice document-number guard is not FY-scoped — and the FY restart was deferred on a circular rationale
-**HIGH** · Class **B** · Area **TAX** · D22
+**HIGH** · Class **B** · Area **TAX** · `tally-gap-decisions.md` D22
+
+> **† 2026-08-15 — verdict STANDS; the guard is still unscoped.** `Company.HasEInvoiceDocumentNumber` is now at
+> **`Company.cs:681-682`** (was `:660`) and still compares against **every** e-invoice record ever created, with
+> no financial-year term; the refusal message still throws at `EInvoiceService.cs:162-164`. **Corrected:**
+> `EInvoiceService.cs:115` → **`:138-141`** (`DocumentNumberOf` … `var rendered = company.FormatVoucherNumber(voucher);`
+> — the "rendered string, not the bare int" proof) · `plan.md:618` → **`plan.md:683-685`** ·
+> `docs/tally-gap-decisions.md:541` → **`:550`** (D22's heading is now `:543`).
 
 | | |
 |---|---|
@@ -393,6 +605,13 @@ Four root causes produce most of the thirty-five:
 ### IV-16 · Alt+X means the opposite of Tally's Alt+X: it destroys unsaved keying instead of cancelling a saved voucher
 **HIGH** · Class **C** · Area **ENT**
 
+> **† 2026-08-15 — verdict STANDS.** `MainWindow.axaml.cs:350` still routes Alt+X to `vm.CancelVoucher()`, and
+> `LedgerService.Cancel` still has no Desktop caller (every `.Cancel(` in `MainWindowViewModel.cs:4835-4845` is a
+> per-screen VM Cancel). `LedgerService.cs:8` unchanged. **Corrected:** `MainWindow.axaml.cs:309-314` →
+> **`:349-354`** · `LedgerService.cs:95-99` → **`:87-97`** · the Escape pop `:847-849` → **`:931`** ·
+> `MainWindowViewModel.cs:4830-4831` → **`:4831-4832`** · `plan.md:267` → **`plan.md:289`**.
+> **New since the register:** `plan.md:1414-1415` now carries a *planned* fix (VL-3) naming IV-16 — planned, unbuilt.
+
 | | |
 |---|---|
 | **What the customer experiences** | Two harms from one key. The operator's Tally reflex for "void this voucher but keep the number" **does nothing** on a saved voucher, so the audit-safe alternative to deletion — the one an auditor expects for a spoiled invoice — is unreachable. And if they press Alt+X out of habit while a screen is open, **an entry they have been keying for twenty minutes vanishes with no prompt**. |
@@ -406,6 +625,12 @@ Four root causes produce most of the thirty-five:
 
 ### IV-17 · The lenient date parser accepts 2-digit years on .NET's 1930–2029 pivot
 **HIGH** · Class **A** · Area **ENT**
+
+> **† 2026-08-15 — verdict STANDS.** `ApexDate.cs:36`, `:40` and `:75` are unchanged, and the file still contains
+> no `TwoDigitYearMax` or `GregorianCalendar`; `BatchMasterViewModel.cs:184-191` and `:266` unchanged.
+> **Corrected:** the test citation `ApexDateTests.cs:95` → the 2-digit cases are the `InlineData` at **`:91-92`**
+> (`"03-Apr-24"`, `"03/04/24"`) — still the only two, still inside the pivot · `docs/ca-audit-backlog.md:1281`
+> → **`:1280`**.
 
 | | |
 |---|---|
@@ -421,6 +646,12 @@ Four root causes produce most of the thirty-five:
 ### IV-18 · Alt+G "Go To" does not exist — the corpus offers it as the second route to nearly every screen
 **HIGH** · Class **B** · Area **ENT**
 
+> **† 2026-08-15 — verdict STANDS, independently corroborated.** "Alt+G", "Ctrl+G" and "Go To" still return
+> **zero source hits** across `src/`, and the dispatcher rooted at `MainWindow.axaml.cs:182` has no arm for
+> either. `docs/full-clone-census.md` T2-7 measured the same thing by a different route: *"Zero `Key.G`
+> occurrences in `src/Apex.Desktop`"*. `docs/voucher-entry-specification.md:83` unchanged.
+> **Corrected:** `plan.md:94-95` → **`plan.md:116`** (NFR-2's own line is `:115`) · `plan.md:381` → **`:445`**.
+
 | | |
 |---|---|
 | **What the customer experiences** | With ~160 screens behind a cascade, the single habit that makes an experienced operator fast — **Alt+G, type "gstr", Enter** — is gone; they must instead remember which of eight sibling Reports sub-groups holds a screen and arrow through columns to reach it. It is also **the most-cited navigation instruction in the training material their staff learn from**, so every course exercise fails at step one. |
@@ -433,7 +664,20 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-19 · Drill-down stops at two screens; roughly fifty report screens are dead-end tables
-**HIGH** · Class **B** · Area **RPT**
+**HIGH** · Class **B** · Area **RPT** · **† the number in this title is WRONG — it is 71 of 77**
+
+> **† 2026-08-15 — verdict STANDS, the COUNT is corrected UPWARD.** Code re-read: `DrillSelectedRow()`
+> (`MainWindowViewModel.cs:2083-2100`) is **byte-for-byte unchanged** — `Screen.LedgerVouchers` at `:2086`,
+> `Screen.Report` at `:2093`, `return false` for everything else at `:2099`. Only two view models still carry any
+> Drill member. **But "~50" understates the defect by ~40%.** `docs/full-clone-census.md` T1-9 measured it:
+> **"71 of 77 report surfaces are dead ends. 6 of 45 `ReportKind` values drill; 0 of 32 dedicated report Screens
+> drill"** (`ReportsViewModel.cs:1093-1120`; `MainWindowViewModel.cs:2083-2100`), and it names this row explicitly:
+> *"This corrects IV-19, which says '~50' and counts only the separate Screens."* The census also files the
+> discrepancy in its Tier 3 REGISTER AND PLAN FALSEHOODS table (`full-clone-census.md:142`). **The census figure is
+> the one to plan against** — it counted both `ReportKind` values and dedicated Screens; this row counted only the
+> latter. Two related census rows bound the same surface: **T1-10**, 32 of 77 surfaces cannot be printed at all,
+> and **S4** in the census sequencing proposal, which says the drill/print/export back-fill is **one** refactor and
+> must precede the ~14 new report families or they will be born un-drillable.
 
 | | |
 |---|---|
@@ -446,8 +690,29 @@ Four root causes produce most of the thirty-five:
 
 ---
 
-### IV-20 · Voucher entry mode: AsVoucher is the wrong default for Payment/Receipt/Contra, and the mode is never remembered
-**MEDIUM** · Class **C** · Area **ENT** · D1 · *(merged: `iv-claims` #2 + #3)*
+### IV-20 · ~~Voucher entry mode: AsVoucher is the wrong default for Payment/Receipt/Contra~~, and the mode is never remembered
+**MEDIUM** · Class **C** · Area **ENT** · `tally-fidelity-defects.md` D1 · *(merged: `iv-claims` #2 + #3)*
+**† HALF (a) FIXED · half (b) STILL OPEN**
+
+> **† 2026-08-15 — half (a) READ THE OPPOSITE OF THE CODE and is FIXED; half (b) stands verbatim.**
+> **(a) FIXED by `f277318` ("Payment, Receipt and Contra open in Single Entry, as Tally ships them").** The quoted
+> phrase *"AsVoucher, **the default** and the only mode on every non-Purchase/Sales type"* **no longer exists in
+> the file.** The literal `_mode = VoucherEntryMode.AsVoucher;` moved `:96` → **`:100`** and is **no longer the
+> opening mode**: its own doc at `:96-98` now says *"**This field initialiser is NOT the opening mode.** … The mode
+> a screen actually OPENS in is seeded per voucher type — see `SeedOpeningMode`."* `SeedOpeningMode()` at
+> **`:141-144`** is `if (CanBeSingleEntry) Mode = VoucherEntryMode.SingleEntry;`, called from the constructor at
+> **`:1194`**. Its doc `:107-128` carries the GSTN citation this row asked for, **including the one apparent
+> counter-example (GSTN line 330) recorded rather than buried** — which is the standard §5.3 asks for.
+> **(b) STILL OPEN, and the exact wording below is still accurate.** `:93-94` *"the mode is transient screen state,
+> **never persisted**"* is **unchanged**; `VoucherEntryMode` is declared in
+> `src/Apex.Desktop/ViewModels/AccountingInvoiceLineViewModel.cs:21` and has **zero occurrences anywhere in
+> `src/Apex.Ledger/`** — no company, voucher-type or settings field holds it, so `SeedOpeningMode` can only ever
+> apply the hardcoded per-type rule, never a remembered one. The row's own analysis was right that these are two
+> different concerns; only the first was built.
+> **Citations corrected:** `:91` → the quoted text is **gone** · `:96` → **`:100`** · `:1176` `CanBeSingleEntry` →
+> **`:1231`** · `:1184` `IsSingleEntry` → **`:1239`** · `:132` `ShowPlainDrCrGrid` → **`:180`**.
+> `AccountingInvoiceLineViewModel.cs:12-13`, `:15` and `:23` are **unchanged and still uncited** — the three
+> "(the default)" assertions this row objected to survive in the enum's own doc and should be reworded there.
 
 | | |
 |---|---|
@@ -461,7 +726,15 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-21 · No Alt+H Multi-Masters — every ledger, group and stock item is created one form at a time
-**MEDIUM** · Class **B** · Area **MST** · relates to D4
+**MEDIUM** · Class **B** · Area **MST** · relates to `tally-fidelity-defects.md` D4
+
+> **† 2026-08-15 — verdict STANDS; but the D4 cross-reference is now STALE.** "Alt+H", "MultiCreate",
+> "Multi Create" and "Multi-Master" still return zero source hits, and `MainWindowViewModel.cs:1180` still emits
+> one `Page` row per master. **However `tally-fidelity-defects.md` D4 (no Opening Balance field) was FIXED by
+> `c8b44cf`** — `LedgerMasterViewModel.cs:1053-1054` now writes `OpeningBalance`/`OpeningIsDebit` from a real
+> form control (`MainWindow.axaml:4356-4387`). **So the closing sentence "together with D4 … the initial setup is
+> the worst-served workflow" now overstates by one row.** What survives of that pairing is the *bill-wise opening
+> breakup* sub-screen (SG p.91 step 6), which is still absent.
 
 | | |
 |---|---|
@@ -477,6 +750,16 @@ Four root causes produce most of the thirty-five:
 ### IV-22 · Invoice round-off is hardcoded to nearest rupee with no method and no limit — and no production path ever switches it on
 **MEDIUM** · Class **A** · Area **TAX** · FIX-F10
 
+> **† 2026-08-15 — verdict STANDS, and the code now says so itself.** `GstService.cs:729`, `:226-233`, `:61` and
+> `:610` are unchanged, and the only `applyInvoiceRoundOff: true` anywhere in the repo is in tests.
+> `VoucherPrintProjector.cs:606-607` now states the defect outright: *"Zero for every voucher this app posts:
+> nothing in `src/` ever posts a Round-Off leg."* Corroborated by `docs/full-clone-census.md:139`
+> (*"No path posts a Round-Off leg at all"*). **Corrected:** `VoucherEntryViewModel.cs:3450` → **`:3664`** ·
+> `:3638` → **`:3852`** · `:4070` → **`:4284`** · `VoucherPrintProjector.cs:331` (FIX-F10) → **`:338`**
+> (also `:357`, `:567`, `:601`) · **`VoucherPrintProjector.cs:341` is no longer a call site at all** — the print
+> path was moved onto the posted legs, so it no longer calls `ComputeInvoiceTax`. `PosBillingViewModel.cs:400`
+> and `CreditDebitNoteService.cs:129` are unchanged and still omit the argument.
+
 | | |
 |---|---|
 | **What the customer experiences** | A retailer who rounds every bill to the nearest ₹10 **cannot**. Taxable ₹1,235.60 + 18% = ₹1,458.01: TallyPrime with an Invoice Rounding ledger at Downward Rounding / limit 10 prints ₹1,450 and books ₹8.01 to Round Off; we print ₹1,458.01. Worse, **since no screen ever passes the flag we do not round at all** — a "Round Off" ledger appears in the customer's chart of accounts the day GST is enabled and never receives a single posting, which reads as a broken feature. |
@@ -490,6 +773,10 @@ Four root causes produce most of the thirty-five:
 
 ### IV-23 · Ageing buckets are ours, not Tally's, and there is no age-by-bill-date mode
 **MEDIUM** · Class **C** · Area **RPT**
+
+> **† 2026-08-15 — verdict STANDS.** `Outstandings.cs:85-92` (five hardcoded buckets, literals at `:87-91`),
+> `:37-41` and `:50-52` are unchanged. **Corrected:** `AgeingOf` is declared at **`:213`**, not `:218` — `:218`
+> is `var overdue = b.OverdueDays(asOf);`, which is the line that actually proves due-date-only ageing.
 
 | | |
 |---|---|
@@ -505,6 +792,12 @@ Four root causes produce most of the thirty-five:
 ### IV-24 · Automatic numbering is `max+1` over the whole company: it leaves gaps (Tally's non-default option) and is not ordered by voucher date
 **MEDIUM** · Class **C** · Area **ENT**
 
+> **† 2026-08-15 — verdict STANDS; both primary citations were past or near the end of their files.**
+> **Corrected:** `LedgerService.cs:171` → **`:153-160`** — *the file is only 162 lines, so `:171` never existed at
+> HEAD* (`public int NextNumber(Guid voucherTypeId)` at `:154`, `return max + 1;` at `:160`) ·
+> `InventoryPostingService.cs:127` → **`:148-155`** · `plan.md:624` → **`plan.md:690-691`**. Both `NextNumber`
+> bodies are still duplicate implementations taking a plain max over `Number` with no date term.
+
 | | |
 |---|---|
 | **What the customer experiences** | The sales register develops **holes the operator cannot close**, and a GST officer or auditor reading a series that jumps 44, 45, 47 asks where invoice 46 went — every time, for the life of the book. Separately, an accountant who keys Friday's invoices on Monday and then a back-dated Thursday one gets **invoice 51 dated before invoice 50**; the sales register sorted by number is not in date order, which is exactly what a serial number is for. |
@@ -517,7 +810,15 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-25 · Apex ships three of TallyPrime's five numbering methods — and D23's "unverified premise" is now verified
-**MEDIUM** · Class **B** · Area **ENT** · D23
+**MEDIUM** · Class **B** · Area **ENT** · `tally-gap-decisions.md` D23
+
+> **† 2026-08-15 — verdict STANDS, and the Fix's FIRST action is still outstanding.** `NumberingMethod.cs` still
+> declares exactly three members and `AutomaticManualOverride` appears nowhere in `src/`. **The Fix says "Record
+> the verification in `memory.md` and close D23" — that has not happened:** `D23` still appears in exactly one
+> file, `docs/tally-gap-decisions.md`, and `memory.md` has no D23 entry. **Corrected:** `NumberingMethod.cs:8` →
+> **`:9`** (`:8` is the doc line; the members are `:9`, `:12`, `:15`) · `plan.md:625` → **`plan.md:689`** (cited
+> twice in this row) · `LedgerService.cs:48` → **`:51`** · `InventoryPostingService.cs:53` → **`:91`**.
+> `docs/tally-gap-decisions.md:562` and the `[UNCITED]` flag at `:563-564` are unchanged.
 
 | | |
 |---|---|
@@ -533,6 +834,11 @@ Four root causes produce most of the thirty-five:
 ### IV-26 · "Predefined groups cannot be renamed" is derived from a citation that only says they cannot be DELETED
 **MEDIUM** · Class **C** · Area **MST**
 
+> **† 2026-08-15 — verdict STANDS; every citation exact, zero drift.** `MasterAlterationRules.cs:211-213` (the
+> citation-to-conclusion gap, verbatim), the rename throw `:221-223`, the re-parent block `:225-227` and
+> `GroupService.cs:96` are all unchanged, and `AlterGroup` (`:89`) is still the only caller. The rename throw is
+> still guarded only by `if (!group.IsPredefined) return;` at `:218`.
+
 | | |
 |---|---|
 | **What the customer experiences** | A firm migrating from Tally that **renamed a reserved group** — "Sundry Debtors" → "Customers", "Sundry Creditors" → "Suppliers" is common practice — cannot reproduce its own chart of accounts here, and (because the same guard sits on the Alter path an import ultimately drives) cannot carry those books across without hand-editing every report heading it expected to see. |
@@ -547,6 +853,13 @@ Four root causes produce most of the thirty-five:
 ### IV-27 · "Accept? Yes/No" exists on masters only — every voucher saves silently on Enter
 **MEDIUM** · Class **C** · Area **ENT**
 
+> **† 2026-08-15 — verdict STANDS; every one of the four our-side citations drifted.** The "~24 master screens,
+> zero voucher screens" count was re-counted and is exactly right. **Corrected:** `IsMasterAcceptScreen`
+> `:4873-4885` → **`:4882-4891`** · the prompt text `:4899` → **`:4908`** · the WI-11 arm
+> `MainWindow.axaml.cs:808-811` → **`:892-895`** · the Enter fall-through `:815-818` → **`:899-902`** ·
+> the status-bar overlay `MainWindow.axaml:16949-16953` → **`:16987`/`:16991`** ·
+> `docs/voucher-entry-specification.md:96` → **`:93`**.
+
 | | |
 |---|---|
 | **What the customer experiences** | The one screen where a Tally operator expects a last look before committing — **the voucher, which moves money** — commits silently on Enter, while the ledger master they barely care about stops and asks. The asymmetry teaches them to distrust Enter everywhere, which is corrosive in a product whose entire entry model is Enter-through-the-fields. |
@@ -559,7 +872,15 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-28 · Three TallyPrime report keys are squatted by unrelated screens, all bound app-wide
-**MEDIUM** · Class **C** · Area **ENT** · *(Ctrl+B, the fourth, is IV-5)*
+**MEDIUM** · Class **C** · Area **ENT** · *(Ctrl+B, the fourth, is IV-5 — **† now FIXED and unbound**)*
+
+> **† 2026-08-15 — verdict STANDS; all three bindings intact, all three line numbers drifted.** Commit `6a28d15`
+> did **not** touch these arms (its hunks are the accept-prompt block and `CanQuickJump`); the +41/+59 shift comes
+> from that block plus the Ctrl+B reservation added by `f2abdbb`. All three are still `e.Handled = true; return;`
+> with **no `CurrentScreen`/`IsReportContext` scoping** — the only gates are `GstEnabled` and `!IsTyping(e)`.
+> `:426-432` in particular still fires Ctrl+F from **any** screen, which is the sub-claim this row calls "the
+> subtle one". **Corrected:** Ctrl+R `:290-297` → **`:331-338`** · Alt+R `:356-362` → **`:415-421`** ·
+> Ctrl+F `:367-373` → **`:426-432`**.
 
 | | |
 |---|---|
@@ -575,6 +896,13 @@ Four root causes produce most of the thirty-five:
 ### IV-29 · The Gateway's sections and vocabulary are ours, not Tally's — and "Alter" is not on it
 **MEDIUM** · Class **C** · Area **ENT**
 
+> **† 2026-08-15 — verdict STANDS; one count loose, two citations drifted.** `BuildRootColumn`
+> (`MainWindowViewModel.cs:912-978`) is unchanged and contains **no "Alter" row**; F11 is still a menu row at
+> `:926`; "Statements" (`:1468`) and "Statements of Accounts" (`:1264`) still sit adjacent at `:943-944`.
+> **Corrected:** *"Reports (ten sub-groups)"* → the Reports section carries **11 rows** — 3 direct pages
+> (`:939-941`) plus **8** `▸` groups (`:942-947`, `:953`, `:964`, the last two conditional) · the "deliberate
+> promotion" comment `:6806-6812` → **`:966-970`** · the `IsAltering` machinery `:5804-5842` → **`:5846-5881`**.
+
 | | |
 |---|---|
 | **What the customer experiences** | The first screen the operator ever sees is **not the one screen they know by heart**, so every printed instruction they own fails at the first step: "Gateway of Tally → Alter → Ledger" and "GOT → Display More Reports → Account Books → Sale Register" both dead-end because neither entry exists. Alteration in particular is only reachable by knowing to press Enter on a Chart of Accounts row — a route the corpus never teaches. |
@@ -588,6 +916,14 @@ Four root causes produce most of the thirty-five:
 
 ### IV-30 · The red bare-letter hotkeys are auto-assigned by row position, against the audit's own recommendation
 **MEDIUM** · Class **C** · Area **ENT** · WI-9 / R7
+
+> **† 2026-08-15 — verdict STANDS and, unusually, EVERY citation is still exact** (`GatewayColumn.cs:381`, `:379`,
+> `:383`; `MainWindow.axaml:365`; `MainWindowViewModel.cs:784`; `docs/ca-audit-backlog.md:2425`, `:2216-2227`,
+> `:2418-2423`). The walk at `GatewayColumn.cs:392-406` is still position-dependent. **One correction:** the row
+> quotes *"Until answered, the fidelity target is an assumption"* as being at `ca-audit-backlog.md:2418`; that
+> sentence is **not** on that line — `:2418` reads *"**For the CA / A14 (🟡 R7 — currently UNVERIFIED; needs a real
+> TallyPrime build or official Tally help):**"*, with the three questions at `:2419-2422`. A mis-quotation, not a
+> false claim about the code.
 
 | | |
 |---|---|
@@ -603,6 +939,15 @@ Four root causes produce most of the thirty-five:
 ### IV-31 · The right button bar paints seven non-keys in the accelerator colour
 **MEDIUM** · Class **C** · Area **ENT**
 
+> **† 2026-08-15 — verdict STANDS; all seven badges survive, and every line number drifted.** They are now at
+> `"Scn"` `:6795` · `"Outs"` `:6802` · `"BRS"` `:6803` · `"Imp"` `:6804` · `"Int"` `:6806` · `"SS"` `:6807` ·
+> `"SMTP"` `:6817`. **Corrected:** `BuildButtonBar` `:6750-6772` → **`:6742-6827`** · the "Outs" comment
+> `:6753-6755` → **`:6799-6801`** · the red-bold template `MainWindow.axaml:16914-16917` → **`:16953-16956`** ·
+> `plan.md` NFR-2 `:94-95` → **`plan.md:115`**. **Uncredited improvement:** `f2abdbb` removed an **eighth**
+> offender — `:6796-6798` now reads *"there is deliberately NO 'Ctrl+B' row here … leaving the badge would paint a
+> red accelerator for a key that fires nothing, which is register defect IV-31."* So "seven" is correct at HEAD,
+> but it was eight when this row was written.
+
 | | |
 |---|---|
 | **What the customer experiences** | A keyboard-only operator — which is what a Tally operator is — reads **seven red badges as keys, presses them, and nothing happens**. Those seven features (Scenarios, Outstandings, Bank Recon, Import Statement, Interest, Stock Summary, SMTP) are **mouse-only** in a product whose whole premise is that the mouse is optional. |
@@ -616,6 +961,13 @@ Four root causes produce most of the thirty-five:
 
 ### IV-32 · The report-line gestures a Tally user works a report with are all absent
 **LOW** · Class **C** · Area **ENT**
+
+> **† 2026-08-15 — verdict STANDS, absence re-confirmed by direct search.** Zero hits across all `*.cs`/`*.axaml`
+> in `src/` for `Key.D2`, `Key.NumPad2`, `Alt+2`, `Key.U`, `Ctrl+U`, `Alt+U`, `Ctrl+N`; the only `Key.N` arms are
+> `MainWindow.axaml.cs:322`, `:324` and `:367` (Alt+N Auto Columns), none of them Ctrl+N. No calculator UI exists.
+> The Ctrl+R dependency still holds — it is claimed by `MainWindow.axaml.cs:331-338` (IV-28). **Corrected:** the
+> index pointer `MainWindow.axaml.cs:875` is now `case Key.Enter …`; use **`:182`**, the head of the dispatcher —
+> this was always a pointer into the key handler, not a positive citation.
 
 | | |
 |---|---|
@@ -631,6 +983,11 @@ Four root causes produce most of the thirty-five:
 ### IV-33 · An Appropriate-by-Value additional-cost pool silently becomes a by-quantity spread when no destination line carries a rate
 **LOW** · Class **A** · Area **VAL**
 
+> **† 2026-08-15 — verdict STANDS, citations essentially exact.** `AdditionalCostApportionment.cs:217-221`,
+> `:173-176` and `:66-77` are unchanged; `:220` still silently swaps the basis with nothing surfaced to the
+> caller. **Corrected:** the uncited-rationale comment block runs **`:212-216`**, not `:213-217` (`:217` is the
+> first code line).
+
 | | |
 |---|---|
 | **What the customer experiences** | A stock journal moves 10 units of item A and 90 of item B with no rates on either destination line, carrying ₹1,000 of freight on a ledger set to **Appropriate by Value**. We load A with ₹100 and B with ₹900 — **a quantity spread** — while the ledger, the screen and the report all say the cost was apportioned by value. The customer's landed cost per unit is defensible arithmetic **under a method he did not choose**, and there is nothing on screen to tell him the method was swapped. |
@@ -643,7 +1000,15 @@ Four root causes produce most of the thirty-five:
 ---
 
 ### IV-34 · Ctrl+F7 = Physical Stock is attributed to "TallyPrime's official keyboard-shortcut reference" with no locator
-**LOW** · Class **C** · Area **ENT** · X1 / GAP-4
+**LOW** · Class **C** · Area **ENT** · `tally-gap-decisions.md` X1 / GAP-4
+
+> **† 2026-08-15 — verdict STANDS; the Fix has NOT been performed.** `SeedVoucherTypes.cs:33-34` still presents
+> the quotation with a *description* rather than a locator — no URL, page or retrieval date anywhere in `:33-40` —
+> and `MainWindowViewModel.cs:1071` is unchanged. **Corrected:** `MainWindow.axaml.cs:674` → **`:758`**
+> (the Ctrl+F7 binding itself is at `:765`). **🔴 The SHORTKEY citation in this row must now be read under the
+> outright rejection recorded in `docs/w0-2-company-screen-grounding.md:52-76`** — the file is no longer merely
+> "internally shifted", it is ruled out as a source, and the measured shift is **two rows, not one**. This row is
+> unaffected on the merits: it already discards SHORTKEY and rests the binding on the TallyHelp page.
 
 | | |
 |---|---|
@@ -658,6 +1023,14 @@ Four root causes produce most of the thirty-five:
 
 ### IV-35 · "The Tally-faithful blank-at-zero" is uncited and governs 100 call sites including printed invoices
 **LOW** · Class **C** · Area **RPT**
+
+> **† 2026-08-15 — verdict STANDS, and the count was RE-MEASURED and is right.** `IndianFormat.Amount(` matches
+> **100 lines across exactly 16 files** at HEAD — the five files the row names by hand are all in that set.
+> (Pedantic caveat: raw *occurrences* are 103, because three lines carry two calls; "100 call sites" is defensible
+> as a line count.) The claim is if anything stronger now: `6a0268a` added a class comment at `:14-18` re-affirming
+> *"The blank-at-zero and Dr/Cr conventions below remain this class's own"* — **without adding a source.**
+> **Corrected:** the "Tally-faithful" sentence `:37` → **`:30-31`** · `Amount(decimal)` `:30` → **`:22-23`** ·
+> the `SignedAlways`/`AmountAlways` pair `:49-56` → **`:44-45`** and **`:54`** (the pair now spans `:44-57`).
 
 | | |
 |---|---|
@@ -770,6 +1143,43 @@ The full ranking is the register order in §2. The ten to schedule first:
 
 Recorded so that a future session does not "restore fidelity" by undoing a good decision, or re-audit something already settled.
 
+> ### † 2026-08-15 — §5 SWEEP: no claim here is false on the merits, but TWO LOCATORS DO NOT RESOLVE
+>
+> **🔴 Two citations point at code that is not there and cannot be re-derived from the text — treat both claims
+> as UNSUPPORTED until someone re-locates them:**
+> - **§5.4 `InterestParameters.cs:225-231`** ("interest On-balance and Applicability semantics").
+>   `src/Apex.Ledger/Domain/InterestParameters.cs` is **117 lines long**, so the range is past EOF.
+>   `OnBalance`/`Applicability` are at `:37`, `:40`, `:62-63`, `:77-78`; the nearest plausible re-read,
+>   `InterestCalculation.cs:225-231`, is the running-balance walk and is about something else.
+>   **This is the weakest citation in the document.**
+> - **§5.1 `MainWindowViewModel.cs:6314`** (the fourth of four F10 locators). `:6314` is
+>   `case "Ledgers without PAN": OpenReport(ReportKind.LedgersWithoutPan); break;` — unrelated. There is **no**
+>   `"F10"` hint string anywhere in that file; the only textual hits are the comments at `:1071-1072` and the
+>   `"Other Vouchers"` rows at `:1012-1013`, `:1129-1130`. **The other three locators (`:1071`, `:1136`, `:3527`)
+>   are exact, so §5.1's conclusion stands** — only the fourth pointer is bad.
+>
+> **🔴 One §5.4 parenthetical is now STALE:** the reorder entry says *"only the report **arithmetic** diverges,
+> IV-10"*. **IV-10 is FIXED** (`7e0457b`); `ReorderStatus.cs:117-120` now nets Sales Orders Due. The master-model
+> half remains faithful — which is what §5.4 was asserting — but the pointer to an open IV-10 is wrong.
+> **Same entry, two further errors:** the file is at **`src/Apex.Ledger/Reports/ReorderStatus.cs`**, not
+> `Services/`, and the cited `:114-154` now lands on the new Nett-Available arithmetic. The Item > Group >
+> Category specificity resolver is at **`:141-146`**; Simple/Advance at **`:38-40`** and **`:171-174`**.
+>
+> **Locator drift, claims unaffected:** §5.2 `VoucherEntryViewModel.cs:2563` (`Accept()`) → **`:2766`** ·
+> §5.3 `VoucherValidator.cs:313` ("within each cost category independently") → **`:339`**, and `:374-377`
+> (the short-category machinery) → **`:378-387`** · §5.4 `LedgerMasterViewModel.cs:496` (party ledgers default to
+> bill-by-bill) → **`:563`** · §5.4 `MainWindowViewModel.cs:5804-5842` (`IsAltering`) → **`:5846-5881`** ·
+> §5.4 `MainWindow.axaml.cs:316-343` (Alt+C in both Tally meanings) → **`:357-369`** and **`:371-384`** ·
+> §5.4 `InterestParameters.cs:82-104` → the range's tail is right but its head is not; the rounding doc is at
+> `:88` and the Upward/Downward arms at `:103-104`.
+> **Verified unchanged and exact:** `ApexDate.cs:11-13`, `:16-20`, `:25` · `docs/ca-audit-backlog.md:1472-1474` ·
+> `docs/tally-gap-decisions.md:615` (X6) · `BillAllocation.EffectiveDueDate:68-69` · `TcsService.cs:139-146` ·
+> `GstService.cs:326-338` · `PriceResolver.cs:36-54` · `AdditionalCostApportionment.cs:142-160`.
+>
+> **⚠️ Every "SHORTKEY item N" corroboration — §5.4's Ctrl+H item 65 included — must now be read under the
+> outright rejection at `docs/w0-2-company-screen-grounding.md:52-76`.** Ctrl+H survives because TallyHelp's
+> payments-and-receipts page carries it independently; nothing in §5 rests on SHORTKEY alone.
+
 ### 5.1 One item was reclassified: it is not a divergence at all
 
 **F10 = Other Vouchers is TALLY-FAITHFUL.** `docs/tally-gap-decisions.md:615` (X6) instructs that F10 = Other Vouchers be recorded as an "accepted, documented divergence from TallyPrime". **It is not a divergence.** On the voucher-entry screen TallyPrime's F10 is exactly this: TallyHelp documents navigation as F10 > Accounting Vouchers, F10 > Inventory Vouchers, F10 > Order Vouchers, F10 > Payroll Vouchers — and locates Ctrl+F7 (Physical Stock) at "F10 > Inventory Vouchers". F10's *other* meaning, "to view the list of all vouchers or masters", belongs to the Gateway/report context. Our binding (`MainWindowViewModel.cs:1071`, `:1136`, `:3527`, `:6314`) is faithful.
@@ -804,6 +1214,18 @@ Recorded so that a future session does not "restore fidelity" by undoing a good 
 
 **Nothing in this section is claimed as a defect.** Each is a place where the Tally-side fact could not be settled from the licensed corpus or from official documentation. Several **block** a fix in §2 and are listed against it.
 
+> **† 2026-08-15 — four of these now have a formal home, and one is being acted on.** The blocking measurements
+> are scheduled as named test books in `docs/tallyprime-valuation-test-books.md` and listed under
+> **"BLOCKED ON USER MEASUREMENT"** in `docs/NEXT_SESSION_KICKOFF.md:148-161`:
+> **U-2 ⇒ T8** (₹44,000 at 10%, Per = 30-Day Month, 30-day window — ₹4,400 ⇒ per period, ~₹366 ⇒ per annum).
+> **The `DaysInMonth × 12` arm is live in `c408037` DELIBERATELY, pending T8** — see the gate at
+> `InterestCalculation.cs:157-183` and the † note on IV-8. **U-3 / rateless-inward and the valuation questions
+> ⇒ T1/T2/T3/T4**, of which **T3 falsifies the whole Average Cost design** and **T4 is the question that stopped
+> the negative-stock work eight times**. ⚠️ **T7 as written cannot discriminate its own model** — item-level
+> stateless predicts ₹3,504.55, which is not among its two offered answers; a third option must be added before
+> it is run. **U-11 (the 2-digit-year pivot), U-12 (the bare-letter hotkeys), U-5, U-6 and U-9 have NOT been
+> scheduled** and remain exactly as written below.
+
 | U | Question | Evidence today | What would settle it | Blocks |
 |---|---|---|---|---|
 | **U-1** | **What TallyPrime's own date format actually is.** `ApexDate.cs:12` cites "Tally's `dd-MMM-yy`" as the thing we deliberately deviate from (§5.2). | The corpus contains **no statement** of Tally's date format anywhere — only four rendered 2-digit dates (SG lines 5008, 5725; GSTN line 962), which is thin but consistent. | A TallyPrime date field or report header, or a help page stating the format. | nothing — the deviation is **right either way** (§5.2). Recorded only so nobody later reads it as an accident. |
@@ -832,6 +1254,17 @@ Recorded so that a future session does not "restore fidelity" by undoing a good 
 ## 7. Coverage — read this before treating any count as a count
 
 **This register is a floor, not a census.** The previous register in this project (`docs/tally-fidelity-defects.md` §3) said the same thing of itself, and saying so is what made it useful. Thirty-five is the number of items **four lenses found in the surfaces they looked at**, not the number that exists.
+
+> **† 2026-08-15 — §7's unmeasured list is now PARTLY CLOSED, by a document written after this one.**
+> `docs/full-clone-census.md` (2026-08-10) took a denominator over the whole product — **~115 capabilities: 42
+> complete, 44 partial, 21 absent, 8 undetermined** — and its §6 item 10 states which of §7's rows it closed:
+> **printing and print layouts (structurally, not fidelity-wise), report layouts (existence only), company
+> creation and F11/F12, backup/restore, import/export, POS, banking, security.** **Still genuinely unmeasured:
+> GST return *content*, payroll *entry-surface* fidelity, budgets, scenarios, forex, manufacturing, job work,
+> multi-currency.** The census's own headline is the one to carry forward, and it is harsher than §7's:
+> **only 8 of 115 capabilities have ever had their behaviour compared to a source; ~107 have not** — a `PRESENT`
+> row means *reachable*, not *correct*. **Method limit 1 below ("no build and no test was run") still applies to
+> this register and applied again to the 2026-08-15 re-verification: every claim here is read from source.**
 
 ### What was actually examined
 
@@ -875,3 +1308,10 @@ The **eleven Class-A rows are the ones that are certainly there and certainly wr
 
 *No code was modified, no build was run, no test was run and no git operation was performed in producing this
 register. The four hunt outputs it merges are in the session scratchpad.*
+
+*† **Re-verified 2026-08-15** against HEAD `c56e5c3`. All 35 rows plus §5 were re-opened file-by-file; four rows
+(IV-5, IV-7, IV-9, IV-10) were found FIXED IN CODE, three (IV-4, IV-8, IV-20) half-fixed, and ~30 carried drifted
+citations, all corrected in place and marked **†**. The corpus was re-extracted with `pdftotext -layout` for the
+IV-1 sourcing correction only. **Again: no code was modified, no build was run, no test was run and no git
+operation was performed.** Corrections owed to `plan.md` and `memory.md` were collected and handed back rather
+than applied — those two files were owned by other work at the time.*

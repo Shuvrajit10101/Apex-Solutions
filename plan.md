@@ -1999,6 +1999,22 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **statutory** question (what an unrouteable supply IS), not a de-duplication, which is why the slice was right to
     leave them — but it must not be read as having closed them. **Sequence with any GST routing work; do NOT unify by
     picking whichever copy is convenient.**
+    **▶ GROUNDED BY A14, AND THE RULING IT NEEDS IS AN R12 USER GATE — CARRIED HERE BECAUSE A BLOCKER RECORDED ONLY
+    IN `docs/` GATES NOTHING (the rule `c56e5c3` itself set).** The statutory + corpus grounding is
+    `docs/diverged-rules-de-place-of-supply-grounding.md` (read-only pass, baseline `c56e5c3`, every file:line
+    re-opened). It is **evidence, not a design** — it does not say which method should survive. Its **§11** is the
+    question only the user can answer, reproduced here so the gate exists where work is sequenced:
+    **a GST-routing book with no home State cannot compute a place of supply — where should the refusal live, and
+    what happens to already-issued documents?** **(A)** make a null home State impossible at every write (both
+    copies collapse to one `bool`; existing books in that state must be migrated or blocked on open); **(B)** refuse
+    at the routing call for NEW postings only, giving read-only paths a non-throwing "unknown" (**this also closes
+    defect F7**; the return type stops being `bool` and all seven call sites must say what they do with "unknown");
+    **(C)** warn and proceed on the statutory default (**A14 rules this out on wrong-figure grounds** — it is
+    today's `return false` with a message attached). **A14's reading, offered as evidence and NOT as a decision:**
+    the statute is silent between (A) and (B); (B) additionally resolves F7. **A SECOND, SEPARABLE RULING is also
+    needed and is a SCHEMA question, so it is out of that document's scope:** should the party's State be
+    snapshotted onto the voucher at posting, so a printed blank contradicting a GSTR-1 home code on an IGST voucher
+    becomes unreachable rather than arbitrated at print time? **Nothing unifies (d) or (e) until the user rules.**
   - **▶ CARRY-FORWARD (c) — 🔴 ROW (h) IS TWO-THIRDS DISCHARGED.** The proof compares `"0.##"` against `"0.###"`, both
     **against InvariantCulture** — sound for those two spellings. **It never examined the third form:** 10
     host-culture-bound interpolated rate renderings survive (`Cmp08ReportViewModel.cs:173`,
@@ -2591,6 +2607,54 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     arithmetic (it reuses `Money.IsPaisaExact`), no new statutory figure, schema unchanged — **so no amendment is
     DUE from it**; the un-discharged obligation is W0-12's. **Recorded, not silently fixed:** amending that
     sentence is a separate edit, and it belongs with whoever writes the wave's exit record.
+  - **W0-14 (NO plan entry existed when it shipped — this item IS the R6 record, written retroactively, exactly as
+    W0-11 and W0-12 were; it authorises DOCUMENTATION ONLY and no code) THE REGISTER RE-VERIFICATION AND THE
+    PLACE-OF-SUPPLY GROUNDING** — **DONE (working tree).**
+    **▶ 🔴 THE R6 DEVIATION, STATED PLAINLY AND FIRST.** The working tree presented for W0-13's gate contained a
+    SECOND body of work alongside the W0-13 code: six tracked docs changed (**+932 lines** — `invented-vs-cloned.md`
+    +514, `tally-fidelity-defects.md` +335, `NEXT_SESSION_KICKOFF.md` +47, `tally-gap-decisions.md` +35,
+    `voucher-entry-specification.md` +38, `full-clone-census.md` +18) plus a new **558-line**
+    `docs/diverged-rules-de-place-of-supply-grounding.md`. **No `plan.md` row authorised either** — W0-13's scope is
+    PART 1 (five narrow filters) and PART 2 (seven `Paisa.FromMoney` paths) and nothing else. That breaches R6 ("no
+    work is done outside `plan.md` without first updating `plan.md`"), and the grounding doc additionally breached
+    the rule `c56e5c3`'s own commit message had just set — **"a blocker recorded only in `docs/` and `memory.md`
+    gates nothing (R6)"** — because it carries a 🔴 user ruling (§11) that nothing in `plan.md` pointed at.
+    **▶ WHY IT IS RECORDED AND NOT REVERTED.** The content is sound: both passes are read-only re-verification
+    against `c56e5c3` with every file:line re-opened, and the docs' own cross-references into `memory.md` were
+    checked line by line and hold. Reverting would destroy verified findings to satisfy a bookkeeping rule; the
+    remedy R6 actually asks for is the row, and this is it. **The commit boundary still matters:** W0-13's
+    source+tests belong to the W0-13 row and these docs to this one — **two commits, not one.**
+    **▶ WHAT THE REGISTER PASS FOUND.** All **54** register rows (**35 IV + 18 D + U-A**) re-verified against HEAD.
+    **THREE rows read the OPPOSITE of the code — IV-9, D7 and IV-20(a).** **SEVEN rows are FIXED IN CODE while
+    still listed OPEN:** IV-5 (`f2abdbb`), IV-7 (`c408037`), IV-9 (`a12e651`), IV-10 (`7e0457b`), D1 (`f277318`),
+    D4 (`c8b44cf`) and spec G-2 (`aed9a50`). **Citation drift is ~60 lines, not the ~16 previously recorded.**
+    **▶ 🔴 THE REGISTER PASS'S HEADLINE CLAIM IS FALSE, AND THE CORRECTED VERSION IS WHAT THIS ROW RECORDS.** That
+    pass claimed: "`SeedVoucherTypes.cs:67` Payroll ships `IsActive=false` and, now that the resolver honours the
+    flag, CANNOT POST AT ALL — an entire declared-complete phase has an unreachable posting path." **Re-verified
+    first-hand at this HEAD and it does not hold.** `SeedVoucherTypes.cs:67` does ship Payroll inactive, but
+    `PayrollVoucherService.cs:72` resolves its type with
+    `_company.VoucherTypes.FirstOrDefault(t => t.BaseType == VoucherBaseType.Payroll)` — **no `IsActive` test** — so
+    payroll posting never touches `VoucherTypeResolver` at all. `ShowPayrollVoucher()` (`MainWindowViewModel.cs
+    :4021`) has three inbound routes and two are live regardless of the flag: the Gateway menu (`:6263`) and the
+    Ctrl+F4 shortcut (`Views/MainWindow.axaml.cs:440`). **THE REAL DEFECT IS ONE INCONSISTENCY, NOT A DEAD PHASE:**
+    `MainWindowViewModel.cs:3007` is the ONLY list that filters `t.IsActive`, so Payroll is absent from the **Day
+    Book Add-Voucher picker** — and `:3083`, the `PickAddVoucherType` case that would route it to its own screen, is
+    therefore unreachable from there while every other route ignores the flag. Whether that filter or the two
+    unfiltered routes is the correct behaviour is a real question; **an unreachable declared-complete phase is not.**
+    **▶ TWO OTHER FINDINGS FROM THAT PASS, BOTH RE-VERIFIED AND WORTH KEEPING.** (1) **"Warn-only" negative stock
+    warns nobody:** `InventoryPostingService.cs:184 NegativeStockWarnings()` has **ZERO production callers** — the
+    only caller in the repository is `NegativeStockPolicyTests.cs:331`. The flag is consulted; nothing surfaces it.
+    (2) **`tally-fidelity-defects.md` D18's fix instruction became UNSAFE** when `7bfc2c6` removed
+    `VoucherTypeResolver`'s inactive fallback (`VoucherTypeResolver.cs:58` now hard-skips `!IsActive`, and its own
+    doc at `:9-22` records why): following D18 as written today would strand **eleven** voucher types. The doc
+    already carries a † note to that effect at its `:29-34`; it is repeated here because `plan.md` is what sequences.
+    **▶ THE GROUNDING PASS** is `docs/diverged-rules-de-place-of-supply-grounding.md`, the A14 R7 grounding for
+    W0-11 carry-forward **(b)** (rows (d) `IsInterState` and (e) place of supply). **Its §11 user ruling is now
+    carried into that carry-forward above as an R12 gate**, with the three options and A14's evidence-only reading,
+    so the gate exists where work is sequenced rather than only in `docs/`.
+    **▶ SCOPE, EXPLICITLY:** documentation only. **No `src/` or `tests/` file is attributed to this row**, no test
+    count moves, and `Schema.CurrentVersion` stays **50**. **Nothing here is a design** — the grounding doc says so
+    itself, and the seven fixed-but-open register rows are a bookkeeping correction, not a licence to close them.
 - **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
   1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full

@@ -2,8 +2,16 @@
 
 **Paste the COPY-PASTE PROMPT below as your first message in the new session.**
 Written **2026-08-14**. This file was previously dated 2026-07-05 and claimed schema v13 / 570 tests /
-a branch that no longer exists — ~37 schema versions and ~3,500 tests out of date, so anyone following it
+a branch **whose tip had moved** (†) — ~37 schema versions and ~3,500 tests out of date, so anyone following it
 verbatim would have resumed from a state that has not existed since Phase 4. Now rewritten.
+
+> 🔴 **† CORRECTED 2026-08-15 — this line previously said "a branch that no longer exists". FALSE.**
+> `claude/interesting-mirzakhani-30e51e` exists **locally and on the remote**, and `git cat-file -t 8812d72`
+> returns `commit`. What changed is the branch **tip**, not the branch's existence. Re-measured 2026-08-15.
+> **Three other invented or false citations were removed from this file in the same pass** — see §1 (the census
+> attribution), THE QUEUE heading (census §6), and note that the "64+ commits ahead of `main`" below is a moving
+> figure: it measured 66 on 2026-08-14 and **69 on 2026-08-15**. `git rev-list --count origin/main..HEAD` is the
+> only trustworthy source; do not quote the number from this file.
 
 ---
 
@@ -46,9 +54,17 @@ session's. A PR body must account for both.
 
 The git-ignored `tally/` PDFs lived **only in the main checkout**. Every agent ever dispatched into a
 worktree was told to clone TallyPrime and was **physically unable to open it**. That is the mechanical
-cause of this project's entire invent-rather-than-clone pattern — corroborated by the census: only
-**13 of 489 source files cite the corpus**, while 331 cite Indian statute, because statute was reachable
-on the web and the corpus was not. Agents cited what they could read.
+cause of this project's entire invent-rather-than-clone pattern — corroborated by **this file's own
+measurement** (†): only **13 of 489 source files cite the corpus**, while 331 cite Indian statute, because
+statute was reachable on the web and the corpus was not. Agents cited what they could read.
+
+> 🔴 **† CORRECTED 2026-08-15 — this line previously said "corroborated by the census", and the census does not
+> contain either figure.** `grep -nE "\b489\b|\b331\b" docs/full-clone-census.md` returns **zero hits**, re-measured
+> 2026-08-15. The measurement itself may well be sound; **only its attribution was invented** — the same
+> register-falsehood class as the `P7` citation `f327abb` removed from this file's own header, committed in the
+> same file one commit later. **Nobody has re-run the count, so cite it as this file's figure and re-derive it
+> before planning on it.** (`memory.md:2173` item (d) and `memory.md:2178` both record this defect; the
+> mis-attribution originates here, which is why it is fixed here.)
 
 **Fixed:** a junction at `<worktree>/tally` → `…/Apex Solutions(end)/tally` in all eight worktrees.
 10 PDFs, `pdftotext -layout` works, **invisible to git** (`.gitignore:73`), so R4 holds.
@@ -88,7 +104,13 @@ irreversible vouchers, and the Alt+D modifier hole.
 
 ---
 
-## THE QUEUE (ranked, from the census §6)
+## THE QUEUE (ranked — **† this file's own list, NOT the census's**)
+
+> 🔴 **† CORRECTED 2026-08-15 — this heading previously read "from the census §6".** Census **§6 is
+> "WHAT IS STILL UNMEASURED AFTER THIS CENSUS"** and contains **none** of the seven items below; the nearest
+> real census content is **§5 SEQUENCING PROPOSAL**, whose Wave 0 table overlaps items 3-5 only. The eight
+> diverged rule copies (item 1) appear nowhere in the census at all. Verified by reading
+> `docs/full-clone-census.md:195-287`. Third invented citation found in this file — see the header and §1 above.
 
 1. **The 8 already-diverged rule copies** — may be partly done; **7 partial files are parked at**
    `…\scratchpad\diverged-partial` (5 src + 2 tests). They were written by an agent that never compiled
@@ -106,7 +128,20 @@ irreversible vouchers, and the Alt+D modifier hole.
 5. **W0-6 + a doc-vs-code test** — `plan.md` still claims "24 predefined voucher types" in 9 places while
    `SeedVoucherTypes.cs` seeds **23**. No test in the repo reads a `.md` file; add the CI check.
 6. **The 30 `StarvedStarAllowList` waivers** → runtime locks (61 sites, zero measurement).
-7. Register hygiene: IV-9, D7 and IV-20 now read the **opposite** of the code; ~16 drifted line numbers.
+7. ~~Register hygiene: IV-9, D7 and IV-20 now read the **opposite** of the code; ~16 drifted line numbers.~~
+   **† DONE 2026-08-15 — and the item understated itself twice over.** All three claims **CONFIRMED**:
+   `invented-vs-cloned.md` **IV-9** and `tally-fidelity-defects.md` **D7** both described a hard block deleted by
+   `a12e651`; **IV-20**'s half (a) described a default inverted by `f277318`. **But the drift was larger than
+   "~16 lines" in two directions.** *Seven* rows had moved, not three: also **FIXED IN CODE** are
+   `invented-vs-cloned.md` **IV-5** (`f2abdbb`), **IV-7** (`c408037`), **IV-10** (`7e0457b`) and
+   `tally-fidelity-defects.md` **D1** (`f277318`) and **D4** (`c8b44cf`); **IV-4**, **IV-8**, **D9** and **D18**
+   are half-fixed. And it is ~**60 drifted citations across both registers**, not ~16 — `VoucherEntryViewModel.cs`
+   alone moved ~+215 lines past `:4200`, and **every `plan.md:NNN` citation in `invented-vs-cloned.md` was stale.**
+   All corrected in place and marked **†**. 🔴 **The most consequential find was not on the list:**
+   `tally-fidelity-defects.md` **D18**'s Fix said *"do not seed the eleven types inactive before the G-4 resolver
+   fallback is removed"* — **the fallback WAS removed** (`7bfc2c6`; `VoucherTypeResolver.cs:58`), so following that
+   instruction today would make eleven voucher types **unreachable**, since `Show Inactive` returns zero hits in
+   `src/`. **A stale register turned a safe instruction into an unsafe one.**
 
 ---
 

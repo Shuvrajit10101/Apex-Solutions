@@ -1,6 +1,30 @@
 # Voucher Entry Specification — behavioural spec and condition-level gap analysis
 
 **Author:** A1 (Business Analyst) · **Date:** 2026-08-01 · **Status:** for review
+
+> ## 🔴 † STALENESS NOTICE — added 2026-08-15
+> This spec is dated **2026-08-01** and the code has moved a long way under it. It was already flagged as stale
+> in three places by `docs/tally-fidelity-defects.md` §6; that flag is now itself stale. **At HEAD `c56e5c3`:**
+> - **G-1, G-2, G-6 and G-7 are FIXED.** G-2 in particular — cost allocation is now **parallel sets, not a
+>   partition** (`VoucherValidator.cs:338-345`, `:376-387`; commit `aed9a50`), so the corpus's own ₹5,000
+>   Branch/Department/Executive example **posts**. The line below at §2 C-27 and every "our engine rejects it"
+>   statement about cost categories is out of date.
+> - **G-6's follow-on is fixed too:** Payment/Receipt/Contra now **open** in Single Entry
+>   (`VoucherEntryViewModel.SeedOpeningMode` `:141-144`, called `:1194`; commit `f277318`), so §2 step 2's
+>   *"No Single-Entry mode exists anywhere in `src/`"* is **FALSE**. Its two locators also drifted:
+>   Ctrl+I `MainWindow.axaml.cs:481` → **`:563`**, Ctrl+H `:493` → **`:577`** (and Ctrl+H is now a real
+>   Change-Mode key gated on `vm.IsChangeModeEntry`, not an Accounting-Invoice toggle).
+> - **§2 step 1's G-4 claim is FALSE.** `MainWindowViewModel.cs:2756-2757` no longer exists; commit `7bfc2c6`
+>   routed every voucher route through `VoucherTypeResolver.ResolveForEntry`, and `VoucherTypeResolver.cs:58`
+>   **never returns an inactive type**. There is no fallback. (`F10 > Show Inactive` still does not exist —
+>   zero hits in `src/` — so the gate is now a *refusal*, not a silent pass-through.)
+> - **§1.3's `Alt+D` claim is FALSE** — corrected inline below.
+> - **`F12Configure` `MainWindowViewModel.cs:6403-6428` → `:6669-6694`**, fall-through at `:6693`.
+> - **The `Accept? Yes/No` line is now partly stale:** WI-11 shipped the prompt for **master** screens
+>   (`MainWindowViewModel.cs:4882-4891`, ~24 screens); vouchers still save silently. See `invented-vs-cloned.md`
+>   IV-27. The gap line moved from `:96` to **`:93`**.
+> **⇒ Treat every `file:line` in this document as unverified.** The two fidelity registers were re-verified on
+> 2026-08-15; this spec was not, beyond the points listed here.
 **Fidelity target:** TallyPrime (user decision 2026-08-01). Tally.ERP 9 behaviour appears only where
 labelled *historical*, never as the spec.
 
@@ -98,7 +122,19 @@ acting on voucher entry** (SG p.60 **[inherited]**).
 |---|---|---|
 | Any field | `Alt+C` create master · `F12` reconfigure mid-entry · `Ctrl+I` "More Details" | `Alt+C` ✅. `F12` opens **only** the voucher-numbering config (`MainWindowViewModel.cs:6403-6428`). `Ctrl+I` is taken by Item-Invoice mode. |
 | Any time | `Ctrl+L` Optional (recorded, not posted) · `Ctrl+T` Post-Dated | Both present (`MainWindowViewModel.cs:4801-4811`); suppressed on provisional types. |
-| Any time | `Esc` abandon · `Alt+X` cancel (keeps number, nulls entry) · `Alt+D` delete | Esc/Alt+D present. `Alt+X` cancel-vs-delete distinction not surveyed here. |
+| Any time | `Esc` abandon · `Alt+X` cancel (keeps number, nulls entry) · `Alt+D` delete | **† Esc present; `Alt+D` ABSENT** (corrected 2026-08-15 — see below). `Alt+X` cancel-vs-delete distinction not surveyed here. |
+
+> 🔴 **† CORRECTED 2026-08-15 — the row above previously read "Esc/Alt+D present". `Alt+D` IS NOT PRESENT, and
+> never was.** `docs/invented-vs-cloned.md` **IV-4** identified this line as the false claim that let the gap
+> survive review, and instructed that it be corrected; that had not been done until now. Verified at HEAD
+> `c56e5c3`: **nothing in the UI deletes anything.** The only `Key.D` arm in the dispatcher is the bare-letter
+> Day-Book quick jump (`MainWindow.axaml.cs:959`, and `CanQuickJump` at `:1096-1097` requires
+> `e.KeyModifiers == KeyModifiers.None`, so **Alt+D is deliberately unclaimed** — `:1084-1087` reserves it for a
+> later delete slice). The engine half exists and is unreachable: `LedgerService.cs:99` documents
+> `/// <summary>Alt+D — remove entirely; may leave a gap in numbering.` with **no Desktop caller**; the only
+> `.Delete(` calls in `src/Apex.Desktop` are `CompanyStorage.cs:105/142` and
+> `MainWindowViewModel.cs:2488 DeleteSelectedSavedView`. Corroborated by `docs/full-clone-census.md` **T1-1** and
+> **T1-2**. `plan.md:290` specifies the gesture correctly; only the engine half shipped.
 | Payroll/Attendance | `Ctrl+F` **Autofill** replaces manual line entry (BOOK pp.371, 373 **[inherited]**) | Dedicated Attendance/Payroll screens exist; autofill parity not surveyed. |
 
 ---

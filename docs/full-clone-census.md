@@ -126,6 +126,22 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 
 These harm the project rather than the business, but they are the reason nobody knew the size of the gap. Each needs correcting in place.
 
+> ### 🔴 † 2026-08-15 — TWO FIGURES ATTRIBUTED TO THIS SECTION ARE NOT IN IT
+> `plan.md:359` and `:365` state that **"the census found 34 false claims"** and **"nine internal
+> contradictions"**, and point at *"Census §2 Tier 3"*. **Neither figure exists in this document.** Measured
+> 2026-08-15: `grep -nE "\b34\b" docs/full-clone-census.md` → **zero hits**; `grep -i contradict` → **two**
+> incidental hits inside T0-11 and T1-11, neither a count; **the table below has fifteen data rows, not 34 and
+> not 9.** The *phase list* `plan.md` gives alongside those numbers **is** real and verifiable in this table
+> (Phase 1, 2, 5, 9, 10.9) — **it is only the counts that are unsourced.** ⇒ **Do not repeat either number.**
+> `plan.md` is the file that needs correcting, not this one; the exact replacement text is held for whoever owns
+> that file. Also recorded at `memory.md:2164` and `memory.md:2185`.
+>
+> **† Three rows below have been acted on since this census was written (2026-08-10):**
+> the **`docs/invented-vs-cloned.md` IV-19 "~50"** row and the **negative-stock "STOPPED AND BANKED"** row were
+> both carried into the registers' 2026-08-15 re-verification and are corrected there. The **"24 predefined
+> voucher types"** row is untouched — `SeedVoucherTypes.cs:71` still reads `public const int Count = 23`,
+> re-measured 2026-08-15, and `plan.md` still says 24 in nine places.
+
 | Claim | Reality |
 |---|---|
 | "24 predefined voucher types" — plan.md:40, 243, 260, 307, 607, 969, 1076; catalog:187, 519; `VoucherType.cs:6` | **[V]** `SeedVoucherTypes.cs:71` is `public const int Count = 23`. The Attendance row was deliberately removed (decision D24-B). The corpus says 24 for TallyPrime (BOOK p.17) — so this is a **real fidelity gap the docs are hiding**, not a typo. |
@@ -141,7 +157,7 @@ These harm the project rather than the business, but they are the reason nobody 
 | `docs/tally-version-and-voucher-gap-audit.md` §4.1: "masters present and wired to UI" | True for **Create only**. 24 of 27 have no Alter; none of the 27 has Delete or Display. **The single most misleading line in the existing registers.** |
 | `docs/invented-vs-cloned.md` IV-19: "~50 reports are dead ends" | 71 of 77. Understates itself by ~40%. |
 | plan.md 10.8: negative stock "STOPPED AND BANKED" | **A false claim of absence — the rarer and more dangerous kind.** `Company.WarnOnNegativeStock` shipped, persists and is honoured, with zero UI toggle. Behaviour changed and the register says nothing shipped. |
-| gap-audit §4.6: "CN/DN have no menu row", "Ctrl+F7 unbound" | Both STALE/FIXED. Menu rows at `MainWindowViewModel.cs:1002-1003`; Ctrl+F7 bound at `MainWindow.axaml.cs:681`. |
+| gap-audit §4.6: "CN/DN have no menu row", "Ctrl+F7 unbound" | Both STALE/FIXED. Menu rows at `MainWindowViewModel.cs:1002-1003`; Ctrl+F7 bound at **†** `MainWindow.axaml.cs:765` *(was cited `:681`; corrected 2026-08-15 — `:681` is now the bare-E Export arm, and the Ctrl+F7 arm with its grounding comment is `:758-765`)*. |
 | `PopulatedCompanyFixture` described as "51 vouchers of every type" | 51 is right; "every type" is not — 8 of 23 base types, zero inventory/order/job-work/POS/payroll vouchers. |
 
 ---

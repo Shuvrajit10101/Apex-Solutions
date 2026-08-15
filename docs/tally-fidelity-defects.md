@@ -7,6 +7,44 @@
 
 ---
 
+## ⚠️ RE-VERIFIED 2026-08-15 AGAINST HEAD `c56e5c3` — READ THIS BEFORE TRUSTING ANY ROW
+
+🔴 **THE `D`-NUMBERS IN THIS FILE ARE LOCAL TO IT. Always cite them as "`tally-fidelity-defects.md` D-n".**
+`docs/tally-gap-decisions.md` has a **different** D3/D7/D12/D13, and the eight "diverged rule" copies use a
+**third** D1–D8. Confusion between the three has already cost this project real time.
+
+All 19 rows were re-opened file-by-file on **2026-08-15**. Corrections are marked **†**, carried as a `†` line
+under the affected row's severity line, and the original claim is always quoted beside the correction —
+**nothing was silently rewritten.**
+
+**THREE ROWS ARE NOW FIXED IN CODE. All three landed on 2026-08-06, two days after this register was written,
+and none was folded back in:**
+
+| Row | Fixed by | Proof at HEAD |
+|---|---|---|
+| **D1** Payment/Receipt/Contra open in Double Entry | `f277318` | `VoucherEntryViewModel.SeedOpeningMode()` at `:141-144` — `if (CanBeSingleEntry) Mode = VoucherEntryMode.SingleEntry;` — called from the constructor at `:1194`. The field initialiser (now `:100`) is explicitly documented at `:96-98` as **NOT** the opening mode. |
+| **D4** Ledger master has no Opening Balance field | `c8b44cf` | `MainWindow.axaml:4356-4387` is a real amount `TextBox` (`OpeningBalanceText`) + Dr/Cr `ComboBox` (`OpeningSide`), placed under "Under" per corpus field order; `LedgerMasterViewModel.cs:1053-1054` writes `OpeningBalance`/`OpeningIsDebit` to the domain. |
+| **D7** Negative stock is an unconditional hard block | `a12e651` (schema **v50**) | The throwing guard is **deleted**; `InventoryPostingService.cs:176` `DetectNegativeStock()` never throws, `:184-185` `NegativeStockWarnings()` is gated on `Company.cs:268` `WarnOnNegativeStock = true`. |
+
+**TWO ROWS ARE HALF-FIXED and their unqualified wording is now misleading** — **D9** and **D18**, both because
+the **G-4 resolver fallback they lean on no longer exists**. `MainWindowViewModel.cs:2756-2757` is now unrelated
+code; commit `7bfc2c6` routed all five call sites through `VoucherTypeResolver.ResolveForEntry`, and
+`src/Apex.Ledger/Services/VoucherTypeResolver.cs:58` reads
+`if (type.BaseType != baseType || !type.IsActive) continue;`. **`IsActive` is no longer decorative — it is
+load-bearing.** That makes **D18's fix instruction actively dangerous as written** (see its † note).
+
+**THE REMAINING 14 ROWS AND U-A ARE STILL TRUE**, but most carry drifted citations. `VoucherEntryViewModel.cs`
+has moved ~+55 lines in its first third and **~+215 lines past `:4200`**; `MainWindow.axaml` ~+39 lines around
+the stock-item masters. Corrected in place below.
+
+🔴 **§1's counts are NOT re-cut and are wrong as totals.** They still say 19 defects / 11 HIGH, which counted
+D1, D4 and D7 as open. **16 rows are open at HEAD.** The per-row detail is authoritative; the summary arithmetic
+is not. Re-cutting was declined deliberately — it would erase the record of what the register found on 2026-08-04.
+
+🔴 **§6 is now itself stale in two places** — see the † note there.
+
+---
+
 ## How to read this document
 
 **Ranking rule.** Rows are ordered by **how often an operator meets the defect**, not by how large it looks.
@@ -15,6 +53,11 @@ A wrong default on every payment outranks a missing field on a rare voucher. Sev
 
 **Verification.** I re-read every `file:line` in this register against the current worktree and re-ran the
 load-bearing corpus greps myself. Rows are marked:
+
+> **† 2026-08-15 — "the current worktree" means 2026-08-04's, not today's.** That sentence is the one most likely
+> to be believed on a skim, and it stopped being true within two days. Every `file:line` was re-read again on
+> **2026-08-15 against HEAD `c56e5c3`**; where it had moved, the correction is the `†` line under the row.
+> **A `[code-verified]` mark below therefore certifies 2026-08-04, and a `†` line certifies 2026-08-15.**
 
 | Mark | Meaning |
 |---|---|
@@ -76,8 +119,25 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ---
 
-### D1 · Payment, Receipt and Contra open in Double Entry — TallyPrime ships them in Single Entry
-**HIGH** · Area **VE-D** · spec C-33, G-6
+### D1 · ~~Payment, Receipt and Contra open in Double Entry~~ — **FIXED IN CODE**
+**HIGH** · Area **VE-D** · spec C-33, G-6 · ✅ **CLOSED 2026-08-15**
+
+> **† 2026-08-15 — THIS ROW READ THE OPPOSITE OF THE CODE. FIXED by `f277318` ("Payment, Receipt and Contra open
+> in Single Entry, as Tally ships them", 2026-08-06 — two days after this register was written). Everything below
+> describes the pre-fix state; do not schedule it.** Verified at HEAD `c56e5c3`:
+> - The fix is exactly what the Fix cell prescribed: **`VoucherEntryViewModel.cs:141-144`**
+>   `private void SeedOpeningMode() { if (CanBeSingleEntry) Mode = VoucherEntryMode.SingleEntry; }`, called at
+>   **`:1194`**, *after* the two starter `AddLine` calls at `:1187-1188` so `OnModeChanged`'s polarity stamp has
+>   lines to act on.
+> - **`:90-91` "the default" with no Tally citation is GONE.** `:102-140` is now `SeedOpeningMode`'s doc block
+>   carrying the GSTN evidence this row asked for (lines 330/334, 1634, 1965) — **and it records the one apparent
+>   counter-example (GSTN line 330) rather than burying it**, plus the residual uncertainty about the ERP-9-era
+>   F12 control that the Fix cell asked to be written down.
+> - The field initialiser survives at **`:100`** but `:96-98` now states plainly: *"**This field initialiser is
+>   NOT the opening mode.**"*
+> **Citations corrected:** `:96` → **`:100`** · `:1176` `CanBeSingleEntry` → **`:1231-1232`** · `:1184`
+> `IsSingleEntry` → **`:1239`** · polarity inversion `:1192-1197` → **`:1247-1252`** · `ShowPlainDrCrGrid` `:132`
+> → **`:180`** · the Ctrl+H toggle `:3183-3185` → **`:3393`/`:3397-3400`**.
 
 | | |
 |---|---|
@@ -92,6 +152,16 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D2 · The balancing amount on the Dr/Cr grid is typed — TallyPrime captures it automatically
 **HIGH** · Area **VE-D** · spec G-17 · *(merged: "wrong defaults" #2 + "fields" #4)*
 
+> **† 2026-08-15 — verdict STANDS; nothing between `AddLine` and `Recalculate` seeds a balancing amount.**
+> `VoucherLineViewModel.cs:560`/`:569` and `InventoryVoucherLineViewModel.cs:296-308` are unchanged and exact.
+> **Corrected:** `AddLine` `:1161-1167` → **`:1216-1222`** · `Recalculate`/`IsBalanced` `:1374-1381` →
+> **`:1562-1579`** · **`CanAccept` `:794-798` is stale** — it is now `[ObservableProperty] private bool _canAccept;`
+> at **`:1096`**, assigned at **`:1579`** · the Single-Entry Account total write `:1289` → **`:1485-1487`** ·
+> `SingleEntryAccountTotal` `:1233-1241` → **`:1288-1296`** · the dirty-flag precedent `:449-463` → **`:466-521`**
+> (`SyncInvoiceBillWise`, stamps at `:492-512`).
+> **Note the D1 dependency named in §1 has changed shape:** D1 is fixed, so the Dr/Cr grid is no longer the screen
+> Payment/Receipt/Contra land on. This defect now bites Journal (F7) and the As-Voucher path, not "every payment".
+
 | | |
 |---|---|
 | **What the operator experiences** | Every two-line Payment, Receipt, Contra and Journal is typed twice — the same figure into the Dr line and the Cr line. A mistyped second figure produces an unbalanced voucher the app then refuses, so the cost of the missing default is a typo *plus* a rejection. On a multi-line Journal the operator does the arithmetic in their head to close the difference **while the screen is already showing it** in `DifferenceText`. |
@@ -105,6 +175,14 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D3 · The plain-grid Bill-wise row seeds *nothing* — and its own comment asserts the opposite
 **HIGH** · Area **VE-D** · spec C-21, G-15 · *(merged: "wrong defaults" #3 + "fields" #1 + "fields" #3)*
 
+> **† 2026-08-15 — verdict STANDS, and the false comment is still there verbatim.** `VoucherLineViewModel.cs:161-166`,
+> `SyncBillWise` `:167-187`, `AddBillAllocation(BillRefType.NewRef)` at `:180`, `AddBillAllocation` `:190-196`,
+> `BillAllocationRowViewModel.cs:29-32` and `BillSplitOk` `:228-238` are **all unchanged and exact**, as are
+> `MainWindow.axaml:2215-2224`, `:2539-2550` and `:3154`. **Commits `9608567` and `828fc9f` touched only the
+> *invoice* path** — `VoucherLineViewModel.AddBillAllocation` still constructs a wholly blank row.
+> **Corrected:** the invoice-only auto-stamp `VoucherEntryViewModel.cs:444-463` → **`:466-521`** ·
+> `AutoBillDueDateText()` `:356-359` → **`:404-407`** (`:356` is now `private bool _invoiceBillDirty;`).
+
 | | |
 |---|---|
 | **What the operator experiences** | On every bill-wise Payment, Receipt, Journal or As-Voucher invoice line, the Bill-wise panel opens **completely blank**. The operator retypes the line amount into the bill row (Accept stays greyed until the two match to the paisa), invents a reference name TallyPrime would have filled from the voucher number, and is shown an empty Due Date with no indication that leaving it blank is safe. This is the same complaint that started this review, in the panel that was **not** fixed. It serves both the Dr/Cr grid (`MainWindow.axaml:2215-2224`) and the Single-Entry grid (`:2539-2550`) — i.e. every Payment, Receipt and Contra against a party. |
@@ -115,8 +193,33 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ---
 
-### D4 · Ledger master has no Opening Balance field — a set of books cannot be opened
-**HIGH** · Area **MST**
+### D4 · ~~Ledger master has no Opening Balance field~~ — **FIXED IN CODE**
+**HIGH** · Area **MST** · ✅ **CLOSED 2026-08-15**
+
+> **† 2026-08-15 — FIXED by `c8b44cf` ("the Ledger master captures an opening balance", 2026-08-06). Everything
+> below describes the pre-fix state; do not schedule it.** Verified at HEAD:
+> - **The UI exists.** `MainWindow.axaml:4356-4387` — an amount `TextBox` bound to `OpeningBalanceText` (`:4371`)
+>   plus a Dr/Cr `ComboBox` bound to `OpeningSide` (`:4377-4386`), placed **directly under "Under"**, which is the
+>   corpus field order.
+> - **It reaches the domain.** `LedgerMasterViewModel.cs:1053-1054` `target.OpeningBalance = opening;` /
+>   `target.OpeningIsDebit = OpeningIsDebit;`. The old `:968-970` rationale is inverted at **`:1111-1114`**:
+>   *"OpeningBalance / OpeningIsDebit USED to be on this list … It owns them now."* The `Money.Zero` at `:575-580`
+>   survives only as a detached placeholder at **`:656-663`**, immediately overwritten.
+> - Supporting members: `_openingBalanceText` `:167` · `OpeningIsDebit` `:183-196` · `OpeningSides`/`OpeningSide`
+>   `:204-216` · nature-derived side proposal `SetOpeningSideFromNature` `:601-606` · validation for unparseable,
+>   negative and sub-paisa input `:864-894`. The read-only list column `MainWindow.axaml:4816` → **`:4852`**.
+>
+> **⚠️ TWO DELIBERATE DEPARTURES FROM THE FIX PRESCRIBED BELOW — both are live decisions, not oversights:**
+> **(a) The write is unconditional, so Alter DOES restate the opening**, where the Fix below asked for it to be
+> *read-only in Alter* to preserve the "an Alter must not restate a prior period" rule. **This was a considered
+> reversal, not an oversight** — `LedgerMasterViewModel.cs:1043-1051` argues it at length (*"On ALTER this is a
+> real restatement of the opening — which is the point. An accountant's first opening is very often wrong and the
+> corpus's alteration screen IS the creation screen, pre-filled … It is safe precisely because `LoadFrom` pre-fills
+> BOTH halves from the store, so an alter that touches only a name writes the same values back"*), and `:1111-1114`
+> records that the two members were moved off the not-written list on purpose. **Recorded here only so the reversal
+> is visible to whoever owns the prior-period rule; nothing is claimed to be wrong.**
+> **(b) The bill-wise opening breakup sub-screen (SG p.91 step 6) is still absent** — no bill-allocation collection
+> exists on `LedgerMasterViewModel`. That half of the row is **still open**.
 
 | | |
 |---|---|
@@ -131,6 +234,12 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D5 · "Agst Ref" bill name is a free TextBox in every panel — Tally makes you pick from the List of Pending Bills
 **HIGH** · Area **VE-D** · spec G-15
 
+> **† 2026-08-15 — verdict STANDS; every citation is exact, zero drift.** `MainWindow.axaml:2215-2217`,
+> `:2539-2542`, `:3152-3155`, `BillAllocationRowViewModel` `_name` `:30` and `ToAllocation()` `:85-89`, and
+> `Outstandings.OpenBillsFor` at `Outstandings.cs:124` are all unchanged. The asymmetry the row calls urgent is
+> re-confirmed: the only `OpenBillsFor` consumers are `InterestCalculation.cs:293` and `BillSettlementService.cs:66`
+> — **never the in-voucher panel**.
+
 | | |
 |---|---|
 | **What the operator experiences** | Settling a supplier bill means remembering and retyping the reference string exactly. **One transposed character posts a settlement against a bill that does not exist**: the real bill stays open in Receivables/Payables forever and an orphan negative reference appears beside it, with no error at entry and nothing that ever reconciles it. The operator is doing lookup work the app can already do. |
@@ -144,6 +253,11 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D6 · Stock Item master is unusable on a fresh company: "Under" has no Primary and "Units" has no Not Applicable
 **HIGH** · Area **MST**
 
+> **† 2026-08-15 — verdict STANDS.** `StockItemMasterViewModel.cs:365` (`CanCreate`), `:410-414` and `:415-419`
+> are unchanged and exact. **Corrected:** the `(none)` Category sentinel `:764` → **`:765`** · `RefreshPickers`
+> is **`:755-787`** and still adds **no** sentinel to `Groups` (`:758-760`) or `Units` (`:772-774`) ·
+> `CompanyFactory.cs:30-53` → the seed block is **`:25-52`**, and it still seeds no stock groups and no units.
+
 | | |
 |---|---|
 | **What the operator experiences** | On a new company the operator opens Create > Stock Item, types the item name, and is blocked with "create a Stock Group first" — a screen TallyPrime lets them complete in four keystrokes. It also permanently forbids the **service / unmeasured item** (Units = Not Applicable) that Tally users create routinely for consultancy and freight lines. |
@@ -154,8 +268,36 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ---
 
-### D7 · Negative stock is an unconditional hard block across the whole company timeline — TallyPrime only warns and still accepts
-**HIGH** · Area **VE-V** · spec C-44, G-8, **U-1** · ⚠️ *see the caution below before building*
+### D7 · ~~Negative stock is an unconditional hard block across the whole company timeline~~ — **FIXED IN CODE**
+**HIGH** · Area **VE-V** · spec C-44, G-8, **U-1** · ✅ **CLOSED 2026-08-15 for the block; the WARN half has no surface**
+
+> **† 2026-08-15 — THIS ROW READ THE OPPOSITE OF THE CODE. FIXED by `a12e651` ("negative stock warns instead of
+> blocking", schema **v50**, 2026-08-06 — two days after this register was written). Everything below describes
+> the pre-fix state.** Verified at HEAD `c56e5c3`:
+> - **The throw is gone.** `EnsureNoNegativeStockAnywhere` and the message *"Negative stock is not allowed."*
+>   (`:400`) do not exist anywhere in `src/`. The guard became a detector: **`InventoryPostingService.cs:176`**
+>   `public IReadOnlyList<NegativeStockShortfall> DetectNegativeStock() => DetectNegativeStockAnywhere();`
+>   (`:394-442`, never throws, never mutates).
+> - **The company flag exists.** `Company.cs:268` `public bool WarnOnNegativeStock { get; set; } = true;`,
+>   consulted at exactly one place — **`InventoryPostingService.cs:184-185`** `NegativeStockWarnings()`.
+> - **All four call sites are un-blocked.** `LedgerService.cs:55-60` now reads *"Negative stock is no longer
+>   blocked anywhere, so the append simply stands"*; `Cancel` `:88-97`, `Delete` `:99-108`. The class doc at
+>   `InventoryPostingService.cs:37-44` states *"⚠️ Negative stock is NOT blocked (plan.md NS-3; changed at v50)."*
+> - **The "structurally incapable of ever showing a row" sub-claim is now FALSE.** `ReportsViewModel.cs:2656`,
+>   `:2675` and `MainWindowViewModel.cs:1654` are unchanged and exact, but `NegativeStock.Build`
+>   (`src/Apex.Ledger/Reports/NegativeStock.cs:44`) can now return rows because negative on-hand is postable —
+>   asserted by `tests/Apex.Ledger.Tests/Inventory/NegativeStockPolicyTests.cs:106, 144, 176`.
+>
+> 🔴 **TWO HALVES REMAIN OPEN, and both are CODE defects, not documentation ones:**
+> **(a) `NegativeStockWarnings()` has NO production caller** — its only reference outside its own definition is
+> `NegativeStockPolicyTests.cs:331`. So "warn-only" currently warns nobody: there is no Accept-time advisory.
+> **(b) There is no control surface** — `grep WarnOnNegativeStock src/Apex.Desktop` returns **zero hits**, so a
+> company that wants the block back cannot ask for it. Tracked as W0-5 in `docs/NEXT_SESSION_KICKOFF.md`.
+> **The Fix cell's caution below is still correct about the VALUATION half (NS-8), which is untouched.** Note the
+> attempt count has risen: `docs/NEXT_SESSION_KICKOFF.md:113-146` records **eight** reverted attempts, not three,
+> and a sourcing pass now argues the fix is to **delete** the invented repayment model rather than write a ninth
+> — TallyPrime's Average Cost has no repayment model, and its own oracle `RunAverageDebtAware` implements the
+> refuted one, so **30 of 36 AverageCost goldens must be re-derived from the formula, never edited to match code.**
 
 | | |
 |---|---|
@@ -170,6 +312,13 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D8 · An unresolved GST rate / HSN-SAC hard-blocks Accept — TallyPrime records the voucher and lists it in GSTR-1 exceptions
 **HIGH** · Area **VE-V**
 
+> **† 2026-08-15 — verdict STANDS; the block is intact and part 2 of the Fix has NOT landed.** A repo-wide
+> `grep -i "Uncertain|Incomplete/Mismatch"` across `src/` returns **zero hits** — there is no GSTR-1 exception
+> surface, so the Fix's ordering constraint ("part 2 must land first") is still binding.
+> **Corrected:** the item-invoice refusal `:4476-4481` → **`:4690-4695`** · the accounting-invoice mirror
+> `:3868-3872` → **`:4082-4087`** · the `hasUnresolved` conjunct `:3736-3741` → **`:3950`** (declaration) and
+> **`:3955`** (`&& !hasUnresolved`).
+
 | | |
 |---|---|
 | **What the operator experiences** | Data entry stops for a **master-data** problem. Keying a stack of invoices, the operator hits an item whose HSN/tax rate was never set up and **cannot save the voucher at all** — abandon it, leave the voucher screen, alter the stock item or ledger master, come back, re-key everything. In TallyPrime the same invoice saves and the gap is cleaned up in bulk from the GSTR-1 exception report at return time, which is how practices actually work. This is the classic clone-feels-wrong divergence: the field is present, the rigidity is inverted. |
@@ -181,7 +330,25 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ---
 
 ### D9 · There is no Voucher Type master at all — `Create > Voucher Type` does not exist
-**HIGH** · Area **MST/CFG** · spec C-16, C-17, G-4
+**HIGH** · Area **MST/CFG** · spec C-16, C-17, G-4 · **† the G-4 half is FIXED; the master is still absent**
+
+> **† 2026-08-15 — the MAIN verdict STANDS; the G-4 sub-claim is now FALSE.**
+> **Still true:** `BuildCreateColumn()` (now `:1180-1257`, one row added) has **no "Voucher Type" entry**; no
+> `VoucherTypeMasterViewModel` file exists; `VoucherNumberingConfigViewModel.cs:114-115` still holds the numbering
+> Method **display-only**; and `VoucherType.cs` (now 281 lines) still carries every flag unreachable from the UI —
+> `UseAsManufacturingJournal` `:62`, `TrackAdditionalCosts` `:77`, `AllowZeroValuedTransactions` `:89`,
+> `UseForPos` `:100`, `PosConfig` `:105`, `IsStatPayment` `:140`, `IsRcmPaymentVoucher` `:153`,
+> `IsGstStatAdjustment` `:167`.
+> **🔴 NOW FALSE — the G-4 resolver fallback is GONE.** `MainWindowViewModel.cs:2756-2757` is Export/Import code
+> at HEAD. Commit `7bfc2c6` replaced all five routes with `VoucherTypeResolver.ResolveForEntry` (call sites
+> `:2892`, `:2948`, `:3510`, `:3538`, `:5083`), and `src/Apex.Ledger/Services/VoucherTypeResolver.cs:58` reads
+> `if (type.BaseType != baseType || !type.IsActive) continue;` — **an inactive type is never returned, so
+> `IsActive` is load-bearing, not decorative.** The Fix's closing instruction *"Remove the G-4 resolver fallback
+> in the same change"* is therefore **already done**.
+> **What survives of the sub-claim:** a **second** Sales series is still unreachable by a base-kind route, because
+> `VoucherTypeResolver.cs:60` reads `if (type.IsPredefined) return type;   // the seeded series wins outright`.
+> Cross-check: `docs/full-clone-census.md` T1-4 reaches the same conclusion from the opposite direction — Payroll
+> ships `IsActive = false` and now genuinely **cannot post**, which is only possible because the fallback is gone.
 
 | | |
 |---|---|
@@ -196,6 +363,12 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D10 · No master-screen F12 — layer 2 of the four-layer gate does not exist
 **MEDIUM (structural)** · Area **CFG** · spec §1.1 layer 2, G-14
 
+> **† 2026-08-15 — verdict STANDS; citation drift only.** **Corrected:** `F12Configure()` `:6628-6652` →
+> **`:6669-6694`** · the LedgerMaster arm `:6637-6641` → **`:6678-6682`** · the fall-through `:6652` → **`:6693`**
+> (`Message = "F12 Configure — display options (Phase 1 defaults).";`) · `LedgerMasterViewModel.cs:243` (the one
+> revealed field) → **`:298`**, gated by `ShowAppropriation` at **`:310`**.
+> Corroborated independently by `docs/full-clone-census.md` T1-16, which cites the same fall-through.
+
 | | |
 |---|---|
 | **What the operator experiences** | A Tally user's reflex when a field is missing is **F12 on the screen they are standing on**. Here that reflex produces a status-line message and nothing else, on every master but one. The reverse bites too: fields Tally keeps hidden until asked for (the whole Employee general/statutory/passport/contract block, the batch switches) are always on screen, so the master looks cluttered and unfamiliar. |
@@ -208,6 +381,20 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ### D11 · No Order No. / Tracking No. field anywhere — every Receipt Note, Delivery Note and invoice line is re-keyed by hand
 **HIGH** · Area **VE-D** · spec G-11, §4.5
+
+> **† 2026-08-15 — the re-keying defect STANDS; one sub-claim is now OVERSTATED.**
+> **Still true:** `InventoryVoucherEntryViewModel`'s header observables (now **`:107-139`** — `_title` `:107`,
+> `_date` `:108`, `_voucherNumber` `:109`, `_narration` `:110`, `_selectedParty` `:111`, `_isPostDated` `:124`,
+> `_message` `:127`) contain **no order or tracking field of any kind**; repo-wide `OrderNo`/`TrackingNumber`
+> outside Job Work is still nothing. Corroborated by `docs/full-clone-census.md` T1-8: *"Zero `TrackingNumber`
+> hits in `src/`."*
+> **🔴 Now overstated:** *"order-fulfilment tracking … cannot exist"*. Commit `1407978` added
+> `src/Apex.Ledger/Reports/OrderFulfilment.cs` and widened the party picker to the four movement notes, so
+> fulfilment tracking **does** exist — but it is derived by `(PartyId, StockItemId)` attribution rather than by an
+> order link, and that commit ships **four known-wrong residuals (R1–R4), three of which UNDER-state shortfall**.
+> So the capability is present and unreliable, which is a different (and more dangerous) claim than absent.
+> **Corrected:** `MaterialMovementEntryViewModel.AutoFillFromOrder` `:222-260` → declaration at **`:238`**.
+> `:188` and `ReportsViewModel.cs:1652` are unchanged and exact.
 
 | | |
 |---|---|
@@ -222,6 +409,13 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D12 · Batch sub-fields are independent switches instead of being nested under "Maintain in Batches"
 **HIGH** · Area **MST**
 
+> **† 2026-08-15 — verdict STANDS; `MainWindow.axaml` drifted ≈ +39 lines in this region.** The XAML comment the
+> Fix asks to delete is still there verbatim. **Corrected:** the comment `:6424-6425` → **`:6462-6464`** ·
+> `IsVisible="{Binding ShowBatchSwitches}"` `:6428` → **`:6467`** · "Maintain in Batches" `:6432` →
+> **`:6471-6472`** · "Track date of Manufacturing" `:6434` → **`:6473-6474`** · "Use Expiry dates" `:6436` →
+> **`:6475-6476`**. Still **no `IsVisible`/`IsEnabled` dependency between the three**.
+> `StockItemMasterViewModel.cs:165` is unchanged and exact.
+
 | | |
 |---|---|
 | **What the operator experiences** | The operator can save a stock item with **Use Expiry dates = Yes while Maintain in Batches = No** — a master TallyPrime cannot produce. Nothing then asks for an expiry date at entry (there is no batch sub-screen for a non-batch item), so the item **silently claims shelf-life tracking it does not have**. A pharmacy user who has always seen the two sub-fields appear only after answering Yes will read the always-on checkboxes as a different product. |
@@ -234,6 +428,12 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ### D13 · The voucher ledger picker is unfiltered for every voucher type — a Journal can post to Cash, a Contra to Sales
 **MEDIUM** · Area **VE-V** · spec C-47, G-12
+
+> **† 2026-08-15 — verdict STANDS, and this row's own drift-correction has itself drifted.** The row notes the
+> spec said `:630` and corrects it to `:1076`. **It is now `:1124`** — `Ledgers = company.Ledgers;`, still the
+> sole assignment, still one unfiltered collection handed unchanged to every `VoucherLineViewModel` (`:1218`),
+> with no per-type restriction anywhere. **A register line that exists to fix a stale citation went stale in
+> eleven days; that is the argument for the doc-vs-code CI check already on the kickoff queue.**
 
 | | |
 |---|---|
@@ -248,6 +448,12 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D14 · A free-goods item line requires a Rate to be typed — TallyPrime tells the operator to leave Rate and Amount blank
 **HIGH** · Area **VE-V**
 
+> **† 2026-08-15 — verdict STANDS; `VoucherEntryViewModel.cs` drifted ~+215 lines past `:4200`.**
+> `InventoryVoucherLineViewModel.cs:333` is unchanged. **Corrected:** `everyLineRateOk` `:4218-4220` →
+> **`:4432-4434`** (content identical — `allowZero` still only widens `r > 0` to `r >= 0` and **never admits
+> `ParsedRate is null`**) · the `CanAccept` conjunct `:4227` → **`:4441`** · the `AcceptItemInvoice` refusal
+> `:4398` → **`:4612-4615`**, error message unchanged.
+
 | | |
 |---|---|
 | **What the operator experiences** | A buy-one-get-one or free-sample line **cannot be keyed the way the reference product teaches it**. The operator tabs past Rate as documented, Accept greys out with no visible reason on the line, and Ctrl+A produces an error naming a config flag **that does not fix it**. They must discover on their own that typing an explicit "0" is required — and typing 0 changes the printed invoice, which in TallyPrime shows a blank Rate/Amount cell for a free item, not "0.00". |
@@ -260,6 +466,14 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ### D15 · A wholly zero-valued invoice enables Accept and is then rejected by the engine with an unrelated error
 **HIGH** · Area **VE-V** · corrects spec C-19 (recorded MATCH — true only for a *mixed* invoice)
+
+> **† 2026-08-15 — verdict STANDS; the one-character relaxation the Fix asks for has NOT landed.**
+> `VoucherValidator.cs:89` still reads `if (line.Amount.Amount <= 0m)` with **no `AllowZeroValuedTransactions`
+> conjunct**, so the ₹0 legs still die there after Accept has already lit up. **Corrected:**
+> the `total > 0m || allowZero` gate `:4229` → **`:4443`** · the derived legs `:4521-4526` → **`:4735-4740`** ·
+> `VoucherValidator.cs:84-85` → **`:89-90`** · the surfaced message `:4565` → **`:4781`** · the supporting
+> citations in the Fix: `voucherType` fetched `:39` → **`:44`**, the Sales/Purchase restriction `:71-75` →
+> **`:76-80`**, the per-line item guard `:241` → **`:267`**.
 
 | | |
 |---|---|
@@ -274,6 +488,16 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D16 · On a Credit Note / Debit Note the Rate is typed — and there is no item-invoice mode to type it into
 **MEDIUM** · Area **VE-D** · spec C-35, G-3
 
+> **† 2026-08-15 — verdict STANDS; the "do not widen without proof" warning has since been strengthened.**
+> `CanBeItemInvoice` `:67-68`, `InventoryVoucherLineViewModel:296-308` and `StockItem.cs:57` are unchanged and
+> exact. **Corrected:** `RefreshPriceLevelDefaults` `:3081-3110` → declaration at **`:3295`** ·
+> `ShowPriceLevelSelector` `:631-632` → **`:679-680`** · `CanBeSection34Note` `:1325-1326` → **`:2211-2212`** ·
+> the standing warning `:70-79` → **`:70-83`**, now closing *"**Do not widen this predicate further without the
+> equivalent proof.**"* **Related open row worth reading alongside this one:** `docs/full-clone-census.md` T0-10
+> — Credit and Debit Notes move **no stock at all** (`ItemInvoiceStock.Counts()` at `ItemInvoiceStock.cs:53`
+> returns true only for Purchase and Sales), so widening the mode without the stock parity would produce an
+> item-wise note that still leaves inventory overstated.
+
 | | |
 |---|---|
 | **What the operator experiences** | A sales return of stock cannot be entered as an item invoice at all. The operator enters the return on the plain Dr/Cr grid and types the gross amount, so the note cannot carry item lines, cannot move stock through the accounting voucher, and cannot print as an item-wise credit note. |
@@ -287,6 +511,19 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 ### D17 · Group (accounting) master cannot create a top-level group — the Under picker has no "Primary"
 **MEDIUM** · Area **MST**
 
+> **† 2026-08-15 — verdict STANDS; all citations exact, zero drift.** `AccountGroupMasterViewModel.cs:210-219`
+> still fills `ParentOptions` from `_company.Groups` (`:214-215`) with no sentinel, and `:179-183` still
+> hard-rejects a null parent (the same refusal guards `Alter()` at `:113-117`); `DerivedNature` reads the parent
+> at **`:159-161`**. The sibling sentinels are confirmed present at `StockGroupMasterViewModel.cs:119` and
+> `GodownMasterViewModel.cs:120`, both `Display = "◦ Primary (top-level)"`.
+> **The row's own caveat — "the Tally side needs one confirming page reference" — is now DISCHARGED.**
+> `docs/invented-vs-cloned.md` **IV-12** supplies it: **[web]** `help.tallysolutions.com/tally-prime/masters-tally/groups-in-tallyprime/`
+> ("Under: Select **Primary** or any other predefined groups"; "**Nature of Group**: Appears only if the group is
+> created under **Primary**") and **[corpus]** SG p.67 extracted line 2085 ("One can also create groups under the
+> Primary group category, if required"). **IV-12 is this row's twin and carries the fuller analysis** — including
+> that the uncited comment at `GroupService.cs:13-17` is the root cause and that every sibling master already does
+> the opposite. Schedule the two together.
+
 | | |
 |---|---|
 | **What the operator experiences** | A user who wants a new top-level head of account — routine when mirroring an existing chart of accounts — cannot create one. Every group must hang off an existing group, so the operator either abandons the structure or parks it under a head where it does not belong. Same shape as D6, on a different master. |
@@ -297,8 +534,27 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 
 ---
 
-### D18 · Ten predefined voucher types ship ACTIVE where TallyPrime ships them inactive
-**LOW** · Area **MST** · spec C-16, G-4
+### D18 · ~~Ten~~ **Eleven** predefined voucher types ship ACTIVE where TallyPrime ships them inactive
+**LOW** · Area **MST** · spec C-16, G-4 · **† the "decorative" claim is now FALSE — and that makes the Fix DANGEROUS**
+
+> **† 2026-08-15 — the seed defect STANDS; the COUNT is wrong and the FIX INSTRUCTION IS NOW UNSAFE.**
+> **(1) The count.** The heading says **ten**; the body lists **eleven**, and eleven is what the seed carries.
+> `SeedVoucherTypes.cs` is unchanged and exact: Credit Note `:30`, Debit Note `:31`, Physical Stock `:44`,
+> Sales Order `:45`, Purchase Order `:46`, Delivery Note `:47`, Receipt Note `:48`, Rejection Out `:49`,
+> Rejection In `:50`, Memorandum `:53`, Reversing Journal `:54` — every one still ends `, true)`. Only the four
+> job-work rows (`:55-58`) and Payroll (`:67`) are seeded `false`. **Corrected to eleven.**
+> **(2) 🔴 "`IsActive` is decorative" is FALSE at HEAD.** `MainWindowViewModel.cs:2756-2757` no longer exists;
+> `VoucherTypeResolver.cs:58` skips inactive types, `:60` prefers the predefined one, and the five routes now
+> surface `NoActiveTypeMessage` (`:2895`, `:2951`, `:3513`, `:3541`, `:5086`) instead of silently opening a
+> deactivated type.
+> **(3) 🔴 THEREFORE THE FIX BELOW IS DANGEROUS AS WRITTEN.** It says *"do not do this before the G-4 resolver
+> fallback is removed (D9), or the types become unreachable rather than merely hidden."* **The fallback is
+> already removed.** So seeding the eleven `IsActive: false` **today** would make them genuinely unreachable —
+> and the activation route does not exist: repo-wide `grep "Show Inactive|ShowInactive"` across `src/` returns
+> **zero hits**. **The correct sequence is now inverted: build `F10 > Show Inactive > Activate` FIRST, then flip
+> the seed.** The precedent for the existing-companies half is unchanged
+> (`VoucherTypeResolver.RepairSupersededSeedShortcuts`). **This is the clearest example in either register of a
+> stale document turning a safe instruction into an unsafe one.**
 
 | | |
 |---|---|
@@ -363,6 +619,14 @@ Kept out of the ranked register on purpose. **A fabricated "Tally does X" is wor
 ### U-A · Plain-grid Cost Allocation row seeds a blank amount — and the comment again asserts a pre-fill that does not exist
 **Severity: our-side LOW–MEDIUM; Tally-side UNPROVEN** · Area **VE-D**
 
+> **† 2026-08-15 — verdict STANDS, on both sides.** The false comment is verbatim at **`VoucherLineViewModel.cs:271-272`**
+> (the block runs `:269-274`), `SyncCostApplicable` `:275-299` and `CostAllocationRowViewModel.cs:35` are unchanged
+> and exact, and nothing stamps `AmountText` — the row is constructed with only a default Category at `:308-309`.
+> **The safe half of "What to do meanwhile" — correcting the comment — has NOT been done.**
+> **Corrected:** the row was already internally inconsistent here — it says `AddCostAllocation()` is called *"at
+> `:302`"*, which lies **outside** the `:275-299` range it gives for the enclosing method. At HEAD the **call site
+> is `:292`** and the **method declaration is `:302-313`**.
+
 - **What we do (certain, [code-verified]).** `VoucherLineViewModel.cs:269-272` states the seeded cost row
   defaults "*its amount to the line, so the common single-centre case needs one centre pick*". It does not.
   `SyncCostApplicable` (`:275-299`) calls `AddCostAllocation()` at `:302`; that method pre-selects a sensible
@@ -393,9 +657,21 @@ Kept out of the ranked register on purpose. **A fabricated "Tally does X" is wor
 These are already ranked in `docs/voucher-entry-specification.md` §7 with citations. They are real and
 additional to this register; they are omitted only to avoid duplicating a document that already holds them.
 
+> **† 2026-08-15 — G-2 is FIXED and must come off this list; G-14 is unchanged.** `VoucherValidator.cs:338-339`
+> now documents and enforces *"— **within each cost category independently** — their magnitudes must sum exactly
+> to the line amount"*, and `:340-345` states the rule in the corpus's own terms: *"**Parallel sets, not a
+> partition** … the corpus's worked example allocates one ₹5,000 travelling expense in full to Branch → Kolkata
+> **and** in full to Department → Marketing **and** in full to Executive → Sales Executive 1 (TALLY PRIME STUDY
+> GUIDE pp.101–102). Summing across categories and comparing that to the line — **which this validator used to
+> do** — rejects the reference product's own example."* The per-axis check is at `:376-387`. Fixed by `aed9a50`,
+> which also carries legacy-book rehydration. **The same correction applies to U-A's closing sentence**, which
+> still says *"Our engine currently rejects that corpus example outright — spec G-2."* It no longer does.
+> The other nine rows in this table were **not** re-verified in the 2026-08-15 pass — they live in
+> `docs/voucher-entry-specification.md`, which is separately stale (see §6's `†` note).
+
 | Spec ID | Gap | Severity |
 |---|---|---|
-| **G-2** | Cost allocation enforces a partition; TallyPrime uses parallel sets — the corpus's own worked example is rejected by our engine | CRITICAL |
+| ~~**G-2**~~ | ~~Cost allocation enforces a partition~~ — **† FIXED `aed9a50`**; `VoucherValidator.cs:338-345`, `:376-387` | ~~CRITICAL~~ |
 | **G-5** | Batch allocation is a free-text label on the Purchase/Sales invoice screens; the good sub-screen exists but is wired to the wrong screens | HIGH |
 | **G-9** | Discount column has the wrong trigger (`EnableMultiplePriceLevels`) and the wrong scope (Sales only, % only) | MEDIUM |
 | **G-10** | No godown split within one line — godown is a line-level scalar | MEDIUM |
@@ -409,6 +685,26 @@ additional to this register; they are omitted only to avoid duplicating a docume
 ---
 
 ## 6. ⚠️ The spec is stale in three places — verified this session
+
+> ### † 2026-08-15 — THIS SECTION IS NOW STALE ABOUT ITSELF
+> **(1) Item 1's closing sentence is WRONG.** It reads *"What remains is D1: it is not the default."* **D1 is
+> fixed** — `SeedOpeningMode` at `VoucherEntryViewModel.cs:141-144`, called at `:1194`. Nothing remains of D1.
+> Item 1's own citation drifted too: `:1176-1197` → **`:1231-1252`**.
+> **(2) Item 2 stands**, but `CanBeAccountingInvoice` reads `Sales or Purchase` at **`:85-86`**, not `:80`.
+> **(3) Item 3 stands, caveat included** — `InvoiceBillSplitOk` as a `CanAccept` conjunct `:4231` → **`:4445`**;
+> the invoice bill-panel seeding `:444-463` → **`:466-521`** (stamps at `:492-512`). **The "I did not trace the
+> posting path end-to-end, so confirm before closing" caveat is STILL UNDISCHARGED** — the 2026-08-15 pass did
+> not trace it either.
+> **(4) The closing note is stale about the very drift it exists to record:** the unfiltered ledger picker is now
+> **`:1124`**, not `:1076`.
+> **(5) 🔴 The final sentence — *"Every `file:line` in **this** register was re-read against the current worktree
+> today"* — was true on 2026-08-04 and is the sentence most likely to be believed on a skim. It is no longer
+> true.** Read it as *"…was re-read on 2026-08-04, and again on 2026-08-15; the 2026-08-15 corrections are the
+> `†` lines."* Two files moved far enough to matter: `VoucherEntryViewModel.cs` by ~+55 lines in its first third
+> and **~+215 lines past `:4200`**, and `MainWindow.axaml` by ~+39 lines around the stock-item masters.
+> **⇒ This is the argument for the doc-vs-code CI check on the kickoff queue: no test in this repository reads a
+> `.md` file, so nothing can fail when a register goes stale.**
+
 
 `docs/voucher-entry-specification.md` is dated 2026-08-01 and the code has moved under it. Anyone reading it
 alongside this register must know:
@@ -447,3 +743,22 @@ Ranked by expected defect density, given that the three root causes in §1 are a
 **Before any of it:** settle spec **U-1** (negative stock, D7) by observation, not by web citation. It is the
 one row in this register with a documented history of three reverted attempts, and it is the row most likely
 to be built on a wrong premise.
+
+> ### † 2026-08-15 — §7 has been overtaken by the census; and its closing paragraph is now half wrong
+> **The six passes below were largely run.** `docs/full-clone-census.md` (2026-08-10) swept the whole product to
+> a denominator of **~115 capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined**, and its §6 item 10
+> records which surfaces it closed. Passes 1 (printing), 2 (reports), 4 (company creation / F11) and 6 (Day Book,
+> import/export, GST returns UI) all now have measured rows — see census **T2-4** (the print engine has no image
+> primitive, so IRN/QR/logo are structurally impossible without replacing `PdfWriter`), **T1-9/T1-10** (71 of 77
+> report surfaces are dead ends; 32 cannot be printed at all), **T1-6** (company creation captures one field) and
+> **T1-11/T1-12** (no GSTR-1 or GSTR-3B JSON; 7 GSTR-1 and 5 GSTR-3B tables missing).
+> **Passes 3 (the remaining master screens) and 5 (payroll / TDS-TCS entry surfaces) are the two that remain
+> genuinely unswept** — census §6 lists payroll *entry-surface* fidelity among what is still unmeasured.
+> **🔴 The closing paragraph is now half wrong.** *"Settle U-1 by observation"* is still right, but *"three
+> reverted attempts"* is out of date — `docs/NEXT_SESSION_KICKOFF.md:113-146` records **eight**, and the
+> **posting** half of D7 was subsequently built and shipped (`a12e651`) **without** U-1 being settled. What is
+> still blocked on observation is the **valuation** half (NS-8), and the blocking measurements now have names:
+> **T1/T2/T3/T4** in `docs/tallyprime-valuation-test-books.md`, of which **T4 is the question that stopped the
+> work eight times and no document answers it.**
+> **One number to carry forward instead of this section's own:** the census's headline is harsher than §3's
+> "low hundreds" — **only 8 of 115 capabilities have ever had their behaviour compared to a source.**

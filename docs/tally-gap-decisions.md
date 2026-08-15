@@ -6,6 +6,41 @@
 
 ---
 
+> ## 🔴 † STALENESS NOTICE — added 2026-08-15, HEAD `c56e5c3`
+>
+> **THE `D`-NUMBERS IN THIS FILE ARE LOCAL TO IT.** `docs/tally-fidelity-defects.md` has a **different**
+> D1/D3/D4/D7, and the eight "diverged rule" copies use a **third** D1–D8. **Never cite a bare `D`-number** —
+> always write "`tally-gap-decisions.md` D-n". Confusion between the three has already cost this project time.
+>
+> **Four decision rows below describe a state the code has left.** This file was NOT part of the 2026-08-15
+> register re-verification; these four were found incidentally while cross-checking, and **the rest of the file
+> is unverified**:
+> - **D5 (Single Entry missing on Contra/Payment/Receipt) — RESOLVED, and beyond what it asked.** Commit
+>   `f277318`: Single Entry not only exists, it is the mode those three **open in**
+>   (`VoucherEntryViewModel.SeedOpeningMode` `:141-144`, called `:1194`). Ctrl+H is now a real Change-Mode key
+>   (`MainWindow.axaml.cs:577`, gated on `vm.IsChangeModeEntry`).
+> - **D7 (Physical Stock's key is wrong and dead) — RESOLVED.** Ctrl+F7 is bound at `MainWindow.axaml.cs:765`
+>   with its grounding comment at `:758-761`. ⚠️ **The residual is a citation defect, not a behaviour one:**
+>   `docs/invented-vs-cloned.md` IV-34 records that the comment quotes the shortcut reference **verbatim with no
+>   URL, page or retrieval date**, so the binding cannot be re-checked. F10's Gateway-context meaning ("list all
+>   vouchers or masters") is still unimplemented.
+> - **D9 (Credit/Debit Note have no menu row) — RESOLVED.** `MainWindowViewModel.cs:1002-1003` carries both rows
+>   with the Alt+F6 / Alt+F5 hints, placed per option A as this row's own comment at `:1000-1001` records.
+> - **D14 (Negative stock) — HALF RESOLVED, and its premise has moved twice.** The **posting** half shipped at
+>   `a12e651` (schema v50): the hard block is deleted, `Company.cs:268 WarnOnNegativeStock = true`,
+>   `InventoryPostingService.cs:176` detects without throwing. **But the warning has no consumer and the flag has
+>   no UI** (zero `src/Apex.Desktop` hits for either) — so "warn-only" warns nobody. **And "three attempts" is out
+>   of date: `docs/NEXT_SESSION_KICKOFF.md:113-146` records EIGHT**, plus a sourcing finding that changes the
+>   answer — TallyPrime's Average Cost has **no repayment model at all**, so the fix is to *delete* the invented
+>   machinery, and the project's own oracle (`RunAverageDebtAware`) implements the refuted model and will reject a
+>   correct engine. **Do not act on D14's option table without reading that section first.**
+>
+> **D22 and D23 are unchanged and still open** — but see `docs/invented-vs-cloned.md` IV-15 and IV-25, which
+> re-argue both: IV-15 shows D22's premise rests on a guard we wrote ourselves
+> (`Company.cs:681-682`, unscoped by financial year) rather than on the IRP's rule, and IV-25 reports that D23's
+> "unverified premise" has been **verified** — TallyPrime does ship five methods — while noting D23 has still not
+> been closed in `memory.md`.
+
 ## How to use this document
 
 Each question has a number (**D1**, **D2**, …), 2–4 **mutually exclusive** options, and a **recommendation with
