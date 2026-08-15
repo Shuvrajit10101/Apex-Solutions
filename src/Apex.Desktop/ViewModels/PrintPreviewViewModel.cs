@@ -370,13 +370,20 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             string.Empty, IndianFormat.AmountAlways(inv.TotalTaxable)));
         if (!inv.IsBillOfSupply)
         {
-            if (inv.IsInterState)
+            // W0-15: three-valued, and the mirror states exactly what InvoicePdf.HeadRows states. A null routing names
+            // NO head — if the two disagreed the operator would approve one document and issue another. Where a null
+            // routing nonetheless carries tax (only reachable from a hand-built DTO — the projector's null routing
+            // means no forward leg was posted), both surfaces state the AMOUNT under the head-free label "Tax", so
+            // neither shows a Grand Total exceeding the visible rows by an unexplained figure.
+            if (inv.IsInterState is true)
                 rows.Add(new PrintRow(new[] { "IGST", string.Empty, IndianFormat.AmountAlways(inv.TotalIgst) }));
-            else
+            else if (inv.IsInterState is false)
             {
                 rows.Add(new PrintRow(new[] { "CGST", string.Empty, IndianFormat.AmountAlways(inv.TotalCgst) }));
                 rows.Add(new PrintRow(new[] { "SGST", string.Empty, IndianFormat.AmountAlways(inv.TotalSgst) }));
             }
+            else if (inv.TotalTax.Amount != 0m)
+                rows.Add(new PrintRow(new[] { "Tax", string.Empty, IndianFormat.AmountAlways(inv.TotalTax) }));
             // W0-1 follow-up (review finding #3): the ring-fenced Compensation Cess, which InvoicePdf.DrawClosingBlock
             // has printed on its own line since FIX-1 and this mirror did not. Cess is OUT of TotalTax but IN
             // GrandTotal (the accept path adds it to the party leg), so omitting the row left the operator approving a

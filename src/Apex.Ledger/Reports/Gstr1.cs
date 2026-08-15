@@ -256,7 +256,12 @@ public sealed record Gstr1(
             if (!hasTax) continue;
 
             var party = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
-            var pos = GstReportSupport.PlaceOfSupply(company, voucher);
+            // W0-15: the place of supply an ISSUED document states — the s.10(1)(ca) ladder RECONCILED to the tax the
+            // voucher posted, the same value the printed invoice carries. Reading the raw ladder here let the return
+            // name the SUPPLIER's own State on an IGST-bearing voucher whose party State had since been cleared or
+            // "corrected" (NIC validation 24 makes that self-refuting) while the reprint of the same voucher printed
+            // nothing at all. An undrifted voucher resolves identically ⇒ byte-identical (ER-13).
+            var pos = GstReportSupport.IssuedPlaceOfSupply(company, voucher);
             var taxable = GstReportSupport.InvoiceTaxableValue(voucher);
 
             // Per-(integrated rate) breakdown of THIS invoice's posted tax, so a multi-rate invoice contributes
@@ -406,7 +411,8 @@ public sealed record Gstr1(
 
             rows.Add(new Gstr1Table9BRow(
                 link.CdnType, link.OriginalInvoiceVoucherId, link.OriginalInvoiceNumber, link.OriginalInvoiceDate,
-                v.Date, GstReportSupport.PlaceOfSupply(company, v),
+                // W0-15: the same reconciled place of supply the invoice states (see the Table 4/7 note above).
+                v.Date, GstReportSupport.IssuedPlaceOfSupply(company, v),
                 new Money(sign * taxable), new Money(sign * heads.Cgst), new Money(sign * heads.Sgst),
                 new Money(sign * heads.Igst), link.ReasonCode, link.Is9BTarget));
         }

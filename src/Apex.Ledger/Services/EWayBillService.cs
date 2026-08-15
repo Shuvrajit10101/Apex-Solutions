@@ -66,14 +66,35 @@ public sealed class EWayBillService
         if (type is null || !IsGoodsMovementDocument(type.BaseType) || !voucher.HasInventoryLines)
             return EWayCoverage.NotApplicable;
 
-        var interState = IsInterState(voucher);
+        // W0-15 — THE shared routing rule, three-valued: null = this book cannot route the supply (no home State).
+        // Every test below is written so that UNKNOWN buys NOTHING. Rule 138's flat ₹50,000 is the BASELINE; the
+        // intra-state exemption and the per-State threshold override are RELAXATIONS that presuppose a known State,
+        // and the job-work/handicraft short-circuit is a widening that presupposes a known INTER-state one. Erring
+        // toward over-covering is the only answer that derives nothing from a fact the book does not have.
+        //
+        // The private copy of the rule this replaces diverged on TWO axes, not one, and both change a coverage verdict:
+        //
+        //   (1) NULL HOME STATE. It returned `false` — and `false` here is not "unknown", it is the positive assertion
+        //       "intra-state", which the exemption and the per-State override both spent. Now `null`, which buys
+        //       nothing.
+        //   (2) 🔴 BLANK PARTY STATE — the axis the first draft of this comment did not name. It read
+        //       `GstReportSupport.PlaceOfSupply`, whose `StateCode is { } code` pattern matches a NON-NULL EMPTY or
+        //       WHITESPACE string, and compared that unequal to the home code: a party State of "" or "   " answered
+        //       INTER-state. `RoutingOf` tests `IsNullOrWhiteSpace` and answers INTRA — the s.10(1)(ca) ladder, which
+        //       fixes the place of supply at the supplier's own location when the recipient's address is not
+        //       recorded. So this is a DELIBERATE correction of the deleted copy, not an inherited behaviour, and it
+        //       is measured: on a company that exempts intra-state e-Way, a ₹59,000 movement to a blank-State party
+        //       reads NotRequired here where the deleted copy read Required. It is reachable — the canonical-XML
+        //       import writes `PartyGstDetails.StateCode` straight from an attribute value, with no empty-to-null
+        //       step — and it is pinned by `EWayBlankPartyStateRoutingTests` in Apex.Ledger.Tests.
+        var interState = GstReportSupport.RoutingOf(_company, voucher);
 
         // Inter-state job-work / handicraft ⇒ mandatory regardless of value (short-circuit before the threshold test).
-        if (interState && txnType is EWayTransactionType.JobWork or EWayTransactionType.Handicraft)
+        if (interState is true && txnType is EWayTransactionType.JobWork or EWayTransactionType.Handicraft)
             return EWayCoverage.MandatoryIrrespectiveOfValue;
 
-        // A company that exempts intra-state e-Way entirely ⇒ an intra-state movement is Not-Required.
-        if (!interState && !gst.EWayIntraStateApplicable)
+        // A company that exempts intra-state e-Way entirely ⇒ a KNOWN intra-state movement is Not-Required.
+        if (interState is false && !gst.EWayIntraStateApplicable)
             return EWayCoverage.NotRequired;
 
         var value = ConsignmentValue(voucher);
@@ -128,11 +149,14 @@ public sealed class EWayBillService
 
     /// <summary>The effective consignment threshold for a movement — the per-state / per-transaction-type override for the
     /// place-of-supply state (INTRA-state movements only), else the flat <see cref="GstConfig.EWayThreshold"/>. The state
-    /// overrides are intra-state-only, so an inter-state consignment always uses the ₹50,000 default (risk #5).</summary>
-    private Money EffectiveThreshold(Voucher voucher, EWayTransactionType txnType, bool interState)
+    /// overrides are intra-state-only, so an inter-state consignment always uses the ₹50,000 default (risk #5).
+    /// <para>W0-15: <paramref name="interState"/> is three-valued and the override limb narrows to <c>is false</c> — a
+    /// book that cannot route the supply gets the ₹50,000 baseline, never a State-specific relaxation keyed on a place
+    /// of supply it cannot establish.</para></summary>
+    private Money EffectiveThreshold(Voucher voucher, EWayTransactionType txnType, bool? interState)
     {
         var gst = _company.Gst!;
-        if (!interState)
+        if (interState is false)
         {
             var pos = GstReportSupport.PlaceOfSupply(_company, voucher);
             var overrideRow = gst.EWayStateThresholds
@@ -140,13 +164,6 @@ public sealed class EWayBillService
             if (overrideRow is not null) return overrideRow.Threshold;
         }
         return gst.EWayThreshold;
-    }
-
-    private bool IsInterState(Voucher voucher)
-    {
-        var home = _company.Gst?.HomeStateCode;
-        var pos = GstReportSupport.PlaceOfSupply(_company, voucher);
-        return pos is not null && home is not null && !string.Equals(pos, home, StringComparison.Ordinal);
     }
 
     private static bool IsGoodsMovementDocument(VoucherBaseType baseType) => baseType is
@@ -193,6 +210,13 @@ public sealed class EWayBillService
         // ShipFrom = the company's own home state and ShipTo = the counterparty UNCONDITIONALLY, so an inward movement
         // declared the buyer as its own supplier — three individually-legal codes forming a combination the portal
         // refuses, and, if it did not, an e-Way Bill stating goods travelling the opposite way down the road.
+        // 🔴 W0-15 OPEN GAP (flagged, deliberately NOT fixed in that slice) — this is a WRITE path and it reads the
+        // home State RAW. On a book that declares none, the record below is minted with a NULL consignor State: an
+        // EWB-01 request whose From/To ends the NIC mapping constrains are filled from a fact the book does not have.
+        // W0-15 scoped itself to the in-memory ROUTING rule (what a figure may be derived from); making a write path
+        // REFUSE is a change to what the application rejects, which is a separate decision. Today's behaviour is
+        // pinned by PlaceOfSupplyOneRoutingTests.PINNED_GAP_prepare_record_still_stamps_a_null_home_state_into_the
+        // _portal_request, so it cannot change silently.
         var home = _company.Gst!.HomeStateCode;
         var counterparty = GstReportSupport.PlaceOfSupply(_company, voucher);
         var inward = string.Equals(codes.SupplyType, "I", StringComparison.Ordinal);

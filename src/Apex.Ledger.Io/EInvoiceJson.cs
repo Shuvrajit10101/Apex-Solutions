@@ -258,6 +258,25 @@ public static class EInvoiceJson
     /// </list>
     /// <para>Otherwise <c>Pos</c> is the recipient's own state: it is what decides intra vs inter-state at the IRP
     /// ("Validations" rule 24), so it tracks the same state code the buyer block declares.</para>
+    ///
+    /// <para><b>🔴 W0-15 OPEN GAP — this domestic limb was NOT reconciled, and the reason first given for that was
+    /// wrong. Recorded here rather than left to be re-derived.</b> The domestic ladder below is
+    /// <c>partyGst?.StateCode ?? homeStateCode</c> — the RAW derivation W0-15 replaced on the print path and in
+    /// GSTR-1 with <c>GstReportSupport.IssuedPlaceOfSupply</c>, which reconciles the live party master against the tax
+    /// the voucher actually POSTED. W0-15's plan row justified leaving it alone on the ground that "reconciling could
+    /// emit a triple the IRP rejects". <b>That is backwards on the shape that matters:</b> clear an IGST-bearing
+    /// invoice's party State and this block emits <c>Pos = Stcd = </c> the SUPPLIER's own State beside a recipient
+    /// GSTIN whose first two digits are a different State — breaching validation 17 (GSTIN prefix vs state code) and
+    /// validation 24 (supplier state == POS on an inter-state supply) at once. Not reconciling does not avoid an
+    /// IRP-rejected payload; it produces one, and now also disagrees with the GSTR-1 row for the same voucher.
+    /// <br/><b>Why it is still not changed here.</b> Minting an INV-01 payload is a WRITE path — the same class as
+    /// <c>EWayBillService.PrepareRecord</c>, which W0-15 flagged and pinned rather than changed — and the reconciled
+    /// answer for this shape is <c>null</c>, which <c>Pos</c>/<c>Stcd</c> may not be (both are <c>required</c> in the
+    /// schema). Choosing what an unreconstructable POS emits into a statutory payload needs its own R7 grounding and
+    /// its own slice; guessing it inside a routing clean-up would be the invention this campaign exists to stop.
+    /// <b>Today's output is therefore PINNED, not blessed</b>, by
+    /// <c>EInvoiceInv01SchemaConformanceTests.PINNED_GAP_the_inv01_buyer_block_still_derives_its_pos_from_the_raw_ladder</c>,
+    /// so it cannot change silently.</para>
     /// </summary>
     private static BuyerDtlsDto BuyerBlock(
         EInvoiceSupplyCategory category, PartyGstDetails? partyGst, string? homeStateCode)

@@ -58,12 +58,16 @@ namespace Apex.Desktop.Services;
 /// whose answer needs a rate snapshotted onto the posted line (a schema change) — a plan.md carry-forward, not a
 /// print-path patch. Held together meanwhile by
 /// <c>ItemInvoicePostedTaxTests.A_taxable_at_zero_percent_supply_prints_no_rate_row_on_the_item_and_service_passes_alike</c>.</item>
-/// <item><b>F7 — printing after GST is switched off throws.</b> <see cref="ProjectInvoice"/> opens with
-/// <c>GstService.IsInterState</c>, which raises "GST is not enabled (no home state) — cannot route a supply" when the
-/// company has no home State. Reachable on HEAD too (any item invoice posted while GST was on, reprinted after it was
-/// switched off); the service-invoice slice merely widens the set of vouchers that reach it. Fixing it means deciding
-/// what a de-GSTed company should print for an already-issued tax invoice — a separate change, not a print-path
-/// patch.</item>
+/// <item><b>F7 — printing after GST is switched off threw. FIXED in W0-15.</b> <see cref="ProjectInvoice"/> used to
+/// open with <c>GstService.IsInterState</c>, which raises "GST is not enabled (no home state) — cannot route a supply"
+/// when the company has no home State — so any item invoice posted while GST was on could not be REPRINTED after it
+/// was switched off. The throw was also gratuitous here: the value it computed is consumed only where the voucher
+/// posted no forward tax leg (<see cref="ReadPostedMoney"/>'s <c>postedRouting ?? livePartyInterState</c>), yet it was
+/// evaluated eagerly for every projection. The routing rule is now three-valued
+/// (<c>GstReportSupport.RoutingOf</c>): the throwing wrapper stays on the paths that PRODUCE a figure (posting, POS
+/// billing, RCM/TCS) and this read-only path carries the <c>null</c> — which reaches
+/// <see cref="InvoicePrintData.IsInterState"/> and suppresses the head caption rather than asserting a routing nothing
+/// established. Pinned by <c>PlaceOfSupplyOneRoutingTests</c>.</item>
 /// <item><b>W0-1b — the POS retail-bill path was the OTHER HALF of the bill-of-supply defect. FIXED in the W0-1
 /// follow-up.</b> W0-1 routed the voucher-screen document only, so the same composition dealer billing the same supply
 /// through POS Billing still got a customer-facing receipt titled from <c>PosConfig.DefaultTitle</c> ("Retail
@@ -264,12 +268,18 @@ public static class VoucherPrintProjector
         if (GstReportSupport.IsCompositionSupplyCarryingForwardTax(company, voucher))
             throw new InvalidOperationException(CompositionContradictionRefusal);
 
-        var gst = new GstService(company);
         var partyLedger = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
-        var partyState = partyLedger?.PartyGst?.StateCode;
         // The routing the party's LIVE master implies. Used only where the voucher posted no forward tax leg at all
         // and there is therefore nothing posted for the document to contradict (F1) — on BOTH passes, since W0-10.
-        bool livePartyInterState = gst.IsInterState(partyState);
+        //
+        // W0-15 (F7 CLOSED) — this reads the NON-THROWING form of the one shared rule. It used to call
+        // `GstService.IsInterState`, which raises "GST is not enabled (no home state) — cannot route a supply" on a
+        // company with no home State, EAGERLY, for every projection — so an already-issued invoice could not be
+        // reprinted at all, even though `ReadPostedMoney` consumes this value ONLY where the voucher posted no
+        // forward tax leg. A refusal belongs where a figure is PRODUCED (posting, POS billing, RCM/TCS), not on the
+        // reprint of a document that was correct when it was issued. `null` here means "this book cannot route a
+        // supply" and is carried, never collapsed into "intra-state".
+        bool? livePartyInterState = GstReportSupport.RoutingOf(company, partyLedger?.PartyGst?.StateCode);
 
         // A SERVICE (Accounting Invoice) sale has no stock lines, so the item pass below would project an EMPTY
         // invoice. It takes its own projection; both passes now read the same POSTED legs for every figure.
@@ -365,9 +375,10 @@ public static class VoucherPrintProjector
         // verbatim. Fed the POSTED routing it does its job — the printed State can no longer contradict the printed
         // tax. Where no forward tax was posted there is nothing to reconcile against, so the party's own State is
         // printed verbatim (F1) — which is what a bill of supply already did, byte-identically.
-        var buyerState = money.PostedRouting is { } posted
-            ? ConsistentBuyerStateCode(company, partyLedger, posted)
-            : partyLedger?.PartyGst?.StateCode;
+        // W0-15: the whole reconciliation now lives in GstReportSupport, beside the routing rule it depends on, so
+        // this class no longer carries a FOURTH copy of "is this supply inter-state" (see the note on the deleted
+        // ConsistentBuyerStateCode below the helpers).
+        var buyerState = GstReportSupport.IssuedBuyerStateCode(company, voucher);
         // W0-1 (T0-7): which document is this, in law? A bill of supply carries NO tax breakup (CGST Rule 49 prescribes
         // no rate and no tax-amount particular), so the per-rate rows and the per-head totals are dropped.
         // <para>W0-10 — the suppressions are now BELT AND BRACES rather than the only protection, and they stay for
@@ -396,7 +407,7 @@ public static class VoucherPrintProjector
             ReferenceDateText = voucher.ReferenceDate is { } rd
                 ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
-            PlaceOfSupply = PlaceOfSupply(company, buyerState, money.InterState),
+            PlaceOfSupply = StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
             IsInterState = money.InterState,
             Items = items,
             TaxRows = billOfSupply ? Array.Empty<InvoiceTaxRow>() : money.TaxRows,
@@ -436,7 +447,7 @@ public static class VoucherPrintProjector
     /// actually carries.</item>
     /// <item><b>Intra vs inter</b> — decided by which HEAD was posted <b>whenever a forward tax leg exists</b>, not
     /// re-derived from the party's (editable) State, for the same reason; the printed buyer State and Place of Supply
-    /// are then forced to AGREE with that posted routing (<see cref="ConsistentBuyerStateCode"/>), so editing the
+    /// are then forced to AGREE with that posted routing (<see cref="GstReportSupport.IssuedBuyerStateCode"/>), so editing the
     /// party's State after posting can no longer produce a document that states CGST+SGST under an inter-state Place
     /// of Supply. <b>When the voucher posts NO forward tax leg at all</b> — a zero-rated (LUT/export) or wholly-exempt
     /// supply — the buyer block, the Place of Supply and the routing all come from the party's recorded State instead
@@ -466,9 +477,10 @@ public static class VoucherPrintProjector
     /// tax foots to the posted party leg exactly.</para>
     /// </summary>
     /// <param name="livePartyInterState">The routing derived from the party's RECORDED State vs the company home State
-    /// (<c>GstService.IsInterState</c>). Used only when the voucher posted no forward tax leg at all (F1).</param>
+    /// (<c>GstReportSupport.RoutingOf</c>, the non-throwing form). Used only when the voucher posted no forward tax leg
+    /// at all (F1); <c>null</c> = the book declares no home State, so not even the master can route it.</param>
     private static InvoicePrintData ProjectServiceInvoice(
-        Company company, Voucher voucher, Apex.Ledger.Domain.Ledger? partyLedger, bool livePartyInterState)
+        Company company, Voucher voucher, Apex.Ledger.Domain.Ledger? partyLedger, bool? livePartyInterState)
     {
         var items = new List<InvoiceItemRow>();
         // Σ of EVERY service leg — taxed AND exempt/nil — so an exempt line is never silently dropped from the
@@ -493,9 +505,8 @@ public static class VoucherPrintProjector
         // F1: reconcile the printed State to the POSTED tax only where posted tax exists. With none, the party's own
         // recorded State is printed verbatim — the real State, the real GSTIN (ConsistentBuyerGstin keeps a GSTIN
         // whose prefix matches the State it is printed under) and the matching Place of Supply.
-        var buyerState = money.PostedRouting is { } posted
-            ? ConsistentBuyerStateCode(company, partyLedger, posted)
-            : partyLedger?.PartyGst?.StateCode;
+        // W0-15: the SAME shared reconciliation the item pass uses (GstReportSupport), never a second copy.
+        var buyerState = GstReportSupport.IssuedBuyerStateCode(company, voucher);
         // W0-1 (T0-7): the same §31(3)(c) routing as the item pass. On this path a bill of supply is necessarily
         // tax-free already (`IsBillOfSupply` refuses the classification when forward tax or cess was posted, and every
         // figure here is read from the POSTED legs), so the suppressions below can only ever drop empty rows and zero
@@ -515,7 +526,7 @@ public static class VoucherPrintProjector
             ReferenceDateText = voucher.ReferenceDate is { } rd
                 ? rd.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture)
                 : string.Empty,
-            PlaceOfSupply = PlaceOfSupply(company, buyerState, money.InterState),
+            PlaceOfSupply = StateText(GstReportSupport.IssuedPlaceOfSupply(company, voucher)),
             IsInterState = money.InterState,
             Items = items,
             TaxRows = billOfSupply ? Array.Empty<InvoiceTaxRow>() : money.TaxRows,
@@ -535,16 +546,20 @@ public static class VoucherPrintProjector
     // ---------------------------------------------------------------- W0-10: the ONE money read, shared by both passes
 
     /// <summary>Everything an invoice document says about GST, read off one voucher's POSTED legs: the per-rate
-    /// breakup rows, the three head totals, the ring-fenced Compensation Cess, the intra/inter routing to print, and
-    /// the raw three-valued <paramref name="PostedRouting"/> the buyer-block reconciliation needs.</summary>
-    /// <param name="PostedRouting"><c>true</c> = the legs say inter-state, <c>false</c> = intra, <c>null</c> = the
-    /// voucher posted no forward tax leg at all and therefore states NOTHING about routing (F1). Distinct from
-    /// <paramref name="InterState"/>, which has already resolved that <c>null</c> against the party's live State — the
-    /// buyer block must NOT reconcile against a routing the voucher never stated.</param>
+    /// breakup rows, the three head totals, the ring-fenced Compensation Cess, and the intra/inter routing to print.
+    /// <para>W0-15 <b>removed</b> the raw <c>PostedRouting</c> member. It existed so each pass could run the
+    /// buyer-block reconciliation itself; that reconciliation now lives in
+    /// <see cref="GstReportSupport.IssuedBuyerStateCode"/>, which reads the posted legs directly — so keeping the
+    /// member would have left a field nobody reads under a doc comment saying the buyer block needs it.</para>
+    /// </summary>
+    /// <param name="InterState">The routing the DOCUMENT states: the posted legs where they spoke, else the party's
+    /// live master. W0-15 widened it to a nullable — <c>null</c> now means the voucher posted no forward tax leg AND
+    /// the book declares no home State, so the document cannot say which head applies. That is not "intra-state": on
+    /// a plain <c>bool</c> it printed as CGST+SGST head rows on a supply nothing had routed.</param>
     private readonly record struct PostedInvoiceMoney(
         IReadOnlyList<InvoiceTaxRow> TaxRows,
         Money TotalCgst, Money TotalSgst, Money TotalIgst, Money TotalCess,
-        bool InterState, bool? PostedRouting);
+        bool? InterState);
 
     /// <summary>
     /// <b>W0-10 — THE single source of truth for money in this class.</b> Both <see cref="ProjectInvoice"/>'s item pass
@@ -571,7 +586,7 @@ public static class VoucherPrintProjector
     /// </summary>
     /// <param name="livePartyInterState">The routing the party's live master implies, used ONLY when the voucher posted
     /// no forward tax leg at all and there is therefore nothing posted for the document to contradict (F1).</param>
-    private static PostedInvoiceMoney ReadPostedMoney(Voucher voucher, bool livePartyInterState)
+    private static PostedInvoiceMoney ReadPostedMoney(Voucher voucher, bool? livePartyInterState)
     {
         var groups = GstReportSupport.ReadPostedRateGroups(voucher);
         var postedRouting = GstReportSupport.PostedForwardRouting(voucher);
@@ -594,7 +609,7 @@ public static class VoucherPrintProjector
         return new PostedInvoiceMoney(
             taxRows, new Money(cgst), new Money(sgst), new Money(igst),
             GstReportSupport.PostedCessTotal(voucher),
-            postedRouting ?? livePartyInterState, postedRouting);
+            postedRouting ?? livePartyInterState);
     }
 
     /// <summary>
@@ -628,38 +643,20 @@ public static class VoucherPrintProjector
         return new Money(total);
     }
 
-    /// <summary>
-    /// The buyer's State code to PRINT, forced to agree with the tax the voucher actually posted (FIX-3).
-    ///
-    /// <para>The tax on an issued document is history; the party's State is a LIVE, editable master. Read
-    /// independently they can contradict each other, and the printed document then contradicts ITSELF: edit a party
-    /// from Maharashtra to Gujarat after posting an intra-state sale and the invoice reprints CGST+SGST (correctly —
-    /// the posted tax is never recomputed) under an INTER-state Place of Supply and a Gujarat buyer. No such document
-    /// is valid: CGST+SGST asserts the place of supply IS the supplier's State.</para>
-    ///
-    /// <para>So: when the live State agrees with the posted routing — the ordinary case, and every invoice whose
-    /// party was never edited — it is printed unchanged (byte-identical, ER-13). When it contradicts:</para>
-    /// <list type="bullet">
-    /// <item><b>posted INTRA</b> ⇒ the buyer was in the company's home State (that is what CGST+SGST means), so the
-    /// home State is printed. Fully recoverable.</item>
-    /// <item><b>posted INTER</b> ⇒ the buyer was in SOME other State, but which one is not recoverable from the GL
-    /// (IGST does not record it), so nothing is printed rather than a home-State value that would contradict the
-    /// IGST. Blank is a Rule-46 omission; a self-contradicting document is a Rule-46 <i>falsehood</i>.</item>
-    /// </list>
-    /// <para>The tax itself is never recomputed here — only the descriptive State is reconciled to it.</para>
-    /// </summary>
-    private static string? ConsistentBuyerStateCode(
-        Company company, Apex.Ledger.Domain.Ledger? party, bool postedInterState)
-    {
-        var live = party?.PartyGst?.StateCode;
-        var home = company.Gst?.HomeStateCode;
-        var liveIsInterState =
-            !string.IsNullOrWhiteSpace(live) && !string.IsNullOrWhiteSpace(home) &&
-            !string.Equals(live.Trim(), home.Trim(), StringComparison.OrdinalIgnoreCase);
-
-        if (liveIsInterState == postedInterState) return live;   // consistent — print the master verbatim
-        return postedInterState ? null : home;                   // intra ⇒ the home State; inter ⇒ unrecoverable
-    }
+    // ---------------------------------------------------------------- W0-15: the deleted FOURTH routing copy
+    //
+    // `ConsistentBuyerStateCode` used to live here — the FIX-3 reconciliation of the printed buyer State to the
+    // posted tax. Its verdict is unchanged and is still what this class prints; only its HOME moved, to
+    // `GstReportSupport.IssuedBuyerStateCode`, beside the routing rule it depends on.
+    //
+    // It had to move because it did not merely USE the routing rule, it RE-DERIVED it — a local negated comparison of
+    // the two codes, trimmed and case-insensitive, against the engine's untrimmed case-sensitive one. (The idiom is
+    // not quoted here: drift lock D8 scans this tree line by line and would count the quotation as a fifth copy, the
+    // same way D3 counts a paisa conversion written in a comment.) Two codes differing only by whitespace or case
+    // were therefore the SAME State here and DIFFERENT States at posting:
+    // a party recorded as "19 " against a home of "19" posted IGST and then reprinted as a contradiction, so the
+    // reconciliation struck the buyer's real, historically correct GSTIN — a Rule 46(b) particular — off the
+    // document. Delegating removes the divergence by construction; drift lock D8 stops a fifth copy appearing.
 
     // ---------------------------------------------------------------- helpers
 
@@ -695,7 +692,7 @@ public static class VoucherPrintProjector
     /// ledger had no address field — so every invoice this app printed carried a blank recipient address. The
     /// field now exists, and <c>InvoicePdf</c> already renders whatever lines it is given.</para>
     /// </summary>
-    /// <param name="stateCode">The State code to print — <see cref="ConsistentBuyerStateCode"/>'s verdict, which is
+    /// <param name="stateCode">The State code to print — <see cref="GstReportSupport.IssuedBuyerStateCode"/>'s verdict, which is
     /// the party's own live code except where it would contradict the posted tax (FIX-3).</param>
     private static InvoicePartyBlock BuyerBlock(
         Company company, Apex.Ledger.Domain.Ledger? party, string? stateCode) => new()
@@ -747,17 +744,19 @@ public static class VoucherPrintProjector
         return lines.Count == 0 ? null : string.Join("\n", lines);
     }
 
-    /// <summary>Place of supply = the buyer's State — the reconciled one (<see cref="ConsistentBuyerStateCode"/>), so
-    /// it can never name a State the posted tax contradicts (FIX-3). Falls back to the company home State for a B2C
-    /// recipient with no recorded State (DP-8) — but only on an INTRA-state supply, where the home State is what
-    /// CGST+SGST already asserts; on an inter-state supply a home-State fallback would contradict the posted IGST, so
-    /// the field is left blank instead.</summary>
-    private static string PlaceOfSupply(Company company, string? buyerStateCode, bool postedInterState)
-    {
-        var code = buyerStateCode;
-        if (string.IsNullOrWhiteSpace(code) && !postedInterState) code = company.Gst?.HomeStateCode;
-        return StateText(code);
-    }
+    // W0-15: this class's own `PlaceOfSupply(company, buyerStateCode, postedInterState)` is gone too. It was the
+    // buyer State plus the s.10(1)(ca) supplier fallback — the same two steps GSTR-1 was taking separately, with the
+    // reconciliation applied on only one of the two paths. Both now call `GstReportSupport.IssuedPlaceOfSupply`.
+    // What is left here is the RENDERING.
+    //
+    // ▶ REVIEW CORRECTION — the first draft of this note ended "so the paper and the return cannot state two places of
+    // supply for one supply", full stop. That claim was too strong AS FIRST SHIPPED and is now earned rather than
+    // asserted. Sharing one VALUE was not sufficient, because the two consumers render it differently: `StateText`
+    // below resolves through `IndianState.FromCode`, an exact dictionary lookup with no trim, while GSTR-1 files the
+    // raw string — so a party State of "19 " printed blank and filed "19 ". `IssuedPlaceOfSupply` now reduces a code
+    // the State master cannot name to null (see its own note), which is what makes the two agree. The claim holds for
+    // the VALUE; it says nothing about the party master accepting a padded code in the first place, which is a
+    // separate, still-open input-validation defect.
 
     /// <summary>"West Bengal (19)" for a recognised code; blank when unset/unrecognised.</summary>
     private static string StateText(string? code)

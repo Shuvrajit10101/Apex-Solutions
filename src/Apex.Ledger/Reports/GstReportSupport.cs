@@ -67,16 +67,168 @@ public static class GstReportSupport
         }
     }
 
+    /// <summary>The party ledger's <b>recorded</b> GST State code on a voucher, or <c>null</c> when the voucher has no
+    /// party, the party has no GST block, or the block records no State. Deliberately NOT whitespace-normalised — the
+    /// stored value is what every consumer must see, and <see cref="RoutingOf(Company, string?)"/> is the one place
+    /// that decides what a blank one means.</summary>
+    private static string? PartyStateCodeOf(Company company, Voucher voucher) =>
+        voucher.PartyId is Guid pid && company.FindLedger(pid)?.PartyGst?.StateCode is { } code ? code : null;
+
     /// <summary>
     /// The place-of-supply state code for a voucher (DP-7): the party ledger's recorded GST state, falling back
     /// to the company home state for a walk-in with no recorded state. Used to label GSTR-1 rows.
+    /// <para>This IS the IGST s.10(1)(ca) ladder — "the location as per the address of the said person recorded in the
+    /// invoice, and the location of the supplier where the address … is not recorded" — so it is the DERIVATION.
+    /// A document that has already been ISSUED needs <see cref="IssuedPlaceOfSupply"/> instead, which reconciles this
+    /// ladder against the tax the voucher actually posted.</para>
     /// </summary>
-    public static string? PlaceOfSupply(Company company, Voucher voucher)
+    public static string? PlaceOfSupply(Company company, Voucher voucher) =>
+        PartyStateCodeOf(company, voucher) ?? company.Gst?.HomeStateCode;
+
+    /// <summary>
+    /// <b>THE ONE intra/inter routing rule (drift lock D8).</b> <c>true</c> = inter-state (IGST), <c>false</c> =
+    /// intra-state (CGST+SGST), and <b><c>null</c> = the book cannot route this supply at all</b> because it does not
+    /// declare its own home State.
+    ///
+    /// <para><b>Why <c>null</c> and not <c>false</c>.</b> The statute closes every gap on the RECIPIENT's side by
+    /// falling back to "the location of the supplier" — IGST s.10(1)(ca) for goods to an unregistered person,
+    /// s.12(2)(b)(ii) for domestic services, the s.13(2) proviso for cross-border services. It has no answer for a
+    /// missing SUPPLIER location, because a registered supplier always has one (the first two digits of its GSTIN
+    /// <i>are</i> its State code). "No home State" is therefore a data-integrity scenario, not a statutory one, and
+    /// <c>false</c> would not be the statute's default applied to an unknown — it would be the positive assertion
+    /// "the place of supply is the home State" made while the home State is precisely what is missing. Sourced in
+    /// <c>docs/diverged-rules-de-place-of-supply-grounding.md</c> §4–§5.</para>
+    ///
+    /// <para><b>The shape is a nullable <c>bool</c> for the same reason
+    /// <see cref="PostedForwardRouting"/> is</b> — see its note: that method used to be a plain <c>bool</c> with "no
+    /// tax leg" collapsing into "intra-state", and the fix was to admit a third answer rather than invent a default.
+    /// This is the identical problem one rung up, and a nullable composes with it at the print path with no
+    /// conversion layer.</para>
+    ///
+    /// <para><b>Unchanged from <c>GstService.IsInterState</c>, the rule this is extracted from:</b> a
+    /// null/blank/whitespace party State is <c>false</c> (intra) — the s.10(1)(ca) fallback with a KNOWN supplier
+    /// location, DP-8 — and the comparison is <see cref="StringComparison.Ordinal"/> on the untrimmed codes.</para>
+    ///
+    /// <para><b>🔴 CHANGED from the OTHER copy this replaces — <c>EWayBillService</c>'s private
+    /// <c>IsInterState</c> — on a SECOND axis, and it changes a statutory e-Way answer. Stated here because the
+    /// first draft of this note said "unchanged" flatly and that was true of only one of the two.</b> That copy read
+    /// <see cref="PlaceOfSupply"/>, whose <c>StateCode is { } code</c> pattern matches a <b>non-null EMPTY or
+    /// WHITESPACE</b> string, and then compared it unequal to the home code — so a party State of <c>""</c> or
+    /// <c>"   "</c> answered <b>inter-state</b> there while answering <b>intra-state</b> here. Reachable: the
+    /// canonical-XML import writes <c>PartyGstDetails.StateCode</c> straight from an attribute value with no
+    /// empty-to-null step. <b>The new answer is taken deliberately, not inherited:</b> s.10(1)(ca) fixes the place of
+    /// supply at the supplier's own location when the recipient's address is not recorded, so an unrecorded recipient
+    /// State is a <i>determined</i> intra-state supply, not an unknown — that is what the paragraph above is about,
+    /// and the e-Way copy was the one departing from it. The consequence is measured and pinned by
+    /// <c>EWayBlankPartyStateRoutingTests</c>: on a company that exempts intra-state e-Way, a ₹59,000 movement to a
+    /// blank-State party is <c>NotRequired</c> where the deleted copy answered <c>Required</c>.</para>
+    /// </summary>
+    public static bool? RoutingOf(Company company, string? partyStateCode)
     {
-        if (voucher.PartyId is Guid pid && company.FindLedger(pid)?.PartyGst?.StateCode is { } code)
-            return code;
-        return company.Gst?.HomeStateCode;
+        ArgumentNullException.ThrowIfNull(company);
+        var home = company.Gst?.HomeStateCode;
+        if (home is null) return null;                                     // cannot route — no supplier location
+        if (string.IsNullOrWhiteSpace(partyStateCode)) return false;       // DP-8 / s.10(1)(ca): the supplier's State
+        return !string.Equals(home, partyStateCode, StringComparison.Ordinal);
     }
+
+    /// <summary>The routing implied by a VOUCHER's party master. Same rule, same three answers.</summary>
+    public static bool? RoutingOf(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return RoutingOf(company, PartyStateCodeOf(company, voucher));
+    }
+
+    /// <summary>
+    /// The buyer's State code an ISSUED document may truthfully state — the party's live master reconciled to the tax
+    /// the voucher actually POSTED. The tax on an issued document is history; the party's State is a live, editable
+    /// master, and read independently they can contradict each other.
+    /// <list type="bullet">
+    /// <item><b>No forward tax leg posted</b> (<see cref="PostedForwardRouting"/> is <c>null</c>) ⇒ the master
+    /// verbatim: there is nothing posted for the document to contradict (F1).</item>
+    /// <item><b>The master agrees with the posted routing</b> — the ordinary case, and every document whose party was
+    /// never edited ⇒ the master verbatim.</item>
+    /// <item><b>The book cannot route at all</b> (<see cref="RoutingOf(Company, string?)"/> is <c>null</c>) ⇒ the
+    /// master verbatim: with no home State no contradiction can be DETECTED, and none may be manufactured either. The
+    /// buyer's recorded State is a fact about the buyer, not about the supplier's location.</item>
+    /// <item><b>Posted INTRA, master says inter</b> ⇒ the home State: CGST+SGST asserts the place of supply IS the
+    /// supplier's State, so it is fully recoverable.</item>
+    /// <item><b>Posted INTER, master says intra</b> ⇒ <c>null</c>: the buyer was in SOME other State, but IGST does
+    /// not record WHICH, so nothing is stated rather than a home-State value the posted IGST would deny.</item>
+    /// </list>
+    /// </summary>
+    public static string? IssuedBuyerStateCode(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        var live = PartyStateCodeOf(company, voucher);
+        if (PostedForwardRouting(voucher) is not { } posted) return live;   // nothing posted to contradict (F1)
+        if (RoutingOf(company, live) is not { } derived) return live;       // unrouteable book — nothing to check
+        if (derived == posted) return live;                                 // consistent — the master verbatim
+        return posted ? null : company.Gst?.HomeStateCode;
+    }
+
+    /// <summary>
+    /// <b>The place of supply an ISSUED document states</b> — <see cref="IssuedBuyerStateCode"/> with the
+    /// s.10(1)(ca) supplier-location fallback layered on where the posted tax does not deny it, then reduced to a code
+    /// the State master can actually NAME. The printed invoice and the filed GSTR-1 row BOTH read this, so one supply
+    /// can no longer carry two places of supply.
+    ///
+    /// <para><b>🔴 WHY THE LAST STEP EXISTS — sharing the value was not enough on its own.</b> The two consumers
+    /// render the same string differently: the print path passes it through
+    /// <see cref="Domain.IndianState.FromCode"/>, an EXACT dictionary lookup that does not trim, while GSTR-1 files
+    /// the raw string. A party State recorded as <c>"19 "</c> (a trailing space) against a home of <c>"19"</c>
+    /// therefore posted IGST (the routing comparison is <see cref="StringComparison.Ordinal"/> and untrimmed, §3.1's
+    /// whitespace defect), printed <b>nothing</b>, and filed <b>"19 "</b> — the supplier's own State modulo a space,
+    /// on an IGST-bearing document, which NIC validation 24 makes self-refuting, in a code the master does not
+    /// contain at all. Handing both consumers one value only MOVED the divergence from the routing comparer into the
+    /// rendering comparer.
+    /// <br/><b>So the shared rule stops at a code the book can name.</b> Anything else — padded, truncated,
+    /// mis-keyed — is not a place of supply, and stating nothing is the same answer the print path already gives it.
+    /// <b>What this deliberately does NOT do is trim</b>: trimming here would silently flip
+    /// <c>GstService.IsInterState("19 ")</c> from inter to intra and re-route the TAX, which is a posting decision and
+    /// belongs to input validation on the master, not to a print/return reconciliation. The underlying defect — that a
+    /// padded code is accepted onto a party master at all — is untouched and remains open.</para>
+    ///
+    /// <para><b>This CORRECTS a filed figure.</b> GSTR-1 used to label such a voucher with the raw
+    /// <see cref="PlaceOfSupply"/> derivation, so clearing (or "correcting") a party's State after an IGST invoice
+    /// was issued made the return name the <b>supplier's own State</b> as the place of supply on a document bearing
+    /// IGST — which NIC e-invoice validation 24 ("the state code of the Supplier GSTIN and POS will decide whether
+    /// the supply type is Interstate or Intrastate") makes self-refuting — while the reprint of the SAME voucher
+    /// printed nothing at all.</para>
+    ///
+    /// <para><b>The blank stays blank, and that is the correct answer here.</b> Once the party State is cleared,
+    /// which State the buyer was in exists NOWHERE in the book: IGST asserts "not the supplier's State" and never
+    /// which one. Recovering it needs the party State SNAPSHOTTED onto the voucher at posting — a schema change and a
+    /// slice of its own. What this method fixes is the two answers, not the missing fact.</para>
+    /// </summary>
+    public static string? IssuedPlaceOfSupply(Company company, Voucher voucher)
+    {
+        // A code the State master cannot name is not a recorded address — it takes the same rung of the s.10(1)(ca)
+        // ladder as no address at all, rather than being filed verbatim and printed blank.
+        var buyer = IssuedBuyerStateCode(company, voucher);
+        if (IsStatableStateCode(buyer)) return buyer;
+
+        // No usable buyer State ⇒ the statutory fallback is the supplier's own location, available unless the posted
+        // IGST denies it (an inter-state supply's place of supply is by definition NOT the supplier's State) or the
+        // book's own home code is equally unnameable.
+        var home = company.Gst?.HomeStateCode;
+        return PostedForwardRouting(voucher) is true || !IsStatableStateCode(home) ? null : home;
+    }
+
+    /// <summary>
+    /// Can a document — printed or filed — NAME this State code? True for a domestic State/UT in
+    /// <see cref="Domain.IndianState.All"/> and for the two overseas codes the NIC State master defines
+    /// (<see cref="IsOverseasStateCode"/>: 96 and 99, both "OTHER COUNTRIES", neither in <c>IndianState.All</c>).
+    /// Everything else — <c>null</c>, blank, whitespace-padded, mis-keyed — is not a place of supply.
+    /// <para>Deliberately NOT public and deliberately NOT a validator: it does not say a code is <i>correct</i>, only
+    /// that the two consumers of <see cref="IssuedPlaceOfSupply"/> would agree on what it means. The overseas limb is
+    /// included so that reducing an unnameable code to <c>null</c> cannot silently drop an export's 96/99 out of a
+    /// filed return.</para>
+    /// </summary>
+    private static bool IsStatableStateCode(string? code) =>
+        Domain.IndianState.FromCode(code) is not null || IsOverseasStateCode(code);
 
     /// <summary>
     /// <b>The ONE home for resolving a stock item's HSN/SAC</b> (drift lock D7): the item's GST block wins, then
@@ -122,9 +274,13 @@ public static class GstReportSupport
     /// (b) missed <b>99</b>, a genuine overseas code, entirely. The corrected rule therefore both narrows (97 is no
     /// longer an export) and widens (99 now is).</para>
     ///
-    /// <para><b>Reachability caveat.</b> <see cref="Domain.IndianState.All"/> carries 97 but neither 96 nor 99, and
-    /// <c>PartyGstDetails.EnsureValid</c> rejects any code outside that list — so a 96/99 party is reachable in memory
-    /// and through import, but not through a validated master edit. Adding 96/99 to <c>IndianState.All</c> was
+    /// <para><b>Reachability caveat (CORRECTED, W0-15).</b> <see cref="Domain.IndianState.All"/> carries 97 but
+    /// neither 96 nor 99. This note used to add that <c>PartyGstDetails.EnsureValid</c> "rejects any code outside that
+    /// list", implying a live guard; <b>that is false</b> — <c>PartyGstDetails.EnsureValid</c> has <b>no caller
+    /// anywhere in <c>src/</c></b> (the import builds a <c>PartyGstDetails</c> without it, and the ledger master screen
+    /// validates the State through the picker instead), so nothing rejects a 96/99 party State at the master boundary.
+    /// What actually confines the code list is the <b>UI</b>: the State picker offers <c>IndianState.All</c> and
+    /// nothing else. Adding 96/99 to <c>IndianState.All</c> was
     /// deliberately NOT done here: <c>Gstin.Validate</c> checks a GSTIN's leading two digits against the same list, and
     /// widening it would start accepting GSTINs beginning "96"/"99", which do not exist. That is a separate slice.</para>
     /// </summary>

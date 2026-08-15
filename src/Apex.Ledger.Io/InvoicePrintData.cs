@@ -136,8 +136,17 @@ public sealed class InvoicePrintData
     /// <summary>Place of supply — State name + code (Rule 46 (m/n)); required for inter-state supplies.</summary>
     public string PlaceOfSupply { get; init; } = string.Empty;
 
-    /// <summary>True for an inter-state supply (IGST); false for intra-state (CGST+SGST).</summary>
-    public bool IsInterState { get; init; }
+    /// <summary>
+    /// <c>true</c> for an inter-state supply (IGST); <c>false</c> for intra-state (CGST+SGST); <b><c>null</c> when the
+    /// document cannot state a head at all</b> — the voucher posted no forward tax leg AND the book declares no home
+    /// State, so nothing established a routing (W0-15).
+    /// <para><b>Why nullable.</b> On a plain <c>bool</c> the unknown case collapsed into <c>false</c>, and <c>false</c>
+    /// is not an absence here — it is the positive claim "intra-state", which <see cref="InvoicePdf"/> spends on a
+    /// "Intra-State (CGST + SGST)" caption and a CGST/SGST head-row PAIR. A <c>null</c> emits NEITHER head row and no
+    /// caption, exactly as <see cref="IsBillOfSupply"/> already does for a document that states no tax particular.
+    /// Every renderer therefore tests <c>is true</c> / <c>is false</c>, never truthiness.</para>
+    /// </summary>
+    public bool? IsInterState { get; init; }
 
     /// <summary>The item rows.</summary>
     public IReadOnlyList<InvoiceItemRow> Items { get; init; } = Array.Empty<InvoiceItemRow>();

@@ -328,15 +328,19 @@ public sealed class GstService
     /// and no recorded State — the place of supply for an unregistered/unrecorded recipient is the supplier's
     /// own State (DP-8), so the supply defaults to <b>intra-state (CGST+SGST)</b>, NOT IGST. Only a genuinely
     /// different, recorded party State is inter-state.
+    ///
+    /// <para><b>W0-15 — this is now the THROWING WRAPPER over the one shared rule</b>
+    /// (<see cref="GstReportSupport.RoutingOf(Company, string?)"/>, drift lock D8). The rule itself answers
+    /// <c>null</c> when the book declares no home State; a caller that is about to PRODUCE A FIGURE — post tax,
+    /// compute a TCS/RCM leg, bill at the POS — must not proceed on a routing derived from a fact the book does not
+    /// have, so this form refuses. <b>Read-only paths must NOT use it</b>: they call <c>RoutingOf</c> and carry the
+    /// <c>null</c>. That is what stopped an already-issued invoice from being unprintable (F7) — the projector used
+    /// to open with this method for every projection, including reprints that never consume the value.</para>
     /// </summary>
-    public bool IsInterState(string? partyStateCode)
-    {
-        var home = _company.Gst?.HomeStateCode;
-        if (home is null) throw new InvalidOperationException("GST is not enabled (no home state) — cannot route a supply.");
-        // No recorded place of supply ⇒ default to the company home State ⇒ intra-state (B2C local sale, DP-8).
-        if (string.IsNullOrWhiteSpace(partyStateCode)) return false;
-        return !string.Equals(home, partyStateCode, StringComparison.Ordinal);
-    }
+    /// <exception cref="InvalidOperationException">The company declares no home State, so no supply can be routed.</exception>
+    public bool IsInterState(string? partyStateCode) =>
+        GstReportSupport.RoutingOf(_company, partyStateCode)
+        ?? throw new InvalidOperationException("GST is not enabled (no home state) — cannot route a supply.");
 
     // ---- RQ-10: rate resolution (Stock Item → Sales/Purchase Ledger → Company), most-granular-wins ----
 

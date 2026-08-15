@@ -272,8 +272,18 @@ auto-fill · **VE-V** voucher entry / validation · **MST** masters · **CFG** s
 **HIGH** · Area **VE-V** · spec C-44, G-8, **U-1** · ✅ **CLOSED 2026-08-15 for the block; the WARN half has no surface**
 
 > **† 2026-08-15 — THIS ROW READ THE OPPOSITE OF THE CODE. FIXED by `a12e651` ("negative stock warns instead of
-> blocking", schema **v50**, 2026-08-06 — two days after this register was written). Everything below describes
-> the pre-fix state.** Verified at HEAD `c56e5c3`:
+> blocking", schema **v50**, **2026-08-06 09:52:01 +0530 — 13 minutes 46 seconds BEFORE this register was
+> written**). Everything below describes the pre-fix state.** Verified at HEAD `c56e5c3`:
+>
+> **‡ CHRONOLOGY CORRECTED 2026-08-15 (W0-16).** The line above previously read *"2026-08-06 — two days after this
+> register was written"*. `git log` says the opposite, and the inversion is the whole point of the row: `18bf524`
+> — the single commit that CREATED this register and `docs/invented-vs-cloned.md`, and the only commit adding
+> either file across all refs — is **2026-08-06 10:05:47 +0530**, with `a12e651` (**09:52:01**) and `f277318`
+> (**09:52:00**) already its ancestors. **The registers were written under fourteen minutes after the fixes, on a
+> tree that already contained them, describing them as open** — and the false "two days after" was introduced by
+> `7ae0894`, the W0-14 pass whose entire purpose was correcting these registers. A documentation-only pass, done
+> carefully, inverted a fact one `git log` settles; that is exactly what a check catches and a reviewer
+> demonstrably did not.
 > - **The throw is gone.** `EnsureNoNegativeStockAnywhere` and the message *"Negative stock is not allowed."*
 >   (`:400`) do not exist anywhere in `src/`. The guard became a detector: **`InventoryPostingService.cs:176`**
 >   `public IReadOnlyList<NegativeStockShortfall> DetectNegativeStock() => DetectNegativeStockAnywhere();`

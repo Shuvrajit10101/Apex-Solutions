@@ -79,6 +79,22 @@ public sealed class OneRuleDriftLockTests
     /// <summary>D7 — the HSN/SAC resolution order.</summary>
     private const string D7HsnResolution = @"\?\.HsnSacCode";
 
+    /// <summary>
+    /// D8 — the intra/inter ROUTING rule: a NEGATED string comparison against the company's home State (or against a
+    /// State code, under whatever local name). Three copies of it existed —
+    /// <c>GstService.IsInterState</c> (throw on a null home), <c>EWayBillService.IsInterState</c> (return FALSE on a
+    /// null home, then spend that false on an intra-state exemption and a per-State threshold) and
+    /// <c>VoucherPrintProjector.ConsistentBuyerStateCode</c> (<c>Trim()</c> + <c>OrdinalIgnoreCase</c>, against the
+    /// engine's untrimmed <c>Ordinal</c>) — and no two of them agreed on the same inputs.
+    ///
+    /// <para><b>Deliberately NOT matched: the non-negated forms.</b> <c>string.Equals(t.StateCode, pos, …)</c> (the
+    /// e-Way threshold-row lookup), <c>string.Equals(record.ShipFromStateCode, record.ShipToStateCode, …)</c> (the
+    /// Part-B ≤50 km relaxation) and <c>ConsistentBuyerGstin</c>'s "did the State get overridden?" test are equality
+    /// questions about two codes, not derivations of a supply's routing. Requiring the negation is what separates
+    /// them — "is this supply INTER-state" is by construction a NOT-equal.</para>
+    /// </summary>
+    private const string D8Routing = @"!\s*string\.Equals\([^;]*(?:[Hh]ome|[Ss]tateCode|[Ss]tate\b)";
+
     // ============================================================ scanning machinery
 
     /// <summary>The repository root — the directory holding <c>Apex.slnx</c>.</summary>
@@ -231,6 +247,28 @@ public sealed class OneRuleDriftLockTests
     public void HsnResolutionHasOneHome() =>
         AssertOnlyIn("D7 HSN/SAC resolution", D7HsnResolution, "GstReportSupport.cs");
 
+    // ============================================================ D8
+
+    /// <summary>
+    /// The intra/inter routing rule lives only in <c>GstReportSupport.RoutingOf</c> (W0-15). Consumers keep their own
+    /// answer for the UNROUTEABLE case — <c>GstService.IsInterState</c> throws, the print path carries the
+    /// <c>null</c> through to the DTO, the e-Way engine refuses to spend it on a relaxation — and that difference is
+    /// deliberate and documented, exactly as D7's absent-HSN sentinels are. What none of them may do is re-derive
+    /// "same State or not" for itself, which is how all three copies came to disagree about a null home State, about
+    /// a whitespace-padded code and about case.
+    ///
+    /// <para><b>Honest limit, stated because this file's convention demands it (see the class note): the exemption is
+    /// by BARE FILENAME.</b> <see cref="AssertOnlyIn"/> compares <c>Path.GetFileName</c>, so a NEW file called
+    /// <c>GstReportSupport.cs</c> created anywhere under <c>src/</c> — a different project, a different namespace —
+    /// would be exempted from this lock (and from D7) without anything failing. The lock is a ratchet against
+    /// ordinary copy-paste beside a new call site, which is what actually happened three times here; it is not a
+    /// proof of uniqueness. A copy that restructures the expression away from <c>string.Equals</c> entirely (an
+    /// <c>==</c>/<c>!=</c> on two codes, a <c>Compare(…) != 0</c>, an extension method) also slips past.</para>
+    /// </summary>
+    [Fact]
+    public void IntraInterRoutingHasOneHome() =>
+        AssertOnlyIn("D8 intra/inter routing", D8Routing, "GstReportSupport.cs");
+
     // ============================================================ meta — the locks are not vacuous
 
     /// <summary>
@@ -279,6 +317,12 @@ public sealed class OneRuleDriftLockTests
     [InlineData(nameof(D3SubPaisaTest), D3SubPaisaTest, "if (scaled != decimal.Truncate(scaled)) return false;")]
     // D7 — re-deriving the resolution order.
     [InlineData(nameof(D7HsnResolution), D7HsnResolution, @"var hsn = item?.Gst?.HsnSac ?? item?.HsnSacCode ?? ""(none)"";")]
+    // D8 — the three removed routing copies, verbatim, plus a renamed variant.
+    [InlineData(nameof(D8Routing), D8Routing, @"return !string.Equals(home, partyStateCode, StringComparison.Ordinal);")]                                  // GstService.IsInterState
+    [InlineData(nameof(D8Routing), D8Routing, @"return pos is not null && home is not null && !string.Equals(pos, home, StringComparison.Ordinal);")]      // EWayBillService.IsInterState
+    [InlineData(nameof(D8Routing), D8Routing, @"!string.Equals(live.Trim(), home.Trim(), StringComparison.OrdinalIgnoreCase);")]                           // VoucherPrintProjector.ConsistentBuyerStateCode
+    [InlineData(nameof(D8Routing), D8Routing, @"var isInter = !string.Equals(homeCode, party, StringComparison.Ordinal);")]                                // renamed variant
+    [InlineData(nameof(D8Routing), D8Routing, @"bool inter = !string.Equals(supplierState, buyerStateCode, StringComparison.Ordinal);")]                   // renamed variant, neither operand called "home"
     public void EveryLockBitesOnAReintroducedCopy(string lockName, string pattern, string reintroducedLine) =>
         Assert.True(
             Regex.IsMatch(reintroducedLine, pattern),
@@ -319,4 +363,24 @@ public sealed class OneRuleDriftLockTests
         Assert.False(
             Regex.IsMatch(otherScaleBody, D3PaisaScale) && Regex.IsMatch(otherScaleBody, D3TruncateAnyArgument),
             $"the D3 file-level lock false-positives on a non-paisa scale:\n{otherScaleBody}");
+
+    /// <summary>
+    /// D8 must NOT fire on the shipped lines that legitimately compare two State codes without deriving a routing —
+    /// the e-Way threshold-row lookup, the Part-B ≤50 km relaxation and <c>ConsistentBuyerGstin</c>'s "was the State
+    /// overridden?" test — nor on any negated comparison that has nothing to do with States. Each case below is a
+    /// VERBATIM line from <c>src/</c>. A lock that has to be silenced with an exemption is a lock that gets deleted,
+    /// so its false-positive surface is pinned as deliberately as its bite.
+    /// </summary>
+    [Theory]
+    [InlineData(@".FirstOrDefault(t => string.Equals(t.StateCode, pos, StringComparison.Ordinal) && t.TxnType == txnType);")]
+    [InlineData(@"var intra = string.Equals(record.ShipFromStateCode, record.ShipToStateCode, StringComparison.Ordinal);")]
+    [InlineData(@"if (string.Equals(live?.Trim(), stateCode?.Trim(), StringComparison.OrdinalIgnoreCase)) return gstin;")]
+    [InlineData(@"if (string.Equals(s.StateCode, StateCode, StringComparison.Ordinal))")]
+    [InlineData(@"if (!string.Equals(value ?? string.Empty, Name ?? string.Empty, StringComparison.Ordinal))")]
+    [InlineData(@"if (!string.Equals(type.DefaultShortcut, superseded, StringComparison.Ordinal)) continue;")]
+    public void TheRoutingLockIgnoresPlainStateEqualityAndNonStateComparisons(string shippedLine) =>
+        Assert.False(
+            Regex.IsMatch(shippedLine, D8Routing),
+            $"D8 false-positives on a line that derives no routing — a lock that has to be exempted gets deleted:\n" +
+            $"  {shippedLine}\nPattern: {D8Routing}");
 }

@@ -38,8 +38,11 @@ public sealed class IndianState
     /// That is now load-bearing: 96 and 99 are both "OTHER COUNTRIES" in the official state-code master
     /// (<c>https://einvoice1.gst.gov.in/Others/MasterCodes</c>) and are what
     /// <see cref="Reports.GstReportSupport.IsOverseasStateCode"/> tests for, so an overseas place of supply cannot be
-    /// recorded through a validated master edit — <c>PartyGstDetails.EnsureValid</c> rejects any code outside this
-    /// list. Adding them here is NOT a safe local edit: <see cref="Gstin"/><c>.Validate</c> checks a GSTIN's leading
+    /// recorded through the ledger master screen — its State picker offers this list and nothing else.
+    /// <b>CORRECTED (W0-15):</b> this note used to credit <c>PartyGstDetails.EnsureValid</c> with rejecting any code
+    /// outside the list. That method has <b>no caller anywhere in <c>src/</c></b> — it guards nothing, and neither the
+    /// import nor the canonical mapper runs it — so the confinement is the picker, not a domain guard.
+    /// Adding them here is NOT a safe local edit: <see cref="Gstin"/><c>.Validate</c> checks a GSTIN's leading
     /// two digits against this same list, so it would start accepting GSTINs beginning "96"/"99", which do not exist.
     /// Splitting the place-of-supply domain from the GSTIN-prefix domain is a slice of its own; the gap is pinned by
     /// <c>EWayPartACodeTests.PINNED_GAP_an_overseas_place_of_supply_cannot_be_recorded_through_a_validated_master_edit</c>.</para>

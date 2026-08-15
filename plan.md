@@ -46,6 +46,12 @@
 > owes the **whole 34-commit wrong-figures range** `6124a25..f327abb` (measured `git rev-list --count`),
 > **none of which has been exercised in the running app** — three statutory-payload fixes among it. The
 > Phase 10.9 nine are a subset, not the scope.
+> **▶ 🔴 FOUR STANDING USER RULINGS WERE TAKEN 2026-08-15 (R12) — build order, schema authority,
+> negative-stock valuation and merge cadence.** They govern every phase below, and **ruling 2 SUPERSEDES this
+> file's schema language** (the "a slice that needs a column *stops*" rule is repealed). They are recorded in
+> **§5, ahead of every phase block** — search **`FOUR USER RULINGS (R12, 2026-08-15)`**. This pointer exists
+> because the reading order below sends a session to *the current phase*, and a ruling it never meets governs
+> nothing.
 >
 > **Reading order for any session:** `memory.md` → this file (current phase) → `CLAUDE.md` → `agents.md`.
 
@@ -59,7 +65,7 @@ Indian statutory (GST/TDS/TCS/Payroll) system** that reproduces Tally Prime's *b
 keyboard shortcuts* as catalogued in `docs/tally-feature-catalog.md`. "Faithful" means: same core UX verbs
 (**Create / Alter**), same **Gateway of Tally** hub, same **F11 (Features) / F12 (Configuration)** gating,
 **drill-down everywhere** (any report figure `Enter`s to its voucher), the **To/By (Cr/Dr)** entry model,
-the **28 predefined groups + 2 default ledgers + 24 predefined voucher types** seed, and matching reports
+the **28 predefined groups + 2 default ledgers + 23 predefined voucher types** seed, and matching reports
 (Balance Sheet, P&L, Trial Balance, Day Book, Stock Summary, Outstandings, GST returns, …).
 
 The heart is a **framework-agnostic double-entry ledger engine** with **local persistence**. Everything
@@ -262,7 +268,7 @@ section that would be re-specified.
 - **Company** — the tenant/dataset boundary; owns all masters & vouchers (catalog §2). Fields: Name, Mailing
   Name, Address, Country/State/Pin, contacts, **Financial-year-from** (default 1-Apr) vs **Books-from**
   (mid-year start), Base Currency (₹/INR, 2 decimals, "Paisa"), Security (TallyVault), **F11 feature flags**.
-  *Seed on create: 28 groups + 2 ledgers + 24 voucher types + Primary Cost Category + Main Location.*
+  *Seed on create: 28 groups + 2 ledgers + 23 voucher types + Primary Cost Category + Main Location.*
 - **Group** — classification node with **nature** (Asset/Liability/Income/Expense) + parent. **28 predefined**
   = **15 Primary** (9 BS + 6 P&L) + **13 Sub-groups** (1/3/6/3 split), per the corrected list
   (verification §A6/A7): *Primary* = Capital Account, Loans (Liability), Current Assets, Current Liabilities,
@@ -279,7 +285,7 @@ section that would be re-specified.
   values are affected?"**, "Cost centres applicable?", GST/TDS/TCS statutory sub-screens, PAN/MSME.
   *Stock-in-Hand ledger closing balance is **derived** from inventory when Accounts+Inventory integrated
   (verification §A10).*
-- **VoucherType** — **24 predefined** (base type + shortcut + numbering), plus custom. Fields: Name, base
+- **VoucherType** — **23 predefined** (base type + shortcut + numbering), plus custom. Fields: Name, base
   type, Abbreviation, Active?, Numbering (Automatic/Manual/None), Use Common Narration, Print after save,
   **Use for POS**, **Use as Manufacturing Journal**, **Use for Job Work**, **Track Additional Costs**, Allow
   zero-valued, **Name of Class** (voucher classes with default accounting allocations — verification §B). The
@@ -326,7 +332,7 @@ Godown/Batch (via allocations); CostCategory **1—∗** CostCentre; Employee **
 All masters carry a **stable surrogate PK** (`<Entity>Id`, tools-and-databases.md convention), FK-linked.
 
 ### 4.4 Seed data (catalog §22) — applied on every `Company.create`
-28 groups (nature+parent) · Cash + P&L A/c ledgers · Primary Cost Category · Main Location · 24 voucher types
+28 groups (nature+parent) · Cash + P&L A/c ledgers · Primary Cost Category · Main Location · 23 voucher types
 (base type + shortcut + numbering) · base currency ₹/INR 2-dp "Paisa" · FY 1-Apr→31-Mar. **This seed is
 itself a fixture-backed unit test** (a fresh company must contain exactly these).
 
@@ -363,6 +369,56 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > voucher types reachable"* — the code seeds **23**). **Read every phase's Modules bullet as a statement of
 > INTENT, not of delivery**, and re-verify in-tree before planning on top of one. Census §2 Tier 3 itemises
 > each, along with **nine internal contradictions** between this file and the other project documents.
+
+> **▶ 🔴 FOUR USER RULINGS (R12, 2026-08-15) — SETTLED; DO NOT RE-LITIGATE. THEY GOVERN EVERYTHING BELOW.**
+> Recorded **here**, ahead of every phase block, and pointed at from this file's header — because a ruling
+> recorded only in `memory.md` or in `docs/` **gates nothing**, which is the rule `c56e5c3`'s own commit message
+> set and the reason **W0-14** exists. **Ruling 2 SUPERSEDES schema language elsewhere in this file; the
+> amendment is made in place at Phase 10.12 and flagged there, not left to be discovered.**
+>
+> **1 · BUILD ORDER = CENSUS ORDER — stop active harm first, then correctness, then structure, then breadth:
+> Wave 0 remainder → Wave 1 correctness → Wave 2 structural → Wave 3 breadth.** This is the order already
+> written at the end of **Phase 10.12** (`▶ SEQUENCING AFTER THIS WAVE`, census §5) — **what changes is its
+> force**: it was a recommendation and is now a ruling. **No Wave-1 item starts while a Wave-0 item is open**,
+> and nothing is promoted out of its wave for convenience. Waves 4 (print engine) and 5 (statutory long tail)
+> keep their existing places; the ruling names the first four because those are the ones being sequenced now.
+>
+> **2 · SCHEMA AUTHORITY = FULL.** New schema versions **may be added as slices need them** — **one bump per
+> slice**, each carrying a **forward migration**, **round-trip tests** and the **existing migration-equivalence
+> check** (`src/Apex.Persistence.Sqlite/Schema.cs:144-145`, verbatim: *"any table/column/index added to a
+> migration must also appear in `CreateV1` (the migration-equivalence test enforces this)"*). **Every bump is
+> recorded in `plan.md`.** `Schema.CurrentVersion` is **50** (`Schema.cs:146`, re-verified 2026-08-15), so the
+> next is **51** — and a slice that does not need a column still must not take one.
+> **▶ WHAT THIS SUPERSEDES, NAMED SO IT CANNOT BE READ PAST.** Phase 10.12's `Schema:` bullet said any slice
+> finding it needs a column **"stops"**. It no longer stops — it takes the next version under the conditions
+> above. **That bullet is amended in place below**, not silently.
+> **▶ WHAT IT UNBLOCKS — AND WHAT IT DOES NOT.** It unblocks the two dead-ends the user named: the
+> **party-State snapshot** (the "second, separable ruling" of **W0-11 carry-forward (b)**, which was blocked
+> *because* it is a schema question) and the **`Company.State` resolution** (**W0-2**'s 🔴 gate). **It grants
+> the MEANS, not the SHAPE** — W0-2's gate asks *which* of three shapes (expose both / suppress the postal one /
+> wire one to the other as TallyPrime does); that question is untouched and **still open**. Nor does it repeal
+> `Schema.cs:808-811`'s *"Do not add `mailing_state`"*: that is a **design** prohibition with a
+> wrong-tax-head reason, not a schema-authority one.
+> **▶ CLOSED PHASES' `Schema:` LINES ARE HISTORICAL RECORDS AND ARE NOT AMENDED** — Phase 10.9's `Schema: NONE
+> — v49 throughout` and Phase 10.11's `Schema: NONE — schema-clean end to end` state what those phases actually
+> shipped, exactly as their gate figures do (see this file's header on gate-figure records). Only the
+> **forward-looking** rule changes.
+>
+> **3 · NEGATIVE-STOCK VALUATION — BUILD ON THE SOURCED FORMULA, WITHOUT WAITING for the user's TallyPrime T3
+> measurement.** **NOT part of the current workflow — it is a Wave 1 slice, and this banner records the ruling
+> only.** The ruling, as given: **TallyPrime's official formula is `Average Cost = Total Inward Value ÷ Total
+> Inward Qty`, with sales never touching the pool**, which predicts **1,333.33** on T3. **The 30 refuted
+> `AverageCost` goldens are to be RE-DERIVED FROM THE FORMULA — never edited to match the code** — and **one
+> test must fail loudly if a later T3 measurement returns 1,500.** *(The formula above is recorded as the
+> ruling's stated basis; it is **not** an R7 finding of this pass and no agent verified it against the corpus
+> here. The test that fails on 1,500 is what makes the ruling falsifiable rather than assumed.)* This does not
+> re-open **Phase 10.8**, which stays **STOPPED AND BANKED**; it fixes the approach for when Wave 1 reaches
+> stock valuation, which Wave 1 already scopes as **"behind an oracle harness"**.
+>
+> **4 · MERGE CADENCE — keep accumulating on `claude/apex-wrong-figures-bc45f4`, PUSHED AFTER EVERY SLICE.
+> NO PR until the run ends. `origin/main` stays at `c655dc2`.** Pushing is **A12's** action and no other
+> agent's (R4); "pushed after every slice" is therefore a per-slice A12 hand-off, not a licence for anyone else
+> to touch git.
 
 > **▶ USER DECISION (R12, 2026-08-10) — SETTLED; DO NOT RE-LITIGATE. The 9 OBSOLETE-BY-LAW pre-GST
 > capabilities WILL NOT BE BUILT.** State VAT (enable / dealer type / TIN / registration date); VAT & Tax
@@ -668,6 +724,14 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   then **user go/no-go** per R12.
 
 ### Phase 10.7 — Voucher numbering
+- **▶ HISTORICAL COUNT, RESTORED 2026-08-15 (W0-15 review).** The figure in the Goals line below is **24** and must
+  stay 24: it is a **CLOSED phase's record of what it shipped against**, exactly like a `Schema:` line or a gate
+  figure (§5's rule, and this file's header). Measured from `git log`: the Attendance seed row was deleted by
+  **`7bfc2c6` (2026-08-03)** — Phase 10.9's own work, decision **D24-B** — while 10.7's last numbering commit
+  **`ae9d942` is 2026-07-24**, and `git merge-base --is-ancestor ae9d942 7bfc2c6` confirms the order. A sweep had
+  rewritten it to 23, which made the record FALSE — the very defect class W0-14 exists to correct. **Today's live
+  figure is 23**; nothing here is current. Exempted per-site in
+  `DocumentCodeAgreementTests.ForeignOrQuotedCountAllowList`.
 - **Goals:** ship per-voucher-type customizable **Voucher No.** for the existing **24 seeded voucher types** —
   **Prefix + Suffix** as **date-effective rows** (each value applies from its `ApplicableFrom` until the next
   row; separators live inside the affix text — there is **no implicit separator**), a numeric **Width**,
@@ -763,7 +827,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     filed number, preserving the `Gstr1.cs:360` live-vs-frozen equality).
 - **Agents:** per-feature pipeline (§2.2) — Requirements/Design (design of record in `memory.md`), **A14**
   (Tally fidelity, R7), Test author, Implementer, **A10** review, **A12** GitHub Expert, run-app verifier.
-- **Deliverables:** a per-voucher-type numbering config reachable by **F12** on the 24 types; the printed /
+- **Deliverables:** a per-voucher-type numbering config reachable by **F12** on the 24 types *(the count at this
+  closed phase — see the HISTORICAL COUNT note at its Goals; the live figure is 23)*; the printed /
   e-invoice / e-Way / QR / GSTR-1 / register / Day Book / POS number all equal to one rendered string; the
   Prevent-duplicate guard enforced on both create and import; the counterparty Reference / Supplier-Invoice
   number captured, persisted, round-tripped and printed; and regression tests locking empty-config == today
@@ -1036,7 +1101,10 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   **NOT pushed, NO PR, no upstream** — A12 has not run (R4).
 - **Goals:** close the defects the 2026-08-01 Tally version/voucher-entry audit found — the ones that **cost
   money or hide it**. In one sentence each: cost centres could not be allocated along more than one
-  **category**; two of the 24 voucher types had **no menu row at all** and a third advertised a **dead key**;
+  **category**; two of the 24 voucher types had **no menu row at all** and a third advertised a **dead key**
+  *(24 is correct here and was restored 2026-08-15: this sentence describes the state BEFORE this phase's own
+  `7bfc2c6` deleted the Attendance seed row, so 24 is what there was; the post-fix Deliverables line below correctly
+  says 23)*;
   a normally-invoicing company had an **empty Receivables report** because neither invoice Accept path built
   bill allocations; batch allocation was a **free-text string** on the two screens where batched goods are
   actually bought and sold; and there was **no backup or restore** while §9.1 named it as the mitigation for
@@ -1143,7 +1211,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   R7 — corpus and official help), Requirements/Design, Test author, Implementer, **A10** adversarial review
   **per stream, pre-merge**, **A12** GitHub Expert, run-app verifier.
 - **Deliverables:** a voucher carrying **parallel per-category cost allocations** that posts and reports;
-  **every one of the 24 voucher types reachable by menu AND by its real shortcut**, with deactivated types
+  **every one of the 23 voucher types reachable by menu AND by its real shortcut**, with deactivated types
   neither listed nor openable; a **populated Receivables report and ageing** from an ordinary invoice, with
   bills to settle; **Single Entry** on Contra/Payment/Receipt and a working **Purchase Accounting Invoice**
   incl. TDS/RCM; **real batch selection** with available balance, expiry and split-across-batches on the
@@ -1284,7 +1352,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      affected items**, because prior-year Balance Sheets are affected.
   3. **(WF-7) HARD GATE PR-8 — the "MOQ floor at zero shortfall" rule — is RETIRED.** Requires amending
      `docs/phase6-advanced-inventory-requirements.md:598-601`, **inverting** the regression test at
-     `tests/Apex.Ledger.Tests/InventoryReportsTests.cs:799`, and recording the reversal with its citation
+     `tests/Apex.Ledger.Tests/Inventory/InventoryReportsTests.cs:890-901`, and recording the reversal with its citation
      (**Tally-Prime-Book p.164**). The report also **stops filtering on closing stock** — TallyPrime's default.
 - **ORCHESTRATOR RULINGS (with their reason):**
   1. **WF-1 covers all FOUR item-first lookups**, not just `ResolveBase`: also `GstService.cs:380` (HSN for the
@@ -1508,15 +1576,23 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   scope. **Phase 10 and Phase 11 stay excluded and unchanged.**
 - **Goals:** ship census §5 **Wave 0** — the items that are **cheap and stop active harm**. **W0-1, W0-2, W0-3,
   W0-4 and W0-5 are UI over plumbing that already exists, already persists and is already tested**: no new
-  engine, no new arithmetic, no new statutory figure. **THE OTHER SIX W0 ROWS AND THE F14 ROW ARE NOT UI AND
-  THIS SENTENCE MUST NOT BE READ OVER THEM.** **⚠️ W0-8, W0-9, W0-10, W0-11 and F14 are ENGINE work, recorded
-  R6 deviations, each stating its reason in its own entry** — W0-9 in particular moved the §31(3)(c) exempt
-  limb **DOWN into `Apex.Ledger`/`GstReportSupport`** (see its own row), which is engine work by the same test
-  the other four are judged by. **W0-6 (register & plan corrections) and W0-7 (`PopulatedCompanyFixture`
-  extension) are neither UI nor engine** — documentation and test-fixture work respectively. It originally read
-  "every one", then said "W0-1…W0-7", and three separate rows each claimed to be the sole exception; the next
-  row that does not fit **amends this sentence** rather than appending another exception to it. This is also
-  the wave that makes the registers honest, without which nothing downstream can be planned.
+  engine, no new arithmetic, no new statutory figure. **THE REMAINING W0 ROWS AND THE F14 ROW ARE NOT UI AND
+  THIS SENTENCE MUST NOT BE READ OVER THEM.** **⚠️ W0-8, W0-9, W0-10, W0-11, W0-15 and F14 are ENGINE work,
+  recorded R6 deviations, each stating its reason in its own entry** — W0-9 in particular moved the §31(3)(c)
+  exempt limb **DOWN into `Apex.Ledger`/`GstReportSupport`** (see its own row), which is engine work by the same
+  test the other four are judged by, and **W0-15 moves the routing rule and the place-of-supply reconciliation
+  down the same way**. **W0-6 (register & plan corrections), W0-7 (`PopulatedCompanyFixture` extension) and
+  W0-16 (the doc-vs-code CI check) are neither UI nor engine** — documentation, test-fixture and test/CI work
+  respectively. It originally read "every one", then said "W0-1…W0-7", and three separate rows each claimed to
+  be the sole exception; the next row that does not fit **amends this sentence** rather than appending another
+  exception to it. **▶ AMENDED 2026-08-15 BY W0-15 AND W0-16, under that very instruction.** Two things changed
+  and are stated rather than smuggled: the sentence **stops counting and starts naming** ("THE OTHER SIX W0
+  ROWS" was arithmetically false the moment W0-12 was added and wrong by two after W0-13 — W0-13's own row
+  records the debt and correctly declines to pay it), and **W0-15 / W0-16 are classified here on the sentence's
+  own test.** **W0-12's classification remains the one un-discharged obligation** and is deliberately NOT
+  adjudicated here: fixing the arithmetic is not the same as ruling on that row, and pretending otherwise would
+  close a debt this file is still owed. This is also the wave that makes the registers honest, without which
+  nothing downstream can be planned.
 - **Work items (id — one-line; the evidence for every row is in `docs/full-clone-census.md` §2, not here):**
   - **W0-1 (T0-7) Bill of Supply routing + `DocumentTitle`** — **~1 day. Highest urgency in the wave.** The
     screen **already computes the answer** (`IsBillOfSupply` and the s10 / Rule-5(f) declaration render in the
@@ -1548,6 +1624,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **suppress the postal one** (breaks the field map and Tally's own screen), or **wire one to the other as
     Tally does** (matches the corpus, but changes what `gst_home_state` means and touches the GST screen, which
     is outside W0-2 as written). **Grounding doc §8 lays out the evidence and deliberately chooses none of them.**
+    **▶ 2026-08-15 — RULING 2 (§5 banner) HALF-UNBLOCKS THIS GATE, AND ONLY HALF. THE GATE STANDS.** Schema
+    authority is now **granted**, so *"we cannot resolve `Company.State` because we may not move the schema"* is
+    no longer a reason for anything — the user named this dead-end as one of the two the ruling opens. **But the
+    ruling grants the MEANS, not the SHAPE:** it does not pick among *expose both* / *suppress the postal one* /
+    *wire one to the other as TallyPrime does*, and `Schema.cs:808-811`'s *"Do not add `mailing_state`"* still
+    stands as a **design** prohibition with a wrong-tax-head reason, which no schema authority repeals.
+    **W0-2 still MUST NOT START until the user picks a shape.**
   - **W0-3 (T1-7) Restore reachable from Company Select** — **~½ day.** The engine already restores a company
     this machine never had; the screen is gated on an **open** company. **The difference between a backup
     feature and a disaster-recovery one.**
@@ -1556,11 +1639,23 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     their only references in `src/` are two doc comments.
   - **W0-5 Negative-stock warn toggle + e-Way config editor** — **days each.** Both are **shipped behaviour
     with NO control surface**: `Company.WarnOnNegativeStock` persists and is honoured with zero UI.
-  - **W0-6 Tier 3 register & plan corrections** — **~1 day.** The **23-vs-24 voucher-type count** (and it is a
+  - **W0-6 Tier 3 register & plan corrections** — **~1 day. PARTIAL — the voucher-type count is DONE; the rest
+    is not started.** The **23-vs-24 voucher-type count** (and it is a
     **real fidelity gap the docs are hiding**, not a typo — the corpus says 24); the false **Phase 1 / 2 / 5 /
     9 / 10.9** claims; **IV-19's drill-down number — the real figure is 71 of 77, not "~50"**; and the
     `Schema.cs:95` doc comment saying **46** while `:129` says **50**. **Nothing downstream can be planned
     honestly until the registers stop lying.**
+    **▶ 2026-08-15 — THE COUNT HALF IS PAID, AND IT IS ATTRIBUTED HERE RATHER THAN LEFT UNOWNED.** W0-16's own
+    scope note says *"establishing that number is W0-6's job, not this row's"*, so the edits belong to this row:
+    every **live, present-tense** count in `plan.md` §1.1/§4/§4.4, `docs/design/accounting-core.md`,
+    `docs/srs/SRS-0-skeleton.md`, `agents.md` and `docs/tally-version-and-voucher-gap-audit.md` now reads **23**,
+    and it is enforced from here on by `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs` (W0-16).
+    **▶ 🔴 AND ONE THING THE FIRST SWEEP GOT WRONG, CORRECTED THE SAME DAY.** It also rewrote **closed phases'
+    historical** counts — Phase 10.7's Goals and Deliverables, and Phase 10.9's Goals describing the PRE-fix
+    defect — which made those records FALSE: the Attendance seed row was deleted by **`7bfc2c6` (2026-08-03)**,
+    *after* Phase 10.7 shipped (**`ae9d942`, 2026-07-24**). Those three are **restored to 24** with an
+    "at that phase" note, per this file's own rule that a closed phase's figures are a record and are not amended.
+    The remaining W0-6 items (Phase 1/2/5/9 claims, IV-19's number, the `Schema.cs` comment) are **NOT started**.
   - **W0-7 (S0) `PopulatedCompanyFixture` extension** — **the census calls this the highest-leverage single
     item in the report.** It covers **8 of 23 base types and zero inventory, order, provisional, job-work, POS
     or payroll vouchers**, and **no print or export test uses it at all.** **Nothing else in this wave — or in
@@ -2014,7 +2109,20 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     the statute is silent between (A) and (B); (B) additionally resolves F7. **A SECOND, SEPARABLE RULING is also
     needed and is a SCHEMA question, so it is out of that document's scope:** should the party's State be
     snapshotted onto the voucher at posting, so a printed blank contradicting a GSTR-1 home code on an IGST voucher
-    becomes unreachable rather than arbitrated at print time? **Nothing unifies (d) or (e) until the user rules.**
+    becomes unreachable rather than arbitrated at print time? ~~**Nothing unifies (d) or (e) until the user
+    rules.**~~
+    **▶ THE USER HAS RULED, AND THIS CARRY-FORWARD IS DISCHARGED BY `W0-15` BELOW — IN PROGRESS.** The ruling
+    is **(B)**: refuse at the **routing call**, where a figure is produced, and give **read-only paths a
+    non-throwing "unknown"** — which closes **F7** as a side effect, exactly as this entry predicted. The
+    "unknown" is a **`bool?`**, not an enum and not a `TryGet`, on the precedent of
+    `GstReportSupport.PostedForwardRouting` (`:1202`, doc `:1188-1197`) in this same domain. **Three parts of
+    this carry-forward are answered NO, and each answer is a result rather than an omission** — read W0-15's own
+    row before re-opening any of them: **(e)(C) `EInvoiceJson.cs:267` is NOT unified** (the `"96"` limb is
+    NIC-mandated); **the printed blank STAYS blank** (which State the buyer was in is not in the book at all);
+    and **no schema version is taken** (the party-State snapshot — the "second, separable ruling" above — is now
+    **authorised** by ruling 2 of the 2026-08-15 R12 banner in §5, but it is a **separate slice**, and W0-15 is
+    scoped to the in-memory rule). **What W0-15 does change is one FILED figure:** `Gstr1.cs:259` / `:409`.
+    **The three-option question above is settled; the SCHEMA question it spawned is open and now buildable.**
   - **▶ CARRY-FORWARD (c) — 🔴 ROW (h) IS TWO-THIRDS DISCHARGED.** The proof compares `"0.##"` against `"0.###"`, both
     **against InvariantCulture** — sound for those two spellings. **It never examined the third form:** 10
     host-culture-bound interpolated rate renderings survive (`Cmp08ReportViewModel.cs:173`,
@@ -2658,7 +2766,287 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **▶ SCOPE, EXPLICITLY:** documentation only. **No `src/` or `tests/` file is attributed to this row**, no test
     count moves, and `Schema.CurrentVersion` stays **50**. **Nothing here is a design** — the grounding doc says so
     itself, and the seven fixed-but-open register rows are a bookkeeping correction, not a licence to close them.
-- **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here):**
+  - **W0-15 (discharges W0-11 carry-forward (b); this row was written BEFORE any code, which is what R6 asks —
+    contrast W0-11/W0-12/W0-14, all retroactive) ONE ROUTING RULE — ROWS (d) `IsInterState` AND (e) PLACE OF
+    SUPPLY** — **✅ DONE 2026-08-15.** Engine + Desktop + Io work, **not** UI over plumbing (the wave's Goals sentence
+    is amended by this row to read W0-8, W0-9, W0-10, W0-11, W0-15 and F14 as the engine rows).
+    **▶ GATE (all four per-project counts, never the total): build 0W/0E; Ledger 1624 · Io 395 · Sqlite 215 ·
+    Desktop 2125.** Baseline at `7a35308` was 1591 / 389 / 215 / 2117. `Schema.CurrentVersion` **50, unchanged**.
+    **▶ WHAT LANDED vs THE 12-ITEM DELIVERABLE BELOW, INCLUDING THE THREE PLACES THE DELIVERABLE WAS WRONG.**
+    Items **1–10** shipped as written. Items **11 and 12** are still refusals, and **item 12 stands unchanged**;
+    **item 11's stated RATIONALE was wrong and is corrected below**, though its verdict (do not touch
+    `EInvoiceJson`) stands for a different reason. Three things landed that the deliverable did NOT anticipate,
+    each because adversarial review measured a defect the design had reasoned past:
+    **(A) `IssuedPlaceOfSupply` now reduces a State code the State master cannot NAME to `null`.** Sharing one
+    value between the paper and the return was **not sufficient**: the print path resolves through
+    `IndianState.FromCode`, an exact dictionary lookup that does not trim, while GSTR-1 files the raw string — so
+    a party State of `"19 "` against a home of `"19"` posted IGST, printed **nothing**, and filed **`"19 "`**. The
+    divergence had been MOVED from the routing comparer into the rendering comparer, not removed. **Nothing
+    trims** — trimming would flip `GstService.IsInterState("19 ")` and re-route the TAX, which is a posting
+    decision — so the accepted-onto-the-master defect is untouched and stays open.
+    **(B) `InvoicePdf`'s head rows and its breakup table are now ONE expression each.** Widening
+    `InvoicePrintData.IsInterState` to `bool?` silently changed its DEFAULT from `false` to `null`, and the
+    per-rate breakup's bare `else` read that null as INTRA-state (CGST/SGST columns and amounts) while the totals
+    band read the same null as "no head" — one page, two answers, with the tax absent from the money band and
+    still inside `GrandTotal`. The `int HeadRowCount` is replaced by `HeadRows`, the list the measurement counts
+    and the drawing draws, and a `StatesTaxBreakup` predicate gates both the measured height and the drawn table.
+    A null routing that nonetheless carries tax states the AMOUNT under the head-free label **"Tax"** — an amount
+    asserts no routing, a head would — on the bytes and in the preview mirror alike.
+    **(C) The e-Way divergence was on TWO axes, not one.** Item 3 called the deletion a delegation whose only
+    semantic change was the null-HOME case. The deleted copy read `GstReportSupport.PlaceOfSupply`, whose
+    `StateCode is { } code` pattern matches a **non-null empty or whitespace** string, so a party State of `""`
+    answered **INTER**-state there and answers **INTRA** here. That is a statutory e-Way coverage change — a
+    ₹59,374.80 intra-exempt movement goes `Required` ⇒ `NotRequired` — and it is **accepted deliberately**, because
+    s.10(1)(ca) fixes the place of supply at the supplier's location when the recipient's address is not recorded,
+    which makes a blank party State a *determined* intra-state supply rather than an unknown; the deleted copy was
+    the one departing from the ladder. Reachable via the canonical-XML import (`stateCode=""`, no empty-to-null).
+    **▶ 🔴 ITEM 11's RATIONALE WAS BACKWARDS, AND SAYING SO IS PART OF THIS ROW.** It refused `EInvoiceJson.cs`'s
+    domestic limb on the ground that reconciling *"could emit a triple the IRP rejects"*. **Not reconciling
+    produces one:** on a cleared party State the payload emits `Pos = Stcd =` the SUPPLIER's State beside a
+    recipient GSTIN of a different State — validations **17 and 24** breached at once — while the paper and the
+    return now both state nothing. The verdict still stands, on the correct ground: minting an INV-01 payload is a
+    **WRITE** path, the same class as `PrepareRecord`, and the reconciled answer here is `null`, which `Pos`/`Stcd`
+    may not be (both are `required`). **It is PINNED, not blessed**, by
+    `EInvoiceInv01SchemaConformanceTests.PINNED_GAP_the_inv01_buyer_block_still_derives_its_pos_from_the_raw_ladder`
+    (proved red by removing the raw fallback). Reconciling it needs its own R7 grounding and its own slice.
+    **▶ THE TESTS, AND HOW EACH GUARD WAS PROVED ALIVE — every proof is a MUTATION that was applied, built and run,
+    not an argument.** New: `tests/Apex.Ledger.Tests/Gstr1IssuedPlaceOfSupplyTests.cs` (5),
+    `tests/Apex.Ledger.Tests/EWayBlankPartyStateRoutingTests.cs` (7),
+    `tests/Apex.Ledger.Io.Tests/InvoiceUnknownRoutingRenderTests.cs` (6), plus the pinned INV-01 gap and three
+    assertions added to `tests/Apex.Desktop.Tests/PlaceOfSupplyOneRoutingTests.cs`. Measured red proofs: reverting
+    the Table 4/7 call ⇒ 2 red; reverting the **Table 9B** call ⇒ 1 red *(that call site previously had NO test
+    anywhere — reverting it left the whole repository green)*; removing the unnameable-code reduction ⇒ red in
+    **both** Ledger and Desktop; dropping the breakup's null gate ⇒ red; collapsing `HeadRows`'s null limb to the
+    CGST/SGST pair ⇒ red in **both** Io and Desktop; deleting the "Tax" limb ⇒ red; restoring the deleted e-Way
+    blank-state comparison ⇒ **6 of 7** red with the real-State control still green.
+    **▶ HONEST LIMITS, STATED RATHER THAN LEFT TO BE FOUND.** **(i)** The closing block's measured HEIGHT was
+    asserted by NOTHING, and that was re-measured here, not assumed: mis-stating it by two rows while leaving the
+    drawing correct kept Io 394/394 (its count before this very test existed) and Desktop 2125/2125 green,
+    because the height reaches only pagination.
+    **It is now pinned** by `InvoiceUnknownRoutingRenderTests`'s
+    `The_measured_closing_block_is_one_row_shorter_when_no_head_is_named`, which searches for an item count where a
+    head-free document fits one page and its CGST+SGST twin does not; the same mis-measurement now turns it red.
+    **What is still unpinned is whether the height FORMULA is right** — only that the measurement and the drawing
+    agree, and that the measurement reaches the page. **(ii)** A padded/mis-keyed
+    party State code is still accepted onto the master — `PartyGstDetails.EnsureValid` has no caller (deliverable
+    10), and the routing comparison stays untrimmed by design. **(iii)** `PrepareRecord` and the INV-01 payload
+    are pinned write-path gaps, not fixes. **(iv)** Drift lock D8 exempts by BARE FILENAME and matches an idiom,
+    not a semantics; its own doc comment says so.
+    **▶ WHAT ROWS (d) AND (e) ACTUALLY ARE — the census's own words are too short, so they are restated here.**
+    **(d) is not a duplication; it is TWO IMPLEMENTATIONS THAT DISAGREE ON A NULL HOME STATE.**
+    `src/Apex.Ledger/Services/GstService.cs:332-339` **throws** `InvalidOperationException("GST is not enabled (no
+    home state) — cannot route a supply.")`; `src/Apex.Ledger/Services/EWayBillService.cs:145-150` **returns
+    false** — and in this codebase `false` is not "unknown", it is the positive assertion **intra-state
+    (CGST+SGST)**. It is consumed as one immediately: `EWayBillService.cs:69` feeds it to `CoverageOf`, where
+    it drives the job-work/handicraft short-circuit (`:72`), the intra-state exemption (`:76-77`) and, via `:80`,
+    `EffectiveThreshold` (`:132-143`) — a **per-State intra-state threshold override** keyed on the place of
+    supply. **A figure derived from a fact the book does not have is the definition of a wrong figure.**
+    **(e) is filed as THREE place-of-supply derivations, and one of the three is not a derivation at all.**
+    `GstReportSupport.cs:74-79` (party State, else company home) **IS** the s.10(1)(ca) ladder and is the one to
+    unify on; `VoucherPrintProjector.cs:755-760` is a **posted-tax RECONCILIATION, not a derivation** — it answers
+    a different question ("given a posted tax leg and a live master that may since have been edited, what State
+    may this document truthfully print?") and should stop being counted as a third copy; `EInvoiceJson.cs:267` is
+    a **real** third derivation but a **statutorily mandated** one — see the refusal below. **Callers, re-counted at HEAD `7a35308`:** Form A (throwing) = **6** —
+    `VoucherPrintProjector.cs:272`, `PosBillingViewModel.cs:409`, `VoucherEntryViewModel.cs:3695`, `:3882`,
+    `:4326`, `RcmService.cs:93`; Form B (private) = **1** — `EWayBillService.cs:69`.
+    **▶ 🔴 A FOURTH COPY NOBODY COUNTED, AND IT CARRIES A WHITESPACE BUG.**
+    `VoucherPrintProjector.ConsistentBuyerStateCode` (`:651-662`) re-derives the routing at `:656-658` using
+    **`OrdinalIgnoreCase` + `Trim()`** while `GstService` uses **`Ordinal`, untrimmed**. A party State of `"07 "`
+    against a home `"07"` therefore routes **INTER at posting** and **INTRA at reprint** — which blanks the State
+    text, the place of supply **and** the buyer GSTIN. Deleting this copy is part of the deliverable, not a
+    side-effect.
+    **▶ 🔴 `PartyGstDetails.EnsureValid` IS NEVER CALLED FROM `src/` — AND TWO DOC COMMENTS SAY IT GUARDS.**
+    Verified by grepping every `EnsureValid` reference in `src/`: the method exists at
+    `src/Apex.Ledger/Domain/PartyGstDetails.cs:50`, and its **only** two mentions in `src/` are doc comments —
+    `IndianState.cs:41` (*"`PartyGstDetails.EnsureValid` rejects any code outside this list"*, offered as why an
+    overseas place of supply "cannot be recorded through a validated master edit") and `GstReportSupport.cs:126`
+    (the same claim). `LedgerMasterViewModel.cs:975` calls `PartyMailingDetails.EnsureValid`, a **different**
+    type. **Both comments attribute a guarantee to a guard that never runs; correcting them is deliverable 10.**
+    **▶ THE CONFIRMED REACHABLE WRONG FIGURE — and it is the one that reaches a FILED return.** Post inter-state,
+    then clear the party State (permitted: `PartyGstDetails.cs:22` is `string?` and `EnsureValid` at `:55-56`
+    rejects only an **invalid** code — `null` passes), then reprint. The invoice prints a **blank** place of
+    supply while GSTR-1 (`Gstr1.cs:259`, `:409`) labels the **same IGST-bearing voucher with the HOME code**. NIC
+    validation 24 makes supplier-State == POS on an IGST invoice **self-refuting**, so the return does not merely
+    differ from the paper — it contradicts the tax the voucher posted.
+    **▶ THE RULING BEING DESIGNED TO — option (B)** of W0-11 carry-forward (b): **refuse at the ROUTING call**
+    (where a figure is produced) and give **read-only paths a non-throwing "unknown"**. **This also closes F7.**
+    **▶ THE SHAPE OF "UNKNOWN" = `bool?`, `null` meaning "cannot route". NOT an enum, NOT a `TryGet`.** The
+    codebase already solved this exact problem in this exact domain: `GstReportSupport.PostedForwardRouting`
+    (`:1202`) is a `bool?` whose doc (`:1188-1197`) argues precisely this — it *"used to be a plain `bool`, with
+    'no tax leg' collapsing into 'intra-state'. That is a falsehood, not a default."* **No `Unknown`/
+    `Indeterminate` enum member exists anywhere in `src/`** — re-verified by grep this session; every `Unknown`
+    hit is a string literal inside an exception message or a comment — and a `bool?` composes at
+    `VoucherPrintProjector.cs:597` (`postedRouting ?? livePartyInterState`) with no conversion layer.
+    **▶ THE DELIVERABLE (12 items; every `file:line` re-verified at HEAD `7a35308` — see the DRIFT note below).**
+    **1.** `GstReportSupport`: add `static bool? RoutingOf(Company, string? partyStateCode)` + a `Voucher`
+    overload + a private `PartyStateCodeOf`; re-express `PlaceOfSupply` as `PartyStateCodeOf(...) ?? home`
+    (**behaviour-identical**). Semantics: home null ⇒ **null** (was *throw* in A, *false* in B); party null/blank
+    ⇒ **false** (UNCHANGED — DP-8 / s.10(1)(ca)); else **not `Ordinal`-equals(home, party)** (UNCHANGED).
+    **2.** `GstService.IsInterState` keeps its **EXACT signature and message** and becomes the throwing wrapper:
+    `RoutingOf(...) ?? throw new InvalidOperationException(<existing text>)`. This is what keeps
+    `GstTests.cs:551-592` green **unchanged**.
+    **3.** `EWayBillService`: **DELETE** the private `IsInterState`; `CoverageOf` consumes the nullable. **Unknown
+    must NOT buy a relaxation** — require **`is true`** for the job-work/handicraft limb (`:72`), **`is false`**
+    for the intra-state exemption (`:76-77`), and narrow the `EffectiveThreshold` override limb (`:132-143`) to
+    **`is false`**. **Rationale, and it is the whole argument for the asymmetry:** the **flat configured
+    threshold is the baseline** — `EWayBillService.cs:129-131`'s own doc calls it *"the flat
+    `GstConfig.EWayThreshold`"* and notes an inter-state consignment *"always uses the ₹50,000 default (risk
+    #5)"* — while **the intra-state exemption and the per-State override are RELAXATIONS that presuppose a known
+    State**. Erring toward **over-covering** is the only answer that derives nothing from a fact the book lacks.
+    *(The Rule-138 grounding for the baseline is W0-8's sourced block above; it is not re-asserted here.)* **ALSO FLAG (not necessarily fix in this slice):** `PrepareRecord` reads
+    the home code at `:196` and stamps `ShipFrom`/`ShipTo` at `:204` — a **WRITE path minting a portal request
+    with a null State**.
+    **4.** Add `static string? IssuedPlaceOfSupply(Company, Voucher)` to `GstReportSupport` — the
+    **reconciliation**, promoted **DOWN** off the print path: posted routing `null` ⇒ derived; derived == posted ⇒
+    derived; posted **INTRA** ⇒ home; posted **INTER** ⇒ **null** (unrecoverable — IGST does not record *which*
+    State).
+    **5.** `VoucherPrintProjector.ConsistentBuyerStateCode` **DELETED**, delegating instead — this kills the
+    fourth copy and its whitespace divergence in one move. `VoucherPrintProjector.PlaceOfSupply` keeps only its
+    `StateText` rendering (`:763-767`).
+    **6.** `:272` becomes non-throwing and `PostedInvoiceMoney.InterState` (`:544-547`) widens to `bool?`.
+    **CLOSES F7** — whose standing note is at `VoucherPrintProjector.cs:61-66`, and whose throw is **gratuitous**:
+    `ReadPostedMoney` (`:574-598`) consumes `livePartyInterState` **only** when `postedRouting` is null (`:597`),
+    yet `:272` computes it **eagerly for every projection**.
+    **7.** `Gstr1.cs:259` and `:409` call `IssuedPlaceOfSupply` — **THIS is the change that alters a FILED
+    figure**, and it is the only one in the deliverable that does. **No type change is needed and this was
+    verified, not assumed:** `Gstr1B2BRow.PlaceOfSupplyStateCode` is **already** `string?` (`Gstr1.cs:17`), the
+    9B row likewise (`:131`), and the UI already renders null as empty (`ReportsViewModel.cs:2043`,
+    `Col4 = b.PlaceOfSupplyStateCode ?? string.Empty`).
+    **8.** `InvoicePrintData.IsInterState` (`InvoicePrintData.cs:140`) widens to `bool?`; **null suppresses the
+    supply caption**. Ripple: `InvoicePdf.cs:238`, `:322`/`:324`, `:391`, `:428`, `:445` and
+    `PrintPreviewViewModel.cs:373` — every `if (x)` becomes `is true`, with **null emitting NEITHER head row**,
+    the same shape as the existing `IsBillOfSupply` limb at `InvoicePdf.cs:322`. **`PosReceiptData.IsInterState`
+    (`PosReceiptData.cs:103`) STAYS a plain `bool`** — POS billing is a **write** path and keeps the throw.
+    **9.** Add drift lock **D8** to `OneRuleDriftLockTests.cs`, home file **`"GstReportSupport.cs"`** (D7 is the
+    highest existing lock, so D8 is the next free number), with **bite rows for BOTH removed copies, the fourth
+    copy, and a renamed variant**. `AssertOnlyIn` exempts **by BARE FILENAME** (`:116-117`) — record that honest
+    limit in the doc comment, as the file's own convention at `:26-28` demands.
+    **10.** Correct the two false `EnsureValid` doc comments (`IndianState.cs:41`, `GstReportSupport.cs:126`).
+    **11. 🔴 NOT TOUCHED — `EInvoiceJson.cs:267`, AND REFUSING THIS ROW IS THE RESULT.** The `"96"` limb is
+    **NIC-MANDATED**, not a stray copy: schema-workbook validations **15/16/17** require it (**96 = OTHER
+    COUNTRIES, 97 = a DOMESTIC territory, 99 = OTHER COUNTRIES**), its `Pos` and `Stcd` are **one value**
+    (`:272-273`, const at `:283`), and validation 17 ties `Stcd` to the recipient GSTIN prefix — so "reconciling"
+    it could emit a triple the IRP rejects. **This is the HSN-sentinel outcome exactly: a deliberate, reasoned
+    non-unification is a RESULT, not an unfinished row.** Anyone who later counts (e) as "still three copies"
+    must read this before re-opening it.
+    **12. 🔴 THE PRINTED BLANK STAYS BLANK, AND THAT IS CORRECT HERE.** Once the party State is cleared, **which
+    State the buyer was in exists NOWHERE in the book** — IGST asserts "not home", never *which*. Fixing the
+    **print** therefore needs the **party-State SNAPSHOT**, which is a **SCHEMA change and a SEPARATE slice**.
+    **Schema authority for it now exists (ruling 2, §5 banner) — that is exactly why this row must say NO
+    anyway:** this slice is scoped to the **in-memory rule**, and taking a version here would bundle two changes
+    whose tests cannot fail independently. **Do NOT attempt the snapshot in W0-15.** Pinned today by
+    `ServiceAccountingInvoicePrintFixTests.cs:209`.
+    **▶ SCHEMA: NONE, AND DELIBERATELY.** `Schema.CurrentVersion` stays **50**. See item 12 — the one thing here
+    that *would* need a column is explicitly out of scope.
+    **▶ BLAST RADIUS — MEASURED AT HEAD `7a35308`, NOT ASSUMED.** **No test asserts the throw**: `"no home
+    state"` and `"cannot route a supply"` return **zero hits** across `tests/`. **No test anywhere builds a
+    company with a null `HomeStateCode`**: `HomeStateCode = null` returns **zero hits** (197 `HomeStateCode`
+    occurrences in `tests/`, none of them null). **Nothing depends on the print path throwing** — the only two
+    `Assert.Throws` on `ProjectInvoice` are `BillOfSupplyPosAndPostingGuardTests.cs:513` (test method at `:506`)
+    and `OneBillOfSupplyRuleDelegationTests.cs:434`, and **both are the section-10 composition refusal**
+    (`VoucherPrintProjector.cs:264-265`), which this slice does not touch. **Expected to stay green unchanged:**
+    `GstTests.cs:551-592` (four `IsInterState` facts), `EWayValueTests.cs:244-252` and the threshold suite,
+    `ServiceAccountingInvoicePrintFixTests.cs:209`, `GstReportsViewModelTests.cs:335-351`.
+    **▶ ONE COMPILE-SURFACE TRAP TO CHECK RATHER THAN ASSUME.** `ServiceAccountingInvoicePrintFixTests.cs:206` is
+    `Assert.True(after.IsInterState)`. Widening the property to `bool?` **changes which xUnit overload binds**.
+    Verify it — do not assume it still compiles, and do not "fix" it by unwrapping with `!`, which would restore
+    exactly the null-collapses-to-false falsehood this row exists to remove.
+    **▶ 🔴 FOUR DRIFTED CITATIONS CORRECTED IN THIS ROW — the design pass was verified at `c56e5c3`, and
+    `938530a` (W0-13) landed after it.** `PosBillingViewModel.cs` **`:387` → `:409`**;
+    `VoucherEntryViewModel.cs` **`:3638` → `:3695`**, **`:3825` → `:3882`**, **`:4250` → `:4326`** (both files
+    were edited by W0-13: +109/−3 and +94/−2). Three further citations are corrected as **imprecise rather than
+    moved**: `BillOfSupplyPosAndPostingGuardTests.cs:506` is the test **method**, the `Assert.Throws` is at
+    **`:513`**; `GstReportsViewModelTests.cs:336-350` is the method body, the test including its `[Fact]` is
+    **`:335-351`**; and `OneRuleDriftLockTests.cs`'s "honest limits" paragraph is **`:26-28`**, not `:25-28`.
+    **Every other `file:line` in this row was re-opened at `7a35308` and holds.**
+  - **W0-16 (opened by W0-14's findings; `docs/NEXT_SESSION_KICKOFF.md:128-129` asked for it and nothing in
+    `plan.md` carried it, so it gated nothing) A DOC-VS-CODE CI CHECK — UNTIL 2026-08-15 NO TEST IN THIS
+    REPOSITORY READ A `.md` FILE** — **✅ DONE, PARTIAL SCOPE. Two of the row's three invariants shipped; the
+    third did not, and is named below rather than left to be discovered.**
+    **▶ WHAT SHIPPED, AND WHERE IT IS.** `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs` — **8 tests**,
+    reading **every `*.md` in the tree** (`GovernedDocuments()` enumerates them; the scan asserts its own
+    non-vacuity on documents, citations and line anchors). It carries scope invariants **(i)** prose seed COUNTS
+    ("N predefined voucher types / groups / default ledgers") against `SeedVoucherTypes.Count` /
+    `SeedGroups.Count` / `SeedLedgers.Count`, and **(ii)** every explicit `file.ext:NN` citation resolving to
+    exactly one file and inside it — plus a third invariant the row did not ask for: the **seed TABLES** in
+    `docs/design/accounting-core.md` §5.1/§5.2/§5.3 compared to the seed code row-for-row.
+    **▶ 🔴 WHAT DID **NOT** SHIP — scope item (iii).** *"A register row marked OPEN whose named fix commit is
+    already an ancestor of HEAD"* is **not built**, and this row is DONE without it. Deciding it needs the test to
+    shell out to `git` (`merge-base --is-ancestor`) from inside the suite, which is a new dependency class for
+    this repository — no existing test runs a process — and it needs a convention for how a register row NAMES its
+    fix commit, which no register has. **That is the shape that produced IV-9, D7 and IV-20(a), so it stays
+    open**; carry it to the next documentation row rather than assuming this one covered it.
+    **▶ ITS OWN NAMED DOC FIX IS PAID.** `docs/tally-fidelity-defects.md`'s inverted chronology (the D7 †-block
+    claiming `a12e651` was *"two days after this register was written"*) is corrected in place, with the measured
+    timestamps and a ‡-note recording that a documentation-only pass introduced it.
+    **▶ TWO WEAKNESSES ADVERSARIAL REVIEW FOUND IN THE CHECK ITSELF, BOTH FIXED AND BOTH PROVED BY MUTATION.**
+    **(a)** The seed-table comparer skipped a column it could not find among a row's keys, silently — so renaming
+    §5.3's `Shortcut` header to `Key` AND corrupting a row's shortcut left the file **8/8 green**. Every compared
+    column must now be carried by every row except an exact, named, COUNTED opt-out; the same mutation now fails
+    with a diagnostic naming the parsed headers. *(A first attempt that only asked "is the column declared
+    somewhere in the section" ALSO passed — §5.3 has two tables and the second still declared `Shortcut`. The
+    per-row count is what bites.)* **(b)** The count allow-list was keyed `document|phrase`, so one entry exempted
+    **every** occurrence of that phrase in that document *including ones not yet written*: appending a sentence
+    claiming the seed ships twenty-four of them to `memory.md` — the file a new session reads FIRST — left it 8/8 green,
+    while the same sentence in `README.md` went red. Entries now carry an occurrence COUNT; the injection is red,
+    the genuine quote-to-correct sites stay green, and an entry with SLACK in it fails too. Raising the counts
+    immediately surfaced a **second, previously invisible occurrence** in `docs/full-clone-census.md`.
+    **▶ HONEST LIMITS (the file states them itself, and they are not small).** Bare `:NNN` continuation citations
+    are NOT bound — roughly **46%** of the line anchors in these documents are unmeasured. Invariant 1 is a REACH
+    check: it proves a citation is not dangling, never that it still points at the right line. The count vocabulary
+    is finite. Only `*.md` is read — false claims in C# doc comments are outside its reach entirely. And the count
+    allow-list pins how many, not which.
+    **▶ 🔴 THE STRUCTURAL FINDING, AND IT IS THE POINT OF THE ROW — read in the PAST TENSE; the row above closes
+    it.** **Measured, not asserted, at the time this row was written:** every
+    `File.ReadAll*` call in `tests/` was enumerated — **19 call sites** — and they read `.axaml`, `.cs`, JSON
+    fixtures or bytes the test itself just wrote. **Not one read a `.md`.** Every `.md` string in `tests/` was
+    **prose inside a doc comment**. So the registers, the specs and this file were the only project artefacts with
+    **no executable check of any kind**, while the code they describe is guarded by four test projects and the
+    drift locks in `OneRuleDriftLockTests.cs` *(D1–D3, D7 and now D8 — six `…HasOneHome` facts; the "nine" written
+    here was never a count of anything countable in that file and is withdrawn rather than re-derived)*.
+    **That is the structural reason three register rows
+    drifted into stating the OPPOSITE of the code — IV-9, D7 and IV-20(a)** (W0-14's finding, restated here
+    because `plan.md` is what sequences).
+    **▶ THE EVIDENCE THAT MAKES THIS UNARGUABLE — re-verified from `git log` this session, and it is WORSE than
+    "the same day".** `f277318` (IV-20(a)'s fix) is **2026-08-06 09:52:00 +0530** and `a12e651` (IV-9's and D7's
+    fix — negative stock warns instead of blocking) is **09:52:01**. `18bf524` — which **CREATED** both registers
+    (`docs/invented-vs-cloned.md` +877, `docs/tally-fidelity-defects.md` +449, single-parent, and the **only**
+    commit that adds either file across **all** refs) — is **10:05:47 the same morning**, with all three fixes
+    already **ancestors** of it. **The registers were written under fourteen minutes after the fixes, on a tree
+    that already contained them, describing them as open** — and stood wrong for **nine days**, until W0-14
+    (`7ae0894`, 2026-08-15).
+    **▶ 🔴 AND THE CORRECTION PASS ITSELF GOT THE CHRONOLOGY BACKWARDS — a NEW defect this row records. ✅ FIXED
+    2026-08-15.** The D7 †-block in `docs/tally-fidelity-defects.md` read that `a12e651` was *"2026-08-06 — two
+    days after this register was written"*. **`git log` says the opposite:** the register was created **13 minutes
+    46 seconds AFTER** that commit. The false line was introduced by **`7ae0894`**, the W0-14 pass whose entire
+    purpose was correcting these registers. **A documentation-only pass, done carefully, inverted a fact that one
+    `git log` would have settled — which is precisely what a test would catch and a reviewer demonstrably did
+    not.** The line now carries the measured timestamps and a ‡-note naming how the inversion got in. **Note what
+    this does NOT prove: no invariant in the shipped check would have caught it** — it is a chronology claim, not
+    a count or a citation, and scope item (iii), the invariant that would have, is the one that did not ship.
+    **▶ SCOPE — the CHECK, not a doc rewrite.** Start with the claims that are mechanically checkable against the
+    tree and nothing more: **(i)** a documented **count** that must match what the code actually seeds — the
+    **23-vs-24 voucher-type count** is the worked example, and **establishing that number is W0-6's job, not this
+    row's** (`NEXT_SESSION_KICKOFF.md:128-129`); **(ii)** a documented **`file.cs:NNN` citation** that must
+    resolve to a line that still exists; **(iii)** a **register row marked OPEN whose named fix commit is already
+    an ancestor of HEAD** — the exact shape that produced IV-9, D7 and IV-20(a), and the one a machine can decide
+    outright. **The machinery already exists and has simply never been pointed at `docs/`:** `RepoRoot()` is
+    implemented **three separate times** in `tests/` (`OneRuleDriftLockTests.cs:85`,
+    `Gstr1ZeroValueRateGroupTests.cs:42`, `MenuHotKeyAndAcceptTests.cs:773`) and `ShippedSources()`
+    (`OneRuleDriftLockTests.cs:95-103`) already walks a tree excluding `bin`/`obj`.
+    **▶ THE TRAP THIS ROW MUST NOT FALL INTO — a green check that reads nothing.**
+    `TheScanActuallyReadsTheShippedTree` exists in `OneRuleDriftLockTests.cs` for exactly this reason, and this
+    wave has already shipped **one test that cannot fail** (W0-11's
+    `BasisPointFormatsAreIdenticalForEveryRepresentableRate`, a decision record wearing a `[Fact]`). **Any check
+    added here ships with a proof that it BITES** — a fixture doc
+    asserting a count the tree contradicts, plus a stated demonstration that removing the check turns that
+    fixture green. **A GREEN SUITE PROVES NOTHING HERE.**
+    **▶ SCHEMA: NONE.** Tests and CI only; no `src/` behaviour changes.
+- **▶ SEQUENCING AFTER THIS WAVE (census §5 "Recommended order" — cross-referenced, not restated here).**
+  **⚠️ 2026-08-15 — THIS IS NO LONGER A RECOMMENDATION. USER RULING 1 (R12, §5 banner) MAKES IT THE BUILD
+  ORDER:** stop active harm first, then correctness, then structure, then breadth — **Wave 0 remainder → Wave 1
+  → Wave 2 → Wave 3**. **No Wave-1 item starts while a Wave-0 item is open**, and nothing is promoted out of its
+  wave for convenience. The list below is unchanged in content; only its force changed.
   1. **Wave 1 — correctness.** §194Q excess carve; stock valuation **behind an oracle harness** (see the
      negative-stock note: three attempts, three unbounded Balance-Sheet errors that each passed the full
      suite); GST rate hierarchy; CN/DN stock parity. **Then the voucher lifecycle (10.11), so those fixes are
@@ -2675,15 +3063,28 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   fulfilment** (zero `TrackingNumber` hits); **no voucher alteration or deletion makes every other defect
   permanent** — *the true root of the tree*; **no master-screen F12 blocks a whole configuration layer**, and
   it is **entangled with the missing F11 Accounting group — they are one configuration layer, not two.**
-- **Schema: NONE expected** — every item is UI over persisted state. Any slice that finds it needs a column
-  stops and takes the next free version through the 10.10 chain, not silently.
+- **Schema: NONE expected** — every item is UI over persisted state. ~~Any slice that finds it needs a column
+  stops and takes the next free version through the 10.10 chain, not silently.~~
+  **▶ AMENDED 2026-08-15 BY USER RULING 2 (R12 — §5 banner, `FOUR USER RULINGS (R12, 2026-08-15)`). A SLICE
+  THAT NEEDS A COLUMN NO LONGER STOPS.** It **takes the next version** — **one bump per slice**, with a
+  **forward migration**, **round-trip tests** and the **existing migration-equivalence check**
+  (`Schema.cs:144-145`), **recorded in this file**. `Schema.CurrentVersion` is **50** (`Schema.cs:146`), so the
+  next is **51**. **"NONE expected" still stands as the expectation** — the wave's items are UI over persisted
+  state and none of them has needed a column — and a slice that does not need one must not take one. What
+  changed is only what happens when a slice genuinely does: it proceeds, it does not halt for a gate.
+  **W0-15 below is scoped in-memory and deliberately takes NO version**, and says why in its own row.
 - **Agents:** per-feature pipeline (§2.2) — Requirements/Design, **A14** (R7, and **W0-4 does not start until
   A14 confirms the GSTN key schema**), Test author, Implementer, **A10** review **per slice, pre-merge**,
   **A12**, run-app verifier.
 - **Deliverables:** a composition dealer's document printing as a **Bill of Supply** with its declaration; an
   invoice carrying a **real seller address block**; a company created for a **prior financial year** and
   altered afterwards; **Restore reached with no company open**; five GST return JSONs written from their own
-  screens; a negative-stock warning the operator can turn off; and **registers whose numbers match the tree.**
+  screens; a negative-stock warning the operator can turn off; **registers whose numbers match the tree**; **one
+  routing rule, so a book that cannot say where its supplier is refuses instead of inventing an intra-state
+  figure — and an already-issued invoice reprints instead of throwing (F7)**; and **a check that fails when a
+  `.md` claim contradicts the tree** — *which nothing in the repository could do until 2026-08-15; it now ships as
+  `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs`, covering seed COUNTS, `file:line` CITATIONS and the seed
+  TABLES. The OPEN-register-row-with-an-ancestor-fix-commit invariant is **not** among them — see W0-16.*
 - **Exit gate:** R9 — tests green and **shown as all four per-project counts, never the total** (§6.2). **The
   verified baseline is `claude/stream-a-figures`: Ledger 1368 · Io 368 · Sqlite 214 · Desktop 1837, build
   0W/0E, schema v50.** **⚠️ This file's header figures AND the Phase 10.10 / 10.11 exit-gate figures are BOTH

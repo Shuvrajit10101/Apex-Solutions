@@ -233,14 +233,16 @@ public static class InvoicePdf
         // The Cess row appears only on a cess-bearing invoice, so a cess-free one measures (and renders) as before.
         // A BILL OF SUPPLY has no tax head to state (Rule 49 prescribes none), so it is value + optional round-off +
         // total — kept in lockstep with DrawClosingBlock below.
+        // W0-15: `IsInterState` is three-valued — null (nothing established a routing) states NO named head row.
+        // The count comes from HeadRows, the SAME list DrawClosingBlock draws, so measure and draw cannot drift.
         int totalRows = data.IsBillOfSupply
             ? 1 + (data.RoundOff.Amount != 0m ? 1 : 0) + 1
-            : 1 + (data.IsInterState ? 1 : 2)
+            : 1 + HeadRows(data).Count
                 + (data.TotalCess.Amount != 0m ? 1 : 0)
                 + (data.RoundOff.Amount != 0m ? 1 : 0) + 1;
         double h = 2 + totalRows * page.RowHeight + 2;
 
-        if (!data.IsBillOfSupply && data.TaxRows.Count > 0)
+        if (StatesTaxBreakup(data))
         {
             h += page.BodyFontSize + 2                 // "GST Breakup" caption + rule
                + page.RowHeight                        // caption row
@@ -319,9 +321,10 @@ public static class InvoicePdf
         // The intra/inter caption names a TAX HEAD ("CGST + SGST" / "IGST"). CGST Rule 49 prescribes no rate and no
         // tax-amount particular, and a composition supplier may collect none (§10(4), §32(2)), so a bill of supply
         // states no head at all. Occupies the same line as Place of Supply ⇒ dropping it changes no height.
-        if (!data.IsBillOfSupply)
+        // W0-15: null routing states no head, so no caption — naming one would assert a routing nothing established.
+        if (!data.IsBillOfSupply && data.IsInterState is { } interState)
         {
-            string supply = data.IsInterState ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
+            string supply = interState ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)";
             writer.Text(geo.MidX + 6, y, supply, page.BodyFontSize, bold: false);
         }
         y -= 6;
@@ -329,6 +332,50 @@ public static class InvoicePdf
         y -= page.BodyFontSize + 2;
         return y;
     }
+
+    /// <summary>
+    /// The TAX rows the totals band states, in order: <b>IGST</b> for an inter-state supply, <b>CGST + SGST</b> for an
+    /// intra-state one, and — when the routing is unknown (W0-15) — <b>no NAMED head at all</b>, because naming one
+    /// would assert a routing nothing established.
+    ///
+    /// <para><b>THE SINGLE SOURCE for both the measured height and the drawn rows.</b> <see cref="BuildClosing"/>
+    /// counts this list and <see cref="DrawClosingBlock"/> draws exactly it. <b>Review correction:</b> this used to be
+    /// an <c>int HeadRowCount</c> consumed only by the measurement, while the drawing re-decided with its own switch
+    /// over the same property. The doc comment claimed they could not drift, but they were two independent
+    /// expressions — and, measured, collapsing the count's <c>null</c> limb to 2 changed nothing on the page and
+    /// turned no test red, because the count reaches only <c>h</c> (geometry) and every assertion in the suite is
+    /// about content. Returning the rows themselves removes the possibility rather than testing for it.</para>
+    ///
+    /// <para><b>The unknown-routing case still states the tax AMOUNT when there is one</b>, under the head-free label
+    /// "Tax". The alternative is a Grand Total that silently exceeds "Taxable Value" by an amount the document never
+    /// mentions — <see cref="InvoicePrintData.GrandTotal"/> adds <see cref="InvoicePrintData.TotalTax"/> regardless.
+    /// Stating an amount asserts no routing; stating "CGST" would. Unreachable from
+    /// <c>VoucherPrintProjector</c> (a null routing there means no forward tax leg was posted, so the tax is zero and
+    /// no row is emitted); this is the belt-and-braces limb for any other caller, in the same spirit as the bill-of-
+    /// supply suppressions below.</para>
+    /// </summary>
+    private static IReadOnlyList<(string Label, Money Amount)> HeadRows(InvoicePrintData data) => data.IsInterState switch
+    {
+        true => new[] { ("IGST", data.TotalIgst) },
+        false => new[] { ("CGST", data.TotalCgst), ("SGST", data.TotalSgst) },
+        null => data.TotalTax.Amount != 0m
+            ? new[] { ("Tax", data.TotalTax) }
+            : Array.Empty<(string, Money)>(),
+    };
+
+    /// <summary>
+    /// Does this document state the per-rate GST breakup table? Never on a bill of supply (Rule 49 prescribes no rate
+    /// particular), never without rate rows — and <b>never when the routing is unknown</b> (W0-15 review): the
+    /// breakup's column headers NAME the heads ("CGST"/"SGST" or "IGST"), so drawing it under a null routing asserts
+    /// exactly the intra-state supply the totals band above refuses to assert. Before this gate a caller passing rate
+    /// rows with <see cref="InvoicePrintData.IsInterState"/> unset — which now defaults to <c>null</c>, where it used
+    /// to default to <c>false</c> — got a document whose breakup showed CGST and SGST columns and whose totals band
+    /// showed no tax at all.
+    /// <para><b>The single source for the breakup's measured height and its drawing</b>, for the same reason
+    /// <see cref="HeadRows"/> is.</para>
+    /// </summary>
+    private static bool StatesTaxBreakup(InvoicePrintData data) =>
+        !data.IsBillOfSupply && data.TaxRows.Count > 0 && data.IsInterState is not null;
 
     private static double DrawContinuationHeader(PdfWriter writer, PageConfig page, string title, double left, double right)
     {
@@ -388,15 +435,11 @@ public static class InvoicePdf
         TotalLine(data.IsBillOfSupply ? "Value of Supply" : "Taxable Value", Fmt(data.TotalTaxable), false);
         if (!data.IsBillOfSupply)
         {
-            if (data.IsInterState)
-            {
-                TotalLine("IGST", Fmt(data.TotalIgst), false);
-            }
-            else
-            {
-                TotalLine("CGST", Fmt(data.TotalCgst), false);
-                TotalLine("SGST", Fmt(data.TotalSgst), false);
-            }
+            // W0-15 — three-valued. These rows ARE `HeadRows`, the same list BuildClosing counted, so the measured
+            // height and the drawn rows are one expression: a document nothing routed may not state
+            // "CGST 0.00 / SGST 0.00", which asserts an intra-state supply.
+            foreach (var (label, amount) in HeadRows(data))
+                TotalLine(label, Fmt(amount), false);
             // Compensation Cess gets its OWN line — it is ring-fenced from the GST heads (never folded into
             // CGST/SGST/IGST) but it IS charged to the recipient, so it must appear on the bill and reach the Grand
             // Total. Printed only when non-zero, so a cess-free invoice renders exactly as before (ER-13).
@@ -410,9 +453,11 @@ public static class InvoicePdf
         y -= 2;
 
         // --- Per-rate tax breakup table --- (never on a bill of supply: Rule 49 prescribes no rate particular, and
-        // showing one would assert a collection §10(4) / §32(2) forbid. Belt-and-braces — the projector already
-        // suppresses the rows; this makes the renderer safe against any future caller that does not.)
-        if (!data.IsBillOfSupply && data.TaxRows.Count > 0)
+        // showing one would assert a collection §10(4) / §32(2) forbid; never under an unknown routing, whose column
+        // headers would name a head nothing established. Belt-and-braces — the projector already suppresses the rows;
+        // this makes the renderer safe against any future caller that does not. The gate is `StatesTaxBreakup`, the
+        // SAME predicate BuildClosing measured with.)
+        if (StatesTaxBreakup(data))
         {
             writer.Line(left, y, right, y, 0.5);
             y -= page.BodyFontSize + 2;
@@ -425,7 +470,17 @@ public static class InvoicePdf
 
             writer.Text(left, y, "Rate", page.BodyFontSize, bold: true);
             RightText(writer, "Taxable", left + page.ContentWidth * 0.10, rTaxableR, y, page.BodyFontSize, bold: true);
-            if (data.IsInterState)
+            // W0-15: `is true` vs `is false` on a three-valued routing. The `else` here is `is false` and ONLY that,
+            // because `StatesTaxBreakup` already refused the null.
+            //
+            // ▶ REVIEW CORRECTION. This said "the null case cannot reach here — a rate row exists only where a forward
+            // leg was posted, and a posted leg is what makes the routing non-null". That is true of
+            // `VoucherPrintProjector` and FALSE of this renderer, which the comment above deliberately keeps "safe
+            // against any future caller". Widening `InvoicePrintData.IsInterState` to `bool?` changed its DEFAULT from
+            // false to null, so a DTO that merely omits the property reached this `else` and was read as intra-state
+            // here while the totals band read the same null as "no head" — one document, two answers. The gate, not an
+            // unreachability argument, is what makes the `else` safe.
+            if (data.IsInterState is true)
             {
                 RightText(writer, "IGST", rTaxableR, rC1R, y, page.BodyFontSize, bold: true);
             }
@@ -442,7 +497,7 @@ public static class InvoicePdf
             {
                 writer.Text(left, y, tr.RateLabel, page.BodyFontSize, bold: false);
                 RightText(writer, Fmt(tr.TaxableValue), left + page.ContentWidth * 0.10, rTaxableR, y, page.BodyFontSize, bold: false);
-                if (data.IsInterState)
+                if (data.IsInterState is true)
                 {
                     RightText(writer, Fmt(tr.Igst), rTaxableR, rC1R, y, page.BodyFontSize, bold: false);
                 }

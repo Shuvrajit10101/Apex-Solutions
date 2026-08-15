@@ -2048,7 +2048,7 @@ pushed to origin, main untouched. **Next = S6 (Form 27EQ quarterly TCS return + 
 
 **Log-continuity note (2026-07-27):** this file's per-slice log runs through **Phase 10.5 (schema v46)** above. The interim work that carried the schema **v46 → v49** (the UI-defect campaign PRs and the voucher-numbering / service-invoicing features) was **not appended here** — the commit chain on `main` is the record for it. **⚠️ R5 was also missed for most of THIS session** (the entry below is a back-fill written at the point the gap was noticed, not as-we-went). Per-slice logging resumes here.
 
-- **Session start — baseline established BEFORE any change.** Branch `claude/confident-ellis-dedef5` fast-forwarded onto **`9c2bded`** (a **pure FF** — `c655dc2` is an ancestor, nothing rebased or rewritten). **Gate re-run by the orchestrator PERSONALLY (not taken from an agent's word):** build **0W/0E**; **3491 tests green — Ledger 1261 · Io 359 · Sqlite 184 · Desktop 1687**. Schema **`Schema.CurrentVersion = 49`** (`src/Apex.Ledger.Sqlite/Schema.cs:124`).
+- **Session start — baseline established BEFORE any change.** Branch `claude/confident-ellis-dedef5` fast-forwarded onto **`9c2bded`** (a **pure FF** — `c655dc2` is an ancestor, nothing rebased or rewritten). **Gate re-run by the orchestrator PERSONALLY (not taken from an agent's word):** build **0W/0E**; **3491 tests green — Ledger 1261 · Io 359 · Sqlite 184 · Desktop 1687**. Schema **`Schema.CurrentVersion = 49`** (`src/Apex.Persistence.Sqlite/Schema.cs:124`).
 - **Commits so far on this branch — 3, NONE pushed, NO PR:**
   - `b2f6c40` chore(oracle): .gitignore for harness scratch
   - `a6fd61b` docs(plan): Phase 10.8 — allow-negative-stock

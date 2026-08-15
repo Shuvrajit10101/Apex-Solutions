@@ -140,7 +140,14 @@ These harm the project rather than the business, but they are the reason nobody 
 > the **`docs/invented-vs-cloned.md` IV-19 "~50"** row and the **negative-stock "STOPPED AND BANKED"** row were
 > both carried into the registers' 2026-08-15 re-verification and are corrected there. The **"24 predefined
 > voucher types"** row is untouched — `SeedVoucherTypes.cs:71` still reads `public const int Count = 23`,
-> re-measured 2026-08-15, and `plan.md` still says 24 in nine places.
+> re-measured 2026-08-15, and `plan.md` said 24 in nine places when this was written.
+>
+> **‡ 2026-08-15 (W0-15 review):** `plan.md`'s live, present-tense counts have since been corrected to 23, and the
+> sites that remain at 24 are deliberate — one quotation made in order to retire it, and **CLOSED phases' historical
+> records of the count as it stood when they shipped** (the Attendance seed row was deleted on 2026-08-03 by
+> `7bfc2c6`, after Phase 10.7 had already shipped against it). Rewriting those would make the record false. Each is
+> now exempted per-site, with its occurrence count, in
+> `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs`, which fails on any NEW one.
 
 | Claim | Reality |
 |---|---|

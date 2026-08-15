@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Xunit;
 
@@ -1266,5 +1267,51 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         Assert.Equal("N", goods.GetProperty("IsServc").GetString());     // it IS goods …
         Assert.False(goods.TryGetProperty("Qty", out _));                // … and it declares no quantity.
         Assert.False(goods.TryGetProperty("Unit", out _));
+    }
+
+    /// <summary>
+    /// <b>PINNED GAP (W0-15 review) — <c>BuyerDtls.Pos</c>/<c>Stcd</c> still come from the RAW s.10(1)(ca) ladder,
+    /// so one voucher can now carry three places of supply.</b>
+    ///
+    /// <para>W0-15 replaced <c>partyGst?.StateCode ?? homeStateCode</c> with the reconciled
+    /// <c>GstReportSupport.IssuedPlaceOfSupply</c> on the print path and in GSTR-1, and deliberately did not touch
+    /// <c>EInvoiceJson.BuyerBlock</c>'s domestic limb. Its stated reason — that reconciling "could emit a triple the
+    /// IRP rejects" — is backwards on this shape: <b>NOT reconciling produces one.</b> Clear an IGST-bearing invoice's
+    /// party State and this payload declares <c>Pos = Stcd = "27"</c>, the SUPPLIER's own State, beside a recipient
+    /// GSTIN beginning "24" — breaching "Validations" rule 17 (<i>"First two digits of the Supplier / Recipient GSTIN
+    /// should match with the state code passed…"</i>) and rule 24 (supplier state == POS decides intra-state, on a
+    /// payload carrying IGST) at once — while the printed invoice states nothing and GSTR-1 files nothing.</para>
+    ///
+    /// <para><b>Why it is pinned rather than fixed.</b> Minting an INV-01 payload is a WRITE path, the same class as
+    /// <c>EWayBillService.PrepareRecord</c>, which W0-15 also flagged and pinned; and the reconciled answer for this
+    /// shape is <c>null</c>, which <c>Pos</c>/<c>Stcd</c> may not be — both are in <c>BuyerDtls</c>'s
+    /// <c>required</c> list. What a statutory payload should emit for an unreconstructable place of supply needs its
+    /// own R7 grounding and its own slice. <b>This test states today's output so it cannot change silently:</b> the day
+    /// the payload starts reconciling, this fails and the gap is closed deliberately.</para>
+    /// </summary>
+    [Fact]
+    public void PINNED_GAP_the_inv01_buyer_block_still_derives_its_pos_from_the_raw_ladder()
+    {
+        var f = Build();
+
+        // Control — undrifted, the payload names the recipient's own State (rule 24's inter-state shape).
+        var before = Inv01(f.Company, f.InterStateSale).GetProperty("BuyerDtls");
+        Assert.Equal("24", before.GetProperty("Pos").GetString());
+        Assert.Equal("24", before.GetProperty("Stcd").GetString());
+
+        // The party's State is cleared on the live master — permitted, and the exact W0-15 fixture.
+        var gujarat = f.Company.Ledgers.Single(l => l.Name == "Gujarat Customer");
+        gujarat.PartyGst!.StateCode = null;
+
+        // The printed document and the filed return both now say NOTHING for this voucher …
+        Assert.Null(GstReportSupport.IssuedPlaceOfSupply(f.Company, f.InterStateSale));
+        Assert.Null(Assert.Single(Gstr1.Build(f.Company, FyStart, SaleDate.AddDays(30)).B2B,
+            r => r.PartyGstin == GstinGujarat).PlaceOfSupplyStateCode);
+
+        // … and the INV-01 payload says "27", the supplier's own State, beside a recipient GSTIN beginning "24".
+        var after = Inv01(f.Company, f.InterStateSale).GetProperty("BuyerDtls");
+        Assert.Equal("27", after.GetProperty("Pos").GetString());     // ← THE GAP
+        Assert.Equal("27", after.GetProperty("Stcd").GetString());    // ← rule 17: GSTIN prefix "24" vs "27"
+        Assert.Equal(GstinGujarat, after.GetProperty("Gstin").GetString());
     }
 }
