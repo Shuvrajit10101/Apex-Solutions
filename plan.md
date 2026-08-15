@@ -2612,8 +2612,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     PLACE-OF-SUPPLY GROUNDING** — **DONE (working tree).**
     **▶ 🔴 THE R6 DEVIATION, STATED PLAINLY AND FIRST.** The working tree presented for W0-13's gate contained a
     SECOND body of work alongside the W0-13 code: six tracked docs changed (**+932 lines** — `invented-vs-cloned.md`
-    +514, `tally-fidelity-defects.md` +335, `NEXT_SESSION_KICKOFF.md` +47, `tally-gap-decisions.md` +35,
-    `voucher-entry-specification.md` +38, `full-clone-census.md` +18) plus a new **558-line**
+    +477, `tally-fidelity-defects.md` +325, `NEXT_SESSION_KICKOFF.md` +41, `tally-gap-decisions.md` +35,
+    `voucher-entry-specification.md` +37, `full-clone-census.md` +17 — ⚠️ CORRECTED 2026-08-15: this list
+    previously read 514/335/47/35/38/18, which are the `--stat` **added+deleted** totals mislabelled as
+    insertions and summing to **987**, not the 932 stated one line above; the figures now shown are `--numstat`
+    insertions and do sum to 932) plus a new **558-line**
     `docs/diverged-rules-de-place-of-supply-grounding.md`. **No `plan.md` row authorised either** — W0-13's scope is
     PART 1 (five narrow filters) and PART 2 (seven `Paisa.FromMoney` paths) and nothing else. That breaches R6 ("no
     work is done outside `plan.md` without first updating `plan.md`"), and the grounding doc additionally breached
