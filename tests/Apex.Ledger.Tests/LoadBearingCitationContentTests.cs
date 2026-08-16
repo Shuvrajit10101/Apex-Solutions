@@ -27,6 +27,12 @@ namespace Apex.Ledger.Tests;
 /// <para><b>Scope honesty.</b> This covers <see cref="Anchors"/> and nothing else — a few citations out of
 /// thousands. It is a targeted guard for the claims that decide behaviour, not general coverage. Citations
 /// outside the table remain protected only by the reach check.</para>
+///
+/// <para>⚠️ <b>And a scope lesson, recorded 2026-08-16 (owed review of WF-1, lens 3 finding 11).</b> This table
+/// shipped in <c>e49b88e</c> with seven anchors, <b>every one of them W0-2a</b> — the half of that commit that
+/// HAD been reviewed. The other half, WF-1, got none, and it was WF-1's register row that had silently gone
+/// false. <b>A tool built because a check has a blind spot must be pointed at the code nobody has read yet, not
+/// at the code that was just reviewed.</b> Four WF-1 anchors were added on that basis.</para>
 /// </summary>
 public sealed class LoadBearingCitationContentTests
 {
@@ -73,6 +79,37 @@ public sealed class LoadBearingCitationContentTests
             "the party State rides on",
             "CanonicalXml.cs",
             "No <c>state</c> attribute"),
+
+        // ---- WF-1 (slice S4): the three citations the owed review's findings rest on ----
+        // Added 2026-08-16. The table shipped with SEVEN anchors, ALL of them W0-2a: the tool built BECAUSE
+        // reach-only checks have a blind spot was pointed exclusively at the REVIEWED half of the commit, while
+        // the UNREVIEWED half was the one whose register row had gone false (lens 3 finding 11).
+
+        // The migration's back-fill — the statement the whole fresh/upgraded split and R12 decision 1 rest on.
+        new("plan.md",
+            "the back-fill `UPDATE` is",
+            "Schema.cs",
+            "UPDATE companies SET gst_source_of_hsn_sac = 1, gst_source_of_rate = 1;"),
+
+        // The fix for the defect that erased that back-fill: the writer must PRESERVE, never default.
+        new("plan.md",
+            "The fix is the writer's three-way fallback",
+            "SqliteCompanyStore.cs",
+            "storedSourceOrders?.Hsn"),
+
+        // The downgrade's index replay — without it every migration fixture runs against a database missing
+        // two indexes a real book of that age would have.
+        new("plan.md",
+            "The index replay is",
+            "SchemaDowngrade.cs",
+            "foreach (var sql in indexes)"),
+
+        // The schema version itself. memory.md's WF-1 entry is the record a new session reads first, and it was
+        // absent altogether until the review (lens 3 finding 6); this keeps its headline number honest.
+        new("memory.md",
+            "SCHEMA v50 → 51, AND NOTHING READS IT",
+            "Schema.cs",
+            "CurrentVersion = 51"),
     };
 
     private static string RepoRoot()
@@ -186,7 +223,7 @@ public sealed class LoadBearingCitationContentTests
     [Fact]
     public void The_anchor_table_is_non_empty_and_every_row_resolves()
     {
-        Assert.True(Anchors.Length >= 7, $"anchor table has shrunk to {Anchors.Length} rows");
+        Assert.True(Anchors.Length >= 11, $"anchor table has shrunk to {Anchors.Length} rows");
 
         foreach (var a in Anchors)
         {

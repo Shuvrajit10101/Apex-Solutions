@@ -541,6 +541,11 @@ public sealed class InventoryVoucherRoundTripTests
         // the reopen's v50→v51 ALTER TABLE ADD COLUMN does not collide. Explicit DDL rather than a
         // CREATE … AS SELECT: ledgers.group_id references groups(id) and stock_items.stock_group_id references
         // stock_groups(id), so both PRIMARY KEYs have to survive or the re-save fails on an FK mismatch.
+        // ⚠️ THE TWO CREATE INDEX STATEMENTS ARE NOT DECORATION (owed-review lens 3 finding 12). DROP TABLE takes
+        // the table's indexes with it, and these two tables are the only ones rebuilt here that carry any
+        // (ix_groups_company, ix_stock_groups_company — Schema.cs, search for `CREATE INDEX ix_groups_company`).
+        // Without them this fixture would run the v9 → v51 legacy upgrade over a database missing two indexes a
+        // real book of that age would have — the same defect SchemaDowngrade.DropColumns was fixed for.
         Exec(conn, """
             CREATE TABLE groups_v9 (
                 id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
@@ -550,6 +555,7 @@ public sealed class InventoryVoucherRoundTripTests
                 FROM groups;
             DROP TABLE groups;
             ALTER TABLE groups_v9 RENAME TO groups;
+            CREATE INDEX ix_groups_company ON groups(company_id);
             """);
         Exec(conn, """
             CREATE TABLE stock_groups_v9 (
@@ -559,6 +565,7 @@ public sealed class InventoryVoucherRoundTripTests
                 FROM stock_groups;
             DROP TABLE stock_groups;
             ALTER TABLE stock_groups_v9 RENAME TO stock_groups;
+            CREATE INDEX ix_stock_groups_company ON stock_groups(company_id);
             """);
 
         Exec(conn, "UPDATE schema_version SET version = 9;");

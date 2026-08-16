@@ -98,20 +98,30 @@ public class MasterGstDetailsTests
     /// <summary>
     /// The parity that stops the hierarchy from becoming a way around the item block's guards: every value
     /// <see cref="StockItemGstDetails.EnsureValid"/> rejects on these four shared fields is rejected by
-    /// <see cref="MasterGstDetails.EnsureValid"/> too, and every value it accepts is accepted. Asserted by running
-    /// BOTH validators over the same inputs and comparing whether each threw — so a future relaxation of either one
-    /// alone fails here.
+    /// <see cref="MasterGstDetails.EnsureValid"/> too, and every value it accepts is accepted.
+    ///
+    /// <para>🔴 <b><paramref name="expectThrow"/> exists because the owed review (lens 2 finding 5) measured this
+    /// test INERT.</b> It used to assert only <c>Assert.Equal(itemThrew, masterThrew)</c> — agreement — so its one
+    /// failure mode was DISAGREEMENT and it never said what the agreed answer should be. Relaxing the HSN rule in
+    /// BOTH validators identically (the exact change a "simplification" would make) left this test <b>green</b>,
+    /// including the two rows that exist specifically for that rule. Worse, it is the only test in the repository
+    /// that touches <see cref="StockItemGstDetails.EnsureValid"/>'s HSN branch at all, so that branch had no live
+    /// guard anywhere. Pinning the expected verdict per row fixes both: each row now fails on its own if either
+    /// validator changes, and still fails if the two disagree.</para>
     /// </summary>
     [Theory]
-    [InlineData("7318", 1237, GstTaxability.Taxable)]
-    [InlineData("998313", 0, GstTaxability.NilRated)]
-    [InlineData(null, null, GstTaxability.Taxable)]
-    [InlineData("731", 1237, GstTaxability.Taxable)]           // bad HSN length
-    [InlineData("8517121A", 1237, GstTaxability.Taxable)]      // non-numeric HSN
-    [InlineData("7318", -1, GstTaxability.Taxable)]            // negative rate
-    [InlineData("7318", 1237, GstTaxability.Exempt)]           // positive rate on a non-taxable block
+    [InlineData("7318", 1237, GstTaxability.Taxable, false)]
+    [InlineData("998313", 0, GstTaxability.NilRated, false)]
+    [InlineData(null, null, GstTaxability.Taxable, false)]
+    [InlineData("85171213", null, GstTaxability.Taxable, false)]   // 8-digit HSN, no rate
+    [InlineData("731", 1237, GstTaxability.Taxable, true)]         // bad HSN length
+    [InlineData("73185", null, GstTaxability.Taxable, true)]       // 5 digits — not a permitted length
+    [InlineData("8517121A", 1237, GstTaxability.Taxable, true)]    // non-numeric HSN
+    [InlineData("", null, GstTaxability.Taxable, true)]            // empty string is not "unset"
+    [InlineData("7318", -1, GstTaxability.Taxable, true)]          // negative rate
+    [InlineData("7318", 1237, GstTaxability.Exempt, true)]         // positive rate on a non-taxable block
     public void The_master_block_and_the_item_block_agree_on_every_shared_rule(
-        string? hsn, int? rateBp, GstTaxability taxability)
+        string? hsn, int? rateBp, GstTaxability taxability, bool expectThrow)
     {
         var masterThrew = Threw(() => new MasterGstDetails
         {
@@ -123,7 +133,77 @@ public class MasterGstDetailsTests
             HsnSac = hsn, RateBasisPoints = rateBp, Taxability = taxability,
         }.EnsureValid());
 
+        // The RULE, on each block independently — this is what makes the row bite when both are relaxed together.
+        Assert.Equal(expectThrow, masterThrew);
+        Assert.Equal(expectThrow, itemThrew);
+        // …and the AGREEMENT, which is what makes it bite when only one is relaxed.
         Assert.Equal(itemThrew, masterThrew);
+    }
+
+    // ---------------------------------------------------------------- the company-level call site
+
+    /// <summary>
+    /// <see cref="GstConfig.EnsureValid"/> validates <see cref="GstConfig.DefaultGst"/> — the company block is the
+    /// LAST level of both resolution orders, so a malformed one would surface as a bad rate on any line no other
+    /// level answered.
+    ///
+    /// <para>🔴 <b>This test exists because that call site had ZERO coverage in the project that owns it</b>
+    /// (owed-review lens 2 finding 10): commenting out <c>DefaultGst?.EnsureValid()</c> together with both
+    /// <c>ImportPlan</c> call sites left all of <c>Apex.Ledger.Tests</c> green — the only reds were three Io theory
+    /// cases, in a different project. <see cref="MasterGstDetailsTests"/> never constructed a
+    /// <see cref="GstConfig"/> at all.</para>
+    /// </summary>
+    [Fact]
+    public void A_company_default_block_is_validated_by_GstConfig_EnsureValid()
+    {
+        var config = new GstConfig
+        {
+            Enabled = true,
+            Gstin = "27AAPFU0939F1ZV",
+            HomeStateCode = "27",
+            DefaultGst = new MasterGstDetails { HsnSac = "7318", RateBasisPoints = 1741 },
+        };
+        config.EnsureValid();   // a well-formed default block passes
+
+        config.DefaultGst = new MasterGstDetails { HsnSac = "1234567" };   // 7 digits
+        var ex = Assert.Throws<ArgumentException>(config.EnsureValid);
+        Assert.Contains("must be 4, 6 or 8 digits", ex.Message, StringComparison.Ordinal);
+
+        config.DefaultGst = new MasterGstDetails { Taxability = GstTaxability.Exempt, RateBasisPoints = 1741 };
+        Assert.Contains("must not carry a positive GST rate",
+            Assert.Throws<ArgumentException>(config.EnsureValid).Message, StringComparison.Ordinal);
+
+        config.DefaultGst = new MasterGstDetails { RateBasisPoints = -1 };
+        Assert.Contains("must be ≥ 0",
+            Assert.Throws<ArgumentException>(config.EnsureValid).Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The limit of all of the above, asserted rather than described</b> (owed-review lens 2 finding 4). None
+    /// of the three <see cref="MasterGstDetails.EnsureValid"/> call sites is on a domain WRITE path: the aggregate
+    /// accepts a malformed block on a Stock Group, on an accounting Group and on the company default without
+    /// complaint, and only the canonical import refuses it. This test pins that fact so it stays a KNOWN limit
+    /// rather than a surprise — <b>if a future slice validates on assignment, this test goes red and should be
+    /// deleted with a note, not weakened.</b> It is the same shape as the <c>Company.EnsureValid</c> limit recorded
+    /// for W0-2a, and it is why the deferred master-GST screens must validate on save.
+    /// </summary>
+    [Fact]
+    public void KNOWN_LIMIT_the_domain_accepts_a_malformed_block_because_only_the_import_validates()
+    {
+        var malformed = new MasterGstDetails { HsnSac = "1234567", RateBasisPoints = -9 };
+
+        // Assignment on either master is unguarded…
+        var stockGroup = new StockGroup(Guid.NewGuid(), "Unvalidated SG") { Gst = malformed };
+        var group = new Group(Guid.NewGuid(), "Unvalidated Grp", GroupNature.Income) { Gst = malformed };
+        Assert.Equal("1234567", stockGroup.Gst!.HsnSac);
+        Assert.Equal(-9, group.Gst!.RateBasisPoints);
+
+        // …and so is the company default, until GstConfig.EnsureValid is explicitly called.
+        var config = new GstConfig { Enabled = true, DefaultGst = malformed };
+        Assert.Same(malformed, config.DefaultGst);
+
+        // The block itself knows it is bad — nothing asks it.
+        Assert.Throws<ArgumentException>(malformed.EnsureValid);
     }
 
     private static bool Threw(Action a)

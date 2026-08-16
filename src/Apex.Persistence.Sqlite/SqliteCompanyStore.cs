@@ -1793,12 +1793,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
 
         using var tx = _connection.BeginTransaction();
 
+        // v51 (WF-1) — ⚠️ READ BEFORE THE DELETE. The two source-order columns are NOT NULL columns on
+        // `companies`, but they are carried in memory on GstConfig, which is null for a book whose GST is OFF
+        // (the loader only builds it when gst_enabled = 1, `:1351`). Save is DELETE + re-INSERT, so without
+        // this the re-INSERT had no in-memory source and fabricated LedgerFirst — silently erasing
+        // MigrateV50ToV51's StockItemFirst back-fill on the FIRST ordinary save of any migrated non-GST book
+        // (owed-review lens 1 finding 1; measured: stored 1|1 → saved → 0|0). Preserve what is stored instead.
+        var storedSourceOrders = ReadStoredSourceOrders(tx, company.Id);
+
         DeleteCompanyRows(tx, company.Id);
 
         // Company row is written after its groups so the profit_and_loss_head_id FK resolves; but the
         // groups reference companies(id), so insert the company row first WITHOUT the head fk, then
         // patch the head id once the head group row exists.
-        InsertCompany(tx, company);
+        InsertCompany(tx, company, storedSourceOrders);
         InsertGroups(tx, company);
         SetProfitAndLossHead(tx, company);
         // Currencies + rates before ledgers (ledgers.currency_id FK currencies) and before vouchers
@@ -3674,6 +3682,16 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     /// <see cref="ReadStockItemGst"/> uses. <paramref name="firstOrdinal"/> is the position of <c>gst_hsn_sac</c>;
     /// the four columns are always selected consecutively in that order (hsn, taxability, rate_bp, supply_type), so
     /// one helper serves both master tables.
+    ///
+    /// <para>⚠️ <b>THE MARKER IS ONE COLUMN AND THE BLOCK IS FOUR — recorded, not fixed (owed-review lens 1
+    /// finding 5).</b> A row holding a real <c>gst_hsn_sac</c> / <c>gst_rate_bp</c> / <c>gst_supply_type</c> but a
+    /// NULL <c>gst_taxability</c> reads back as "no block", and the HSN and the rate vanish from the domain while
+    /// still sitting in the row. <b>No <c>CHECK</c> constraint enforces the invariant</b> — the only thing keeping it
+    /// is <see cref="BindMasterGst"/>, which writes all four together or none. That makes this latent rather than
+    /// reachable today: neither the store nor <c>CanonicalXml</c> (which defaults a missing taxability to
+    /// <c>Taxable</c>) can produce the mixed row. Anything that later writes these columns outside
+    /// <see cref="BindMasterGst"/> — hand SQL, a repair tool, a future partial UPDATE — must write the taxability
+    /// too, or add the CHECK.</para>
     /// </summary>
     private static MasterGstDetails? ReadMasterGst(SqliteDataReader r, int firstOrdinal)
     {
@@ -4584,7 +4602,31 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         ExecTx(tx, "DELETE FROM companies WHERE id = $cid;", ("$cid", cid));
     }
 
-    private void InsertCompany(SqliteTransaction tx, Company c)
+    /// <summary>
+    /// The two v51 source-order values currently stored for <paramref name="companyId"/>, or <c>null</c> when no
+    /// row exists yet (a brand-new company — nothing to preserve, so the fresh <c>LedgerFirst</c> is correct).
+    ///
+    /// <para>⚠️ <b>Why this exists.</b> <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c> are NOT NULL
+    /// <c>companies</c> columns, but the domain carries them on <see cref="GstConfig"/> — which is <c>null</c> for a
+    /// book with GST switched off. That combination makes the writer's <c>?? LedgerFirst</c> a <b>fabrication</b>
+    /// rather than a default, and the fabrication overwrites <see cref="Schema.MigrateV50ToV51"/>'s
+    /// <c>StockItemFirst</c> back-fill. Reading the stored value first is what keeps the R12 decision-1 guarantee
+    /// true for a non-GST book (owed-review lens 1 finding 1).</para>
+    /// </summary>
+    private (GstDetailSource Hsn, GstDetailSource Rate)? ReadStoredSourceOrders(SqliteTransaction tx, Guid companyId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            "SELECT gst_source_of_hsn_sac, gst_source_of_rate FROM companies WHERE id = $cid;";
+        cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return ((GstDetailSource)(int)r.GetInt64(0), (GstDetailSource)(int)r.GetInt64(1));
+    }
+
+    private void InsertCompany(
+        SqliteTransaction tx, Company c, (GstDetailSource Hsn, GstDetailSource Rate)? storedSourceOrders = null)
     {
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
@@ -4760,12 +4802,19 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // company nobody has configured writes 1 here — matching the column's own DEFAULT 1 and the value a
         // migrated pre-v50 book gets. There is no "unset" state to encode.
         cmd.Parameters.AddWithValue("$warnnegstock", c.WarnOnNegativeStock ? 1 : 0);
-        // v51 (WF-1): the two source-order options + the company-level default GST block, written verbatim. A company
-        // with no Gst config writes LedgerFirst (0) — the same value the column DEFAULT carries and the same value a
-        // freshly created company holds, so a non-GST company is byte-identical (ER-13). The default block writes all
-        // four NULL when absent, which is the "no GST block" marker every other GST block already uses.
-        cmd.Parameters.AddWithValue("$gstsrchsn", (int)(gst?.SourceOfHsnSacDetails ?? GstDetailSource.LedgerFirst));
-        cmd.Parameters.AddWithValue("$gstsrcrate", (int)(gst?.SourceOfGstRate ?? GstDetailSource.LedgerFirst));
+        // v51 (WF-1): the two source-order options + the company-level default GST block, written verbatim when the
+        // aggregate carries a GST config. The default block writes all four NULL when absent, which is the "no GST
+        // block" marker every other GST block already uses.
+        // ⚠️ THE THREE-WAY FALLBACK IS LOAD-BEARING, DO NOT COLLAPSE IT TO `?? LedgerFirst`. When `gst` is null the
+        // aggregate holds NO value for these two NOT NULL columns (they live on GstConfig, which the loader builds
+        // only for gst_enabled = 1) — so the previously stored value is the truth, and LedgerFirst is a fabrication
+        // that erases MigrateV50ToV51's StockItemFirst back-fill on the first ordinary save of a migrated non-GST
+        // book. LedgerFirst applies only to a company with no stored row at all, i.e. a genuinely fresh one, which is
+        // the value it already had (ER-13). See ReadStoredSourceOrders; owed-review lens 1 finding 1.
+        cmd.Parameters.AddWithValue("$gstsrchsn",
+            (int)(gst?.SourceOfHsnSacDetails ?? storedSourceOrders?.Hsn ?? GstDetailSource.LedgerFirst));
+        cmd.Parameters.AddWithValue("$gstsrcrate",
+            (int)(gst?.SourceOfGstRate ?? storedSourceOrders?.Rate ?? GstDetailSource.LedgerFirst));
         var defaultGst = gst?.DefaultGst;
         cmd.Parameters.AddWithValue("$gstdefhsn", (object?)defaultGst?.HsnSac ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$gstdeftax", defaultGst is null ? DBNull.Value : (int)defaultGst.Taxability);

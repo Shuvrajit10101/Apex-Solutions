@@ -294,18 +294,45 @@ public static class SchemaDowngrade
     /// discarded, and come back NULL — "no GST block" — which is what a v50 master was.</para>
     ///
     /// <para>Each table is rebuilt from <c>PRAGMA table_info</c> minus its v51 columns via the same plain
-    /// <c>CREATE … AS SELECT</c> idiom <see cref="V50ToV49"/> uses, for the same reasons (SQLite's
-    /// <c>DROP COLUMN</c> chokes on our commented DDL; a hand-written prior-version <c>CREATE TABLE</c> would rot).
-    /// Foreign keys are switched off for the swap — <c>groups</c> is referenced by <c>ledgers</c>,
-    /// <c>companies.profit_and_loss_head_id</c> and by itself, <c>stock_groups</c> by <c>stock_items</c> and by
-    /// itself, and <c>companies</c> by nearly every table. <b>KNOWN (F6), unchanged deliberately:</b> like every
-    /// other downgrade here, the rebuild reproduces columns and data but not the PRIMARY KEY / NOT NULLs — see
-    /// <see cref="V49ToV48"/> for why that is tolerated and why fixing it is a separate change.</para>
+    /// <c>CREATE … AS SELECT</c> idiom <see cref="V50ToV49"/> uses. Foreign keys are switched off for the swap —
+    /// <c>groups</c> is referenced by <c>ledgers</c>, <c>companies.profit_and_loss_head_id</c> and by itself,
+    /// <c>stock_groups</c> by <c>stock_items</c> and by itself, and <c>companies</c> by nearly every table.</para>
+    ///
+    /// <para>🔴 <b>KNOWN (F6) — CORRECTED AND NARROWED by the owed review (lens 1 finding 2), because the previous
+    /// wording understated the loss on exactly the version that first made it matter.</b> Like every other downgrade
+    /// here the rebuild reproduces columns and data but NOT the table's PRIMARY KEY, its NOT NULL constraints or its
+    /// DEFAULTs — <b>and this is the first downgrade whose tables also carry INDEXES</b> (<c>ix_groups_company</c>,
+    /// <c>ix_stock_groups_company</c>), which <c>DROP TABLE</c> takes with them. <see cref="DropColumns"/> therefore
+    /// re-creates every non-implicit index it dropped; the PRIMARY KEY / NOT NULL / DEFAULT loss remains, and is
+    /// still tolerated for the reason <see cref="V49ToV48"/> gives. <b>Measured consequences of that residual loss,
+    /// recorded rather than left to be rediscovered:</b> on a round-tripped file <c>PRAGMA integrity_check</c> still
+    /// answers <c>ok</c> (so it is NOT the check that would catch this), <c>PRAGMA foreign_key_check</c> throws, and
+    /// <c>SqliteCompanyStore.Save</c> throws "foreign key mismatch" because the store opens with
+    /// <c>PRAGMA foreign_keys = ON</c>. <b>Nothing in <c>src/</c> calls <see cref="SchemaDowngrade"/></b>, so this is
+    /// a test-harness fidelity limit, not shipped data loss — but it means the v50 → v51 migration has never been
+    /// exercised against a <c>companies</c> table that still had its PRIMARY KEY, NOT NULLs and DEFAULTs.</para>
+    ///
+    /// <para><b>And the "SQLite's DROP COLUMN chokes on our commented DDL" justification, measured rather than
+    /// assumed:</b> on the shipped SQLite 3.50.4, native <c>ALTER TABLE … DROP COLUMN</c> succeeds on <b>12 of the
+    /// 14</b> v51 columns and preserves <c>companies.id</c>'s primary key and all three indexes. It fails on exactly
+    /// the two that are <b>last in their table's DDL</b> (<c>companies.gst_default_supply_type</c>,
+    /// <c>stock_groups.gst_supply_type</c>) with <c>"incomplete input"</c>, because the trailing <c>--</c> comment on
+    /// the final column is left dangling. So the blanket justification is true for 2/14, not 14/14. Switching the
+    /// whole chain to native <c>DROP COLUMN</c> is a separate change (it would have to move or re-shape those
+    /// trailing comments); the rebuild is kept so the chain stays one idiom.</para>
     /// </summary>
     public static void V51ToV50(SqliteConnection connection)
     {
         ArgumentNullException.ThrowIfNull(connection);
 
+        // ⚠️ NOT TRANSACTIONAL — three autocommit DropColumns plus the version stamp (owed-review lens 1
+        // finding 4). A failure between them leaves a split state: some tables downgraded, schema_version still
+        // 51. Deliberately left as-is because this is test-only code with no caller in src/; the FORWARD
+        // migration, which is the one a customer's book runs, IS transactional and was measured to be (see
+        // Schema.MigrateV50ToV51). Note what a split state costs if it is ever constructed by hand: reopening
+        // through the store throws a raw SqliteException "duplicate column name: gst_source_of_hsn_sac" and
+        // throws again on every subsequent open, with no written-for-the-user message of the kind
+        // CompanyBackup gives for a bad version.
         DropColumns(connection, "companies", Schema.V51GstHierarchyCompanyColumns, "companies_v50");
         DropColumns(connection, "groups", Schema.V51GstHierarchyMasterColumns, "groups_v50");
         DropColumns(connection, "stock_groups", Schema.V51GstHierarchyMasterColumns, "stock_groups_v50");
@@ -318,6 +345,17 @@ public static class SchemaDowngrade
     /// idiom every downgrade above open-codes. Extracted at v51 only because that version is the first to drop
     /// columns from three tables at once — the behaviour is identical to the open-coded blocks, including the
     /// no-op guard when nothing (or everything) would be kept.
+    ///
+    /// <para>⚠️ <b>The index round-trip is the one deliberate difference from the open-coded blocks.</b>
+    /// <c>DROP TABLE</c> drops every index on the table with it, and v51 is the first downgrade whose tables carry
+    /// any (<c>ix_groups_company</c>, <c>ix_stock_groups_company</c> — <c>Schema.cs</c>, search for
+    /// <c>CREATE INDEX ix_groups_company</c>). The earlier downgrades silently lost none only because
+    /// <c>ledgers</c>/<c>vouchers</c>/<c>voucher_types</c>/<c>companies</c> happened to have none dropped, and
+    /// <see cref="V47ToV46"/> says so in terms ("their indexes drop with them"). So the CREATE statements are read
+    /// back from <c>sqlite_master</c> before the swap and replayed after it. Implicit indexes (UNIQUE / PRIMARY KEY,
+    /// which carry a NULL <c>sql</c>) are skipped — they are part of the constraint loss this rebuild already
+    /// documents — as is any index whose definition names one of the dropped columns, which could not be recreated
+    /// against the new shape. Owed-review lens 1 finding 2.</para>
     /// </summary>
     private static void DropColumns(
         SqliteConnection connection, string table, IReadOnlyList<string> drop, string scratchName)
@@ -327,6 +365,9 @@ public static class SchemaDowngrade
         if (keep.Count == 0 || keep.Count == all.Count) return;
 
         var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+        var indexes = IndexDefinitions(connection, table)
+            .Where(sql => !drop.Any(d => sql.Contains(d, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
 
         Exec(connection, "PRAGMA foreign_keys=OFF;");
         Exec(connection, $"""
@@ -334,7 +375,24 @@ public static class SchemaDowngrade
             DROP TABLE "{table}";
             ALTER TABLE {scratchName} RENAME TO "{table}";
             """);
+        foreach (var sql in indexes) Exec(connection, sql + ";");
         Exec(connection, "PRAGMA foreign_keys=ON;");
+    }
+
+    /// <summary>
+    /// The <c>CREATE INDEX</c> statements SQLite holds for <paramref name="table"/>. Rows with a NULL <c>sql</c> are
+    /// the implicit indexes SQLite builds for UNIQUE / PRIMARY KEY and cannot be replayed, so they are omitted.
+    /// </summary>
+    private static List<string> IndexDefinitions(SqliteConnection connection, string table)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = $t AND sql IS NOT NULL;";
+        cmd.Parameters.AddWithValue("$t", table);
+        var sqls = new List<string>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) sqls.Add(r.GetString(0));
+        return sqls;
     }
 
     private static List<string> ColumnNames(SqliteConnection connection, string table)

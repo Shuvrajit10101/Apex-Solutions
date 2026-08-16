@@ -318,8 +318,11 @@ public static class Schema
             -- DEFAULT 1 (it does), or every upgraded book comes up with warnings silently switched off.
             warn_on_negative_stock         INTEGER NOT NULL DEFAULT 1,  -- 0/1 (advisory only; default ON)
             -- v51 (plan.md WF-1 / register IV-1): the five-level GST master hierarchy. Two INDEPENDENT source-order
-            -- options (the reference application ships them separately) + the COMPANY-level default GST block, which
-            -- is the last level of both orders.
+            -- options + the COMPANY-level default GST block, which is the last level of both orders.
+            -- ⚠️ R7, corrected by the owed review (lens 3 finding 5): "the reference application ships them
+            -- separately" is a [web], A14-UNVERIFIED claim — ZERO corpus hits for "Source of HSN/SAC", "Source of
+            -- GST Rate" or a GST-rate hierarchy across the ten PDFs. See GstDetailSource's remarks for the full
+            -- sourcing. Two schema columns rest on it.
             -- ⚠️ DEFAULT 0 = LedgerFirst is the FRESH-company value and MUST stay 0 on both sides of the migration
             -- (the equivalence test compares the DEFAULT literal). Existing books are moved to StockItemFirst by an
             -- explicit UPDATE inside MigrateV50ToV51 — NOT by this default. See that constant for why.
@@ -1149,9 +1152,18 @@ public static class Schema
             parent_id      TEXT        NULL REFERENCES stock_groups(id),   -- NULL = under implicit Primary
             alias          TEXT        NULL,
             add_quantities INTEGER NOT NULL DEFAULT 1,                     -- "Should quantities be added?" 0/1
-            -- v51 (plan.md WF-1 / register IV-1): the stock group's "Set/Alter GST details" block — level 2 of the
-            -- five-level GST hierarchy, and the level whose absence caused D8's hard block on a customer who set the
-            -- rate once on a Stock Group. Same four columns, same NULL-taxability marker, as `groups`.
+            -- v51 (plan.md WF-1 / register IV-1): the stock group's "Set/Alter GST details" block — the level whose
+            -- absence caused D8's hard block on a customer who set the rate once on a Stock Group. Same four
+            -- columns, same NULL-taxability marker, as `groups`.
+            -- ⚠️ This DDL used to call the stock group "level 2 of the five-level GST hierarchy". It is not: the 2
+            -- was the ordinal of "Defining at Stock Group Level" in the corpus's list of five METHODS, which the
+            -- corpus frames as "any one method of the following" and is not a resolution order. Under the shipped
+            -- default (GstDetailSource.LedgerFirst) the stock group is FOURTH. Corrected by the owed review, lens 3
+            -- finding 3 — a resolver author who took the number from here would walk the hierarchy wrong.
+            -- ⚠️ NULL gst_taxability is the ONE-column marker for a four-column block, and NO CHECK enforces the
+            -- invariant (lens 1 finding 5): a row with a real HSN/rate but a NULL taxability reads back as "no
+            -- block" and silently loses both. Nothing in src/ can produce that row; anything writing these columns
+            -- outside SqliteCompanyStore.BindMasterGst must write all four.
             gst_hsn_sac      TEXT        NULL,   -- HSN/SAC (4/6/8 digits)
             gst_taxability   INTEGER     NULL,   -- GstTaxability enum ordinal (NULL = no GST block)
             gst_rate_bp      INTEGER     NULL,   -- integrated GST rate in basis points
@@ -3812,7 +3824,19 @@ public static class Schema
     /// resolution anywhere changes and no row is rewritten.</para>
     ///
     /// <para>Run inside a transaction that bumps <c>schema_version</c> to 51. Each <c>ALTER … ADD COLUMN</c> is
-    /// byte-identical to its counterpart in <see cref="CreateV1"/>.</para>
+    /// byte-identical to its counterpart in <see cref="CreateV1"/>. The transaction is real and was measured:
+    /// pre-creating one column so the sixth <c>ALTER</c> fails leaves <c>schema_version</c> at 50 with the five
+    /// earlier <c>ALTER</c>s rolled back, so a crashed upgrade cannot leave the half-migrated shape.</para>
+    ///
+    /// <para>🔴 <b>THE BACK-FILL DOES NOT DEFEND ITSELF — owed-review lens 1 finding 1.</b> Writing <c>1</c> here is
+    /// only half the guarantee; the value also has to survive the ordinary save path. It did not: the two columns
+    /// are carried in memory on <c>GstConfig</c>, which <c>SqliteCompanyStore</c> builds only for
+    /// <c>gst_enabled = 1</c>, so on a migrated book with GST OFF the next whole-company save re-INSERTed
+    /// <c>LedgerFirst</c> over this <c>UPDATE</c>. Measured before the fix: stored <c>1|1</c> → one ordinary save →
+    /// <c>0|0</c>. <c>SqliteCompanyStore.ReadStoredSourceOrders</c> now preserves the stored value when the
+    /// aggregate carries none; the remaining GST-off → GST-on transition hole is documented on
+    /// <c>GstDetailSource</c>. <b>A migration's back-fill is not "done" until the writer that will overwrite it has
+    /// been read.</b></para>
     /// </summary>
     public const string MigrateV50ToV51 = """
         ALTER TABLE companies ADD COLUMN gst_source_of_hsn_sac   INTEGER NOT NULL DEFAULT 0;

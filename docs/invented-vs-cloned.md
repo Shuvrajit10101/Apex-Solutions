@@ -194,7 +194,7 @@ are no longer open defects — they are kept for the record, with the fixing com
 
 | # | Sev | Class | Area | Item | Primary `file:line` |
 |---|---|---|---|---|---|
-| **IV-1** | CRITICAL | A | TAX | GST rate hierarchy runs backwards; 3 of 5 levels missing | `GstService.cs:396` |
+| **IV-1** | CRITICAL | A | TAX | GST rate hierarchy runs backwards; the missing levels now exist as masters, nothing reads them (corrected 2026-08-16) | `GstService.cs:396` |
 | **IV-2** | CRITICAL | A | TAX | §194Q TDS on the whole purchase value, not the excess | `TdsService.cs:74` |
 | **IV-3** | CRITICAL | B | ENT | A saved voucher can never be altered | `VoucherDetailViewModel.cs:15` |
 | **IV-4** | CRITICAL | B | ENT | Nothing can delete a voucher, ledger, group or company | **†** `LedgerService.cs:99` *(was `:112`)* |
@@ -232,11 +232,37 @@ are no longer open defects — they are kept for the record, with the fixing com
 
 ---
 
-### IV-1 · GST rate resolution runs TallyPrime's hierarchy backwards, and three of its five levels do not exist
+### IV-1 · GST rate resolution runs TallyPrime's hierarchy backwards; the missing levels now EXIST as masters and nothing READS them
 **CRITICAL** · Class **A** · Area **TAX** · relates to `tally-fidelity-defects.md` D8
 
+> **🔴 †† 2026-08-16 — THE ROW TITLE AND FIVE SENTENCES BELOW WERE FALSIFIED BY `e49b88e` AND ARE CORRECTED
+> HERE (owed review of WF-1, lens 3 finding 9). READ THIS BEFORE ANYTHING ELSE IN THE ROW.** The row is **still
+> OPEN**, but it is open for a *different reason* than it says, and it was overstating in the direction that
+> **understates what shipped** — a session reading the old text alone would have **rebuilt the masters that
+> already exist.** The accurate statement is: **the levels exist; the RESOLVER does not.**
+> - The title said *"three of its five levels do not exist"*. They exist as masters:
+>   `src/Apex.Ledger/Domain/MasterGstDetails.cs` is carried by `src/Apex.Ledger/Domain/Group.cs`,
+>   `src/Apex.Ledger/Domain/StockGroup.cs` and `GstConfig.DefaultGst`, persisted at schema **v51**, with full
+>   canonical XML/JSON parity and import validation.
+> - The 2026-08-15 dagger below says *"`StockGroup.cs` still has no GST member"* and the *What we invented* cell
+>   says *"carries no GST member anywhere in the file"*. **Both are now false** — `StockGroup.cs` declares
+>   `public MasterGstDetails? Gst { get; set; }`. The dagger's own claim that "all code citations re-read and
+>   unchanged" was true when written and is not now; it is left standing, with this correction above it, because
+>   the sourcing correction it carries is still right.
+> - The summary table's *"3 of 5 levels missing"* and the Tier-1 list's *"Group, Stock Group and Company levels
+>   absent"* are corrected in place.
+> - **What is still TRUE, and why the row stays open:** `GstService.cs`, `RcmService.cs` and `Reports/Gstr1.cs`
+>   are **untouched**; `SourceOfHsnSacDetails` / `SourceOfGstRate` have **no reader outside the persistence and
+>   Io layers**; every rate still resolves item-first; the D8 hard block still fires; the invented
+>   "most-granular-wins (DP-6)" class doc is **still there**. Census **T0-4 stays OPEN**. See `plan.md` slice
+>   **S4** for what landed, the R6 deviation it landed under, and the review's carry-forwards.
+> - *(Pre-existing drift, unrelated to `e49b88e`: the *What we invented* cell cites `GstService.cs:412-414` for
+>   "no company default rate field"; that comment is at `:416-418`. `GstService.cs` is untouched by `e49b88e`,
+>   so this predates it.)*
+
 > **† 2026-08-15 — verdict STANDS, one sourcing claim CORRECTED.** All code citations re-read and **unchanged**
-> (`GstService.cs:396-415`, `:14-15`, `:412-414`; `StockGroup.cs` still has no GST member; `memory.md:405` and
+> (`GstService.cs:396-415`, `:14-15`, `:412-414`; `StockGroup.cs` still has no GST member — ⚠️ **false since
+> `e49b88e`, see the †† correction above**; `memory.md:405` and
 > `:380-381` exact). **But the Citation cell's "Corpus **silent**" is overstated.** Re-extracted this session with
 > `pdftotext -layout`: `703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf`, extracted **lines 2661-2665**, enumerates
 > *"GST can be implemented in Tally prime by using any one method of the following: 1. Defining at Company Level
@@ -251,11 +277,11 @@ are no longer open defects — they are kept for the record, with the fixing com
 | | |
 |---|---|
 | **What the customer experiences** | A dealer sets 18% on the "Sales — 18%" ledger (the normal Tally habit) and 5% on a stock item. On a ₹1,00,000 intra-state sale TallyPrime charges 18% = ₹18,000 (CGST 9,000 + SGST 9,000) and prints ₹1,18,000. We charge 5% = ₹5,000 and print ₹1,05,000 — **₹13,000 of output tax under-collected on every such invoice**, carried into GSTR-1 rate-wise and GSTR-3B 3.1(a) as a filed under-declaration. In the other direction, an item-level rate set for one branch silently overrides the ledger rate Tally would have honoured. And because our chain has **no Stock Group and no Company level at all**, a customer who follows Tally's normal practice of setting a rate once on a Stock Group gets an "unresolved rate" **hard block** (D8) on every line of that group. |
-| **What we invented** | `src/Apex.Ledger/Services/GstService.cs:396-415` — `ResolveBase` walks Stock Item (`:398-404`) → Sales/Purchase ledger (`:405-411`) → unresolved sentinel (`:415`), under a rule we named ourselves and wrote into the class doc at `:14-15`: **"most-granular-wins (DP-6)"**. `src/Apex.Ledger/Domain/StockGroup.cs` carries no GST member anywhere in the file; `GstService.cs:412-414` states there is no company default rate field. There is no F11 switch. **[code]** |
+| **What we invented** | `src/Apex.Ledger/Services/GstService.cs:396-415` — `ResolveBase` walks Stock Item (`:398-404`) → Sales/Purchase ledger (`:405-411`) → unresolved sentinel (`:415`), under a rule we named ourselves and wrote into the class doc at `:14-15`: **"most-granular-wins (DP-6)"**. ⚠️ **CORRECTED 2026-08-16 — this cell used to continue "`src/Apex.Ledger/Domain/StockGroup.cs` carries no GST member anywhere in the file". Since `e49b88e` it does**: `src/Apex.Ledger/Domain/StockGroup.cs` declares `public MasterGstDetails? Gst { get; set; }`, as does `src/Apex.Ledger/Domain/Group.cs`, and `GstConfig` carries `DefaultGst` plus the two source-order options. **What is still invented and still shipping is the RESOLVER, not the absence of masters** — `GstService.cs` is untouched, nothing reads the new members, and there is still no F11 switch. (`GstService.cs:412-414` was cited for "no company default rate field"; that comment is now at `:416-418` — pre-existing drift, `GstService.cs` is untouched by `e49b88e`.) **[code]** |
 | **What Tally does** | Resolves GST Rate and HSN/SAC through a **five-level** hierarchy, stopping at the first master that carries the detail. Shipped default: **Ledger → Group → Stock Item → Stock Group → Company**. The alternative — Stock Item → Stock Group → Ledger → Group → Company — is selectable at F11 > Set/Alter Company GST Rate and other details > Additional Configurations. |
-| **Citation** | **[web]** `help.tallysolutions.com/tally-prime/gst-master-setup/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` — "HSN/SAC & GST Rate Hierarchy in TallyPrime", both hierarchy strings quoted verbatim. Corpus **silent**: 0 hits for "hierarchy" in a GST-rate sense across all ten PDFs. |
+| **Citation** | **[web]** `help.tallysolutions.com/tally-prime/gst-master-setup/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` — "HSN/SAC & GST Rate Hierarchy in TallyPrime", both hierarchy strings quoted verbatim. Corpus **silent**: 0 hits for "hierarchy" in a GST-rate sense across all ten PDFs. ⚠️ **This cell records the two hierarchy STRINGS — i.e. ONE selectable alternative — and NOTHING about the two lookups (HSN/SAC and rate) being SEPARATELY selectable.** `GstDetailSource` used to point here for that claim and the pointer was dangling; the claim lives only in `plan.md`'s Phase 10.10 "R7 fidelity — sources of record" bullet, is `[web]`, and **A14 never ran on it** (owed review 2026-08-16, lens 3 finding 5). It carries two shipped schema columns. Corpus measured this review: 0 hits for "Source of HSN/SAC", 0 for "Source of GST Rate", across all ten PDFs. |
 | **How it got in** | A plan decision, uncited. `memory.md:405` records it under "User-approved DPs" as "rate resolution item→ledger→company"; `memory.md:380-381` repeats it in the Phase-4 slice note. No Tally source was consulted, and the invented label was then written into the class doc where it now reads as a specification. |
-| **Fix** | Add a GST details block to `StockGroup` and to the accounting `Group`, plus a company-level default rate on `GstConfig`. Implement the five-level walk in `ResolveBase` with the F11 "source of GST Rate & HSN/SAC" switch, defaulting to Ledger → Group → Stock Item → Stock Group → Company. Keep the taxability short-circuit, but move the fail-fast to *after* the Company level so D8's hard block can never fire on a customer who set the rate where Tally tells them to. |
+| **Fix** | ~~Add a GST details block to `StockGroup` and to the accounting `Group`, plus a company-level default rate on `GstConfig`.~~ **✅ DONE — `e49b88e`, schema v51** (`MasterGstDetails` on both masters + `GstConfig.DefaultGst`, plus the two source-order options, with SQLite and canonical XML/JSON parity). **STILL OWED, and the whole reason this row is open:** implement the five-level walk in `ResolveBase` with the F11 "source of GST Rate & HSN/SAC" switch, defaulting to Ledger → Group → Stock Item → Stock Group → Company; cover **all four** item-first lookups, not just `ResolveBase` (`plan.md` orchestrator ruling 1); keep the taxability short-circuit, but move the fail-fast to *after* the Company level so D8's hard block can never fire on a customer who set the rate where Tally tells them to; and delete the invented "most-granular-wins (DP-6)" class doc. **Read `plan.md` slice S4's carry-forwards (a)–(h) first** — the back-fill's real scope, the validation reachability limit and the missing rate upper bound all bear on the resolver. |
 
 ---
 
@@ -1050,7 +1076,7 @@ Wrong figures on documents the customer files, pays or is paid on.
 
 | # | Sev | Item |
 |---|---|---|
-| IV-1 | CRITICAL | GST rate hierarchy runs backwards; Group, Stock Group and Company levels absent |
+| IV-1 | CRITICAL | GST rate hierarchy runs backwards; the Group, Stock Group and Company levels now EXIST as masters (v51, `e49b88e`) but no resolver reads them — corrected 2026-08-16 |
 | IV-2 | CRITICAL | §194Q TDS on the whole purchase value, not the excess over ₹50 lakh |
 | IV-7 | CRITICAL | Interest "Always" accrues only on the opening balance |
 | IV-8 | CRITICAL | Interest "Per" divisors annualised; Calendar Month multiplied by twelve |

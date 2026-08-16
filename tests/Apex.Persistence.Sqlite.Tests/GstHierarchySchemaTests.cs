@@ -9,11 +9,13 @@ using Domain = Apex.Ledger.Domain;
 namespace Apex.Persistence.Sqlite.Tests;
 
 /// <summary>
-/// Schema v50 → v51 — the <b>GST five-level hierarchy masters</b> (plan.md Phase 10.10 WF-1 / register IV-1, slice S1).
+/// Schema v50 → v51 — the <b>GST five-level hierarchy masters</b> (plan.md Phase 10.10 WF-1 / register IV-1, slice S4).
 /// This bump adds the three masters TallyPrime resolves GST through and we never had — a narrow
 /// <see cref="MasterGstDetails"/> block on the <b>Stock Group</b>, on the accounting <b>Group</b> and on the
-/// <b>company</b> (<see cref="GstConfig.DefaultGst"/>) — plus TallyPrime's <b>two</b> separate source-order options
-/// (<see cref="GstConfig.SourceOfHsnSacDetails"/>, <see cref="GstConfig.SourceOfGstRate"/>).
+/// <b>company</b> (<see cref="GstConfig.DefaultGst"/>) — plus the <b>two</b> separate source-order options
+/// (<see cref="GstConfig.SourceOfHsnSacDetails"/>, <see cref="GstConfig.SourceOfGstRate"/>). ⚠️ That the reference
+/// application ships <b>two</b> such options is a <b>[web], A14-unverified</b> claim, not corpus — see
+/// <see cref="GstDetailSource"/> for the sourcing (owed-review lens 3 finding 5).
 ///
 /// <para>⚠️ <b>THE FRESH/UPGRADED SPLIT — the reason this migration is not boilerplate, and the only thing in the
 /// chain so far where a fresh database and a migrated one deliberately hold DIFFERENT values.</b> A fresh company
@@ -24,11 +26,25 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// zero currently-resolvable figures). The <c>DEFAULT</c> literal therefore CANNOT carry the back-fill — it must stay
 /// 0 on both sides or <see cref="SchemaMigrationEquivalenceTests"/> fails on the <c>PRAGMA table_info</c> default.
 /// <see cref="ExistingV50Companies_migrateTo_StockItemFirst"/> is the test that fails if the <c>UPDATE</c> is
-/// dropped, and <see cref="FreshCompanies_get_LedgerFirst"/> is the test that fails if someone "simplifies" the
-/// back-fill into the <c>DEFAULT</c>. Neither can pass the other's mutation.</para>
+/// dropped.</para>
+///
+/// <para>🔴 <b>CORRECTED BY THE OWED REVIEW (lens 2 finding 1). This paragraph used to end "…and
+/// <see cref="FreshCompanies_get_LedgerFirst"/> is the test that fails if someone 'simplifies' the back-fill into
+/// the <c>DEFAULT</c>. Neither can pass the other's mutation." THAT WAS MEASURED FALSE:</b> making the whole
+/// forbidden change (both <c>DEFAULT</c>s 0 → 1, back-fill <c>UPDATE</c> deleted) left
+/// <see cref="FreshCompanies_get_LedgerFirst"/> GREEN, because no production INSERT ever falls through to the
+/// column default — that test measures a C# null-coalesce. The DDL default is now pinned behaviourally by
+/// <see cref="A_row_that_omits_the_two_source_order_columns_takes_the_DEFAULT_LedgerFirst"/>, which inserts a bare
+/// row that omits the two columns. The other half of the split WAS and remains alive: delete only the back-fill
+/// <c>UPDATE</c> and two tests go red.</para>
 ///
 /// <para>The "genuine v50 database" is manufactured with <see cref="SchemaDowngrade.V51ToV50"/> rather than
-/// hand-written DDL, so the migration is exercised against real rows.</para>
+/// hand-written DDL, so the migration is exercised against real rows. ⚠️ <b>"Genuine" has a measured limit</b>
+/// (lens 1 finding 2): the downgrade rebuilds its three tables with <c>CREATE … AS SELECT</c>, which reproduces
+/// columns and data but NOT the PRIMARY KEY, the NOT NULLs or the DEFAULTs — so <b>the v50 → v51 migration has
+/// never been exercised against a <c>companies</c> table that still had them</b>. Indexes ARE restored, since the
+/// review (<see cref="Downgrade_v51_to_v50_preserves_the_indexes_on_the_rebuilt_tables"/>); the constraint loss is
+/// documented on <see cref="SchemaDowngrade"/> and is not fixed here.</para>
 /// </summary>
 public sealed class GstHierarchySchemaTests
 {
@@ -325,6 +341,284 @@ public sealed class GstHierarchySchemaTests
         finally { TempDbFile.Delete(dbPath); }
     }
 
+    // ================================================================= ⚠️ the column DEFAULT, behaviourally
+
+    /// <summary>
+    /// 🔴 <b>The <c>DEFAULT 0</c> on the two source-order columns, asserted through SQLite's own behaviour rather
+    /// than through a <c>PRAGMA table_info</c> string.</b>
+    ///
+    /// <para><b>Why this test had to be added</b> (owed-review lens 2 finding 1). The docstring at the top of this
+    /// file claims <see cref="FreshCompanies_get_LedgerFirst"/> and
+    /// <see cref="ExistingV50Companies_migrateTo_StockItemFirst"/> are each other's mutation guard. Measured, they
+    /// are not: performing the exact forbidden "simplification" — <c>DEFAULT 0</c> → <c>1</c> in
+    /// <see cref="Schema.CreateV1"/> AND in <see cref="Schema.MigrateV50ToV51"/>, back-fill <c>UPDATE</c> deleted —
+    /// left <b>both</b> of them green, and the only red in the whole project was
+    /// <see cref="Migration_v50_to_v51_matches_CreateV1"/> failing on a hard-coded string literal. The mechanism is
+    /// that <b>no production INSERT ever falls through to the DEFAULT</b>: the single
+    /// <c>INSERT INTO companies</c> in <c>src/</c> always supplies both columns explicitly, so
+    /// <see cref="FreshCompanies_get_LedgerFirst"/> measures a C# null-coalesce, not the DDL.</para>
+    ///
+    /// <para>So this inserts a <b>bare row</b> that omits them — supplying only the columns SQLite would otherwise
+    /// reject — which is the only way the DDL default is observable at all. Both halves of the chain are pinned:
+    /// the fresh <see cref="Schema.CreateV1"/> DDL and the <c>ALTER … ADD COLUMN</c> the migration runs.</para>
+    /// </summary>
+    [Theory]
+    [Trait("Category", "RoundTrip")]
+    [InlineData(false)]   // fresh CreateV1 DDL
+    [InlineData(true)]    // the migration's own ALTER … ADD COLUMN
+    public void A_row_that_omits_the_two_source_order_columns_takes_the_DEFAULT_LedgerFirst(bool viaMigration)
+    {
+        var dbPath = TempDbFile.NewPath($"apex-gsthier-default-{(viaMigration ? "migrated" : "fresh")}");
+        try
+        {
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(SeedGstCompany());
+
+            if (viaMigration)
+            {
+                using (var conn = Open(dbPath))
+                {
+                    SchemaDowngrade.V51ToV50(conn);
+                    SqliteConnection.ClearPool(conn);
+                }
+                using (new SqliteCompanyStore(dbPath)) { }   // the v50 → v51 migration runs
+                // The back-fill has moved the EXISTING row to 1; the new bare row below must still get the DEFAULT.
+                Assert.Equal(1L, ReadScalar(dbPath, "SELECT gst_source_of_hsn_sac FROM companies;"));
+            }
+
+            var bareId = Guid.NewGuid().ToString("D");
+            InsertBareCompanyRow(dbPath, bareId);
+
+            Assert.Equal((long)GstDetailSource.LedgerFirst, ReadScalar(dbPath,
+                $"SELECT gst_source_of_hsn_sac FROM companies WHERE id = '{bareId}';"));
+            Assert.Equal((long)GstDetailSource.LedgerFirst, ReadScalar(dbPath,
+                $"SELECT gst_source_of_rate FROM companies WHERE id = '{bareId}';"));
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    // ================================================================= ⚠️ the back-fill has to SURVIVE a save
+
+    /// <summary>
+    /// 🔴 <b>R12 decision 1 is a guarantee about the book, not about the <c>UPDATE</c> statement — and it was
+    /// FALSE for a non-GST book</b> (owed-review lens 1 finding 1).
+    ///
+    /// <para>The two source orders are NOT NULL <c>companies</c> columns but are carried in memory on
+    /// <see cref="GstConfig"/>, which <c>SqliteCompanyStore</c> builds <b>only when <c>gst_enabled = 1</c></b>. So a
+    /// migrated book with GST switched off loaded with <c>Gst == null</c>, and the next whole-company save — a
+    /// DELETE + re-INSERT triggered by roughly forty ordinary master and voucher screens — re-INSERTed a fabricated
+    /// <c>LedgerFirst</c> over the back-fill. Measured before the fix: stored <c>1|1</c> → one save → <c>0|0</c>.
+    /// Nothing caught it because every back-fill fixture in this file is GST-ENABLED and none saves after
+    /// migrating.</para>
+    ///
+    /// <para>The fix is <c>SqliteCompanyStore.ReadStoredSourceOrders</c>: when the aggregate carries no GST config
+    /// it has no value for these columns, so the stored one is preserved instead of a default being invented.
+    /// <b>Collapse that back to <c>?? LedgerFirst</c> and this test goes red.</b></para>
+    ///
+    /// <para>⚠️ <b>Why the back-filled state is reached by running the back-fill statement rather than by
+    /// downgrading and re-migrating.</b> A book put through <see cref="SchemaDowngrade.V51ToV50"/> <b>cannot be
+    /// saved to at all</b> afterwards — see
+    /// <see cref="KNOWN_LIMIT_a_downgraded_book_cannot_be_saved_because_the_rebuild_drops_the_primary_key"/> — so
+    /// the downgrade harness cannot host a test about saving. The row is therefore put into exactly the state
+    /// <see cref="Schema.MigrateV50ToV51"/> leaves it in, using the migration's own <c>UPDATE</c>. That is the state
+    /// under test: what happens to a back-filled value when the application then does something ordinary.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill()
+    {
+        var dbPath = TempDbFile.NewPath("apex-gsthier-nongst-save");
+        try
+        {
+            // A NON-GST book — the case every existing back-fill fixture misses, and the common one in the field.
+            var c = CompanyFactory.CreateSeeded("No GST Co", FyStart);
+            Assert.Null(c.Gst);
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+
+            // The state MigrateV50ToV51 leaves an existing book in, produced by the migration's own statement.
+            Assert.Contains("UPDATE companies SET gst_source_of_hsn_sac = 1, gst_source_of_rate = 1;",
+                Schema.MigrateV50ToV51, StringComparison.Ordinal);
+            ExecSql(dbPath, "UPDATE companies SET gst_source_of_hsn_sac = 1, gst_source_of_rate = 1;");
+
+            using var reopened = new SqliteCompanyStore(dbPath);
+
+            // …now do the most ordinary thing in the application: load the book and save it again. This is what
+            // roughly forty master and voucher screens do on every Accept.
+            var loaded = reopened.Load(c.Id)!;
+            Assert.Null(loaded.Gst);                 // still non-GST — nothing holds the orders in memory
+            loaded.AddStockGroup(new StockGroup(Guid.NewGuid(), "Anything"));
+            reopened.Save(loaded);
+
+            Assert.Equal((long)GstDetailSource.StockItemFirst,
+                ReadScalar(dbPath, "SELECT gst_source_of_hsn_sac FROM companies;"));
+            Assert.Equal((long)GstDetailSource.StockItemFirst,
+                ReadScalar(dbPath, "SELECT gst_source_of_rate FROM companies;"));
+
+            // And a second save is not a slow leak either.
+            reopened.Save(reopened.Load(c.Id)!);
+            Assert.Equal((long)GstDetailSource.StockItemFirst,
+                ReadScalar(dbPath, "SELECT gst_source_of_rate FROM companies;"));
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>The measured consequence of <see cref="SchemaDowngrade"/>'s constraint loss, pinned rather than
+    /// described</b> (owed-review lens 1 finding 2). The <c>CREATE … AS SELECT</c> rebuild reproduces columns and
+    /// data but not the PRIMARY KEY, so on a round-tripped file <c>companies.id</c> is no longer a key and every
+    /// table that references <c>companies(id)</c> becomes a <i>foreign key mismatch</i> the moment the store's
+    /// <c>PRAGMA foreign_keys = ON</c> takes effect. <b><c>SqliteCompanyStore.Save</c> therefore THROWS on any book
+    /// this helper has manufactured</b>, which is why no test in this file can both downgrade and then save.
+    ///
+    /// <para>Also worth knowing before trusting a green run: <c>PRAGMA integrity_check</c> still answers <c>ok</c>
+    /// on such a file, so the obvious check does NOT see this.</para>
+    ///
+    /// <para><b>This is a test-harness fidelity limit, NOT shipped data loss</b> — <c>SchemaDowngrade</c> has no
+    /// caller anywhere in <c>src/</c> and no shipped path ever opens a downgraded database. What it does mean is
+    /// that <b>the v50 → v51 migration has never been exercised against a <c>companies</c> table that still had its
+    /// PRIMARY KEY, NOT NULLs and DEFAULTs.</b> Fixing it means emitting a real prior-version DDL from
+    /// <c>PRAGMA table_info</c> + <c>foreign_key_list</c> in every downgrade, which is a change of its own; this
+    /// test exists so the limit cannot be forgotten. <b>When it is fixed, this test will start failing — delete it
+    /// then, with a note, rather than weakening it.</b></para>
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void KNOWN_LIMIT_a_downgraded_book_cannot_be_saved_because_the_rebuild_drops_the_primary_key()
+    {
+        var dbPath = TempDbFile.NewPath("apex-gsthier-downgrade-pk-loss");
+        try
+        {
+            var c = SeedGstCompany();
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+            Assert.Contains("pk=1", ColumnContract(dbPath, "companies", "id"), StringComparison.Ordinal);
+
+            using (var conn = Open(dbPath))
+            {
+                SchemaDowngrade.V51ToV50(conn);
+                SqliteConnection.ClearPool(conn);
+            }
+
+            // The primary key is gone — and integrity_check does not notice.
+            Assert.Contains("pk=0", ColumnContract(dbPath, "companies", "id"), StringComparison.Ordinal);
+            Assert.Equal("ok", ReadText(dbPath, "PRAGMA integrity_check;"));
+
+            using var reopened = new SqliteCompanyStore(dbPath);   // the migration itself still runs cleanly
+            Assert.Equal((long)Schema.CurrentVersion,
+                ReadScalar(dbPath, "SELECT version FROM schema_version LIMIT 1;"));
+
+            var ex = Assert.Throws<SqliteException>(() => reopened.Save(reopened.Load(c.Id)!));
+            Assert.Contains("foreign key mismatch", ex.Message, StringComparison.Ordinal);
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    /// <summary>A brand-new company — no stored row to preserve — still gets the fresh <c>LedgerFirst</c>, so the
+    /// preservation above cannot be satisfied by simply never writing the columns.</summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void A_first_save_of_a_nonGst_company_writes_the_fresh_LedgerFirst()
+    {
+        var dbPath = TempDbFile.NewPath("apex-gsthier-nongst-fresh");
+        try
+        {
+            var c = CompanyFactory.CreateSeeded("Fresh No GST Co", FyStart);
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+            Assert.Equal((long)GstDetailSource.LedgerFirst,
+                ReadScalar(dbPath, "SELECT gst_source_of_hsn_sac FROM companies;"));
+            Assert.Equal((long)GstDetailSource.LedgerFirst,
+                ReadScalar(dbPath, "SELECT gst_source_of_rate FROM companies;"));
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    // ================================================================= ⚠️ the company block at NON-DEFAULT values
+
+    /// <summary>
+    /// 🔴 <b>The company default block's <c>Taxability</c> and <c>SupplyType</c> were never round-tripped at a
+    /// value other than the enum zero</b> (owed-review lens 2 finding 3): replacing
+    /// <c>(int)defaultGst.Taxability</c> with <c>(int)GstTaxability.Taxable</c> and the supply type with
+    /// <c>Goods</c> in <c>SqliteCompanyStore</c> left this project 223/223 green.
+    /// <c>gst_default_taxability</c> is also the NULL-marker for the whole company block, i.e. the most
+    /// load-bearing of the six company columns.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void The_company_default_block_roundTrips_a_nonDefault_taxability_and_supplyType()
+    {
+        var dbPath = TempDbFile.NewPath("apex-gsthier-company-nondefault");
+        try
+        {
+            var c = SeedGstCompany();
+            c.Gst!.DefaultGst = new MasterGstDetails
+            {
+                HsnSac = "998313",
+                Taxability = GstTaxability.Exempt,      // NOT the enum zero, and not the domain default
+                RateBasisPoints = null,                 // an Exempt block may not carry a positive rate
+                SupplyType = GstSupplyType.Services,    // NOT the enum zero
+            };
+
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+            Assert.Equal((long)GstTaxability.Exempt,
+                ReadScalar(dbPath, "SELECT gst_default_taxability FROM companies;"));
+            Assert.Equal((long)GstSupplyType.Services,
+                ReadScalar(dbPath, "SELECT gst_default_supply_type FROM companies;"));
+
+            using var reopened = new SqliteCompanyStore(dbPath);
+            var loaded = reopened.Load(c.Id)!.Gst!.DefaultGst!;
+            Assert.Equal(GstTaxability.Exempt, loaded.Taxability);
+            Assert.Equal(GstSupplyType.Services, loaded.SupplyType);
+            Assert.False(loaded.IsTaxable);
+            Assert.Null(loaded.RateBasisPoints);
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
+    /// <summary>The same at the two MASTER levels, for the same reason — a store that hard-coded either enum's zero
+    /// would otherwise be invisible on <c>groups</c> and <c>stock_groups</c> too.</summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void The_two_master_blocks_roundTrip_a_nonDefault_taxability_and_supplyType()
+    {
+        var dbPath = TempDbFile.NewPath("apex-gsthier-master-nondefault");
+        try
+        {
+            var c = SeedGstCompany();
+            c.AddStockGroup(new StockGroup(Guid.NewGuid(), "Nil Rated SG")
+            {
+                Gst = new MasterGstDetails
+                {
+                    HsnSac = "0702",
+                    Taxability = GstTaxability.NilRated,
+                    RateBasisPoints = 0,
+                    SupplyType = GstSupplyType.Services,
+                },
+            });
+            c.AddGroup(new Group(Guid.NewGuid(), "NonGst Sales", GroupNature.Income,
+                parentId: c.FindGroupByName("Sales Accounts")!.Id)
+            {
+                Gst = new MasterGstDetails
+                {
+                    HsnSac = "7318",
+                    Taxability = GstTaxability.NonGst,
+                    SupplyType = GstSupplyType.Services,
+                },
+            });
+
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
+            using var reopened = new SqliteCompanyStore(dbPath);
+            var loaded = reopened.Load(c.Id)!;
+
+            var sg = loaded.StockGroups.Single(g => g.Name == "Nil Rated SG").Gst!;
+            Assert.Equal(GstTaxability.NilRated, sg.Taxability);
+            Assert.Equal(GstSupplyType.Services, sg.SupplyType);
+            Assert.Equal(0, sg.RateBasisPoints);
+
+            var grp = loaded.Groups.Single(g => g.Name == "NonGst Sales").Gst!;
+            Assert.Equal(GstTaxability.NonGst, grp.Taxability);
+            Assert.Equal(GstSupplyType.Services, grp.SupplyType);
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
     // ================================================================= ⚠️ existing books survive intact
 
     /// <summary>
@@ -349,9 +643,23 @@ public sealed class GstHierarchySchemaTests
             var c = SeedPopulatedBook();
             using (var store = new SqliteCompanyStore(dbPath)) store.Save(c);
 
+            // Give the book real BLOB content — the four encrypted NIC credential columns, the only BLOBs in the
+            // schema and the only data here that no domain object carries. Without this the hex rendering in
+            // SnapshotData would be untested, which is exactly how a BLOB change went invisible before (lens 1
+            // finding 3): these columns are written solely by INicCredentialStore, so a fixture built from the
+            // domain leaves all four NULL.
+            ExecSql(dbPath, """
+                UPDATE companies SET
+                    nic_api_username_enc = x'0102030405',
+                    nic_api_password_enc = x'FFEE00',
+                    nic_client_id_enc    = x'7F',
+                    nic_client_secret_enc = x'DEADBEEF';
+                """);
+
             // Snapshot the v51 database MINUS everything v51 added — i.e. exactly the information a genuine v50
             // database holds. That is the thing the upgrade must not disturb.
             var before = SnapshotData(dbPath, excluded: V51Columns());
+            Assert.Contains("0xDEADBEEF", before, StringComparison.Ordinal);   // the snapshot really reads BLOBs
 
             using (var conn = Open(dbPath))
             {
@@ -434,6 +742,45 @@ public sealed class GstHierarchySchemaTests
         finally { TempDbFile.Delete(dbPath); }
     }
 
+    /// <summary>
+    /// 🔴 <b>A downgrade that silently deletes an index manufactures a database no real v50 book ever was</b>
+    /// (owed-review lens 1 finding 2). v51 is the first version whose downgrade rebuilds tables that CARRY indexes:
+    /// <c>DROP TABLE groups</c> takes <c>ix_groups_company</c> with it and <c>DROP TABLE stock_groups</c> takes
+    /// <c>ix_stock_groups_company</c>. Measured before the fix: both were gone after
+    /// <see cref="SchemaDowngrade.V51ToV50"/> and were never recreated, so every migration test in this file — and
+    /// the legacy-upgrade fixtures elsewhere that use the same technique — ran the real migration over a schema
+    /// missing two indexes. <c>SchemaDowngrade.DropColumns</c> now replays the index DDL it dropped; delete that
+    /// replay and this test goes red.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "RoundTrip")]
+    public void Downgrade_v51_to_v50_preserves_the_indexes_on_the_rebuilt_tables()
+    {
+        var dbPath = TempDbFile.NewPath("apex-gsthier-downgrade-indexes");
+        try
+        {
+            using (var store = new SqliteCompanyStore(dbPath)) store.Save(SeedPopulatedBook());
+
+            var before = IndexNames(dbPath);
+            Assert.Contains("ix_groups_company", before);
+            Assert.Contains("ix_stock_groups_company", before);
+
+            using (var conn = Open(dbPath))
+            {
+                SchemaDowngrade.V51ToV50(conn);
+                SqliteConnection.ClearPool(conn);
+            }
+
+            // Not "the two we happened to think of" — NO index anywhere in the database may go missing.
+            Assert.Equal(before, IndexNames(dbPath));
+
+            // …and they survive the round trip back up, so the migrated book is index-complete too.
+            using (new SqliteCompanyStore(dbPath)) { }
+            Assert.Equal(before, IndexNames(dbPath));
+        }
+        finally { TempDbFile.Delete(dbPath); }
+    }
+
     // ---- fixtures ----
 
     /// <summary>A seeded, GST-enabled company (the GST config has to exist before the source orders can be read).</summary>
@@ -502,9 +849,83 @@ public sealed class GstHierarchySchemaTests
     // ---- helpers ----
 
     /// <summary>
+    /// Every non-implicit index in the database, by name, in a stable order.
+    /// </summary>
+    private static IReadOnlyList<string> IndexNames(string dbPath)
+    {
+        using var conn = Open(dbPath);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL ORDER BY name;";
+        var names = new List<string>();
+        using (var r = cmd.ExecuteReader())
+            while (r.Read()) names.Add(r.GetString(0));
+        SqliteConnection.ClearPool(conn);
+        return names;
+    }
+
+    /// <summary>
+    /// Inserts a <c>companies</c> row that supplies ONLY what SQLite would otherwise reject — every column that is
+    /// <c>NOT NULL</c> with no <c>DEFAULT</c> — and nothing else, so every defaulted column is left to its DDL
+    /// default. Derived from <c>PRAGMA table_info</c> rather than hand-listed, so it cannot rot as the table grows.
+    /// This is the only way the two source-order columns' <c>DEFAULT 0</c> is observable at all: the one production
+    /// <c>INSERT INTO companies</c> always supplies them explicitly.
+    /// </summary>
+    private static void InsertBareCompanyRow(string dbPath, string id)
+    {
+        using var conn = Open(dbPath);
+
+        var required = new List<(string Name, string Type)>();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "PRAGMA table_info(\"companies\");";
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                var name = r.GetString(1);
+                var type = r.GetString(2);
+                var notNull = r.GetInt64(3) != 0;
+                var hasDefault = !r.IsDBNull(4);
+                if (notNull && !hasDefault) required.Add((name, type));
+            }
+        }
+        // `id` is supplied whether or not the table still declares it NOT NULL. On a database manufactured by
+        // SchemaDowngrade it does NOT: the CREATE … AS SELECT rebuild erases every NOT NULL and the PRIMARY KEY
+        // (documented on SchemaDowngrade.V51ToV50; owed-review lens 1 finding 2), so the required set comes back
+        // EMPTY there. That is a fact about the harness, not about the DDL under test.
+        required.RemoveAll(c => string.Equals(c.Name, "id", StringComparison.OrdinalIgnoreCase));
+        required.Insert(0, ("id", "TEXT"));
+        // The precondition that actually matters: the two columns under test must NOT be in the supplied set, or
+        // the row would not be exercising their DEFAULT at all.
+        Assert.DoesNotContain(required, c => c.Name.StartsWith("gst_source_of", StringComparison.OrdinalIgnoreCase));
+
+        var columns = string.Join(", ", required.Select(c => $"\"{c.Name}\""));
+        var values = string.Join(", ", required.Select(c =>
+            string.Equals(c.Name, "id", StringComparison.OrdinalIgnoreCase) ? $"'{id}'"
+            : c.Type.Contains("INT", StringComparison.OrdinalIgnoreCase) ? "0"
+            : "'x'"));
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = $"INSERT INTO companies ({columns}) VALUES ({values});";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearPool(conn);
+    }
+
+    /// <summary>
     /// The full contents of every user table, rendered as a deterministic string: tables in name order, columns in
-    /// name order (so <c>ALTER … ADD COLUMN</c>'s physical ordering is irrelevant), rows in a stable ordering of
-    /// their own rendered values. Columns named in <paramref name="excluded"/> are omitted for their table.
+    /// name order (so <c>ALTER … ADD COLUMN</c>'s physical ordering is irrelevant), rows in <c>rowid</c> order.
+    /// Columns named in <paramref name="excluded"/> are omitted for their table.
+    ///
+    /// <para>🔴 <b>Two corrections from the owed review (lens 1 finding 3), because the name
+    /// "byte_for_byte" was writing a cheque this helper did not cash.</b> (1) Cells used to render as
+    /// <c>r.GetValue(i).ToString()</c>, which for a BLOB is the literal string <c>"System.Byte[]"</c> — measured:
+    /// changing <c>companies.nic_api_username_enc</c> from <c>x'0102030405'</c> to nine <c>0xFF</c> bytes left the
+    /// snapshot IDENTICAL, and there are four such columns, all of them the encrypted NIC credentials. BLOBs now
+    /// render as hex. (2) Rows used to be sorted by their own rendered text, so a migration that reordered rows was
+    /// invisible; they are now compared in <c>rowid</c> order, which is what "unchanged" means (no table in this
+    /// schema is <c>WITHOUT ROWID</c>).</para>
     /// </summary>
     private static string SnapshotData(string dbPath, Dictionary<string, HashSet<string>> excluded)
     {
@@ -536,17 +957,17 @@ public sealed class GstHierarchySchemaTests
             var rows = new List<string>();
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = $"SELECT {string.Join(", ", cols.Select(x => $"\"{x}\""))} FROM \"{table}\";";
+                cmd.CommandText =
+                    $"SELECT {string.Join(", ", cols.Select(x => $"\"{x}\""))} FROM \"{table}\" ORDER BY rowid;";
                 using var r = cmd.ExecuteReader();
                 while (r.Read())
                 {
                     var cells = new List<string>();
                     for (var i = 0; i < cols.Count; i++)
-                        cells.Add($"{cols[i]}={(r.IsDBNull(i) ? "<null>" : r.GetValue(i).ToString())}");
+                        cells.Add($"{cols[i]}={RenderCell(r, i)}");
                     rows.Add(string.Join(" | ", cells));
                 }
             }
-            rows.Sort(StringComparer.Ordinal);
 
             sb.AppendLine($"[{table}] rows={rows.Count}");
             foreach (var row in rows) sb.AppendLine("  " + row);
@@ -556,12 +977,39 @@ public sealed class GstHierarchySchemaTests
         return sb.ToString();
     }
 
+    /// <summary>One cell, rendered so that a BLOB shows its bytes rather than the type name.</summary>
+    private static string RenderCell(SqliteDataReader r, int i)
+    {
+        if (r.IsDBNull(i)) return "<null>";
+        var value = r.GetValue(i);
+        return value is byte[] blob ? "0x" + Convert.ToHexString(blob) : value.ToString()!;
+    }
+
+    private static void ExecSql(string dbPath, string sql)
+    {
+        using var conn = Open(dbPath);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+        SqliteConnection.ClearPool(conn);
+    }
+
     private static long ReadScalar(string dbPath, string sql)
     {
         using var conn = Open(dbPath);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         var v = Convert.ToInt64(cmd.ExecuteScalar());
+        SqliteConnection.ClearPool(conn);
+        return v;
+    }
+
+    private static string ReadText(string dbPath, string sql)
+    {
+        using var conn = Open(dbPath);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        var v = Convert.ToString(cmd.ExecuteScalar())!;
         SqliteConnection.ClearPool(conn);
         return v;
     }

@@ -797,8 +797,8 @@ public enum Table4bBucket
 
 /// <summary>
 /// Which end of the five-level GST master hierarchy a lookup starts from (plan.md Phase 10.10 WF-1; register IV-1).
-/// The reference application ships <b>two</b> such options — "Source of HSN/SAC Details" and "Source of GST Rate" —
-/// selectable independently, so a book can take its classification from one end and its rate from the other
+/// We model <b>two</b> such options — "Source of HSN/SAC Details" and "Source of GST Rate" — selectable
+/// independently, so a book can take its classification from one end and its rate from the other
 /// (<see cref="GstConfig.SourceOfHsnSacDetails"/>, <see cref="GstConfig.SourceOfGstRate"/>).
 /// </summary>
 /// <remarks>
@@ -809,10 +809,29 @@ public enum Table4bBucket
 /// explicit <c>UPDATE</c> (R12 decision 1). Do not "simplify" that into the column default: the two values are
 /// deliberately different on the two paths.</para>
 ///
-/// <para><b>R7 grounding.</b> The corpus names the five levels but is silent on their ORDER (see
-/// <see cref="MasterGstDetails"/> for the verbatim extract); the two order strings come from the reference
-/// application's published "HSN/SAC &amp; GST Rate Hierarchy" page, recorded with its citation at
-/// <c>docs/invented-vs-cloned.md</c> IV-1.</para>
+/// <para>🔴 <b>THE BACK-FILL IS ONLY AS DURABLE AS THE WRITE PATH — read this before writing the resolver
+/// (owed-review lens 1 finding 1 / lens 3 finding 17).</b> These two values live on <see cref="GstConfig"/>, which
+/// <c>SqliteCompanyStore</c> builds <b>only when <c>gst_enabled = 1</c></b>, while the columns themselves are NOT
+/// NULL on <c>companies</c>. For a migrated book whose GST is OFF the aggregate therefore holds no value at all, and
+/// the writer used to fabricate <see cref="LedgerFirst"/> on the next save — erasing the back-fill on the first
+/// ordinary save from any of ~40 master/voucher screens. <b>The store now preserves the stored value instead</b>
+/// (<c>SqliteCompanyStore.ReadStoredSourceOrders</c>). <b>ONE HOLE REMAINS AND IS NOT CLOSED:</b> when the operator
+/// later switches GST ON, the F11 view-model builds a <b>fresh</b> <see cref="GstConfig"/>
+/// (<c>_company.Gst ?? new GstConfig()</c> in <c>GstConfigViewModel</c>), which carries
+/// <see cref="LedgerFirst"/> — so that transition still moves such a book onto the shipped order. Closing it means
+/// moving these two fields off <see cref="GstConfig"/> onto <c>Company</c> (they are company columns, not GST-config
+/// members), which changes the canonical document shape and needs a design decision, not a patch.</para>
+///
+/// <para>🔴 <b>R7 grounding — CORRECTED (lens 3 finding 5). The "reference application ships two options" claim is
+/// [web] and A14-UNVERIFIED, not corpus.</b> The corpus names five <i>methods</i> of applying GST but says nothing
+/// about a resolution ORDER and nothing about a source-selection option: zero hits for "Source of HSN/SAC", "Source
+/// of GST Rate" or a GST-rate "hierarchy" across all ten PDFs (see <see cref="MasterGstDetails"/> for the verbatim
+/// extract and for what the corpus does support). The two order strings come from the reference application's
+/// published "HSN/SAC &amp; GST Rate Hierarchy" page, cited at <c>docs/invented-vs-cloned.md</c> IV-1 — <b>but that
+/// row records the two hierarchy STRINGS, i.e. ONE selectable alternative; the claim that the two lookups are
+/// SEPARATELY selectable is recorded only in plan.md's Phase 10.10 "R7 fidelity — sources of record" bullet, under
+/// a heading promising A14 confirms each before its slice ships, and A14 never ran</b> (the design agent died; see
+/// the R6 deviation on the S4 row). An unverified claim carrying two schema columns.</para>
 /// </remarks>
 public enum GstDetailSource
 {

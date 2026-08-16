@@ -33,10 +33,19 @@ public sealed class StockGroup
     public bool AddQuantities { get; set; }
 
     /// <summary>
-    /// The stock group's "Set/Alter GST details" block — level 2 of the five-level GST hierarchy (plan.md
+    /// The stock group's "Set/Alter GST details" block — one of the five levels of the GST hierarchy (plan.md
     /// Phase 10.10 WF-1; register IV-1). <c>null</c> ⇒ this group declares no GST details and contributes nothing
-    /// to a lookup, which is how every pre-v51 stock group reads. <b>Persisted-but-inert in slice S1</b>: no
+    /// to a lookup, which is how every pre-v51 stock group reads. <b>Persisted-but-inert in slice S4</b>: no
     /// resolver reads it yet, so no existing figure moves.
+    ///
+    /// <para>⚠️ <b>This is NOT "level 2" — that label was removed by the owed review (lens 3 finding 3).</b> The 2
+    /// was the ordinal of "Defining at Stock Group Level" in the corpus's list of five <i>methods</i>
+    /// (<see cref="MasterGstDetails"/> quotes it verbatim), a list the corpus itself frames as "any one method of
+    /// the following" — not a resolution order. Under the shipped default
+    /// <see cref="GstDetailSource.LedgerFirst"/> the walk is Ledger → Group → Stock Item → <b>Stock Group</b> →
+    /// Company, so the stock group is <b>fourth</b>; it is second only under
+    /// <see cref="GstDetailSource.StockItemFirst"/>. A resolver author who reads a positional number here gets the
+    /// wrong walk — take the order from <see cref="GstDetailSource"/> and from nowhere else.</para>
     /// </summary>
     public MasterGstDetails? Gst { get; set; }
 

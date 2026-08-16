@@ -1251,11 +1251,26 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   stay excluded and unchanged. The design draft proposed `11.A`/`11.B`; **rejected** — 10.x is the band in use.
 - **▶ REGISTER CURRENCY — read before using `docs/invented-vs-cloned.md` (re-verified in-tree this session).**
   **IV-9 / D7 is STALE** — the negative-stock hard block **no longer throws** (`Company.cs:268` carries
-  `WarnOnNegativeStock = true`), so **v50 is SPENT and the next free schema version is v51**, and Phase 10.8's
-  status block is stale with it (NS-3/NS-4 shipped; only **NS-8 → NS-1** valuation remains blocked). **D1 and
-  D4 are already fixed.** **IV-1's "the corpus is silent" sub-claim is FALSIFIED** — the GST notes PDF
-  enumerates all five levels verbatim and shows the Stock-Group GST field shape; it is silent **only on the
-  ORDERING**. **Cited `file:line`s have DRIFTED by tens of lines — re-derive a row before trusting it.**
+  `WarnOnNegativeStock = true`), so **v50 is SPENT** — ⚠️ **CORRECTED 2026-08-16 (owed review, lens 3 finding
+  13): this bullet said "and the next free schema version is v51". v51 IS SPENT TOO**, consumed by WF-1 in
+  `e49b88e`; `Schema.CurrentVersion` is **51**. **Do not read a "next free version" out of prose — read
+  `Schema.CurrentVersion` and the binding allocation below, in that order, at implementation time.** Phase
+  10.8's status block is stale with it (NS-3/NS-4 shipped; only **NS-8 → NS-1** valuation remains blocked).
+  **D1 and D4 are already fixed.**
+  **🔴 IV-1's "the corpus is silent" sub-claim — THIS LINE WAS ITSELF WRONG AND IS THE UPSTREAM OF THREE
+  SHIPPED OVERSTATEMENTS (owed review, lens 3 findings 1, 2, 4).** It read: *"the GST notes PDF enumerates all
+  five levels verbatim and shows the Stock-Group GST field shape; it is silent only on the ORDERING."* Both
+  halves are false, and the WF-1 build agent reconstructed its scope from this line.
+  **(a) The PDF enumerates five METHODS, not our five levels** — `tally/703679456-TALLY-PRIME-WITH-GST-Notes-PDF.pdf`,
+  `pdftotext -layout` extracted lines 2660-2666, framed *"any one method of the following"*: Company, Stock
+  Group, Stock item, Ledger, **GST Classification**. It contains **no accounting Group** (which we ship) and it
+  contains GST Classification (which we exclude, ruling 3). The two lists overlap in **four** members, not five
+  — `docs/invented-vs-cloned.md` IV-1's dagger already said so and this line contradicted it.
+  **(b) 703679456 does NOT show the Stock-Group field shape.** Its "GST on Stock Group Level" walk-through
+  (extracted 2771-2790) enumerates **no fields at all**. The one corpus page that does show the sub-screen is
+  `tally/680842180-Tally-With-GST-Notes.pdf` extracted **110-122**, and it shows **TWO** fields — *Taxability*
+  and *Integrated tax* — **not four**. HSN/SAC and Type of Supply on a Stock Group are `[web]`/inferred.
+  **Cited `file:line`s have DRIFTED by tens of lines — re-derive a row before trusting it.**
   **▶ AND `docs/invented-vs-cloned.md:319` IS REFUTED IN BOTH CLAUSES** (WF-7 review, 2026-08-06): it prescribes
   *"list every item with a positive shortfall regardless of raw closing quantity; Order to be Placed =
   max(shortfall, MOQ)"* — but an unguarded `max()` returns the **MOQ at zero shortfall**, the very PR-8 behaviour
@@ -1274,7 +1289,18 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 - **R7 fidelity — sources of record (A14 confirms each before its slice ships):** TallyPrime's **HSN/SAC and
   GST Rate Hierarchy** page (both hierarchy strings verbatim; **Source of HSN/SAC Details** and **Source of GST
   Rate** are **two** options) + the corpus GST notes; TallyHelp's §194Q *"Calculate tax on value exceeding the
-  threshold"*; TallyHelp's stock-valuation-methods page (**costing vs market**); `[CORPUS-BOOK pp.116-118]`;
+  threshold"*;
+  **🔴 A14 NEVER RAN FOR WF-1, AND THIS BULLET IS THE ONLY RECORD OF THE TWO-OPTION CLAIM** (owed review, lens
+  3 finding 5). WF-1 shipped with no design gate at all (see the S4 row), so the "A14 confirms each" promise in
+  this heading was **not kept for the first slice to draw on it**. Measured across all ten corpus PDFs: **zero**
+  hits for *"Source of HSN/SAC"*, **zero** for *"Source of GST Rate"*, and the only two hits for *"hierarchy"*
+  are about the **account-group** hierarchy. `docs/invented-vs-cloned.md` IV-1 records the two hierarchy
+  **strings** — i.e. ONE selectable alternative — and says nothing about the two lookups being **separately**
+  selectable. **So `gst_source_of_hsn_sac` + `gst_source_of_rate` are two shipped schema columns resting on an
+  unverified `[web]` claim recorded here and nowhere else.** Marked UNVERIFIED at all three code sites
+  (`GstDetailSource`, `GstConfig.SourceOfGstRate`, the `companies` DDL). **A14 is still owed on it**; it is not
+  a reason to drop the columns (they are cheap now and a schema bump later), but it must not be cited as clone
+  fidelity. TallyHelp's stock-valuation-methods page (**costing vs market**); `[CORPUS-BOOK pp.116-118]`;
   TallyHelp's Reorder Status page (**Nett Available**, Shortfall, **F8 Reorder Only**) + `[BOOK pp.163-164]`.
 - **Work items (id — one-line; full design per row in the briefs, not here):**
   - **WF-1 (IV-1)** GST rate + HSN/SAC resolved over TallyPrime's **five-level hierarchy in a selectable
@@ -1314,7 +1340,10 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `JobWorkReports.cs:110`/`:134` compute a real `FulfilledQuantity(company, orderId, line)` by matching an
     order to its subsequent movements. **This is the recurring "twin" the register keeps finding: the capability
     exists on one side of the codebase and not the other.** **Engine-only; schema-clean if the match is
-    derived** — a persisted closure flag is the fallback, not the plan, and would take **v54**, after the chain.
+    derived** — a persisted closure flag is the fallback, not the plan. ⚠️ **This sentence used to end "and
+    would take v54, after the chain", which double-allocated v54 against W0-2b (owed review, lens 3 finding
+    14). NO NUMBER IS RESERVED FOR IT.** If the fallback fires, read `Schema.CurrentVersion` and the binding
+    allocation above, take the next free number and **amend that allocation line in the same commit.**
     **Blocks WF-7:** netting Sales Orders Due into Nett Available makes a **fully delivered SO suppress
     availability for ever** — permanently overstating shortfall, telling the buyer to re-order stock already
     shipped — and a **half-received PO** fails the same way inverted, understating it. Before WF-7 these were
@@ -1326,14 +1355,19 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      a no-movement window reproduces today's figure **to the paisa** before the movement case is added.
   2. **S1a — Order fulfilment tracking** (WF-8) — **M / med / schema-clean** — **inserted between S1 and S2, not
      renumbered in**: S2–S6's ids are already cited in `memory.md` and in the built `stream-a` worktree, so they
-     keep their names. **MERGES BEFORE S2.** S2 is built and green on Ledger/Io/Sqlite (uncommitted in
-     `stream-a`) but computed against **raw order-line quantities**, so it is **re-verified — fixtures included —
+     keep their names. **MERGES BEFORE S2.** S2 is built and green on Ledger/Io/Sqlite (⚠️ CORRECTED
+     2026-08-16: this read "uncommitted in `stream-a`", which was true when written and has been false since
+     WF-7 merged as `7e0457b`; it is a third instance of the same PREDICTION-written-as-RECORD class as the
+     two above) but computed against **raw order-line quantities**, so it is **re-verified — fixtures included —
      against real outstanding quantities** before either merges.
   3. **S2 — Reorder Nett Available + delete the invented filter** (WF-7) — **M / low / schema-clean** —
      **append** `NettAvailable` to the positional row rather than inserting it at Tally's column position.
   4. **S3 — Interest divisor table** (WF-6) — **S / low** — **DO NOT MERGE THE CONSTANTS UNTIL T8 LANDS.**
   5. **S4 — GST five-level hierarchy** (WF-1) — **XL / HIGH / owns v51** — the worst row in the register.
-     **▶ ⚠️ PARTIALLY BUILT (working tree, uncommitted, 2026-08-15): the MASTERS AND THE PLUMBING LANDED; the
+     **▶ ⚠️ PARTIALLY BUILT — COMMITTED AND PUSHED AS `e49b88e` (2026-08-15; this line previously read
+     "working tree, uncommitted", which was a PREDICTION written before A12 ran and went stale the moment it
+     did — state lines are now written commit-relative so they cannot rot the same way): the MASTERS AND THE
+     PLUMBING LANDED; the
      RESOLVER DID NOT. IV-1 IS NOT FIXED AND T0-4 STAYS OPEN.** Read this before touching the row.
      **🔴 R6 DEVIATION, RECORDED WITH ITS CAUSE — this slice ran with NO design of record.** The workflow that
      produced it was scoped "W0-2 (Company Create/Alter)". **Its design agent died (connection lost) and returned
@@ -1365,6 +1399,85 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      every rate still resolves item-first exactly as before, which is why nothing regressed — and why the
      wrong-rate defect this row exists to fix is still shipping.** The remaining work is the resolver plus its
      four call sites; the masters it needs now exist.
+     **▶ ⚠️ WHO OWNS THE RESOLVER: THIS ROW, S4 — NOT S5/WF-2** (owed review, lens 3 finding 16, correcting a
+     premise the review brief itself carried). S5/WF-2 is the §194Q excess carve and owns v52; it has nothing to
+     do with GST rate resolution. **The resolver is the unshipped SECOND HALF OF S4**, so every carry-forward
+     below is addressed to a WF-1 continuation, and **this row is not finished-and-safe.**
+     **▶ ✅ THE OWED REVIEW HAS BEEN PAID — three lenses, 2026-08-16, on top of `e49b88e` (fix-forward; nothing
+     rewritten).** The debt named above ("its own review is still owed") is **discharged**. **34 findings: 1
+     BLOCKER, 14 MAJOR, 19 MINOR. NO DOCTORED TEST WAS FOUND** — all 17 new test bodies were read against their
+     names; none asserts the inverse. What was found instead was a **cluster of tests that could not fail**, a
+     **migration back-fill the writer erased**, and a **grounding that overstated the corpus**. The R6 design
+     gate is still missing and is NOT retroactively granted by this review — what the row now has is a review,
+     not a design.
+     **▶ WHAT THE REVIEW CHANGED IN THE CODE (each re-proved by mutation, files restored byte-identically):**
+     **(1) The back-fill did not survive an ordinary save.** The two source orders live on `GstConfig`, which
+     the store builds only for `gst_enabled = 1`, so a migrated **non-GST** book had no in-memory value and the
+     re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
+     from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
+     **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3863`.**
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4815`**,
+     fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
+     `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
+     **(2) The downgrade silently deleted two indexes.**
+     **The index replay is `src/Apex.Persistence.Sqlite/SchemaDowngrade.cs:378`**, inside `DropColumns`.
+     **(3) The DDL `DEFAULT` had no behavioural test.** The forbidden simplification (both `DEFAULT`s 0→1 +
+     back-fill deleted) previously left **1** test red, and only on a hard-coded string literal; it now turns
+     **4** red. **(4) Taxability was never exported at a non-default value** — a mapper hard-coding `"Taxable"`
+     shipped green in Io **and** Sqlite; it now turns 4 Io tests red. **(5) The item-vs-master parity theory
+     asserted the implementation against itself** — it now pins the expected verdict per row, so relaxing both
+     validators identically turns it red. **(6) The `byte_for_byte` snapshot rendered every BLOB as the string
+     `"System.Byte[]"`** (four columns — the encrypted NIC credentials) and sorted rows; it now renders hex and
+     compares in `rowid` order.
+     **▶ 🔴 CARRY-FORWARDS THE REVIEW OPENED — READ THESE BEFORE THE RESOLVER, THEY ARE NOT CLOSED:**
+     **(a) The R12 decision-1 guarantee is narrower than it reads** — see the correction on decision 1 below.
+     **(b) `MasterGstDetails.EnsureValid` is reachable on ONE of five write paths** — `ImportPlan` (Group),
+     `ImportPlan` (Stock Group) and `GstConfig.EnsureValid` for the company default: **the canonical import and
+     nothing else.** `Company.AddStockGroup`, `Company.AddGroup`, `InventoryService.CreateStockGroup`, the
+     `DefaultGst` setter and `SqliteCompanyStore.Save` all accept a malformed block and reload it verbatim, so
+     **the app can produce a database its own importer rejects.** Identical in shape to the `Company.EnsureValid`
+     limit recorded for W0-2a, on the block the resolver will read. Latent only because no UI writes these
+     fields — **the deferred master-GST screens must validate on save and ship the test that proves it.** Pinned
+     as a KNOWN-LIMIT test in `MasterGstDetailsTests`.
+     **(c) There is NO UPPER BOUND on `RateBasisPoints`** at either level — 1 000 000 bp (10 000 %) and
+     `int.MaxValue` validate, persist and reload. `StockItemGstDetails` has none either, so parity holds and
+     neither has one. The 4/6/8-digit HSN rule likewise lives in exactly one place: **no `CHECK` constraint, no
+     store-side check, no UI check.**
+     **(d) The GST-off → GST-on transition still loses the back-fill.** The F11 screen builds a fresh
+     `GstConfig` (`_company.Gst ?? new GstConfig()` in `GstConfigViewModel`), which carries `LedgerFirst`, so
+     switching GST **on** for a migrated book moves it onto the shipped order. Closing it means moving the two
+     fields off `GstConfig` onto `Company` — they are `companies` columns, not GST-config members — which
+     changes the canonical document shape. **A design decision, deliberately not taken by the fix pass.**
+     **(e) The downgrade harness is not a genuine v50 database and cannot be saved to.** `CREATE … AS SELECT`
+     loses the PRIMARY KEY, so `companies.id` stops being a key, every FK to it becomes a *foreign key mismatch*
+     and `SqliteCompanyStore.Save` **throws** on a round-tripped file — while `PRAGMA integrity_check` still
+     says `ok`. **No caller in `src/`, so this is harness fidelity, not shipped data loss** — but it means
+     **the v50 → v51 migration has never run against a `companies` table that still had its PRIMARY KEY, NOT
+     NULLs and DEFAULTs.** Pinned as a KNOWN-LIMIT test; fixing it means emitting real prior-version DDL in
+     every downgrade, which is a slice of its own.
+     **(f) One marker column, four-column block.** NULL `gst_taxability` means "no block", so a row with a real
+     HSN and rate but a NULL taxability loses both silently. No `CHECK` enforces it; only
+     `SqliteCompanyStore.BindMasterGst` does, and nothing in `src/` can produce the mixed row.
+     **(g) The two readers disagree on a MISSING taxability** — XML defaults it to `Taxable`, JSON declares it
+     `required` and hard-fails. Pinned as a KNOWN-ASYMMETRY test; unifying them is a design call.
+     **(h) A14 is owed on the two-source-order claim** — see the R7 sources-of-record bullet above.
+     **▶ FINDINGS DELIBERATELY NOT ACTIONED, WITH THE REASON — so nobody re-raises them as unaddressed:**
+     **(i) The ~50 mechanically version-bumped schema tests assert nothing about v51, and that is CORRECT.**
+     Diffed against `e49b88e^`: almost all have zero deletions and add only a `SchemaDowngrade.V51ToV50` call to
+     a downgrade chain or a `groups`/`stock_groups` DDL stub. Their version assertions are
+     `Assert.Equal((long)Schema.CurrentVersion, …)` — **version-agnostic on purpose**, because their subject is
+     the downgrade chain, not v51. Making them v51-aware would couple ~50 files to every future bump for no
+     added guard. The real v51 coverage is `GstHierarchySchemaTests`, and it is where the review added its
+     tests. **(j) `SchemaDowngrade.V51ToV50` is not transactional** (three autocommit `DropColumns` + a stamp),
+     so it can itself manufacture the split state that (k) describes. Left as-is and commented: test-only code,
+     no caller in `src/`, and the FORWARD migration — the one a customer's book runs — **is** transactional and
+     was measured to be. **(k) The forward migration has no idempotency guard**: a hand-constructed split state
+     (ALTERs applied, `schema_version` still 50) makes the book unopenable for ever with a raw
+     `SqliteException`, where `CompanyBackup` would give a written message. **Not reachable from a crash** —
+     proved by forcing the sixth `ALTER` to fail, which rolled the five before it back and left the version at
+     50 — so it is a robustness gap, not a recovery hole. **(l) 0.125% is not representable**: `RateBasisPoints`
+     is `int` and there is no percent-to-basis-point converter, so such a rate is *unexpressible* rather than
+     silently wrong — the same conclusion Phase 10.12's D8 false-positive reached.
   6. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / owns v52**.
   7. **S6 — Costing/market split + `LastSaleCost` migration** (WF-3) — **L / med / owns v53** — last: the only
      migration that **rewrites customer data**, and it wants the two preceding parity gates green first.
@@ -1372,14 +1485,46 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     future invoices, so it could not start before that R12 ruling. The ruling has landed, so **WF-1 may now be
     pulled ahead of WF-6** without disturbing the version chain.
 - **Schema (v50 → v53) — binding allocation, replacing three colliding "v50 → v51" claims: WF-1 = v51,
-  WF-2 = v52, WF-3 = v53.** Each needs its columns in **BOTH** `CreateV1` **and** its migration byte-identically
+  WF-2 = v52, WF-3 = v53.**
+  **🔴 THE ALLOCATION ENDS AT v53. NOTHING IS RESERVED BEYOND IT — RESOLUTION OF THE v54 COLLISION,
+  2026-08-16 (owed review, lens 3 finding 14).** Two rows were both promised **v54** by different sentences,
+  neither referencing the other: the WF-8 row below (*"a persisted closure flag … would take v54"*, pre-existing)
+  and the W0-2b row in Phase 10.12 (*"the first free number for W0-2b is v54"*, added by `e49b88e` — the same
+  commit whose own body warns that **"two migrations sharing one version number is a book-eater"**).
+  **DECISION, with its reason: neither is reserved.** A fixed reservation for a **conditional** need is what
+  created this collision — WF-8's flag is explicitly *"the fallback, not the plan"* and the row is
+  *"schema-clean if the match is derived"*, while W0-2b's need is definite but sequenced later. Reserving for
+  the conditional one would block the definite one on a decision that may never be taken; reserving for the
+  definite one would collide the moment the fallback fired. So: **whichever of the two ships a migration first
+  takes v54, and MUST amend this line in the same commit; the other then reads the amended line.** The expected
+  outcome — stated so nobody has to guess, but binding on nobody — is **W0-2b = v54 and WF-8 schema-clean.**
+  **The general rule this makes permanent: read `Schema.CurrentVersion` first and this line second, at
+  implementation time. Do not carry a version number forward from prose written before the previous slice
+  landed** — that is the identical failure mode as the three colliding "v50 → v51" claims this allocation
+  replaced, and it has now recurred twice (this, and carry-forward (d) in Phase 10.12 — see F15 there).
+  Each allocated slice needs its columns in **BOTH** `CreateV1` **and** its migration byte-identically
   (`SchemaMigrationEquivalenceTests`), a true-inverse `DowngradeTo`, and Io parity. **Watch the
   default-asymmetry trap in both directions:** a `DEFAULT` back-filling an upgraded book to the *new* behaviour
   silently changes shipped figures (v51); a `DEFAULT 0` back-filling to the *old* one silently re-ships the bug
   (v52). v53 is the first **data rewrite** in the chain.
 - **USER DECISIONS (R12 — settled; do not re-litigate):**
-  1. **(WF-1) `MigrateV50ToV51` back-fills `StockItemFirst`** for books that already exist — provably changes
-     **zero** currently-resolvable figures. **Fresh companies get TallyPrime's shipped `LedgerFirst`.**
+  1. **(WF-1) `MigrateV50ToV51` back-fills `StockItemFirst`** for books that already exist. **Fresh companies
+     get TallyPrime's shipped `LedgerFirst`.**
+     **🔴 SCOPE CORRECTION 2026-08-16 (owed review, lens 1 finding 1 / lens 3 finding 17). This decision used to
+     end "— provably changes **zero** currently-resolvable figures", full stop, and that promise was made to the
+     resolver author. IT WAS FALSE FOR NON-GST BOOKS.** The two source orders are NOT NULL `companies` columns
+     but are carried in memory on `GstConfig`, which `SqliteCompanyStore` builds **only when `gst_enabled = 1`**
+     (the loader's GST block is entered on that test, and the two columns are read *inside* it). A migrated book
+     with GST switched **off** therefore loaded with `Gst == null`, and the next whole-company save re-INSERTed
+     `LedgerFirst` over the back-fill — measured, stored `1|1` → one ordinary save → `0|0`. The books would have
+     been reset long before any resolver read the field, so the guarantee would have failed **exactly when it
+     started to matter**.
+     **The write path is fixed** (`SqliteCompanyStore.ReadStoredSourceOrders`, cited on the S4 row), so the
+     guarantee now holds for a book that is only ever loaded and saved. **What it still does NOT cover, and the
+     resolver author must assume:** a book whose operator switches GST **from off to on** is moved to
+     `LedgerFirst` by the F11 screen's fresh `GstConfig` — carry-forward (d) on the S4 row. **Read the guarantee
+     as: "changes zero currently-resolvable figures, and survives the save path; it does not survive an
+     off → on GST transition."**
   2. **(WF-3) Items on `LastSaleCost` migrate to `LastPurchaseCost`**, with a one-time notice **naming the
      affected items**, because prior-year Balance Sheets are affected.
   3. **(WF-7) HARD GATE PR-8 — the "MOQ floor at zero shortfall" rule — is RETIRED.** Requires amending
@@ -1630,7 +1775,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     screen **already computes the answer** (`IsBillOfSupply` and the s10 / Rule-5(f) declaration render in the
     UI); neither reaches the PDF and the title is hard-coded. Until this lands, **a composition dealer's every
     printed document is an illegal tax invoice** — we issue legally wrong documents today.
-  - **W0-2a (T0-8, PRINT half) supplier postal block — ✅ DONE 2026-08-15 (uncommitted; A12 to land it).**
+  - **W0-2a (T0-8, PRINT half) supplier postal block — ✅ DONE 2026-08-15, COMMITTED AND PUSHED AS `e49b88e`.**
     **Gate-independent by construction: it never reads `Company.State` under any shape**, which is why it was
     allowed to run ahead of the W0-2b user gate below. **What actually shipped, and nothing more:**
     `VoucherPrintProjector.SellerBlock` (`:721-727`) now builds the supplier address through the **same**
@@ -1682,12 +1827,18 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     captures one field: Name).
     **▶ SCHEMA — DO NOT HARD-CODE v51, AND DO NOT ASSUME v52 EITHER.** The grounding doc's "`CurrentVersion` is
     50, so the next is v51" was arithmetic, not a reservation. **v51 is already taken** — by Phase 10.10's WF-1
-    (the GST five-level hierarchy), which is uncommitted in this same worktree and also adds **six `companies`
+    (the GST five-level hierarchy), which landed in the SAME commit `e49b88e` and also adds **six `companies`
     columns**. And **v52 and v53 are RESERVED too**, by Phase 10.10's own **binding allocation** (search this
-    file for *"binding allocation, replacing three colliding"*): **WF-1 = v51, WF-2 = v52, WF-3 = v53.** So the
-    first free number for W0-2b is **v54** unless that allocation is formally amended first. Re-read
+    file for *"binding allocation, replacing three colliding"*): **WF-1 = v51, WF-2 = v52, WF-3 = v53.**
+    ⚠️ **CORRECTED 2026-08-16 (owed review, lens 3 finding 14): this said "the first free number for W0-2b is
+    v54", which collided head-on with the WF-8 row's own claim on v54 — the exact "book-eater" the sentence
+    above warns about, one number further down. NOTHING IS RESERVED BEYOND v53 FOR ANYONE.** v54 goes to
+    whichever of W0-2b and WF-8's fallback closure flag ships a migration first, and that slice amends the
+    allocation line in the same commit; the expected — not binding — outcome is **W0-2b = v54**. Re-read
     `Schema.CurrentVersion` **and** that allocation at implementation time, and write the migration against the
-    **post-v51 `companies` table**, not the `fa651ae` one. Grounding §7.6 / §7.7.
+    **post-v51 `companies` table**, not the `fa651ae` one. **And check first whether W0-2b needs a migration at
+    all** — the row's own premise is that the 11 profile fields *already exist in the schema*. Grounding
+    §7.6 / §7.7.
     **▶ R7 GROUNDING — `docs/w0-2-company-screen-grounding.md`** (written 2026-08-14 at `fa651ae`; this row had
     NO pointer to it until then, which left the gate below governing nothing). It is the A14 corpus pass written
     down: TallyPrime's Company Creation fields in screen order, Alter-vs-Creation, the F11 GST Details screen
@@ -2061,7 +2212,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     posts (the money can only have come from one of the two candidates) but it is a **recovery, not a record**: a leg
     whose amount was later adjusted independently of its rate would read back the even neighbour. The real fix is for
     `GstLineTax` to carry the integrated rate outright — a **persisted-schema change with a migration and a downgrade
-    path** (v50 → v51), i.e. a slice of its own. Sequence it with any other `GstLineTax` shape change, never alone.
+    path**, i.e. a slice of its own. Sequence it with any other `GstLineTax` shape change, never alone.
+    ⚠️ **CORRECTED 2026-08-16 (owed review, lens 3 finding 15): this said the migration would be "(v50 → v51)".
+    It is the FOURTH colliding "v50 → v51" claim** — Phase 10.10's binding allocation header says it replaced
+    *three*, and it missed this one, and the slice that actually spent v51 (WF-1, `e49b88e`) did not correct it
+    either. **v51 IS SPENT. No version is allocated to this carry-forward**; when it is sliced, read
+    `Schema.CurrentVersion` and the binding allocation, take the next free number and amend that allocation in
+    the same commit.
   - **▶ CARRY-FORWARD (e) — does a 0%-rated supply need a printed rate row (CGST Rule 46(m))?** Today neither pass
     prints one, consistently. Rule 46(m) requires "the rate of tax"; a 0%/LUT/export supply arguably states it as "0%",
     and a wholly EXEMPT line arguably must NOT (exempt is not zero-rated, and the pre-W0-10 code skipped it

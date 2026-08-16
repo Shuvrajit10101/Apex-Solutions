@@ -17,9 +17,11 @@ write-down was at HEAD **`fa651ae`**, schema **v50**, and nothing was built, run
 > ⚠️ **Re-anchored 2026-08-15 to HEAD `85f82dd` + the W0-2a working tree.** Every print-path `file:line` in §7
 > drifted: `85f82dd` is itself a GST print/report rewrite (it moved `VoucherPrintProjector.cs` by 145 lines and
 > `InvoicePdf.cs` by 91), and **W0-2a then edited `VoucherPrintProjector.cs` again**. The numbers below are the
-> post-W0-2a ones. **`Schema.cs` is deliberately cited by TEXT, not by line**, because an unrelated uncommitted
-> GST-hierarchy slice shares this worktree and shifts that file by 118 lines — whichever slice lands second
-> would otherwise ship a dead citation. See §7.7.
+> post-W0-2a ones. **`Schema.cs` is deliberately cited by TEXT, not by line**, because the GST-hierarchy slice
+> shifts that file by 118 lines — whichever slice landed second would otherwise ship a dead citation.
+> *(Corrected 2026-08-16: this said "an unrelated **uncommitted** GST-hierarchy slice shares this worktree".
+> Both slices landed together in `e49b88e`; the citation-by-text rule stands on its own merits and is kept.)*
+> See §7.7.
 >
 > The repo's doc-vs-code gate does **not** protect against this class: `DocumentCodeAgreementTests` proves a
 > cited line is inside its file, never that the line says what the sentence claims. It was green with a dozen
@@ -546,36 +548,50 @@ precedent is directly at hand: **v45** did exactly this on the **buyer** side �
 default, such columns cannot perturb existing rows, so the standing `SchemaMigrationEquivalenceTests` plus that
 precedent are sufficient for the purely additive shape.
 
-> 🔴 **DO NOT HARD-CODE v51. Corrected 2026-08-15.** This section said "`Schema.CurrentVersion` is **50** at
-> `fa651ae`, so the next is **v51**". That was arithmetic, not a reservation, and **v51 is already taken** — an
-> unrelated, still-uncommitted GST five-level-hierarchy slice in this same worktree sets
+> 🔴 **DO NOT HARD-CODE v51. Corrected 2026-08-15; state re-corrected 2026-08-16.** This section said
+> "`Schema.CurrentVersion` is **50** at `fa651ae`, so the next is **v51**". That was arithmetic, not a
+> reservation, and **v51 is SPENT** — the GST five-level-hierarchy slice (Phase 10.10 WF-1) sets
 > `CurrentVersion = 51`, defines `MigrateV50ToV51`, adds six `companies` columns and registers its own
-> `SchemaDowngrade` entry. **Two migrations sharing one version number is a book-eater**: whichever lands second
-> is skipped entirely on any database already stamped 51, leaving columns the code believes exist.
+> `SchemaDowngrade` entry. ⚠️ **This sentence described that slice as "an unrelated, still-uncommitted … slice
+> in this same worktree". It is COMMITTED AND PUSHED, as `e49b88e` — the same commit that rewrote this
+> document** (owed review 2026-08-16, lens 3 finding 8). **Two migrations sharing one version number is a
+> book-eater**: whichever lands second is skipped entirely on any database already stamped 51, leaving columns
+> the code believes exist.
 >
 > **And v52/v53 are reserved as well — do not assume "next free" means v52.** `plan.md`'s Phase 10.10 carries a
 > **binding allocation** (*"binding allocation, replacing three colliding …"*): **WF-1 = v51, WF-2 = v52,
-> WF-3 = v53.** The first genuinely free number for W0-2b is therefore **v54**, unless that allocation is
-> formally amended first. *(Corrected 2026-08-15: this paragraph previously said "v52 if the GST-hierarchy slice
+> WF-3 = v53.** *(Corrected 2026-08-15: this paragraph previously said "v52 if the GST-hierarchy slice
 > lands first", which reads the collision one slice deep and would have walked straight into WF-2's number.)*
+>
+> 🔴 **AND v54 IS NOT RESERVED FOR W0-2b EITHER — corrected 2026-08-16 (lens 3 finding 14).** This paragraph
+> said *"the first genuinely free number for W0-2b is therefore **v54**"*; `plan.md`'s WF-8 row independently
+> said a persisted closure flag *"would take v54"*. **Two rows, one number, neither referencing the other — the
+> same book-eater, one number further down.** The allocation now **ends at v53**: v54 goes to whichever of the
+> two ships a migration first, and that slice amends `plan.md`'s allocation line in the same commit. Expected —
+> not binding — outcome: **W0-2b = v54**. **And check first whether W0-2b needs a migration at all**: this
+> document's own premise is that the profile fields already exist in the schema.
 >
 > **Re-read `Schema.CurrentVersion` AND that allocation at the moment W0-2b is implemented**, and write the
 > migration against the **post-v51** `companies` table, not the `fa651ae` one. **W0-2a ships no schema change at
 > all**, so it does not participate in this collision.
 
-### 7.7 🔴 Worktree contention — read before editing any of these files
+### 7.7 🔴 Worktree contention — historical; both slices are COMMITTED
 
-This worktree carries **two independent uncommitted slices**: W0-2a (the print half) and the GST five-level
-hierarchy. They overlap on `Schema.cs`, `SchemaDowngrade.cs` and `SqliteCompanyStore.cs`. Consequences that
-outlive this document:
+⚠️ **CORRECTED 2026-08-16 (owed review, lens 3 finding 8). This section opened "This worktree carries two
+independent uncommitted slices", and that was the premise of the whole section. It is FALSE: both W0-2a (the
+print half) and the GST five-level hierarchy landed together in `e49b88e` — the same commit that rewrote this
+document by +347 lines. The contention is over; what follows is kept because its consequences outlive it.**
+The two slices overlap on `Schema.cs`, `SchemaDowngrade.cs` and `SqliteCompanyStore.cs`.
 
 > **Who the other slice is, so it is not mistaken for rogue work.** It is **Phase 10.10's WF-1** (register IV-1),
 > and `plan.md`'s **binding allocation gives it v51** — it is not squatting on the number. Two things about it
 > matter to any reader here: **(a)** only its **masters and plumbing** landed — the resolver did not, so the two
 > source-order columns are **persisted but inert** and IV-1 is still shipping; and **(b)** it carries a recorded
 > **R6 deviation** — its design agent died and the slice was built from a reconstructed scope with no design of
-> record, so it has **not** passed a design gate or its own A10 review. See `plan.md` slice **S4 (WF-1)**. Do not
-> read its presence in this tree as a merged, reviewed fact.
+> record, so it has **not** passed a design gate. See `plan.md` slice **S4 (WF-1)**. ⚠️ **This bullet used to end
+> "or its own A10 review" — that review was PAID on 2026-08-16 (three lenses, 34 findings, fixed forward on top
+> of `e49b88e`); the missing DESIGN gate is not retroactively granted by it.** Read S4's carry-forwards (a)–(h)
+> before touching the GST hierarchy.
 
 - **`Schema.cs` line citations are unstable here** — the GST slice inserts ~118 lines ahead of the `companies`
   block and the `mailing_state` prohibition. This document therefore cites `Schema.cs` **by unique text**
@@ -735,7 +751,7 @@ Recorded rather than silently fixed, because a claim that **was** true and is no
 | R2-2 | Every §7.2/§7.3 print-path `file:line` | **ALL DRIFTED**, twice: `85f82dd` is itself a print/report rewrite, then W0-2a edited the file again. Re-anchored throughout §7.2/§7.3. |
 | R2-3 | "`Company.State` **and** `Company.Pin` are never printed … the seller block has no equivalent" | **HALF FALSE as of W0-2a.** `Pin` and `Country` now print. Rewritten in §7.3(i). |
 | R2-4 | "a postal State typed into `Company.State` would **go nowhere**" (echoed verbatim in the `plan.md` gate) | **WRONG, AND ALWAYS WAS.** The canonical XML/JSON round-trip carries `state` and `pin`. True claim: *no PRINT path reads it.* This changes the cost of the gate's "suppress the postal one" option — see §8. |
-| R2-5 | §7.6 "so the next is **v51**" | **v51 IS TAKEN** by a concurrent uncommitted slice in this same worktree. Never hard-code it; see §7.6 and the new §7.7. |
+| R2-5 | §7.6 "so the next is **v51**" | **v51 IS SPENT.** *(Corrected 2026-08-16, owed review lens 3 finding 8: this cell said "TAKEN by a concurrent **uncommitted** slice in this same worktree" — that slice is Phase 10.10's WF-1 and it is **committed and pushed as `e49b88e`**, in the same commit as W0-2a.)* Never hard-code a version; read `Schema.CurrentVersion` and `plan.md`'s binding allocation at implementation time. **v54 is not reserved for W0-2b either** — see §7.6. |
 | R2-6 | `Schema.cs:808-811` for the `mailing_state` prohibition | **Right for `HEAD`, wrong for the tree it ships in** (840/843 there). Now cited **by text** everywhere, including in the C# doc comment — where no gate exists at all. §7.7. |
 | R2-7 | Rule 46 text sourced from GSTZen, §9 item 10 left open | **CLOSED** — first-party CBIC fetch performed; §5.4. It also caught two wrong wordings ("rule 7"→**rule 54**; "GSTIN" is our abbreviation, not the statute's). |
 | R2-8 | *(new)* the printed component ORDER | **Departs from the corpus and is now recorded as such** — §9 item 11. |
