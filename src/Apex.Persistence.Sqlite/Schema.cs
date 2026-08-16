@@ -109,12 +109,25 @@ namespace Apex.Persistence.Sqlite;
 /// ⚠️ <b>The ONLY company flag in this schema that defaults TRUE.</b> Every other one defaults 0, so "column absent"
 /// and "flag off" coincide and a missed read path is harmless; here they do not coincide, and a read path that treats
 /// an absent value as <c>false</c> silently switches warnings OFF on every upgraded book.
-/// <b><see cref="CurrentVersion"/> = 50</b>; a fresh DB is always stamped straight to the current version via
+/// <b>v51</b> adds the <b>GST five-level hierarchy masters</b>: a four-column <c>MasterGstDetails</c> block on
+/// <c>groups</c> and on <c>stock_groups</c>, the same block (prefixed <c>gst_default_</c>) on <c>companies</c>, and the
+/// two independent source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>.
+/// ⚠️ <b>The only bump so far where a fresh database and a migrated one deliberately hold DIFFERENT values</b>: fresh =
+/// <c>0</c> (LedgerFirst, the reference application's shipped order), upgraded = <c>1</c> (StockItemFirst, what this
+/// application has always resolved). The difference is carried by an explicit <c>UPDATE</c> in
+/// <see cref="MigrateV50ToV51"/>, never by the column default — see that constant.
+/// <b><see cref="CurrentVersion"/> = 51</b>; a fresh DB is always stamped straight to the current version via
 /// <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v50</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes. <b>v51</b> is the latest bump
+    /// (the <b>GST five-level hierarchy masters</b>: a four-column <c>MasterGstDetails</c> block on <c>groups</c> and
+    /// on <c>stock_groups</c>, the same block prefixed <c>gst_default_</c> on <c>companies</c>, and the two
+    /// independent source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>. ⚠️ <b>The only bump
+    /// where a fresh database and a migrated one deliberately hold DIFFERENT values</b> — fresh = LedgerFirst (the
+    /// column default), upgraded = StockItemFirst (an explicit <c>UPDATE</c>, so no existing book's figures move).
+    /// See <see cref="MigrateV50ToV51"/>). v50 was
     /// (the <b>negative-stock warning toggle</b>: one <c>warn_on_negative_stock INTEGER NOT NULL <b>DEFAULT 1</b></c>
     /// column on <c>companies</c>. ⚠️ <b>The ONLY company flag in this schema that defaults TRUE.</b> Every other one
     /// defaults 0, so "column absent" and "flag off" coincide and a missed read path is harmless; here they do not
@@ -143,7 +156,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 50;
+    public const int CurrentVersion = 51;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -303,7 +316,19 @@ public static class Schema
             -- ⚠️ DEFAULT 1 — the ONLY company flag here that defaults TRUE. "Column absent" and "flag off" are
             -- therefore NOT the same thing, unlike every 0-defaulted flag above: MigrateV49ToV50 must also use
             -- DEFAULT 1 (it does), or every upgraded book comes up with warnings silently switched off.
-            warn_on_negative_stock         INTEGER NOT NULL DEFAULT 1   -- 0/1 (advisory only; default ON)
+            warn_on_negative_stock         INTEGER NOT NULL DEFAULT 1,  -- 0/1 (advisory only; default ON)
+            -- v51 (plan.md WF-1 / register IV-1): the five-level GST master hierarchy. Two INDEPENDENT source-order
+            -- options (the reference application ships them separately) + the COMPANY-level default GST block, which
+            -- is the last level of both orders.
+            -- ⚠️ DEFAULT 0 = LedgerFirst is the FRESH-company value and MUST stay 0 on both sides of the migration
+            -- (the equivalence test compares the DEFAULT literal). Existing books are moved to StockItemFirst by an
+            -- explicit UPDATE inside MigrateV50ToV51 — NOT by this default. See that constant for why.
+            gst_source_of_hsn_sac          INTEGER NOT NULL DEFAULT 0,  -- GstDetailSource ordinal (0 = LedgerFirst)
+            gst_source_of_rate             INTEGER NOT NULL DEFAULT 0,  -- GstDetailSource ordinal (0 = LedgerFirst)
+            gst_default_hsn_sac            TEXT        NULL,            -- company default HSN/SAC (4/6/8 digits)
+            gst_default_taxability         INTEGER     NULL,            -- GstTaxability ordinal (NULL = no block)
+            gst_default_rate_bp            INTEGER     NULL,            -- company default rate in basis points
+            gst_default_supply_type        INTEGER     NULL             -- GstSupplyType ordinal (Goods/Services)
         );
 
         CREATE TABLE nature_of_payment (
@@ -716,7 +741,14 @@ public static class Schema
             alias         TEXT        NULL,
             is_predefined INTEGER NOT NULL,   -- 0/1
             -- Is this the reserved P&L head (kept out of Company.Groups on reload)?
-            is_pl_head    INTEGER NOT NULL DEFAULT 0
+            is_pl_head    INTEGER NOT NULL DEFAULT 0,
+            -- v51 (plan.md WF-1 / register IV-1): the accounting group's MasterGstDetails block — the "Group" level of
+            -- the five-level GST hierarchy. gst_taxability NULL = no GST block (the same marker the item and the
+            -- sales/purchase-ledger blocks use). Every pre-v51 group reads all four NULL.
+            gst_hsn_sac      TEXT        NULL,   -- HSN/SAC (4/6/8 digits)
+            gst_taxability   INTEGER     NULL,   -- GstTaxability enum ordinal (NULL = no GST block)
+            gst_rate_bp      INTEGER     NULL,   -- integrated GST rate in basis points
+            gst_supply_type  INTEGER     NULL    -- GstSupplyType enum ordinal (Goods/Services)
         );
 
         CREATE TABLE ledgers (
@@ -1116,7 +1148,14 @@ public static class Schema
             name           TEXT    NOT NULL,
             parent_id      TEXT        NULL REFERENCES stock_groups(id),   -- NULL = under implicit Primary
             alias          TEXT        NULL,
-            add_quantities INTEGER NOT NULL DEFAULT 1                      -- "Should quantities be added?" 0/1
+            add_quantities INTEGER NOT NULL DEFAULT 1,                     -- "Should quantities be added?" 0/1
+            -- v51 (plan.md WF-1 / register IV-1): the stock group's "Set/Alter GST details" block — level 2 of the
+            -- five-level GST hierarchy, and the level whose absence caused D8's hard block on a customer who set the
+            -- rate once on a Stock Group. Same four columns, same NULL-taxability marker, as `groups`.
+            gst_hsn_sac      TEXT        NULL,   -- HSN/SAC (4/6/8 digits)
+            gst_taxability   INTEGER     NULL,   -- GstTaxability enum ordinal (NULL = no GST block)
+            gst_rate_bp      INTEGER     NULL,   -- integrated GST rate in basis points
+            gst_supply_type  INTEGER     NULL    -- GstSupplyType enum ordinal (Goods/Services)
         );
 
         CREATE TABLE stock_categories (
@@ -3741,4 +3780,77 @@ public static class Schema
     /// <c>SchemaDowngrade.V50ToV49</c> removes. Named once so the two can never disagree.</summary>
     public static readonly IReadOnlyList<string> V50NegativeStockColumns =
         new[] { "warn_on_negative_stock" };
+
+    /// <summary>
+    /// v50 → v51 (plan.md Phase 10.10 WF-1 / register IV-1 — the <b>GST five-level hierarchy masters</b>): additive —
+    /// a four-column <c>MasterGstDetails</c> block on <c>groups</c> and on <c>stock_groups</c>, the same four columns
+    /// (prefixed <c>gst_default_</c>) on <c>companies</c>, and the reference application's <b>two</b> independent
+    /// source-order options <c>gst_source_of_hsn_sac</c> / <c>gst_source_of_rate</c>. Fourteen columns, no new tables,
+    /// no indexes.
+    ///
+    /// <para>⚠️ <b>THE FRESH/UPGRADED SPLIT — the reason this migration is not boilerplate, and the reason the
+    /// back-fill is a statement rather than a <c>DEFAULT</c>.</b> The two source-order columns must hold DIFFERENT
+    /// values on the two paths:</para>
+    /// <list type="bullet">
+    /// <item>A <b>fresh</b> database gets <c>0</c> = <c>GstDetailSource.LedgerFirst</c> — the reference
+    /// application's shipped order (Ledger → Group → Stock Item → Stock Group → Company).</item>
+    /// <item>An <b>upgraded</b> book gets <c>1</c> = <c>GstDetailSource.StockItemFirst</c>, because that is what this
+    /// application has always resolved (item → ledger). Back-filling the shipped order instead would silently change
+    /// the rate on the next invoice of every existing customer (R12 decision 1).</item>
+    /// </list>
+    /// <para>The <c>DEFAULT</c> literal cannot carry that, for a mechanical reason: the migration-equivalence test
+    /// compares <c>PRAGMA table_info</c> <b>including the default</b>, so a <c>DEFAULT 1</c> here against
+    /// <c>DEFAULT 0</c> in <see cref="CreateV1"/> is an immediate divergence. The back-fill is therefore an explicit
+    /// <c>UPDATE</c> over the rows that already exist. It is safe precisely because it runs only on the migration
+    /// path: <see cref="CreateV1"/> stamps a fresh database before any company row exists, so no fresh company can
+    /// ever be caught by it.</para>
+    ///
+    /// <para><b>The twelve master-GST columns are all NULLABLE with no default</b>, and <c>gst_taxability</c> /
+    /// <c>gst_default_taxability</c> being NULL is the marker for "this master carries no GST block" — the same
+    /// marker <c>stock_items.gst_taxability</c> and <c>ledgers.sp_gst_taxability</c> have used since v13. Every
+    /// pre-v51 group, stock group and company therefore reads "no block", which is exactly what it had, so no rate
+    /// resolution anywhere changes and no row is rewritten.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 51. Each <c>ALTER … ADD COLUMN</c> is
+    /// byte-identical to its counterpart in <see cref="CreateV1"/>.</para>
+    /// </summary>
+    public const string MigrateV50ToV51 = """
+        ALTER TABLE companies ADD COLUMN gst_source_of_hsn_sac   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gst_source_of_rate      INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN gst_default_hsn_sac     TEXT        NULL;
+        ALTER TABLE companies ADD COLUMN gst_default_taxability  INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN gst_default_rate_bp     INTEGER     NULL;
+        ALTER TABLE companies ADD COLUMN gst_default_supply_type INTEGER     NULL;
+
+        ALTER TABLE groups ADD COLUMN gst_hsn_sac     TEXT        NULL;
+        ALTER TABLE groups ADD COLUMN gst_taxability  INTEGER     NULL;
+        ALTER TABLE groups ADD COLUMN gst_rate_bp     INTEGER     NULL;
+        ALTER TABLE groups ADD COLUMN gst_supply_type INTEGER     NULL;
+
+        ALTER TABLE stock_groups ADD COLUMN gst_hsn_sac     TEXT        NULL;
+        ALTER TABLE stock_groups ADD COLUMN gst_taxability  INTEGER     NULL;
+        ALTER TABLE stock_groups ADD COLUMN gst_rate_bp     INTEGER     NULL;
+        ALTER TABLE stock_groups ADD COLUMN gst_supply_type INTEGER     NULL;
+
+        -- ⚠️ THE BACK-FILL. Every company that already exists keeps resolving item-first (StockItemFirst = 1), which
+        -- is what this application did before the hierarchy existed, so no shipped figure moves. This CANNOT be
+        -- expressed as the column DEFAULT — that must stay 0 to match CreateV1 — and it is unreachable from a fresh
+        -- database, which has no company rows when CreateV1 runs.
+        UPDATE companies SET gst_source_of_hsn_sac = 1, gst_source_of_rate = 1;
+        """;
+
+    /// <summary>The six <c>companies</c> columns v51 adds — the exact set <see cref="MigrateV50ToV51"/> creates and
+    /// <c>SchemaDowngrade.V51ToV50</c> removes. Named once so the two can never disagree.</summary>
+    public static readonly IReadOnlyList<string> V51GstHierarchyCompanyColumns =
+        new[]
+        {
+            "gst_source_of_hsn_sac", "gst_source_of_rate",
+            "gst_default_hsn_sac", "gst_default_taxability", "gst_default_rate_bp", "gst_default_supply_type",
+        };
+
+    /// <summary>The four <c>MasterGstDetails</c> columns v51 adds to <b>both</b> <c>groups</c> and
+    /// <c>stock_groups</c> — the exact set <see cref="MigrateV50ToV51"/> creates and <c>SchemaDowngrade.V51ToV50</c>
+    /// removes from each. One list, because the two masters carry the identical block by design.</summary>
+    public static readonly IReadOnlyList<string> V51GstHierarchyMasterColumns =
+        new[] { "gst_hsn_sac", "gst_taxability", "gst_rate_bp", "gst_supply_type" };
 }

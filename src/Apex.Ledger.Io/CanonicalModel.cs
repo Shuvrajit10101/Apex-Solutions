@@ -656,6 +656,9 @@ public sealed record GroupDto
     public Guid? ParentId { get; init; }
     public string? Alias { get; init; }
     public bool IsPredefined { get; init; }
+    // v51 (WF-1): the Group level of the five-level GST hierarchy. Null for a group carrying no GST details ⇒ a
+    // pre-v51 document is byte-identical (ER-13). Appended at the END so existing field order is unchanged.
+    public MasterGstDto? Gst { get; init; }
 }
 
 public sealed record LedgerDto
@@ -884,6 +887,22 @@ public sealed record StockGroupDto
     public Guid? ParentId { get; init; }
     public string? Alias { get; init; }
     public bool AddQuantities { get; init; }
+    // v51 (WF-1): the Stock Group level of the five-level GST hierarchy. Null for a stock group carrying no GST
+    // details ⇒ a pre-v51 document is byte-identical (ER-13). Appended at the END so existing field order is unchanged.
+    public MasterGstDto? Gst { get; init; }
+}
+
+/// <summary>
+/// The narrow GST block a Stock Group, an accounting Group or the company default carries (v51; WF-1). Four fields
+/// only — deliberately NOT <see cref="StockItemGstDto"/>, whose cess/RSP/RCM/§17(5) members are read item-first and
+/// have no meaning at these levels.
+/// </summary>
+public sealed record MasterGstDto
+{
+    public string? HsnSac { get; init; }
+    public required string Taxability { get; init; }  // GstTaxability name
+    public int? RateBasisPoints { get; init; }
+    public required string SupplyType { get; init; }  // GstSupplyType name
 }
 
 public sealed record StockCategoryDto
@@ -1375,6 +1394,16 @@ public sealed record GstConfigDto
     // Appended at the END so existing field order is unchanged (finding #5).
     public long ReconValueTolerancePaisa { get; init; }
     public int ReconDateWindowDays { get; init; }
+    // v51 (WF-1 / register IV-1): the five-level GST hierarchy — the COMPANY-level default block (the last level of
+    // both orders) and the reference application's TWO independent source-order options. Appended at the END so
+    // existing field order is unchanged.
+    // ⚠️ Both source-order initialisers are "LedgerFirst" DELIBERATELY, and that is NOT merely "the enum's zero".
+    // A pre-v51 document carries neither key, and the right reading of an absent key is the shipped order — the
+    // ITEM-FIRST back-fill belongs to the SQL migration, which knows it is looking at a book that already existed.
+    // An importer cannot know that (the document may have come from anywhere), so it must not guess StockItemFirst.
+    public MasterGstDto? DefaultGst { get; init; }
+    public string SourceOfHsnSacDetails { get; init; } = "LedgerFirst";   // GstDetailSource name
+    public string SourceOfGstRate { get; init; } = "LedgerFirst";         // GstDetailSource name
 }
 
 /// <summary>A dated notified reverse-charge category (Phase 9 slice 2; RQ-3/RQ-7). Dates are ISO yyyy-MM-dd.</summary>

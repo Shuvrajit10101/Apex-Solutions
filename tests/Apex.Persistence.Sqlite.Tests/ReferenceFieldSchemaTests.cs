@@ -76,6 +76,7 @@ public sealed class ReferenceFieldSchemaTests
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(legacy);
             using (var conn = Open(migratedPath))
             {
+                SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
                 SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);
@@ -123,6 +124,7 @@ public sealed class ReferenceFieldSchemaTests
             using (var conn = Open(dbPath))
             {
                 // Step down one version at a time from the current version to reach v47.
+                SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
                 SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);

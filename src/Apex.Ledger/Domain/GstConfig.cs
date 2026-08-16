@@ -189,6 +189,32 @@ public sealed class GstConfig
     public void AddRcmCategory(RcmCategory category) =>
         _rcmCategories.Add(category ?? throw new ArgumentNullException(nameof(category)));
 
+    // --- The five-level GST master hierarchy (Phase 10.10 WF-1; register IV-1). The company is the LAST level of
+    //     both orders, so its default block is the fallback that stops D8's "unresolved rate" hard block from firing
+    //     on a customer who set the rate where the reference application tells them to. Null/LedgerFirst ⇒ a company
+    //     that never touches the hierarchy is byte-identical (ER-13). PERSISTED-BUT-INERT in slice S1. ---
+
+    /// <summary>
+    /// The company-level GST details — level 1 of the corpus's list and the <b>last</b> level of both resolution
+    /// orders. <c>null</c> ⇒ the company declares no default, which is how every pre-v51 company reads.
+    /// </summary>
+    public MasterGstDetails? DefaultGst { get; set; }
+
+    /// <summary>
+    /// "Source of HSN/SAC Details" — which end of the five-level hierarchy an <b>HSN/SAC</b> lookup starts from.
+    /// Defaults to <see cref="GstDetailSource.LedgerFirst"/>, the reference application's shipped order; a book
+    /// migrated from v50 is back-filled to <see cref="GstDetailSource.StockItemFirst"/> instead, so it keeps
+    /// resolving exactly as it did (R12 decision 1).
+    /// </summary>
+    public GstDetailSource SourceOfHsnSacDetails { get; set; } = GstDetailSource.LedgerFirst;
+
+    /// <summary>
+    /// "Source of GST Rate" — which end of the five-level hierarchy a <b>rate</b> lookup starts from. A separate
+    /// option from <see cref="SourceOfHsnSacDetails"/> because the reference application ships them separately
+    /// (plan.md orchestrator ruling 2): a book may classify from the ledger and rate from the item.
+    /// </summary>
+    public GstDetailSource SourceOfGstRate { get; set; } = GstDetailSource.LedgerFirst;
+
     /// <summary>The home <see cref="IndianState"/>, or <c>null</c> if the home state code is unset/invalid.</summary>
     public IndianState? HomeState => IndianState.FromCode(HomeStateCode);
 
@@ -243,6 +269,11 @@ public sealed class GstConfig
             if (EWayThreshold.Amount < 0)
                 throw new ArgumentException("The e-Way Bill consignment threshold must be ≥ 0.");
         }
+        // WF-1 (v51): the company-level default block is the LAST level of both resolution orders, so a malformed
+        // one would surface as a bad rate on any line no other level answered. Validate it with the same three rules
+        // every other GST block obeys (fail-fast, ER-6) rather than letting it reach a resolver.
+        DefaultGst?.EnsureValid();
+
         foreach (var t in _eWayStateThresholds)
         {
             if (!IndianState.IsValidCode(t.StateCode))

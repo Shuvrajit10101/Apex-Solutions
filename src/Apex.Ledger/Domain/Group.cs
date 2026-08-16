@@ -26,6 +26,14 @@ public sealed class Group
     /// <summary>True for the 28 seeded groups — they cannot be deleted (§6).</summary>
     public bool IsPredefined { get; }
 
+    /// <summary>
+    /// The accounting group's GST details block — the "Group" level of the five-level GST hierarchy, sitting
+    /// directly above the Sales/Purchase ledger (plan.md Phase 10.10 WF-1; register IV-1). <c>null</c> ⇒ this group
+    /// declares no GST details and contributes nothing to a lookup, which is how every pre-v51 group reads.
+    /// <b>Persisted-but-inert in slice S1</b>: no resolver reads it yet, so no existing figure moves.
+    /// </summary>
+    public MasterGstDetails? Gst { get; set; }
+
     /// <summary>A primary group has no parent.</summary>
     public bool IsPrimary => ParentId is null;
 

@@ -32,6 +32,14 @@ public sealed class StockGroup
     /// </summary>
     public bool AddQuantities { get; set; }
 
+    /// <summary>
+    /// The stock group's "Set/Alter GST details" block — level 2 of the five-level GST hierarchy (plan.md
+    /// Phase 10.10 WF-1; register IV-1). <c>null</c> ⇒ this group declares no GST details and contributes nothing
+    /// to a lookup, which is how every pre-v51 stock group reads. <b>Persisted-but-inert in slice S1</b>: no
+    /// resolver reads it yet, so no existing figure moves.
+    /// </summary>
+    public MasterGstDetails? Gst { get; set; }
+
     /// <summary>A top-level stock group has no parent (it sits under the implicit "Primary" root).</summary>
     public bool IsPrimary => ParentId is null;
 

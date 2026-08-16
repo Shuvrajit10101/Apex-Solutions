@@ -1236,6 +1236,35 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 50;
         }
 
+        // v50 → v51: add the GST five-level hierarchy columns (the four-column MasterGstDetails block on groups and
+        // on stock_groups, the same block prefixed gst_default_ on companies, and the two source-order options), then
+        // bump the marker. Existing v50 data survives untouched (ALTER … ADD COLUMN only; no new tables) and the
+        // twelve master-GST columns read NULL = "no GST block", exactly what a v50 master was.
+        // ⚠️ MigrateV50ToV51 ALSO carries a back-fill UPDATE, and it is load-bearing: every existing company row is
+        // moved to gst_source_* = 1 (StockItemFirst), because item-first is how this application has always resolved
+        // GST. A fresh company gets the column DEFAULT 0 (LedgerFirst) instead — the two paths deliberately differ,
+        // and they can only differ because the back-fill is a statement rather than the default. Do not "tidy" the
+        // UPDATE away; a fresh database never reaches this code, so it cannot be caught by it.
+        if (version == 50)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV50ToV51;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 51);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 51;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1271,7 +1300,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
                    eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
                    recon_value_tolerance_paisa, recon_date_window_days,
-                   warn_on_negative_stock
+                   warn_on_negative_stock,
+                   gst_source_of_hsn_sac, gst_source_of_rate,
+                   gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1355,6 +1386,22 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     // byte-identical when off, ER-13; a matching parameter only, ER-14; finding #5).
                     ReconValueTolerance = Paisa.ToMoney(r.GetInt64(80)),
                     ReconDateWindowDays = (int)r.GetInt64(81),
+                    // v51 (WF-1): the two source-order options. Both columns are NOT NULL, so they are read verbatim
+                    // — a fresh company stored 0 (LedgerFirst) and a migrated book stored 1 (StockItemFirst) from the
+                    // back-fill. Do NOT substitute an enum default for a missing value here: the two paths hold
+                    // deliberately DIFFERENT values, so falling back to default(GstDetailSource) would silently move
+                    // every migrated book onto the shipped order and change the rate on its next invoice.
+                    SourceOfHsnSacDetails = (GstDetailSource)(int)r.GetInt64(83),
+                    SourceOfGstRate = (GstDetailSource)(int)r.GetInt64(84),
+                    // v51 (WF-1): the company-level default GST block — the last level of both orders. NULL
+                    // taxability = no block (ER-13: a company that never set one reads exactly as it did on v50).
+                    DefaultGst = r.IsDBNull(86) ? null : new MasterGstDetails
+                    {
+                        HsnSac = r.IsDBNull(85) ? null : r.GetString(85),
+                        Taxability = (GstTaxability)(int)r.GetInt64(86),
+                        RateBasisPoints = r.IsDBNull(87) ? (int?)null : (int)r.GetInt64(87),
+                        SupplyType = r.IsDBNull(88) ? GstSupplyType.Goods : (GstSupplyType)(int)r.GetInt64(88),
+                    },
                 };
                 foreach (var t in ReadEWayStateThresholds(companyId))
                     company.Gst.AddEWayStateThreshold(t);
@@ -1927,11 +1974,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = includePlHead
             ? """
-              SELECT id, name, nature, parent_id, alias, is_predefined
+              SELECT id, name, nature, parent_id, alias, is_predefined,
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
               FROM groups WHERE company_id = $cid ORDER BY rowid;
               """
             : """
-              SELECT id, name, nature, parent_id, alias, is_predefined
+              SELECT id, name, nature, parent_id, alias, is_predefined,
+                     gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
               FROM groups WHERE company_id = $cid AND is_pl_head = 0 ORDER BY rowid;
               """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -1946,7 +1995,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 (GroupNature)(int)r.GetInt64(2),
                 parentId: parent,
                 alias: r.IsDBNull(4) ? null : r.GetString(4),
-                isPredefined: r.GetInt64(5) != 0));
+                isPredefined: r.GetInt64(5) != 0)
+            {
+                // v51 (WF-1): the Group level of the GST hierarchy. Columns 6–9; NULL taxability = no block, so every
+                // pre-v51 group reads back exactly as it did (ER-13).
+                Gst = ReadMasterGst(r, firstOrdinal: 6),
+            });
         }
         return list;
     }
@@ -3300,7 +3354,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, parent_id, alias, add_quantities
+            SELECT id, name, parent_id, alias, add_quantities,
+                   gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type
             FROM stock_groups WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3313,7 +3368,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.GetString(1),
                 parentId: r.IsDBNull(2) ? (Guid?)null : Guid.Parse(r.GetString(2)),
                 alias: r.IsDBNull(3) ? null : r.GetString(3),
-                addQuantities: r.GetInt64(4) != 0));
+                addQuantities: r.GetInt64(4) != 0)
+            {
+                // v51 (WF-1): the Stock Group level of the GST hierarchy. Columns 5–8; NULL taxability = no block, so
+                // every pre-v51 stock group reads back exactly as it did (ER-13).
+                Gst = ReadMasterGst(r, firstOrdinal: 5),
+            });
         }
         return list;
     }
@@ -3592,6 +3652,41 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 slabs: slabsByList.TryGetValue(id, out var slabs) ? slabs : new List<PriceListSlab>()));
         }
         return lists;
+    }
+
+    /// <summary>
+    /// Binds the four <c>$gsthsn</c>/<c>$gsttax</c>/<c>$gstrate</c>/<c>$gstsupply</c> parameters a <c>groups</c> or
+    /// <c>stock_groups</c> INSERT carries for its v51 <see cref="MasterGstDetails"/> block. A <c>null</c> block binds
+    /// all four NULL — the "no GST block" marker — so a master that never used the hierarchy stores exactly the row a
+    /// v50 database held (ER-13). The inverse of <see cref="ReadMasterGst"/>.
+    /// </summary>
+    private static void BindMasterGst(SqliteCommand cmd, MasterGstDetails? gst)
+    {
+        cmd.Parameters.AddWithValue("$gsthsn", (object?)gst?.HsnSac ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$gsttax", gst is null ? DBNull.Value : (int)gst.Taxability);
+        cmd.Parameters.AddWithValue("$gstrate", gst?.RateBasisPoints is { } bp ? bp : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstsupply", gst is null ? DBNull.Value : (int)gst.SupplyType);
+    }
+
+    /// <summary>
+    /// Reads the narrow v51 <see cref="MasterGstDetails"/> block a <c>groups</c> or <c>stock_groups</c> row carries,
+    /// or <c>null</c> when its <c>gst_taxability</c> is NULL — the same "no GST block" marker
+    /// <see cref="ReadStockItemGst"/> uses. <paramref name="firstOrdinal"/> is the position of <c>gst_hsn_sac</c>;
+    /// the four columns are always selected consecutively in that order (hsn, taxability, rate_bp, supply_type), so
+    /// one helper serves both master tables.
+    /// </summary>
+    private static MasterGstDetails? ReadMasterGst(SqliteDataReader r, int firstOrdinal)
+    {
+        if (r.IsDBNull(firstOrdinal + 1)) return null; // gst_taxability NULL = no GST block
+        return new MasterGstDetails
+        {
+            HsnSac = r.IsDBNull(firstOrdinal) ? null : r.GetString(firstOrdinal),
+            Taxability = (GstTaxability)(int)r.GetInt64(firstOrdinal + 1),
+            RateBasisPoints = r.IsDBNull(firstOrdinal + 2) ? (int?)null : (int)r.GetInt64(firstOrdinal + 2),
+            SupplyType = r.IsDBNull(firstOrdinal + 3)
+                ? GstSupplyType.Goods
+                : (GstSupplyType)(int)r.GetInt64(firstOrdinal + 3),
+        };
     }
 
     /// <summary>Reads the item GST block (columns 12–15), or <c>null</c> when gst_taxability is NULL.</summary>
@@ -4517,7 +4612,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  gst_connector_mode, b2c_dynamic_qr_enabled, b2c_qr_aato_threshold_paisa, b2c_qr_upi_id, b2c_qr_payee_name,
                  eway_bill_enabled, eway_applicable_from, eway_threshold_paisa, eway_consignment_basis, eway_intrastate_applicable,
                  recon_value_tolerance_paisa, recon_date_window_days,
-                 warn_on_negative_stock)
+                 warn_on_negative_stock,
+                 gst_source_of_hsn_sac, gst_source_of_rate,
+                 gst_default_hsn_sac, gst_default_taxability, gst_default_rate_bp, gst_default_supply_type)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -4537,7 +4634,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $connmode, $b2cqren, $b2caato, $b2cupi, $b2cpayee,
                  $ewayen, $ewayfrom, $ewaythresh, $ewaybasis, $ewayintra,
                  $reconval, $recondays,
-                 $warnnegstock);
+                 $warnnegstock,
+                 $gstsrchsn, $gstsrcrate,
+                 $gstdefhsn, $gstdeftax, $gstdefrate, $gstdefsupply);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -4661,6 +4760,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // company nobody has configured writes 1 here — matching the column's own DEFAULT 1 and the value a
         // migrated pre-v50 book gets. There is no "unset" state to encode.
         cmd.Parameters.AddWithValue("$warnnegstock", c.WarnOnNegativeStock ? 1 : 0);
+        // v51 (WF-1): the two source-order options + the company-level default GST block, written verbatim. A company
+        // with no Gst config writes LedgerFirst (0) — the same value the column DEFAULT carries and the same value a
+        // freshly created company holds, so a non-GST company is byte-identical (ER-13). The default block writes all
+        // four NULL when absent, which is the "no GST block" marker every other GST block already uses.
+        cmd.Parameters.AddWithValue("$gstsrchsn", (int)(gst?.SourceOfHsnSacDetails ?? GstDetailSource.LedgerFirst));
+        cmd.Parameters.AddWithValue("$gstsrcrate", (int)(gst?.SourceOfGstRate ?? GstDetailSource.LedgerFirst));
+        var defaultGst = gst?.DefaultGst;
+        cmd.Parameters.AddWithValue("$gstdefhsn", (object?)defaultGst?.HsnSac ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstdeftax", defaultGst is null ? DBNull.Value : (int)defaultGst.Taxability);
+        cmd.Parameters.AddWithValue("$gstdefrate",
+            defaultGst?.RateBasisPoints is { } dbp ? dbp : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("$gstdefsupply", defaultGst is null ? DBNull.Value : (int)defaultGst.SupplyType);
         cmd.ExecuteNonQuery();
 
         // v42 (Phase 9 slice 5): per-state e-Way threshold overrides — FK companies (just inserted). Empty for a company
@@ -4907,8 +5018,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO groups (id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head)
-            VALUES ($id, $cid, $name, $nature, $parent, $alias, $pre, $plhead);
+            INSERT INTO groups (id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head,
+                                gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+            VALUES ($id, $cid, $name, $nature, $parent, $alias, $pre, $plhead,
+                    $gsthsn, $gsttax, $gstrate, $gstsupply);
             """;
         cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4918,6 +5031,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$pre", g.IsPredefined ? 1 : 0);
         cmd.Parameters.AddWithValue("$plhead", isPlHead ? 1 : 0);
+        // v51 (WF-1): the Group level of the GST hierarchy — all four NULL when the group carries no block, which is
+        // every group on a book that has not used the hierarchy (ER-13).
+        BindMasterGst(cmd, g.Gst);
         cmd.ExecuteNonQuery();
     }
 
@@ -6052,8 +6168,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO stock_groups (id, company_id, name, parent_id, alias, add_quantities)
-                VALUES ($id, $cid, $name, $parent, $alias, $addq);
+                INSERT INTO stock_groups (id, company_id, name, parent_id, alias, add_quantities,
+                                          gst_hsn_sac, gst_taxability, gst_rate_bp, gst_supply_type)
+                VALUES ($id, $cid, $name, $parent, $alias, $addq,
+                        $gsthsn, $gsttax, $gstrate, $gstsupply);
                 """;
             cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -6061,6 +6179,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$parent", (object?)g.ParentId?.ToString("D") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$alias", (object?)g.Alias ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$addq", g.AddQuantities ? 1 : 0);
+            // v51 (WF-1): the Stock Group level of the GST hierarchy — all four NULL when the group carries no block.
+            BindMasterGst(cmd, g.Gst);
             cmd.ExecuteNonQuery();
         }
     }

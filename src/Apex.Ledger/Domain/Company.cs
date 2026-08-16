@@ -65,9 +65,40 @@ public sealed class Company
     public string MailingName { get; set; }
 
     public string? Address { get; set; }
+
+    /// <summary>
+    /// The company's postal country. <b>Note the default:</b> unlike <see cref="PartyMailingDetails.Country"/>,
+    /// which is nullable and unset until typed, this is <b>non-null and defaults to "India"</b> on every company
+    /// ever constructed. It is therefore <b>not evidence that anything was captured</b>, which is why the printed
+    /// supplier block keys off <see cref="Address"/> rather than off this field — see
+    /// <c>VoucherPrintProjector.SupplierPostalAddressText</c>.
+    /// </summary>
     public string Country { get; set; } = "India";
+
+    /// <summary>
+    /// The company's <b>postal</b> State. <b>No print path reads this</b> — the printed supplier State is the GST
+    /// home State (<c>VoucherPrintProjector.SellerBlock</c>). It is <b>not</b> a dead column: the canonical
+    /// XML export/import round-trip carries it (<c>CanonicalMapper</c> → <c>CanonicalXml</c> → <c>ImportPlan</c>),
+    /// so books imported from canonical XML hold real values here. Its relationship to
+    /// <see cref="GstConfig.HomeStateCode"/> is an open R12 user gate — see <c>plan.md</c> W0-2b.
+    /// </summary>
     public string? State { get; set; }
+
+    /// <summary>The company's postal PIN code; validated by <see cref="EnsureValid"/> against
+    /// <see cref="IndianPinCode"/>, the same rule the party mailing block uses.</summary>
     public string? Pin { get; set; }
+
+    /// <summary>
+    /// Validates the company's postal block: a non-blank <see cref="Pin"/> must be a six-digit Indian PIN.
+    /// Throws <see cref="ArgumentException"/> on a bad value (fail-fast, ER-6). Everything else is free text.
+    /// <para>The message names the <b>company</b> explicitly so it cannot be confused with the party-side
+    /// message from <see cref="PartyMailingDetails.EnsureValid"/>, which is worded differently on purpose.</para>
+    /// </summary>
+    public void EnsureValid()
+    {
+        if (!IndianPinCode.IsValidOrBlank(Pin))
+            throw new ArgumentException($"Company PIN code '{Pin}' is not a valid 6-digit Indian PIN code.");
+    }
 
     /// <summary>Default 1-Apr of the working year.</summary>
     public DateOnly FinancialYearStart { get; set; }

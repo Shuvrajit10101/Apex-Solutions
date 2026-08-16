@@ -872,6 +872,7 @@ public sealed class CompanyBackupTests : IDisposable
         using (var conn = new SqliteConnection($"Data Source={dbPath}"))
         {
             conn.Open();
+            SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
             SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
             SchemaDowngrade.V49ToV48(conn);
         }

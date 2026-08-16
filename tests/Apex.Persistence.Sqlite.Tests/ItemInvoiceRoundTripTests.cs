@@ -406,6 +406,30 @@ public sealed class ItemInvoiceRoundTripTests
             """);
         DowngradeStripV16(conn);
         DowngradeStripV13(conn);
+        // Rebuild groups and stock_groups WITHOUT the four v51 GST-hierarchy columns each gained
+        // (gst_hsn_sac / gst_taxability / gst_rate_bp / gst_supply_type), so this is a faithful pre-v51 shape and
+        // the reopen's v50→v51 ALTER TABLE ADD COLUMN does not collide. Explicit DDL rather than a
+        // CREATE … AS SELECT: ledgers.group_id references groups(id) and stock_items.stock_group_id references
+        // stock_groups(id), so both PRIMARY KEYs have to survive or the re-save fails on an FK mismatch.
+        Exec(conn, """
+            CREATE TABLE groups_v11 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                nature INTEGER NOT NULL, parent_id TEXT NULL, alias TEXT NULL,
+                is_predefined INTEGER NOT NULL, is_pl_head INTEGER NOT NULL DEFAULT 0);
+            INSERT INTO groups_v11 SELECT id, company_id, name, nature, parent_id, alias, is_predefined, is_pl_head
+                FROM groups;
+            DROP TABLE groups;
+            ALTER TABLE groups_v11 RENAME TO groups;
+            """);
+        Exec(conn, """
+            CREATE TABLE stock_groups_v11 (
+                id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL,
+                parent_id TEXT NULL, alias TEXT NULL, add_quantities INTEGER NOT NULL DEFAULT 1);
+            INSERT INTO stock_groups_v11 SELECT id, company_id, name, parent_id, alias, add_quantities
+                FROM stock_groups;
+            DROP TABLE stock_groups;
+            ALTER TABLE stock_groups_v11 RENAME TO stock_groups;
+            """);
         Exec(conn, "UPDATE schema_version SET version = 11;");
         SqliteConnection.ClearPool(conn);
     }

@@ -1333,6 +1333,38 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      **append** `NettAvailable` to the positional row rather than inserting it at Tally's column position.
   4. **S3 — Interest divisor table** (WF-6) — **S / low** — **DO NOT MERGE THE CONSTANTS UNTIL T8 LANDS.**
   5. **S4 — GST five-level hierarchy** (WF-1) — **XL / HIGH / owns v51** — the worst row in the register.
+     **▶ ⚠️ PARTIALLY BUILT (working tree, uncommitted, 2026-08-15): the MASTERS AND THE PLUMBING LANDED; the
+     RESOLVER DID NOT. IV-1 IS NOT FIXED AND T0-4 STAYS OPEN.** Read this before touching the row.
+     **🔴 R6 DEVIATION, RECORDED WITH ITS CAUSE — this slice ran with NO design of record.** The workflow that
+     produced it was scoped "W0-2 (Company Create/Alter)". **Its design agent died (connection lost) and returned
+     nothing**, and the empty result was interpolated into the build prompts, so slice S1 received an **empty
+     design block**. S1 did the right thing with it — it **refused to invent a design**, said so explicitly, and
+     **reconstructed the scope from `plan.md`, `docs/invented-vs-cloned.md` IV-1 and the corpus**, then built
+     **this row (WF-1)** rather than the W0-2 row it had been handed. So the work is **in `plan.md` and planned**
+     (unlike W0-11, which had no row at all) — what is missing is the **design gate**: no design was written,
+     reviewed or recorded, and the A10 three-lens review this phase requires per slice reviewed **W0-2a**, not
+     this. *Why it is recorded rather than reverted:* what landed is additive, schema-equivalent, defaults to "no
+     GST block" on every existing master, and changes **no** shipped figure — see the inertness note below, which
+     is the same fact stated from the other side. **It must not be committed as though it had passed a design
+     gate.** Its own review is still owed.
+     **▶ WHAT ACTUALLY LANDED — the foundation, and only the foundation.** Domain: a new narrow
+     `MasterGstDetails` (deliberately **not** `StockItemGstDetails`, per the row above) plus `GstDetailSource`,
+     hung on `Group`, `StockGroup` and `GstConfig` (`DefaultGst` + the **two** independent source-order fields).
+     Schema **v51** as allocated below — fourteen nullable/defaulted columns across `companies`, `groups` and
+     `stock_groups`, with the `StockItemFirst` back-fill as an explicit `UPDATE` rather than a column default (so
+     `CreateV1` and the migration stay byte-identical for the equivalence test), a true-inverse
+     `SchemaDowngrade.V51ToV50`, and the `SqliteCompanyStore` read/write halves. Io parity: `MasterGstDto`,
+     mapper, `CanonicalXml` read+write, and `ImportPlan` pre-flight `EnsureValid` on both master levels.
+     **▶ 🔴 WHAT DID **NOT** LAND, AND IS THE ENTIRE POINT OF THE ROW.** **The resolution order is persisted but
+     INERT.** `GstConfig.SourceOfHsnSacDetails` / `SourceOfGstRate` have **no reader outside the persistence and
+     Io layers** — verified by grep across `src/`. `GstService.cs`, `RcmService.cs` and `Reports/Gstr1.cs` are
+     **untouched in this tree**, so **none of the four item-first lookups** the orchestrator ruling names was
+     changed, the `Gstr1` 0%-bucket and "(none)" HSN fixes were not made, and the invented
+     "most-granular-wins (DP-6)" class doc was **not** deleted (`docs/invented-vs-cloned.md` is unmodified). The
+     deferred UI tail (master GST fields, the F11 source-order switch) is untouched as planned. **Consequence:
+     every rate still resolves item-first exactly as before, which is why nothing regressed — and why the
+     wrong-rate defect this row exists to fix is still shipping.** The remaining work is the resolver plus its
+     four call sites; the masters it needs now exist.
   6. **S5 — §194Q excess carve + TDS/TCS reconciliation** (WF-2) — **M / med / owns v52**.
   7. **S6 — Costing/market split + `LastSaleCost` migration** (WF-3) — **L / med / owns v53** — last: the only
      migration that **rewrites customer data**, and it wants the two preceding parity gates green first.
@@ -1598,10 +1630,64 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     screen **already computes the answer** (`IsBillOfSupply` and the s10 / Rule-5(f) declaration render in the
     UI); neither reaches the PDF and the title is hard-coded. Until this lands, **a composition dealer's every
     printed document is an illegal tax invoice** — we issue legally wrong documents today.
-  - **W0-2 (S2 / T1-6, T0-8) Company Create/Alter screen** — **days.** Expose the **11 profile fields that
-    already exist** on the domain, in the schema and in the printer. Fixes the **blank seller address block on
-    every future invoice** (CGST Rule 46) — unfixable from inside the UI today because the field cannot be
-    typed anywhere — and **unblocks prior-FY books** (creation captures one field: Name).
+  - **W0-2a (T0-8, PRINT half) supplier postal block — ✅ DONE 2026-08-15 (uncommitted; A12 to land it).**
+    **Gate-independent by construction: it never reads `Company.State` under any shape**, which is why it was
+    allowed to run ahead of the W0-2b user gate below. **What actually shipped, and nothing more:**
+    `VoucherPrintProjector.SellerBlock` (`:721-727`) now builds the supplier address through the **same**
+    `PostalAddressText` (`:822-829`) the WI-4 recipient block uses, so a company with a captured address prints
+    Address → Country → `"PIN: "` instead of Address alone; `Company.Pin` had **no reader in the print path at
+    all** before this. Plus the floor that made printing it safe: `Company.EnsureValid()` (`Company.cs:97`)
+    applies the shared six-digit `IndianPinCode` rule the recipient PIN has had since v45, enforced at the
+    canonical-import boundary (`ImportPlan.cs:1203`).
+    **⚠️ HONEST LIMIT ON THAT FLOOR — `Company.EnsureValid()` has exactly ONE call site in `src/`, and it is the
+    canonical import.** Nothing calls it on save: `SqliteCompanyStore` persists whatever the domain object holds.
+    That is harmless *today* only because canonical import is the sole way a `Company.Pin` can ever be set — no UI
+    writes the field. **The day W0-2b's screen ships, that stops being true**, so W0-2b must call
+    `Company.EnsureValid()` on its save path (or the store must), and it must ship the test that proves a bad PIN
+    typed into the screen is refused. Recorded here rather than left to be discovered.
+    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:742-745`).** Country/PIN
+    are appended **only when a postal `Address` was captured**. Without it every book on disk regresses:
+    `companies.country` is `TEXT NOT NULL`, `Company.Country` defaults to `"India"`, and **nothing in
+    `src/Apex.Desktop` ever assigns it** — so every historical invoice and every reprint would gain a supplier
+    block containing exactly one line, `"India"`, replacing a visibly blank block with one that *looks*
+    populated while still carrying no Rule 46(a) address. ER-13. Pinned by 3 tests; proved by deleting the guard.
+    **▶ PINNING, RE-PROVED BY MUTATION 2026-08-15 (all three were measured DEAD by the review before the fixes;
+    each is now measured ALIVE).** Run against `VoucherInvoicePrintViewModelTests` (19 tests), file restored
+    byte-identical after each: **(1)** make the postal `Company.State` win over the GST home State →
+    **1 red**, `A_company_whose_postal_State_disagrees_with_its_GST_State_prints_the_GST_one`. *Before the fix
+    this same mutation left the entire Desktop suite green — the State ruling shipped completely unpinned.*
+    **(2)** delete the `SupplierPostalAddressText` guard → **3 red**:
+    `A_company_with_no_address_still_prints_exactly_as_before`,
+    `A_freshly_created_company_prints_no_supplier_address_lines_at_all`,
+    `The_Rule_46a_name_and_GSTIN_pair_is_delivered_but_the_address_half_is_not`. *Before the fix the one test
+    naming ER-13 was doctored with `c.Country = "  "`, a value the product cannot produce, and asserted the
+    opposite of the shipped behaviour.* **(3)** remove the country blank-guard (`country!.Trim()`) → **1 red**,
+    `A_party_with_an_address_and_PIN_but_no_country_prints_both_and_does_not_crash` (NRE). *Before the fix no
+    fixture in the repository walked a null Country, so the guard was unprovable.*
+    **▶ NOT delivered here, deliberately:** no screen, no Alter verb, no Alt+K route, no Alt+D delete, no
+    F11-after-save, no keyboard contract, **no schema change**. Country and PIN are **TallyPrime-fidelity and
+    CA-audit parity fields, NOT compliance fields** (grounding §5.5) — Rule 46(a) is *name, address and GSTIN*,
+    its GSTIN half is already typeable, and **its address half remains BREACHED on every real book** until
+    W0-2b ships. Do not read W0-2a as closing T0-8.
+    **▶ Follow-up carried to W0-2b (recorded, not silently inherited):** the printed component **order** departs
+    from the corpus — we print Address → Country → PIN → State; the Book (PDF p.13) and Study Guide (PDF p.268)
+    both order Address → **State** → Country → **Pin Code**, and label it "Pin Code"/"Pincode" where we print
+    `"PIN: "`. Matching would move the State into the address builder and so change the shipped **WI-4
+    recipient** block too. Logged as UNVERIFIED-and-chosen in grounding §9 item 11.
+  - **W0-2b (S2 / T1-6, T0-8 write half) Company Create/Alter screen** — **days. ✅ UNBLOCKED 2026-08-15 — the
+    R12 gate below is RESOLVED (the user ruled INHERIT; see RULING 3). ⚠️ UNBLOCKED IS NOT STARTED: not one line
+    of this row exists in any tree.** Expose the **11 profile fields that already exist** on the domain, in the
+    schema and in the printer. Fixes the **blank seller address block on every future invoice** (CGST Rule 46) — unfixable from
+    inside the UI today because the field cannot be typed anywhere — and **unblocks prior-FY books** (creation
+    captures one field: Name).
+    **▶ SCHEMA — DO NOT HARD-CODE v51, AND DO NOT ASSUME v52 EITHER.** The grounding doc's "`CurrentVersion` is
+    50, so the next is v51" was arithmetic, not a reservation. **v51 is already taken** — by Phase 10.10's WF-1
+    (the GST five-level hierarchy), which is uncommitted in this same worktree and also adds **six `companies`
+    columns**. And **v52 and v53 are RESERVED too**, by Phase 10.10's own **binding allocation** (search this
+    file for *"binding allocation, replacing three colliding"*): **WF-1 = v51, WF-2 = v52, WF-3 = v53.** So the
+    first free number for W0-2b is **v54** unless that allocation is formally amended first. Re-read
+    `Schema.CurrentVersion` **and** that allocation at implementation time, and write the migration against the
+    **post-v51 `companies` table**, not the `fa651ae` one. Grounding §7.6 / §7.7.
     **▶ R7 GROUNDING — `docs/w0-2-company-screen-grounding.md`** (written 2026-08-14 at `fa651ae`; this row had
     NO pointer to it until then, which left the gate below governing nothing). It is the A14 corpus pass written
     down: TallyPrime's Company Creation fields in screen order, Alter-vs-Creation, the F11 GST Details screen
@@ -1609,28 +1695,92 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `fa651ae`, a **§9 UNVERIFIED list** that exists to stop a future session inventing, and a corpus-hygiene
     ruling **REJECTING `tally/659947760-Tally-Prime-Short-Key.pdf`** as a shortcut source. **Read it before
     designing this screen; do not re-derive the corpus from memory.**
-    **🔴 USER GATE (R12) — `Company.State`. W0-2 MUST NOT START UNTIL THE USER RULES ON THIS.** The **party**
-    side of the schema carries a standing prohibition — `src/Apex.Persistence.Sqlite/Schema.cs:808-811`,
-    verbatim: *"there is deliberately NO `mailing_state` column … Do not add `mailing_state`"* — because a
-    second stored State could contradict the GST one and **silently produce the wrong tax head**. The **company**
-    side **already has exactly that duplication**: postal `companies.state` (`Schema.cs:172`) alongside GST
-    `companies.gst_home_state` (`Schema.cs:188`), **with the printer reading ONLY the GST one** —
-    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:687` is `StateText = StateText(company.Gst?.HomeStateCode)`,
-    so a postal State typed into `Company.State` (`src/Apex.Ledger/Domain/Company.cs:69`) goes nowhere. **And the
+    **✅ USER GATE (R12) — `Company.State` — RESOLVED 2026-08-15. See RULING 3 at the END of this block: the
+    shape is INHERIT.** *(This gate read "W0-2b MUST NOT START UNTIL THE USER RULES ON THIS" until the ruling
+    landed, and that sentence is retired — it must not be read as live by a later session. Everything below is
+    kept, in full and in order, because the evidence and the two corrections are what the ruling was made
+    against. W0-2a, the print half above, was always exempt: it never reads `Company.State`.)* The **party** side of the schema carries a standing prohibition —
+    in `src/Apex.Persistence.Sqlite/Schema.cs`, *search for* `Do not add mailing_state` (cited by TEXT, not by
+    line: a concurrent uncommitted slice shifts that file by 118 lines, so whichever slice lands second would
+    ship a dead line-citation) — verbatim: *"there is deliberately NO `mailing_state` column … Do not add
+    `mailing_state`"*, because a second stored State could contradict the GST one and **silently produce the
+    wrong tax head**. The **company** side **already has exactly that duplication**: postal `companies.state`
+    alongside GST `companies.gst_home_state` (both in the `companies` DDL), **with the printer reading ONLY the
+    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:726` is
+    `StateText = StateText(company.Gst?.HomeStateCode)`.
+    **🔴 CORRECTION 2026-08-15 — this gate previously told you the column was DEAD. It is not.** The sentence
+    *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
+    below was being made against. `Company.State` (`src/Apex.Ledger/Domain/Company.cs:85`) **and `Company.Pin`
+    are read and written by the canonical XML/JSON export–import round-trip** — `CanonicalMapper.cs:66-67`,
+    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1024-1025` (read), `ImportPlan.cs:1198-1199` (assign) — and
+    `CanonicalRoundTripTests.cs:259` has asserted it all along. The accurate claim is narrow and entirely about
+    printing: **no PRINT path reads `Company.State`.** Every book imported from canonical XML carries real
+    values in that column.
+    **▶ WHAT THAT CHANGES: "suppress the postal one" is NOT a free column drop.** Dropping or merging
+    `companies.state`/`pin` would (a) **silently discard values already persisted** in canonical-imported books,
+    and (b) **break export→import identity**, i.e. the round-trip contract. **Neither loss is caught by our
+    standing migration check** — `SchemaMigrationEquivalenceTests` inserts exactly one row
+    (`schema_version`), **no data rows**, and compares only column shape and index DDL on an **empty**
+    database, so a lossy merge passes green. **Any consolidating shape must therefore say where the existing
+    `companies.state` data GOES and ship a data-preservation test over a POPULATED pre-migration book**
+    (odd-value fixtures, asserted byte-for-byte). The purely additive shape needs no such test. **And the
     corpus points AWAY from duplication:** TallyPrime's GST Details State *"by default shows the State name as
     selected in the Company Creation screen"* (`664311548-Tally-Prime-Book.pdf` PDF p.177) — it **INHERITS**.
     Three shapes are on the table: **expose both** (ships the divergence the party side was explicitly designed
     to prevent, and worse than the party case because the divergent column already exists and already persists),
-    **suppress the postal one** (breaks the field map and Tally's own screen), or **wire one to the other as
-    Tally does** (matches the corpus, but changes what `gst_home_state` means and touches the GST screen, which
-    is outside W0-2 as written). **Grounding doc §8 lays out the evidence and deliberately chooses none of them.**
-    **▶ 2026-08-15 — RULING 2 (§5 banner) HALF-UNBLOCKS THIS GATE, AND ONLY HALF. THE GATE STANDS.** Schema
-    authority is now **granted**, so *"we cannot resolve `Company.State` because we may not move the schema"* is
-    no longer a reason for anything — the user named this dead-end as one of the two the ruling opens. **But the
-    ruling grants the MEANS, not the SHAPE:** it does not pick among *expose both* / *suppress the postal one* /
-    *wire one to the other as TallyPrime does*, and `Schema.cs:808-811`'s *"Do not add `mailing_state`"* still
+    **suppress the postal one** (breaks the field map and Tally's own screen — **and, per the correction above,
+    destroys persisted canonical-import data unless a data-preserving migration ships with it**), or **wire one
+    to the other as Tally does** (matches the corpus, but changes what `gst_home_state` means and touches the GST
+    screen, which is outside W0-2b as written). **Grounding doc §8 lays out the evidence and deliberately chooses
+    none of them.**
+    **▶ 2026-08-15 — RULING 2 (§5 banner) HALF-UNBLOCKED THIS GATE. *(Historical — superseded by RULING 3
+    below, which closes it outright. Kept because it is the step that made RULING 3 possible.)*** Schema
+    authority was **granted**, so *"we cannot resolve `Company.State` because we may not move the schema"* stopped
+    being a reason for anything — the user named this dead-end as one of the two the ruling opens. **But that
+    ruling granted the MEANS, not the SHAPE:** it did not pick among *expose both* / *suppress the postal one* /
+    *wire one to the other as TallyPrime does*, and `Schema.cs`'s *"Do not add `mailing_state`"* still
     stands as a **design** prohibition with a wrong-tax-head reason, which no schema authority repeals.
-    **W0-2 still MUST NOT START until the user picks a shape.**
+    **▶ 2026-08-15 — WHAT THE W0-2a REVIEW RESOLVED.** The gate no longer blocks the print half (W0-2a is exempt
+    by construction, and its
+    `A_company_whose_postal_State_disagrees_with_its_GST_State_prints_the_GST_one` test **pins** that the
+    printed supplier State is the GST one even when the postal one disagrees — a divergence a canonical import
+    can already produce today, and one that previously had **zero** test coverage). *Also resolved:* the two
+    factual errors above, so the user was no longer choosing against a column described as dead.
+
+    **▶ ✅✅ 2026-08-15 — RULING 3 (R12, the USER). THE SHAPE IS CHOSEN: *INHERIT*. THIS GATE IS RESOLVED AND
+    CLOSED. W0-2b MAY START.** The user's ruling, in full:
+    - **The postal `Company.State` is the SOURCE OF TRUTH.** It is the State the user types on the Company
+      Create/Alter screen, and it becomes meaningful for the first time — today it is written by nothing in
+      `src/Apex.Desktop` and read by no print path.
+    - **The GST home State DEFAULTS FROM IT at creation** (`GstConfig.HomeStateCode`,
+      `src/Apex.Ledger/Domain/GstConfig.cs:33`) **and stays EDITABLE** for the rare genuine divergence — a
+      registration in a State other than the postal one.
+    - **A consistency guard WARNS when the two differ.** A warning, not a refusal: divergence is legal, silence
+      about it is not.
+    - **BOTH COLUMNS ARE KEPT. NO DESTRUCTIVE MIGRATION.** `companies.state` is not dropped and not merged.
+    **▶ WHY (corpus-grounded, R7).** This is the third option — *wire one to the other as TallyPrime does* — and
+    it is the one the corpus attests: TallyPrime's GST Details State *"by default shows the State name as
+    selected in the Company Creation screen"* (`664311548-Tally-Prime-Book.pdf` PDF p.177). It honours the intent
+    of the party-side `mailing_state` prohibition — **one authoritative State**, so a second stored value can
+    never silently produce the wrong tax head — without deleting a column that canonical-imported books already
+    populate.
+    **▶ WHAT THIS RULING RETIRES.** *"Expose both"* and *"suppress the postal one"* are **off the table**. With
+    nothing dropped or merged, the **data-preservation obligation stated two paragraphs above does NOT bind
+    W0-2b** — that obligation was conditional on a *consolidating* shape, and the chosen shape is additive
+    (a defaulting rule + a warning), so the standing `SchemaMigrationEquivalenceTests` plus the v45 nullable-column
+    precedent are the right cover. **The `Do not add mailing_state` prohibition is untouched and still binds the
+    PARTY side** — this ruling is about the company row only.
+    **▶ 🔴 WHAT IS ACTUALLY BUILT OF THIS RULING TODAY: NOTHING. Do not read "resolved" as "done".** Verified in
+    this tree: `MainWindowViewModel.CreateCompany()` (`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:827`)
+    still captures **only the name** and hands it to `CompanyFactory.CreateSeeded`, which sets no State and no
+    GST; `Company.State` (`src/Apex.Ledger/Domain/Company.cs:85`) still has **no assignment site anywhere in
+    `src/Apex.Desktop`**; `GstConfig.HomeStateCode` is still written **only** by the F11 GST screen
+    (`src/Apex.Desktop/ViewModels/GstConfigViewModel.cs:1606`); and **no consistency guard exists** — grep for one
+    and there is nothing to find. The inheritance rule, the guard and the screen are **all** W0-2b deliverables
+    and **all** unwritten. W0-2a shipped the print half only and is compatible with this ruling **by
+    construction**, because it reads the GST home State and never `Company.State` — under INHERIT that is still
+    exactly right, since the GST State remains the authoritative GST value and merely acquires its initial value
+    from the postal one.
   - **W0-3 (T1-7) Restore reachable from Company Select** — **~½ day.** The engine already restores a company
     this machine never had; the screen is gated on an **open** company. **The difference between a backup
     feature and a disaster-recovery one.**

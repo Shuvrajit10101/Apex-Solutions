@@ -249,9 +249,15 @@ public static class CanonicalXml
         return el;
     }
 
-    private static XElement BuildGroup(GroupDto g) => new("group",
-        Attr("id", g.Id), Attr("name", g.Name), Attr("nature", g.Nature),
-        OptId("parentId", g.ParentId), Opt("alias", g.Alias), Attr("isPredefined", g.IsPredefined));
+    private static XElement BuildGroup(GroupDto g)
+    {
+        var el = new XElement("group",
+            Attr("id", g.Id), Attr("name", g.Name), Attr("nature", g.Nature),
+            OptId("parentId", g.ParentId), Opt("alias", g.Alias), Attr("isPredefined", g.IsPredefined));
+        // v51 (WF-1): the Group level of the GST hierarchy — a child element only when a block exists (ER-13).
+        if (g.Gst is { } gst) el.Add(BuildMasterGst(gst));
+        return el;
+    }
 
     private static XElement BuildLedger(LedgerDto l)
     {
@@ -492,9 +498,21 @@ public static class CanonicalXml
         Attr("decimalPlaces", u.DecimalPlaces), OptId("firstUnitId", u.FirstUnitId), OptId("tailUnitId", u.TailUnitId),
         OptInt("conversionNumerator", u.ConversionNumerator), OptInt("conversionDenominator", u.ConversionDenominator));
 
-    private static XElement BuildStockGroup(StockGroupDto g) => new("stockGroup",
-        Attr("id", g.Id), Attr("name", g.Name), OptId("parentId", g.ParentId),
-        Opt("alias", g.Alias), Attr("addQuantities", g.AddQuantities));
+    private static XElement BuildStockGroup(StockGroupDto g)
+    {
+        var el = new XElement("stockGroup",
+            Attr("id", g.Id), Attr("name", g.Name), OptId("parentId", g.ParentId),
+            Opt("alias", g.Alias), Attr("addQuantities", g.AddQuantities));
+        // v51 (WF-1): the Stock Group level of the GST hierarchy — a child element only when a block exists, so a
+        // stock group that carries none is byte-identical to its v50 form (ER-13).
+        if (g.Gst is { } gst) el.Add(BuildMasterGst(gst));
+        return el;
+    }
+
+    /// <summary>The narrow v51 <see cref="MasterGstDto"/> block as a <c>&lt;gst&gt;</c> child element (WF-1).</summary>
+    private static XElement BuildMasterGst(MasterGstDto g) => new("gst",
+        Opt("hsnSac", g.HsnSac), Attr("taxability", g.Taxability),
+        OptInt("rateBasisPoints", g.RateBasisPoints), Attr("supplyType", g.SupplyType));
 
     private static XElement BuildStockCategory(StockCategoryDto g) => new("stockCategory",
         Attr("id", g.Id), Attr("name", g.Name), OptId("parentId", g.ParentId), Opt("alias", g.Alias));
@@ -572,7 +590,15 @@ public static class CanonicalXml
             Attr("eWayIntraStateApplicable", g.EWayIntraStateApplicable),
             // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (always emitted; defaults 0/0 ⇒ byte-stable, finding #5).
             Attr("reconValueTolerancePaisa", g.ReconValueTolerancePaisa),
-            Attr("reconDateWindowDays", g.ReconDateWindowDays));
+            Attr("reconDateWindowDays", g.ReconDateWindowDays),
+            // v51 (WF-1): the two source-order options, ALWAYS emitted — even when they equal the shipped default.
+            // Omitting them "because they match the default" would make a book that deliberately chose
+            // StockItemFirst indistinguishable from one that never chose, and the reader's fallback is LedgerFirst.
+            Attr("sourceOfHsnSacDetails", g.SourceOfHsnSacDetails),
+            Attr("sourceOfGstRate", g.SourceOfGstRate));
+        // v51 (WF-1): the company-level default block — a child element only when a block exists (ER-13). Named
+        // `defaultGst` rather than `gst`, which is this element's own name.
+        if (g.DefaultGst is { } dg) el.Add(new XElement("defaultGst", BuildMasterGst(dg).Attributes()));
         var slabs = new XElement("rateSlabs");
         foreach (var s in g.RateSlabs)
             slabs.Add(new XElement("rateSlab", Attr("id", s.Id), Attr("rateBasisPoints", s.RateBasisPoints),
@@ -1157,6 +1183,19 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), Name = Str(e, "name")!, Nature = Str(e, "nature")!,
         ParentId = OptGuid(e, "parentId"), Alias = Str(e, "alias"), IsPredefined = Bool(e, "isPredefined"),
+        // v51 (WF-1): absent <gst> ⇒ no block, which is every group in a pre-v51 document (ER-13).
+        Gst = e.Element("gst") is { } g ? ReadMasterGst(g) : null,
+    };
+
+    /// <summary>Reads the narrow v51 <see cref="MasterGstDto"/> block from a <c>&lt;gst&gt;</c>/<c>&lt;defaultGst&gt;</c>
+    /// element. Taxability/supplyType fall back to the domain defaults so a hand-edited document missing them still
+    /// parses to the same block the domain would build (WF-1).</summary>
+    private static MasterGstDto ReadMasterGst(XElement e) => new()
+    {
+        HsnSac = Str(e, "hsnSac"),
+        Taxability = Str(e, "taxability") ?? "Taxable",
+        RateBasisPoints = OptInt(e, "rateBasisPoints"),
+        SupplyType = Str(e, "supplyType") ?? "Goods",
     };
 
     private static LedgerDto ReadLedger(XElement e) => new()
@@ -1576,6 +1615,8 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), Name = Str(e, "name")!, ParentId = OptGuid(e, "parentId"),
         Alias = Str(e, "alias"), AddQuantities = Bool(e, "addQuantities"),
+        // v51 (WF-1): absent <gst> ⇒ no block, which is every stock group in a pre-v51 document (ER-13).
+        Gst = e.Element("gst") is { } g ? ReadMasterGst(g) : null,
     };
 
     private static StockCategoryDto ReadStockCategory(XElement e) => new()
@@ -1697,6 +1738,13 @@ public static class CanonicalXml
         // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (absent ⇒ 0/0 exact-match, ER-13; finding #5).
         ReconValueTolerancePaisa = OptLong(e, "reconValueTolerancePaisa") ?? 0L,
         ReconDateWindowDays = OptInt(e, "reconDateWindowDays") ?? 0,
+        // v51 (WF-1): the company default block + the two source orders. An absent attribute is a pre-v51 document,
+        // and the right reading of it is the SHIPPED order — LedgerFirst. It is deliberately NOT StockItemFirst:
+        // the item-first back-fill belongs to the SQL migration, which knows it is looking at a book that already
+        // existed on this installation. An imported document carries no such guarantee.
+        DefaultGst = e.Element("defaultGst") is { } dg ? ReadMasterGst(dg) : null,
+        SourceOfHsnSacDetails = Str(e, "sourceOfHsnSacDetails") ?? "LedgerFirst",
+        SourceOfGstRate = Str(e, "sourceOfGstRate") ?? "LedgerFirst",
     };
 
     private static PartyGstDto ReadPartyGst(XElement e) => new()

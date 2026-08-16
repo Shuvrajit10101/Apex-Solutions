@@ -676,13 +676,73 @@ public static class VoucherPrintProjector
     private static string CompanyDisplayName(Company company) =>
         string.IsNullOrWhiteSpace(company.MailingName) ? company.Name : company.MailingName;
 
+    /// <summary>
+    /// The printed invoice's supplier block. The name is the company's <b>Mailing Name</b> falling back to its
+    /// Name (TallyPrime's stated purpose for that field: "Type Company's Short name here for Show in
+    /// Invoice/Bill"), and the address is built by the SAME <see cref="PostalAddressText"/> the recipient block
+    /// uses, so the two blocks cannot drift apart again.
+    /// <para><b>What is and is not a compliance claim here.</b> CGST Rule 46(a) requires "name, address and GSTIN
+    /// of the supplier". The <b>GSTIN</b> half is already typeable through the GST — Statutory screen, and the
+    /// <b>address</b> half is <b>still unfixed</b>: no UI anywhere in <c>src/Apex.Desktop</c> writes
+    /// <c>Company.Address</c>, so on every book that exists today this block still carries no Rule 46(a) address.
+    /// That is W0-2b, and it has not shipped. <b>Country and PIN — the two components this method adds — are
+    /// TallyPrime-fidelity fields and CA-audit parity with the WI-4 recipient block, NOT compliance fields</b>
+    /// (<c>docs/w0-2-company-screen-grounding.md</c> §5.5: "Pin Code, Telephone, Mobile, Fax, E-Mail and Website
+    /// are Tally-fidelity fields, not compliance fields").</para>
+    /// <para><b>Why the address, and not Country, is the trigger.</b> The trailing components are appended only
+    /// when a postal <c>Address</c> was actually captured — see <see cref="SupplierPostalAddressText"/>. The
+    /// symmetry with the recipient block is real but the <i>defaults are not symmetric</i>:
+    /// <c>PartyMailingDetails.Country</c> is nullable and unset until typed, while <c>Company.Country</c> is
+    /// non-null and defaults to "India" on every company ever constructed. Feeding one shared builder from
+    /// asymmetric defaults would make every uncaptured company print a bare "India" line where it used to print
+    /// nothing at all.</para>
+    /// <para><b>The State is NOT taken from <c>Company.State</c>, deliberately.</b> It is the GST home State,
+    /// which is precisely what the recipient block does — a party's printed State is its GST State, and
+    /// <c>Schema.cs</c> forbids a second, postal party State (search the file for the standing comment
+    /// <c>"Do not add mailing_state"</c> — cited by text, not by line, because that block moves) because a
+    /// divergent one "could contradict it and silently produce the wrong tax head". Reading the postal
+    /// <c>Company.State</c> here would CREATE that asymmetry, not close one, and
+    /// <c>A_company_whose_postal_State_disagrees_with_its_GST_State_prints_the_GST_one</c> pins that. The
+    /// <i>capture</i> question — expose both / suppress the postal one / wire one to the other — remains an open
+    /// R12 user gate (<c>plan.md</c>, W0-2b); this method is deliberately independent of how it is answered,
+    /// because it never reads <c>Company.State</c> under any shape.</para>
+    /// <para><b>🔴 Recorded departure from the corpus — print ORDER.</b> The rendered block is Address → Country
+    /// → PIN → State → GSTIN, because <c>InvoicePdf.DrawPartyBlock</c> draws every address line before the State
+    /// line. <b>The corpus orders these Address → State → Country → Pin Code</b>
+    /// (<c>664311548-Tally-Prime-Book.pdf</c> PDF p.13; <c>696054070-TALLY-PRIME-STUDY-GUIDE.pdf</c> PDF p.268,
+    /// both extracted 2026-08-15), and the corpus label is "Pin Code"/"Pincode" where we print "PIN: ". Those are
+    /// capture-screen orderings, not a printed-invoice specimen, so they are indicative rather than binding — but
+    /// they are the only evidence there is, and we do not match them. Matching would mean moving the State into
+    /// the address builder, which changes the shipped WI-4 <b>recipient</b> block's printed order too — a second
+    /// statutory-document change that belongs in its own slice with its own grounding, not smuggled into this
+    /// one. Logged as UNVERIFIED-and-chosen in <c>docs/w0-2-company-screen-grounding.md</c> §9 item 11 and as a
+    /// W0-2b follow-up in <c>plan.md</c>.</para>
+    /// </summary>
     private static InvoicePartyBlock SellerBlock(Company company) => new()
     {
         Name = ReportPrintProjector.Ascii(CompanyDisplayName(company)),
-        AddressLines = SplitAddress(company.Address),
+        AddressLines = SplitAddress(SupplierPostalAddressText(company)),
         Gstin = ReportPrintProjector.Ascii(company.Gst?.Gstin ?? string.Empty),
         StateText = StateText(company.Gst?.HomeStateCode),
     };
+
+    /// <summary>
+    /// The supplier's printable address text: the shared <see cref="PostalAddressText"/>, but <b>only when a
+    /// postal <c>Address</c> was actually captured</b>. With no address there is nothing for a country or a PIN
+    /// to qualify, and — decisively — <c>Company.Country</c> carries the non-null default "India" on every
+    /// company ever constructed, while nothing in <c>src/Apex.Desktop</c> ever assigns it.
+    /// <para><b>This guard is what keeps ER-13 true.</b> Without it, every company in every book on disk today
+    /// (blank Address, Country "India" by default) would print a supplier block containing exactly one line,
+    /// "India", where it previously printed none — changing every invoice and every reprint of every historical
+    /// invoice, and replacing a visibly blank block with one that looks populated while still carrying no Rule
+    /// 46(a) address. Pinned by
+    /// <c>A_freshly_created_company_prints_no_supplier_address_lines_at_all</c>, which builds its company through
+    /// the real <c>CreateCompany()</c> path and touches nothing.</para>
+    /// </summary>
+    private static string? SupplierPostalAddressText(Company company) =>
+        string.IsNullOrWhiteSpace(company.Address)
+            ? null
+            : PostalAddressText(company.Address, company.Country, company.Pin);
 
     /// <summary>
     /// The printed invoice's recipient block. The name is the party's <b>Mailing Name</b> when one was captured
@@ -729,18 +789,42 @@ public static class VoucherPrintProjector
     }
 
     /// <summary>
-    /// The buyer's printable address text: the Mailing Details address, with the PIN code appended as its own
-    /// final line when one was captured (the CA's "along with PIN code" — a recipient block without it is not a
-    /// complete postal address). Blank when the party has no mailing block, which reproduces the pre-v45 output.
+    /// The buyer's printable address text: the Mailing Details block, through the shared
+    /// <see cref="PostalAddressText"/>. Blank when the party has no mailing block, which reproduces the pre-v45
+    /// output.
     /// </summary>
     private static string? BuyerAddressText(Apex.Ledger.Domain.Ledger? party)
     {
         var mailing = party?.Mailing;
-        if (mailing is null) return null;
+        return mailing is null ? null : PostalAddressText(mailing.Address, mailing.Country, mailing.Pincode);
+    }
 
-        var lines = new List<string>(mailing.AddressLines);
-        if (!string.IsNullOrWhiteSpace(mailing.Country)) lines.Add(mailing.Country.Trim());
-        if (!string.IsNullOrWhiteSpace(mailing.Pincode)) lines.Add("PIN: " + mailing.Pincode.Trim());
+    /// <summary>
+    /// <b>One postal address, built one way, for both parties on the invoice.</b> Free-text address, then Country,
+    /// then the PIN as its own final line — the CA's "along with PIN code": a party block without it is not a
+    /// complete postal address. Each component is skipped when blank, so a party that captured nothing beyond the
+    /// street lines prints exactly those and no placeholder. Returns <c>null</c> when nothing at all was captured.
+    /// <para>This method exists because the two blocks had drifted: the recipient appended Country and PIN (WI-4)
+    /// and the supplier did not, so the same postal data printed as four lines for the buyer and two for the
+    /// seller. Sharing the builder makes that divergence unrepresentable rather than merely fixed —
+    /// <c>The_supplier_address_block_is_built_exactly_like_the_recipient_one</c> asserts the two are equal for
+    /// equal input.</para>
+    /// <para><b>Shared builder, not shared entry condition.</b> The two callers differ in ONE respect, and
+    /// deliberately: the seller passes its components only when it captured an <c>Address</c>
+    /// (<see cref="SupplierPostalAddressText"/>), because <c>Company.Country</c> defaults to "India" whereas
+    /// <c>PartyMailingDetails.Country</c> defaults to null. Equal input still yields equal output — that is what
+    /// the symmetry test asserts — but a company that captured nothing does not have "equal input" to a party
+    /// that captured nothing, and treating it as though it did is precisely the ER-13 break that guard prevents.</para>
+    /// <para><b>Ordering note:</b> the corpus puts State before Country and Pin Code last; we print Country and
+    /// PIN here and the State is drawn afterwards by <c>InvoicePdf.DrawPartyBlock</c>. See
+    /// <see cref="SellerBlock"/>'s recorded departure.</para>
+    /// </summary>
+    private static string? PostalAddressText(string? address, string? country, string? pin)
+    {
+        var lines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(address)) lines.Add(address.Trim());
+        if (!string.IsNullOrWhiteSpace(country)) lines.Add(country.Trim());
+        if (!string.IsNullOrWhiteSpace(pin)) lines.Add("PIN: " + pin.Trim());
         return lines.Count == 0 ? null : string.Join("\n", lines);
     }
 
@@ -765,7 +849,9 @@ public static class VoucherPrintProjector
         return st is null ? string.Empty : ReportPrintProjector.Ascii($"{st.Name} ({st.Code})");
     }
 
-    /// <summary>Splits a free-text address into printable lines (newline- or comma-separated); empty when blank.</summary>
+    /// <summary>Splits a free-text address into printable lines; empty when blank. <b>Newline-separated only</b> —
+    /// the comment here read "newline- or comma-separated" until 2026-08-15, which the code has never done and must
+    /// not: "Pune, Maharashtra 411001" is one address line, not two.</summary>
     private static IReadOnlyList<string> SplitAddress(string? address)
     {
         if (string.IsNullOrWhiteSpace(address)) return Array.Empty<string>();

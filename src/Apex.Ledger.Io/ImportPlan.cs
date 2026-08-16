@@ -180,6 +180,12 @@ internal sealed class ImportPlan
             GroupService.ValidateNatureAgainstParent(declaredNature, parent, t);
             var domain = new Group(Guid.NewGuid(), g.Name, declaredNature, parent, g.Alias,
                 isPredefined: false);
+            // v51 (WF-1): the Group level of the GST hierarchy, with the same fail-fast mirror the item and the
+            // sales/purchase-ledger blocks already carry (the recurring Io-bypass defect class) — a malformed HSN or
+            // a positive rate on a non-taxable block throws here in pre-flight, so the whole batch rejects
+            // all-or-nothing rather than persisting a block the domain would have refused.
+            domain.Gst = BuildMasterGst(g.Gst);
+            domain.Gst?.EnsureValid();
             t.AddGroup(domain);
             journal.RecordGroup(domain);
             groupId[g.Id] = domain.Id;
@@ -649,7 +655,16 @@ internal sealed class ImportPlan
                 continue;
             }
             var parent = sg.ParentId is { } pid ? ResolveStockGroupId(pid, stockGroupId, t) : (Guid?)null;
+            // v51 (WF-1): the Stock Group level of the GST hierarchy + the pre-flight fail-fast mirror.
+            // ⚠️ ORDER MATTERS AND IS NOT COSMETIC. The block is validated BEFORE CreateStockGroup, because
+            // CreateStockGroup already ADDS the group to the target while `journal.RecordStockGroup` — the only
+            // thing Rollback can undo — happens after. Validating in between would leave a group behind on a
+            // rejected batch: Applied = false with the target quietly mutated, which is exactly the all-or-nothing
+            // promise this path exists to keep.
+            var gst = BuildMasterGst(sg.Gst);
+            gst?.EnsureValid();
             var domain = inv.CreateStockGroup(sg.Name, parent, sg.Alias, sg.AddQuantities);
+            domain.Gst = gst;
             journal.RecordStockGroup(domain);
             stockGroupId[sg.Id] = domain.Id;
             created++;
@@ -1182,6 +1197,10 @@ internal sealed class ImportPlan
         if (c.Country is not null) t.Country = c.Country;
         t.State = c.State;
         t.Pin = c.Pin;
+        // The supplier PIN reaches a printed tax invoice (W0-2a), so it gets the same six-digit floor the
+        // recipient PIN has had since v45. Without this a canonical document carrying pin="abcdef" would
+        // print "PIN: abcdef" on a statutory document.
+        t.EnsureValid();
         t.FinancialYearStart = CompanyImportService.ParseDate(c.FinancialYearStart);
         t.BooksBeginFrom = CompanyImportService.ParseDate(c.BooksBeginFrom);
         if (c.BaseCurrencySymbol is not null) t.BaseCurrencySymbol = c.BaseCurrencySymbol;
@@ -1301,7 +1320,17 @@ internal sealed class ImportPlan
             // Phase 9 slice 6: the GSTR-2B reconciliation tolerance (defaults ⇒ byte-identical when off, ER-13; finding #5).
             ReconValueTolerance = MoneyCodec.FromPaisa(g.ReconValueTolerancePaisa),
             ReconDateWindowDays = g.ReconDateWindowDays,
+            // v51 (WF-1): the company-level default GST block + the two source-order options. The DTO's own
+            // initialisers are what make a pre-v51 document arrive here as LedgerFirst rather than as a guess — see
+            // GstConfigDto for why LedgerFirst, and not the migration's StockItemFirst, is right on an IMPORT path.
+            DefaultGst = BuildMasterGst(g.DefaultGst),
+            SourceOfHsnSacDetails = ParseEnum<GstDetailSource>(g.SourceOfHsnSacDetails),
+            SourceOfGstRate = ParseEnum<GstDetailSource>(g.SourceOfGstRate),
         };
+        // NOTE: the company default block is NOT re-validated here. GstConfig.EnsureValid already calls
+        // DefaultGst.EnsureValid, and that is the guard this path relies on — a second call here would be a
+        // duplicate that no test can distinguish from its absence. The Stock Group and Group blocks above DO need
+        // their own explicit calls: neither master has an aggregate EnsureValid that the import runs.
         // Phase 9 slice 5: preserve the exported per-state e-Way threshold overrides (fresh ids). A malformed row throws
         // here in pre-flight ⇒ Applied = false, the target company untouched (all-or-nothing).
         foreach (var t in g.EWayStateThresholds)
@@ -1635,6 +1664,17 @@ internal sealed class ImportPlan
         // Phase 9 slice 2: reverse-charge qualifiers.
         IsPromoter = p.IsPromoter,
         IsBodyCorporate = p.IsBodyCorporate,
+    };
+
+    /// <summary>Builds the narrow v51 <see cref="MasterGstDetails"/> block a Stock Group / Group / company default
+    /// carries, or <c>null</c> when the document has none (WF-1). Callers must follow with
+    /// <see cref="MasterGstDetails.EnsureValid"/> so a malformed block rejects the batch in pre-flight.</summary>
+    private static MasterGstDetails? BuildMasterGst(MasterGstDto? m) => m is null ? null : new MasterGstDetails
+    {
+        HsnSac = m.HsnSac,
+        Taxability = ParseEnum<GstTaxability>(m.Taxability),
+        RateBasisPoints = m.RateBasisPoints,
+        SupplyType = ParseEnum<GstSupplyType>(m.SupplyType),
     };
 
     private static StockItemGstDetails? BuildStockItemGst(StockItemGstDto? s) => s is null ? null : new StockItemGstDetails

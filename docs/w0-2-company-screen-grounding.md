@@ -11,20 +11,47 @@ so that a design can be argued from evidence instead of invented.
 **Pass:** A14 Tally Domain/Corpus Expert, read-only, from the 10 git-ignored PDFs at `…\Apex Solutions(end)\tally\`
 via `pdftotext -layout`. The original pass existed only in a session transcript; this file is the write-down.
 
-**Baseline for every code claim:** worktree `…\.claude\worktrees\recursing-swirles-3138c6`, HEAD **`fa651ae`**,
-schema **v50**. Nothing built, run, or edited to produce this document.
+**Baseline for every code claim:** worktree `…\.claude\worktrees\recursing-swirles-3138c6`. The original
+write-down was at HEAD **`fa651ae`**, schema **v50**, and nothing was built, run or edited to produce it.
 
-**Date:** 2026-08-14.
-
-> 🔴 **§8 contains a design blocker that requires a USER DECISION before any code is written.** (Corrected
-> 2026-08-14: this line pointed at **§7**, which is the code comparison; the blocker itself is **§8**, and §7.3
-> is the finding it rests on.) It is not a preference question. Our company row already carries the exact State
-> duplication that `Schema.cs:808-811` forbids on the party row, and the corpus points at a third answer
-> (inheritance) that neither side implements.
+> ⚠️ **Re-anchored 2026-08-15 to HEAD `85f82dd` + the W0-2a working tree.** Every print-path `file:line` in §7
+> drifted: `85f82dd` is itself a GST print/report rewrite (it moved `VoucherPrintProjector.cs` by 145 lines and
+> `InvoicePdf.cs` by 91), and **W0-2a then edited `VoucherPrintProjector.cs` again**. The numbers below are the
+> post-W0-2a ones. **`Schema.cs` is deliberately cited by TEXT, not by line**, because an unrelated uncommitted
+> GST-hierarchy slice shares this worktree and shifts that file by 118 lines — whichever slice lands second
+> would otherwise ship a dead citation. See §7.7.
 >
-> **This document is cited by `plan.md`'s W0-2 row (`plan.md:1529-1535`), and §8's blocker is carried there as
-> an explicit R12 USER GATE (`plan.md:1536-1550`) — W0-2 must not start until the user rules on it.** A blocker
-> that lives only in `docs/` gates nothing (R6: `plan.md` is the single source of truth).
+> The repo's doc-vs-code gate does **not** protect against this class: `DocumentCodeAgreementTests` proves a
+> cited line is inside its file, never that the line says what the sentence claims. It was green with a dozen
+> wrong numbers in this file.
+
+**Date:** 2026-08-14; §7/§8/§9/§10 revised 2026-08-15 (W0-2a review).
+
+> ✅ **§8's design blocker is RESOLVED — the user ruled INHERIT on 2026-08-15.** *(This line read "§8 contains a
+> design blocker that requires a USER DECISION before any code is written" from 2026-08-14 until the ruling. It
+> is superseded, not deleted: §8 keeps the whole argument, because the evidence is what the ruling was made
+> against.)* The blocker was real: our company row already carries the exact State duplication that `Schema.cs`
+> forbids on the party row (*search for* `Do not add mailing_state`; cited by text per §7.7), and the corpus
+> points at a third answer — **inheritance** — that neither side implements. **That third answer is what the user
+> chose.** See §8's resolution banner.
+>
+> **This document is cited by `plan.md`'s W0-2b row (`plan.md:1677-1697`), and §8's blocker was carried there as
+> an explicit R12 USER GATE (`plan.md:1698-1783`), now marked RESOLVED with the ruling recorded as RULING 3 at
+> the end of that block.** *(Line numbers rot — if they miss, search `plan.md` for* `W0-2b (S2 / T1-6` *and for*
+> `USER GATE (R12)`*.)* A blocker that lives only in `docs/` gates nothing, and so does a ruling (R6:
+> `plan.md` is the single source of truth — read the ruling THERE, not here).
+>
+> ⚠️ **Citations corrected 2026-08-15.** These pointed at `plan.md:1529-1535` / `:1536-1550`, which is the
+> **voucher-alteration** block — nothing in that range mentions the company screen. A reader following them to
+> verify the gate existed landed on VL-2/VL-3/VL-4 and found no gate, which is precisely the failure this
+> header warns about. The gate text itself was, and is, genuinely present and correctly worded. *(They were
+> re-anchored a second time in the same edit, because splitting the row into W0-2a/W0-2b moved them again — the
+> hazard is structural, not a one-off.)*
+>
+> **The print half shipped separately as `W0-2a`** (2026-08-15): it reads `Company.Address`, `Country` and
+> `Pin`, never `Company.State`, so it was independent of the gate under all three shapes — and remains correct
+> under the shape that was chosen, since INHERIT keeps the GST home State authoritative for GST. **`W0-2b`, the
+> Create/Alter screen, is now UNBLOCKED but NOT STARTED — no code for it exists.** See §8.
 
 ---
 
@@ -244,17 +271,35 @@ the **feature** is attested, the **TallyPrime path** is UNVERIFIED (§9 item 7).
 
 ### 5.4 CGST Rule 46 — the statutory particulars
 
-**[A14]** Opening: a tax invoice "shall be issued by the registered person containing the following particulars" —
-**(a)** name, address and GSTIN of the **supplier**; **(b)** a consecutive serial number not exceeding sixteen
-characters, unique for a financial year; **(d)** name, address and GSTIN/UIN of the **recipient if registered**;
-**(e)** name and address of an **unregistered** recipient plus the address of delivery with State and code where
-taxable value ≥ ₹50,000; **(n)** place of supply with the State name for an **inter-State** supply.
+✅ **[V] FIRST-PARTY, 2026-08-15 — §9 item 10 is CLOSED.** Fetched from CBIC's own consolidated rules PDF,
+`https://cbic-gst.gov.in/pdf/01062021-CGST-Rules-2017-Part-A-Rules.pdf` (the 01-06-2021 consolidation), and
+extracted with `pdftotext -layout`. **Verbatim:**
 
-⚠️ **Sourcing caveat, carried forward unchanged.** The official CBIC endpoint `taxinformation.cbic.gov.in`
-**failed TLS chain validation** from the A14 environment; the text above was taken from
-`https://gstzen.in/a/tax-invoice-cgst-rule-46.html` and is consistent with the CBIC verification already recorded
-in `memory.md`. **If a first-party citation is required at the design gate, that fetch still has to happen from a
-working network path** (§9 item 10). It was **not** re-attempted during this write-down.
+> **46. Tax invoice.**-Subject to rule 54, a tax invoice referred to in section 31 shall be issued by
+> the registered person containing the following particulars, namely,-
+> **(a)** name, address and Goods and Services Tax Identification Number of the supplier;
+
+Also **(b)** a consecutive serial number not exceeding sixteen characters, unique for a financial year;
+**(d)** name, address and GSTIN/UIN of the **recipient if registered**; **(e)** name and address of an
+**unregistered** recipient plus the address of delivery with State and code where taxable value ≥ ₹50,000;
+**(n)** place of supply with the State name for an **inter-State** supply.
+
+> 🔴 **Two corrections the first-party fetch produced.** The secondary text this document previously relied on
+> was substantively right and **verbally wrong in two places**:
+> 1. The opening is *"Subject to rule **54**"*, not *"subject to rule 7"*. (CBIC's HTML page
+>    `https://cbic-gst.gov.in/gst-invoice-rules.html` renders this chapter with the **draft** Invoice-Rules
+>    numbering, where the same text appears as "Rule 1" and cites "rule 7". The **notified** consolidated rule
+>    is Rule 46 and cites rule 54. Cite the PDF, not the HTML page.)
+> 2. Clause (a) spells out *"Goods and Services Tax Identification Number"*; **"GSTIN" is our abbreviation, not
+>    the statute's words**. Anywhere this document or the code quotes (a) as "name, address and GSTIN of the
+>    supplier", that is a paraphrase and should not be presented inside quotation marks as statutory text.
+>
+> **Superseded sourcing caveat (kept for the record).** The original write-down took this text from
+> `https://gstzen.in/a/tax-invoice-cgst-rule-46.html` because the CBIC endpoint `taxinformation.cbic.gov.in`
+> failed TLS chain validation from the A14 environment, and flagged that a first-party fetch "still has to
+> happen … at the design gate". W0-2a consumed this text as the justification for a behaviour change on a
+> statutory document, so the fetch was performed. **`cbic-gst.gov.in` resolves and serves cleanly**; the TLS
+> failure was specific to the `taxinformation.` host.
 
 ### 5.5 The mapping
 
@@ -318,53 +363,99 @@ BooksBeginFrom` · `:78` `string BaseCurrencySymbol = "₹"` · `:79` `string Ba
 `TdsConfig?`/`TcsConfig?`. Plus `:348` `PrimaryCostCategoryName`, `:351` `MainLocationName`, and the F11 toggle
 set.
 
-✅ **[V] The plan's "11 profile fields that already exist" (`plan.md:1525`) is EXACT.** Excluding `Name`, lines
-65-81 are precisely eleven: MailingName, Address, Country, State, Pin, FinancialYearStart, BooksBeginFrom,
-BaseCurrencySymbol, BaseCurrencyName, DecimalPlaces, DecimalUnitName.
+✅ **[V] The plan's "11 profile fields that already exist" (`plan.md:1679`) is EXACT.** Excluding `Name`, they
+are precisely eleven: MailingName, Address, Country, State, Pin, FinancialYearStart, BooksBeginFrom,
+BaseCurrencySymbol, BaseCurrencyName, DecimalPlaces, DecimalUnitName. *(Citation corrected 2026-08-15 from
+`plan.md:1525`, which is a voucher-alteration ruling. The field lines themselves shifted when W0-2a added doc
+comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 
 ### 7.2 The printer
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:682-688` `SellerBlock`:
+> **[V] Re-anchored 2026-08-15 to the post-W0-2a tree.** The numbers here were `fa651ae`'s and every one of them
+> had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
+> finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-- `Name` = `CompanyDisplayName` (`:679-680` — MailingName falling back to Name, **matching Tally's convention
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:721-727` `SellerBlock`:
+
+- `Name` = `CompanyDisplayName` (`:676-677` — MailingName falling back to Name, **matching Tally's convention
   exactly**)
-- `AddressLines` = `SplitAddress(company.Address)`
+- `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
+  (`VoucherPrintProjector.cs:724`) — **changed by W0-2a.**
+  `SupplierPostalAddressText` (`:742-745`) returns `null` unless `company.Address` is non-blank, and otherwise
+  defers to the shared `PostalAddressText` (`:822-829`), which appends Country then `"PIN: " + Pin`, each
+  skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
+  (`VoucherPrintProjector.cs:726`) — **unchanged; still never `company.State`.**
 
-Called from `:388` (item pass) and `:509` (service pass). `SplitAddress` (`:770-779`) returns `Array.Empty` on
+Called from `:399` (item pass) and `:520` (service pass). `SplitAddress` (`:855`) returns `Array.Empty` on
 null/whitespace.
 
-**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:509-530` `DrawPartyBlock`, called at `:293` with caption `"Supplier:"`.
-The address `foreach` (`:515-520`) never executes when the list is empty, and the State line (`:521-525`) is
+**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:564` `DrawPartyBlock`, called at `:295` with caption `"Supplier:"`.
+The address `foreach` (`:570`) never executes when the list is empty, and the State line (`:578`) is
 skipped when `StateText` is blank. **So what a GST-off company prints today is:** `"Supplier:"` / `<company
 name>` / `"GSTIN: Unregistered"` — **the address emits nothing at all**: no placeholder, no blank line; the block
 silently collapses.
+
+> 🔴 **[V] The address guard is load-bearing, and it is why W0-2a is ER-13-safe.** `companies.country` is
+> `TEXT NOT NULL` and `Company.Country` defaults to `"India"`, while **nothing in `src/Apex.Desktop` ever assigns
+> it** — so every company in every book on disk has `Country = "India"` and a blank `Address`. Appending Country
+> unconditionally would have made every invoice, and every reprint of every historical invoice, gain a supplier
+> block containing exactly one line, `"India"`, where it previously had none. Measured: deleting the
+> `SupplierPostalAddressText` guard reddens 3 of the 19 tests in `VoucherInvoicePrintViewModelTests`.
 
 **T0-8 confirmed exactly as the census states.** **[V]** The census's supporting claim also still holds: across
 `src/Apex.Desktop` there is **no assignment site** for `Company.MailingName` or `Company.Address` (the only
 `MailingName` writes in the Desktop layer are `LedgerMasterViewModel.cs:582, 803, 965, 988, 1152`, which are the
 **party** mailing block, a different object). The only writers anywhere are `ApplyJournal.cs:343-344` and
-`ImportPlan.cs:1180-1181`.
+`ImportPlan.cs:1195-1196` — **and note those same blocks assign `State` and `Pin` three lines further down**
+(`ApplyJournal.cs:346-347`, `ImportPlan.cs:1198-1199`), which is the fact §7.3(i) had missed.
 
-> **[V] Census drift, for whoever maintains it:** `docs/full-clone-census.md:86` cites `VoucherPrintProjector.cs:734-739`
-> for `SellerBlock`. That was true at the census baseline `468a96e`; at `fa651ae` the method is at **`:682-688`**.
-> Not a false claim — a stale one.
+> **[V] Census drift, for whoever maintains it:** `docs/full-clone-census.md:86` cited
+> `VoucherPrintProjector.cs:734-739` for `SellerBlock` and described it as reading "`company.MailingName` and
+> `company.Address`". That was true at the census baseline `468a96e`. **Updated 2026-08-15**: the method is at
+> `:721-727` and now reads `MailingName`, `Address`, `Country` and `Pin`. **T0-8 itself remains OPEN** — the
+> write half (the screen) did not ship.
 
 ### 7.3 🔴 Two findings the census does not record
 
-**(i) `Company.State` and `Company.Pin` are never printed on an invoice.** `SellerBlock` takes its State from
-`company.Gst?.HomeStateCode` (`:687`), **not** from `company.State`, and nothing appends `Pin`. The **buyer**
-side does append PIN — **[V]** `VoucherPrintProjector.cs:739-748` `BuyerAddressText` adds Country (`:745`) and
-`"PIN: " + …` (`:746`). **The seller block has no equivalent.**
+**(i) `Company.State` is never printed on an invoice — and as of W0-2a, `Company.Pin` and `Company.Country`
+ARE.** `SellerBlock` takes its State from `company.Gst?.HomeStateCode` (`:726`), **not** from `company.State`.
+The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAddressText` (`:796`) routes through
+the shared `PostalAddressText` (`:822-829`).
 
-> ⚠️ **Corrected during this write-down.** The A14 pass stated that populating `Company.Address` alone "would
-> still print a seller address with **NO State line** and NO PIN". The no-PIN half is confirmed. The no-State
-> half is **too strong**: `InvoicePdf.cs:521-525` *does* draw a `"State: …"` line whenever `StateText` is
+> 🔴 **HALF OF THIS SECTION WAS MADE FALSE BY W0-2a, AND IS REWRITTEN HERE (2026-08-15).** It previously read
+> "`Company.State` **and** `Company.Pin` are never printed … nothing appends `Pin` … **The seller block has no
+> equivalent.**" The seller block now HAS the equivalent: `:724` is
+> `SplitAddress(SupplierPostalAddressText(company))`, which appends Country and `"PIN: "`. The buyer/seller
+> asymmetry this section documented is **closed for PIN and Country** and **remains open only for State**.
+> This matters because §7.3 is the evidence base the R12 gate rested on, and `plan.md:1691` sends the next
+> session here.
+
+> ⚠️ **Corrected during the original write-down (still stands).** The A14 pass stated that populating
+> `Company.Address` alone "would still print a seller address with **NO State line** and NO PIN". The no-State
+> half is **too strong**: `InvoicePdf.cs:578` *does* draw a `"State: …"` line whenever `StateText` is
 > non-empty. The accurate statement is: **no State line derived from `Company.State` can ever print**. A
-> GST-enabled company prints its **GST home State**; a GST-off company prints no State line at all. The
-> asymmetry against the buyer block is real either way, and so is the point it supports — a postal State typed
-> into `Company.State` would go nowhere.
+> GST-enabled company prints its **GST home State**; a GST-off company prints no State line at all.
+
+> 🔴 **[V] AND THE "GOES NOWHERE" GLOSS WAS ALWAYS WRONG — this is the important correction.** This section used
+> to conclude that "a postal State typed into `Company.State` would go nowhere", and `plan.md` carried the same
+> words into the user gate. **`Company.State` and `Company.Pin` are read and written by the canonical XML/JSON
+> export–import round-trip**, and always have been: `CanonicalMapper.cs:66-67` maps them, `CanonicalXml.cs:55`
+> writes `state`/`pin` onto the company element, `CanonicalXml.cs:1024-1025` reads them back, and
+> `ImportPlan.cs:1198-1199` assigns them onto the domain company. `CanonicalRoundTripTests.cs:259` has asserted
+> the State survives export all along. **The accurate claim is narrower and entirely about the PRINT path: no
+> print path reads `Company.State`.** The column is not dormant — every book imported from canonical XML carries
+> real values in it. §8 depends on this distinction; see the migration consequence there.
+>
+> *(Tellingly, `CanonicalXml.cs:690-693` documents the **party** side deliberately having no `state` attribute —
+> "No `state` attribute: the party State rides on `partyGst/@stateCode`, the single stored State that drives GST
+> place of supply." The asymmetry is a conscious design that was simply never mirrored on the company side.)*
+>
+> W0-2a added the missing floor: `Company.Pin` now goes through the same six-digit validation as the recipient
+> PIN (`IndianPinCode`, called by `Company.EnsureValid` at `Company.cs:97` and applied at the import boundary,
+> `ImportPlan.cs:1203`). Before that, a canonical document carrying `pin="abcdef"` would have printed
+> `PIN: abcdef` on a tax invoice.
 
 **(ii) The GSTIN half of Rule 46(a) is already typeable.** **[V]** `GstConfigViewModel.cs:377-386` exposes
 `Gstin` (`:377`), `HomeState` (`:380`), `RegistrationType` (`:383`) and `Periodicity` (`:386`) through the live
@@ -448,17 +539,57 @@ rewrite**, so an Alter screen needs **no new UPDATE statement**: mutate the doma
 
 **[V] Read path.** `:1275` `FROM companies WHERE id = $id`, mapped at `:1288-1300`.
 
-**[V] For the 5 Tally contact fields** (Telephone / E-Mail / Mobile / Fax / Website): **yes, a migration** —
-`Schema.CurrentVersion` is **50** at `fa651ae`, so the next is **v51**. The precedent is directly at hand: **v45**
-did exactly this on the **buyer** side — `Schema.cs:812-815` added `mailing_name`, `mailing_address`,
-`mailing_country`, `mailing_pincode` to `ledgers` as four nullable TEXT columns — and that is what made the buyer
-address printable.
+**[V] For the 5 Tally contact fields** (Telephone / E-Mail / Mobile / Fax / Website): **yes, a migration.** The
+precedent is directly at hand: **v45** did exactly this on the **buyer** side — it added `mailing_name`,
+`mailing_address`, `mailing_country`, `mailing_pincode` to `ledgers` as four nullable TEXT columns (search
+`Schema.cs` for `mailing_pincode`) — and that is what made the buyer address printable. Being nullable with no
+default, such columns cannot perturb existing rows, so the standing `SchemaMigrationEquivalenceTests` plus that
+precedent are sufficient for the purely additive shape.
+
+> 🔴 **DO NOT HARD-CODE v51. Corrected 2026-08-15.** This section said "`Schema.CurrentVersion` is **50** at
+> `fa651ae`, so the next is **v51**". That was arithmetic, not a reservation, and **v51 is already taken** — an
+> unrelated, still-uncommitted GST five-level-hierarchy slice in this same worktree sets
+> `CurrentVersion = 51`, defines `MigrateV50ToV51`, adds six `companies` columns and registers its own
+> `SchemaDowngrade` entry. **Two migrations sharing one version number is a book-eater**: whichever lands second
+> is skipped entirely on any database already stamped 51, leaving columns the code believes exist.
+>
+> **And v52/v53 are reserved as well — do not assume "next free" means v52.** `plan.md`'s Phase 10.10 carries a
+> **binding allocation** (*"binding allocation, replacing three colliding …"*): **WF-1 = v51, WF-2 = v52,
+> WF-3 = v53.** The first genuinely free number for W0-2b is therefore **v54**, unless that allocation is
+> formally amended first. *(Corrected 2026-08-15: this paragraph previously said "v52 if the GST-hierarchy slice
+> lands first", which reads the collision one slice deep and would have walked straight into WF-2's number.)*
+>
+> **Re-read `Schema.CurrentVersion` AND that allocation at the moment W0-2b is implemented**, and write the
+> migration against the **post-v51** `companies` table, not the `fa651ae` one. **W0-2a ships no schema change at
+> all**, so it does not participate in this collision.
+
+### 7.7 🔴 Worktree contention — read before editing any of these files
+
+This worktree carries **two independent uncommitted slices**: W0-2a (the print half) and the GST five-level
+hierarchy. They overlap on `Schema.cs`, `SchemaDowngrade.cs` and `SqliteCompanyStore.cs`. Consequences that
+outlive this document:
+
+> **Who the other slice is, so it is not mistaken for rogue work.** It is **Phase 10.10's WF-1** (register IV-1),
+> and `plan.md`'s **binding allocation gives it v51** — it is not squatting on the number. Two things about it
+> matter to any reader here: **(a)** only its **masters and plumbing** landed — the resolver did not, so the two
+> source-order columns are **persisted but inert** and IV-1 is still shipping; and **(b)** it carries a recorded
+> **R6 deviation** — its design agent died and the slice was built from a reconstructed scope with no design of
+> record, so it has **not** passed a design gate or its own A10 review. See `plan.md` slice **S4 (WF-1)**. Do not
+> read its presence in this tree as a merged, reviewed fact.
+
+- **`Schema.cs` line citations are unstable here** — the GST slice inserts ~118 lines ahead of the `companies`
+  block and the `mailing_state` prohibition. This document therefore cites `Schema.cs` **by unique text**
+  (e.g. *search for* `Do not add mailing_state`) rather than by line, and so does
+  `VoucherPrintProjector.SellerBlock`'s doc comment. A `.cs`-comment line citation has **no gate behind it at
+  all** (`DocumentCodeAgreementTests` scans only `*.md`), which is why the load-bearing one was moved to text.
+- **W0-2b must not be written against `fa651ae`'s schema.** Re-derive the `companies` table shape first.
 
 ---
 
 ## 8. 🔴🔴 The design blocker — this needs a USER DECISION before any code
 
-**[V]** `Schema.cs:808-811` carries an explicit standing prohibition on the **party** side, verbatim:
+**[V]** `Schema.cs` carries an explicit standing prohibition on the **party** side — *search the file for* `Do
+not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 > there is deliberately **NO** `mailing_state` column. The party's State/UT is `party_gst_state` above, which
 > drives GST place of supply (CGST+SGST vs IGST); a second stored State could contradict it and silently produce
@@ -466,12 +597,39 @@ address printable.
 > `Ledger.MailingStateCode`. **Do not add `mailing_state`.**
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
-(`Schema.cs:172`) **and** a GST `companies.gst_home_state` (`Schema.cs:188`), with the printer reading **only the
-latter** (`VoucherPrintProjector.cs:687`).
+**and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:726`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
-State that no code reads** — the exact failure mode that comment was written to prevent, and worse than the party
-case, because here the divergent column *already exists* and is *already persisted*.
+State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
+party case, because here the divergent column *already exists* and is *already persisted*.
+
+> 🔴 **CORRECTED 2026-08-15 — the column is NOT dead, and the gate must not be decided as though it were.**
+> This section, and the `plan.md` gate that quotes it, described `companies.state` as a field "no code reads" /
+> that "goes nowhere". **That is true only of the print path.** The canonical XML/JSON round-trip has always
+> carried `state` and `pin` (§7.3(i) lists the five call sites; `CanonicalRoundTripTests.cs:259` asserts it, and
+> W0-2a added `CanonicalCompanyPostalRoundTripTests` to pin `Pin` and the import boundary as well). **Every book
+> imported from canonical XML holds real values in `companies.state`.**
+>
+> **This changes what "suppress the postal one" costs.** It is *not* a free column drop. Dropping or merging
+> `companies.state`/`pin` would (a) **silently discard values already persisted** in any book imported from
+> canonical XML, and (b) **change canonical XML output so export→import is no longer identity**, breaking the
+> round-trip contract.
+>
+> **And the repo's standing migration check would not notice either loss.**
+> `SchemaMigrationEquivalenceTests` builds a v1 database, inserts **exactly one row** —
+> `INSERT INTO schema_version(version) VALUES (1)` — and **no data rows at all**, then compares migrated-vs-fresh
+> **schema shape** via `PRAGMA table_info` and `sqlite_master` index SQL. It is driven off
+> `Schema.CurrentVersion`, so a new version *is* picked up automatically and nothing is silently skipped — but
+> every assertion is over column name/type/notnull/default/pk **on an empty database**. A migration that dropped
+> `companies.state`, or merged it into `gst_home_state` with a lossy `UPDATE`, leaves both databases
+> structurally identical and **passes green**.
+>
+> **Therefore, whichever shape is chosen, a consolidating design MUST state where the existing
+> `companies.state` data GOES** (merged into `gst_home_state`? preserved as a deprecated column?) **and ship a
+> data-preservation test over a POPULATED pre-migration book** — odd-value fixtures, a real State string and PIN,
+> asserted byte-for-byte after migration, plus canonical-XML export unchanged for the fields that survive. A
+> column-shape test is not evidence.
 
 **[V] The corpus points at a third answer.** TallyPrime's GST Details State "**by default shows the State name as
 selected in the Company Creation screen**" (Book p.177) — it **inherits** rather than duplicating, and the same
@@ -483,6 +641,29 @@ the §7.5 field-map and Tally's screen), or wire one to the other as Tally does 
 what `gst_home_state` means and touches the GST screen, which is outside W0-2 as written).
 
 **This needs a decision, not a guess.** Nothing in this document chooses.
+
+> ## ✅✅ RESOLVED 2026-08-15 — THE USER CHOSE **INHERIT**. THIS BLOCKER IS CLOSED.
+>
+> The third shape — *wire one to the other as TallyPrime does* — is the ruling, and it is the one this section's
+> own corpus evidence (Book p.177, quoted directly above) points at. **The authoritative record of the ruling is
+> `plan.md`'s W0-2b R12 gate, RULING 3** (R6: `plan.md` is the single source of truth; this document is
+> secondary). In summary:
+>
+> - The **postal `Company.State` is the SOURCE OF TRUTH** — the State typed on the Create/Alter screen.
+> - **`GstConfig.HomeStateCode` DEFAULTS FROM IT at creation** and **stays editable** for a genuine divergence
+>   (a registration in a State other than the postal one).
+> - A **consistency guard WARNS** when the two differ. A warning, not a refusal.
+> - **Both columns are kept — no drop, no merge, no destructive migration.**
+>
+> **What this retires:** *expose both* and *suppress the postal one*. Because nothing is dropped or merged, **the
+> data-preservation obligation stated in the correction above does NOT bind W0-2b** — it was conditional on a
+> *consolidating* shape, and the chosen shape is additive. The `Do not add mailing_state` prohibition is
+> untouched and still binds the **party** side; this ruling concerns the company row only.
+>
+> **🔴 None of it is built.** The inheritance rule, the guard and the screen are all W0-2b deliverables and all
+> unwritten: `CreateCompany()` still captures only the name, `Company.State` still has no assignment site in
+> `src/Apex.Desktop`, and no consistency guard exists. W0-2a (the print half) is compatible by construction — it
+> reads the GST home State and never `Company.State`, which under INHERIT is still exactly right.
 
 ---
 
@@ -503,7 +684,30 @@ session inventing.*
 8. Whether current TallyPrime uses a literal **"Set/Alter GST Details" yes/no prompt at COMPANY level**.
 9. The **exact contact-block field order** (the two primary sources disagree — and see §2.1, where one of them
    disagrees with itself).
-10. **Rule 46 verbatim text came from GSTZen, not CBIC** (see §5.4 for the TLS failure that forced it).
+10. ~~**Rule 46 verbatim text came from GSTZen, not CBIC**~~ — ✅ **CLOSED 2026-08-15.** Fetched first-party from
+    CBIC's consolidated rules PDF and quoted verbatim in §5.4, which also records the two wordings the secondary
+    source got wrong. A §9 entry that gets *used* rather than resolved is worse than one still open, because the
+    list stops being a reliable inventory of what is unsourced — this one was being used, so it was resolved.
+
+11. 🔴 **The printed ORDER of the postal components, and the "PIN: " label — UNVERIFIED AND CHOSEN AGAINST THE
+    CORPUS.** W0-2a prints the supplier block as **Address → Country → PIN → State → GSTIN**, because
+    `InvoicePdf.DrawPartyBlock` (`InvoicePdf.cs:564`) draws every `AddressLines` entry (`:570`) before the State
+    line (`:578`). **[V] The corpus consistently orders these Address → State → Country → Pin Code**, and labels
+    the last one "Pin Code" / "Pincode" where we print `"PIN: "`:
+    - `664311548-Tally-Prime-Book.pdf` PDF p.13 (extracted 2026-08-15): *Address · State · Country · Pin Code*.
+    - `696054070-TALLY-PRIME-STUDY-GUIDE.pdf` PDF p.268 (extracted 2026-08-15), worked example: *Address: 13A,
+      Picnic Garden Road / 3rd Lane / Kolkata · State: West Bengal · Country: India · Pincode: 700039*.
+    - Even SG p.58-59's prose, which inverts Country and State against the Book, still puts Pin Code **last**.
+
+    **Both corpus sources are CAPTURE-SCREEN field orders, not printed-invoice specimens** — the corpus contains
+    no supplier-block print specimen — so they are indicative, not binding. But they are the only evidence there
+    is, and **we do not match them**. Two further facts make this a recorded departure rather than a neutral
+    choice: (1) before W0-2a the supplier block printed *Address → State → GSTIN*, which **agreed** with the
+    corpus on the one point it expressed, so this is a change to a statutory document; and (2) matching the
+    corpus would require moving the State into the address builder, which changes the shipped **WI-4 recipient**
+    block's printed order too — a second statutory-document change that belongs in its own slice with its own
+    grounding. **Deferred to W0-2b as an explicit follow-up**; recorded here and in `SellerBlock`'s doc comment
+    so it is not silently inherited.
 
 ---
 
@@ -519,6 +723,31 @@ Recorded rather than silently fixed, because a claim that **was** true and is no
 | `CreateCompany()` | `MainWindowViewModel.cs:826-838` | **`:827-839`** — `:826` is the doc comment |
 | GST screen bindable properties | `GstConfigViewModel.cs:373-382` | **`:377-386`** — `Gstin` `:377`, `HomeState` `:380`, `RegistrationType` `:383`, `Periodicity` `:386` |
 | `companies` table column list | `Schema.cs:167-179` | **`:166-181`** — the table opens at `:166`, and `primary_cost_category` / `main_location`, which the A14 list included, are at `:180-181` |
+
+### Round 2 — corrected 2026-08-15 during the W0-2a review (adversarial, three lenses)
+
+*The first round corrected the A14 pass against `fa651ae`. This round corrects **this document** against
+`85f82dd` + the W0-2a working tree. It is longer than round 1, which is the point of keeping the log.*
+
+| # | Claim as written | Status |
+|---|---|---|
+| R2-1 | `plan.md:1525` / `:1529-1535` / `:1536-1550` for the W0-2 row and the R12 gate | **WRONG TARGET** — that range is the **voucher-alteration** block. Correct **after this edit's own row-split, and re-anchored again once the RULING-3 record landed**: W0-2a `plan.md:1633-1676`, W0-2b row `:1677-1697`, gate `:1698-1783`, "11 fields" `:1679`, the grounding pointer `:1691`. **Three re-anchorings of the same pointers in two days is the standing evidence that a `plan.md:NN` citation is the least durable kind there is** — prefer a unique heading phrase. The gate was real and correctly worded; only the pointers were wrong — which is worse than usual here, because the header's whole argument is that a gate must be findable in `plan.md`. |
+| R2-2 | Every §7.2/§7.3 print-path `file:line` | **ALL DRIFTED**, twice: `85f82dd` is itself a print/report rewrite, then W0-2a edited the file again. Re-anchored throughout §7.2/§7.3. |
+| R2-3 | "`Company.State` **and** `Company.Pin` are never printed … the seller block has no equivalent" | **HALF FALSE as of W0-2a.** `Pin` and `Country` now print. Rewritten in §7.3(i). |
+| R2-4 | "a postal State typed into `Company.State` would **go nowhere**" (echoed verbatim in the `plan.md` gate) | **WRONG, AND ALWAYS WAS.** The canonical XML/JSON round-trip carries `state` and `pin`. True claim: *no PRINT path reads it.* This changes the cost of the gate's "suppress the postal one" option — see §8. |
+| R2-5 | §7.6 "so the next is **v51**" | **v51 IS TAKEN** by a concurrent uncommitted slice in this same worktree. Never hard-code it; see §7.6 and the new §7.7. |
+| R2-6 | `Schema.cs:808-811` for the `mailing_state` prohibition | **Right for `HEAD`, wrong for the tree it ships in** (840/843 there). Now cited **by text** everywhere, including in the C# doc comment — where no gate exists at all. §7.7. |
+| R2-7 | Rule 46 text sourced from GSTZen, §9 item 10 left open | **CLOSED** — first-party CBIC fetch performed; §5.4. It also caught two wrong wordings ("rule 7"→**rule 54**; "GSTIN" is our abbreviation, not the statute's). |
+| R2-8 | *(new)* the printed component ORDER | **Departs from the corpus and is now recorded as such** — §9 item 11. |
+| R2-9 | *(new)* `SchemaMigrationEquivalenceTests` as cover for a company-column migration | **It is shape-only, on an EMPTY database** — verified: one `INSERT`, no data rows. Does not protect values. §8. |
+
+### Round 3 — 2026-08-15, the user's ruling
+
+| # | Claim as written | Status |
+|---|---|---|
+| R3-1 | §8 and the header: "this needs a USER DECISION before any code is written" / "Nothing in this document chooses" | **RESOLVED, not corrected.** The user ruled **INHERIT** — the third shape, the one §8's own corpus evidence (Book p.177) points at. §8 keeps its full argument and gains a resolution banner; the authoritative record is `plan.md`'s RULING 3. |
+| R3-2 | §8's data-preservation obligation ("any consolidating shape MUST ship a populated-book migration test") | **Still true as written, but NO LONGER BINDING on W0-2b** — it was conditional on a *consolidating* shape, and INHERIT drops and merges nothing. Kept because it binds any future consolidation. |
+| R3-3 | Every `plan.md:NN` pointer in this document | **RE-ANCHORED A THIRD TIME** (see R2-1). Three re-anchorings in two days; `plan.md:NN` is the least durable citation form in this repo. |
 
 ### Claims now false, or too strong
 

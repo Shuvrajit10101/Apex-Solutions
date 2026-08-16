@@ -794,3 +794,37 @@ public enum Table4bBucket
     /// <summary>Table 4(D)(1) — a reclaim of an earlier reversal (pulled into net ITC via 4(A)(5)).</summary>
     Table4D1 = 2,
 }
+
+/// <summary>
+/// Which end of the five-level GST master hierarchy a lookup starts from (plan.md Phase 10.10 WF-1; register IV-1).
+/// The reference application ships <b>two</b> such options — "Source of HSN/SAC Details" and "Source of GST Rate" —
+/// selectable independently, so a book can take its classification from one end and its rate from the other
+/// (<see cref="GstConfig.SourceOfHsnSacDetails"/>, <see cref="GstConfig.SourceOfGstRate"/>).
+/// </summary>
+/// <remarks>
+/// <para>⚠️ <b>The two members are NOT symmetric in how they arrive.</b> <see cref="LedgerFirst"/> is ordinal 0 and
+/// is therefore what a <b>fresh</b> company gets (it is the reference application's shipped default). An
+/// <b>existing</b> book must keep resolving the way it always has — item first — so
+/// <c>Schema.MigrateV50ToV51</c> back-fills every pre-existing company row to <see cref="StockItemFirst"/> with an
+/// explicit <c>UPDATE</c> (R12 decision 1). Do not "simplify" that into the column default: the two values are
+/// deliberately different on the two paths.</para>
+///
+/// <para><b>R7 grounding.</b> The corpus names the five levels but is silent on their ORDER (see
+/// <see cref="MasterGstDetails"/> for the verbatim extract); the two order strings come from the reference
+/// application's published "HSN/SAC &amp; GST Rate Hierarchy" page, recorded with its citation at
+/// <c>docs/invented-vs-cloned.md</c> IV-1.</para>
+/// </remarks>
+public enum GstDetailSource
+{
+    /// <summary>
+    /// Ledger → Group → Stock Item → Stock Group → Company — the reference application's <b>shipped default</b>,
+    /// and what every company created on v51 or later starts with.
+    /// </summary>
+    LedgerFirst = 0,
+
+    /// <summary>
+    /// Stock Item → Stock Group → Ledger → Group → Company — the selectable alternative, and the value every book
+    /// that predates v51 is migrated to, because it is what this application resolved before the hierarchy existed.
+    /// </summary>
+    StockItemFirst = 1,
+}

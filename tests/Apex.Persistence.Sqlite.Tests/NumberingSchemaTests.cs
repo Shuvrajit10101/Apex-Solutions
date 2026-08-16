@@ -43,6 +43,7 @@ public sealed class NumberingSchemaTests
             {
                 // Step down one version at a time from the current version: v49→v48 drops the accounting-invoice
                 // flag, v48→v47 drops the counterparty reference columns, v47→v46 drops the numbering config.
+                SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
                 SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);
@@ -177,6 +178,7 @@ public sealed class NumberingSchemaTests
             {
                 // Step down from the current version: v49→v48 (accounting-invoice flag), v48→v47 (reference columns),
                 // then v47→v46 (numbering config).
+                SchemaDowngrade.V51ToV50(conn);   // v51 GST five-level hierarchy masters
                 SchemaDowngrade.V50ToV49(conn);   // v50 negative-stock warn flag
                 SchemaDowngrade.V49ToV48(conn);
                 SchemaDowngrade.V48ToV47(conn);

@@ -183,6 +183,11 @@ public sealed class LegacyCostAllocationLoadTests
         // G-2 is a validation-contract change, NOT a storage change: cost_allocations already stores one row
         // per (category, centre, amount) with no uniqueness constraint across categories, so a parallel set
         // is simply two rows. Nothing to migrate, no version bump.
-        Assert.Equal(50, Schema.CurrentVersion);
+        //
+        // The literal below is a deliberate tripwire against an ACCIDENTAL bump, so it moves only when a slice
+        // knowingly owns a version. It was 50; **v51 is owned by WF-1 (the GST five-level hierarchy masters)**,
+        // which adds columns to companies/groups/stock_groups and touches nothing in cost_allocations — the G-2
+        // contract this test guards is still storage-free.
+        Assert.Equal(51, Schema.CurrentVersion);
     }
 }

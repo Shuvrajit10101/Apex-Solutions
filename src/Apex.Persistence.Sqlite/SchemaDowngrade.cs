@@ -278,6 +278,65 @@ public static class SchemaDowngrade
         Exec(connection, "UPDATE schema_version SET version = 49;");
     }
 
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV50ToV51"/>: removes the GST five-level hierarchy columns — the six on
+    /// <c>companies</c> (<see cref="Schema.V51GstHierarchyCompanyColumns"/>) and the four
+    /// (<see cref="Schema.V51GstHierarchyMasterColumns"/>) on <b>each</b> of <c>groups</c> and <c>stock_groups</c> —
+    /// and stamps <c>schema_version</c> back to 50. Nothing else is touched; v51 added no tables, indexes or
+    /// constraints.
+    ///
+    /// <para>⚠️ <b>This downgrade is NOT information-preserving on the two source-order columns, and that is what
+    /// makes re-migrating a real assertion.</b> A company that had chosen <c>LedgerFirst</c> loses that choice on the
+    /// way down (a v50 database has nowhere to record it) and comes back up as <c>StockItemFirst</c> from
+    /// <see cref="Schema.MigrateV50ToV51"/>'s back-fill. That is the correct meaning of a downgrade, and it is
+    /// precisely the round-trip that proves the back-fill hands a pre-v51 book the ITEM-FIRST order it has always
+    /// resolved with, rather than the fresh default. The twelve <c>MasterGstDetails</c> columns are genuinely
+    /// discarded, and come back NULL — "no GST block" — which is what a v50 master was.</para>
+    ///
+    /// <para>Each table is rebuilt from <c>PRAGMA table_info</c> minus its v51 columns via the same plain
+    /// <c>CREATE … AS SELECT</c> idiom <see cref="V50ToV49"/> uses, for the same reasons (SQLite's
+    /// <c>DROP COLUMN</c> chokes on our commented DDL; a hand-written prior-version <c>CREATE TABLE</c> would rot).
+    /// Foreign keys are switched off for the swap — <c>groups</c> is referenced by <c>ledgers</c>,
+    /// <c>companies.profit_and_loss_head_id</c> and by itself, <c>stock_groups</c> by <c>stock_items</c> and by
+    /// itself, and <c>companies</c> by nearly every table. <b>KNOWN (F6), unchanged deliberately:</b> like every
+    /// other downgrade here, the rebuild reproduces columns and data but not the PRIMARY KEY / NOT NULLs — see
+    /// <see cref="V49ToV48"/> for why that is tolerated and why fixing it is a separate change.</para>
+    /// </summary>
+    public static void V51ToV50(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        DropColumns(connection, "companies", Schema.V51GstHierarchyCompanyColumns, "companies_v50");
+        DropColumns(connection, "groups", Schema.V51GstHierarchyMasterColumns, "groups_v50");
+        DropColumns(connection, "stock_groups", Schema.V51GstHierarchyMasterColumns, "stock_groups_v50");
+
+        Exec(connection, "UPDATE schema_version SET version = 50;");
+    }
+
+    /// <summary>
+    /// Rebuilds <paramref name="table"/> without <paramref name="drop"/>, via the <c>CREATE … AS SELECT</c> / swap
+    /// idiom every downgrade above open-codes. Extracted at v51 only because that version is the first to drop
+    /// columns from three tables at once — the behaviour is identical to the open-coded blocks, including the
+    /// no-op guard when nothing (or everything) would be kept.
+    /// </summary>
+    private static void DropColumns(
+        SqliteConnection connection, string table, IReadOnlyList<string> drop, string scratchName)
+    {
+        var all = ColumnNames(connection, table);
+        var keep = all.Where(c => !drop.Contains(c, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (keep.Count == 0 || keep.Count == all.Count) return;
+
+        var columnList = string.Join(", ", keep.Select(c => $"\"{c}\""));
+
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        Exec(connection, $"""
+            CREATE TABLE {scratchName} AS SELECT {columnList} FROM "{table}";
+            DROP TABLE "{table}";
+            ALTER TABLE {scratchName} RENAME TO "{table}";
+            """);
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+    }
+
     private static List<string> ColumnNames(SqliteConnection connection, string table)
     {
         using var cmd = connection.CreateCommand();
