@@ -1405,7 +1405,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      below is addressed to a WF-1 continuation, and **this row is not finished-and-safe.**
      **▶ ✅ THE OWED REVIEW HAS BEEN PAID — three lenses, 2026-08-16, on top of `e49b88e` (fix-forward; nothing
      rewritten).** The debt named above ("its own review is still owed") is **discharged**. **34 findings: 1
-     BLOCKER, 14 MAJOR, 19 MINOR. NO DOCTORED TEST WAS FOUND** — all 17 new test bodies were read against their
+     BLOCKER, 18 MAJOR, 14 MINOR — plus lens 3's F16, a premise correction carrying no severity, which is why
+     the severities sum to 33 and the findings to 34 (⚠️ CORRECTED 2026-08-16: this read "14 MAJOR, 19 MINOR",
+     which transposed the two; re-counted directly from the three lens records — lens 1 = 2 major / 3 minor,
+     lens 2 = 5 major / 7 minor, lens 3 = 1 blocker / 11 major / 4 minor / 1 unclassified). NO DOCTORED TEST
+     WAS FOUND** — all 17 new test bodies were read against their
      names; none asserts the inverse. What was found instead was a **cluster of tests that could not fail**, a
      **migration back-fill the writer erased**, and a **grounding that overstated the corpus**. The R6 design
      gate is still missing and is NOT retroactively granted by this review — what the row now has is a review,
