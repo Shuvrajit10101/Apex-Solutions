@@ -1408,7 +1408,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      BLOCKER, 18 MAJOR, 14 MINOR — plus lens 3's F16, a premise correction carrying no severity, which is why
      the severities sum to 33 and the findings to 34 (⚠️ CORRECTED 2026-08-16: this read "14 MAJOR, 19 MINOR",
      which transposed the two; re-counted directly from the three lens records — lens 1 = 2 major / 3 minor,
-     lens 2 = 5 major / 7 minor, lens 3 = 1 blocker / 11 major / 4 minor / 1 unclassified). NO DOCTORED TEST
+     lens 2 = 5 major / 7 minor, lens 3 = 1 blocker / 11 major / 4 minor / 1 unclassified). **▶ DO NOT QUOTE
+     THIS SPLIT — RE-COUNT IT. The derivation is `docs/wf1-owed-review-findings.md`**, which carries all 34
+     findings per lens with their severities; this line is a summary OF that table, not a source. That file
+     exists because the corrected figure was itself only a quotation until it did — the lens records lived in
+     agent output and nothing tracked could re-derive them. NO DOCTORED TEST
      WAS FOUND** — all 17 new test bodies were read against their
      names; none asserts the inverse. What was found instead was a **cluster of tests that could not fail**, a
      **migration back-fill the writer erased**, and a **grounding that overstated the corpus**. The R6 design

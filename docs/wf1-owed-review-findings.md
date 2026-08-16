@@ -2,8 +2,12 @@
 
 **Why this file exists.** The review that WF-1 owed was paid on 2026-08-16 (three sequential adversarial
 lenses, fixed forward on top of `e49b88e`, landed as `31c476b`). Its finding count was then quoted three
-times and **counted zero times**: the fix-agent brief said "15 MAJOR", the first record said "14 MAJOR, 19
-MINOR", and the true split is **18 MAJOR, 14 MINOR**. The correction landed in `4cf5501` — but A12 observed
+times and **counted zero times**. ⚠️ The first draft of this sentence said "quoted three times" and then
+enumerated two — an uncounted number, in the one file whose whole thesis is that figures must carry the count
+that produced them. A12 caught it on review. **Enumerated, the wrong split reached FOUR sites**: the fix-agent
+brief (which said "15 MAJOR"), `plan.md`, `memory.md`, and — permanently, because the branch is pushed and no
+amend is permitted — the commit body of `31c476b`, which will always read "14 MAJOR, 19 MINOR" with no marker
+on it. The true split is **18 MAJOR, 14 MINOR**. The correction landed in `4cf5501` — but A12 observed
 that the corrected figure was *still* only a quoted number, because the lens records lived in agent output
 and no tracked file in this repository could re-derive it. **That is the same failure mode one level out.**
 This table is the derivation. Re-count it rather than quoting the header.
