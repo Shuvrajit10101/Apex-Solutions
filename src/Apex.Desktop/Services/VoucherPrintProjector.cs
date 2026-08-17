@@ -179,6 +179,9 @@ public static class VoucherPrintProjector
                 : string.Empty,
             Lines = lines,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
+            // Phase 10.11 S3: a cancelled voucher prints with a CANCELLED over-print. Read straight off the
+            // posted voucher — no figure on the page moves, and a live voucher is byte-identical (ER-13).
+            IsCancelled = voucher.Cancelled,
         };
     }
 
@@ -395,6 +398,10 @@ public static class VoucherPrintProjector
         {
             DocumentTitle = billOfSupply ? GstReportSupport.BillOfSupplyTitle : GstReportSupport.TaxInvoiceTitle,
             IsBillOfSupply = billOfSupply,
+            // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
+            // replacing it — cancelling a document does not change what it was issued as, and a renderer that
+            // read one flag for two questions would eventually print the wrong document name.
+            IsCancelled = voucher.Cancelled,
             TopDeclaration = billOfSupply ? TopDeclarationFor(company, voucher) : string.Empty,
             Seller = SellerBlock(company),
             Buyer = BuyerBlock(company, partyLedger, buyerState),
@@ -516,6 +523,10 @@ public static class VoucherPrintProjector
         {
             DocumentTitle = billOfSupply ? GstReportSupport.BillOfSupplyTitle : GstReportSupport.TaxInvoiceTitle,
             IsBillOfSupply = billOfSupply,
+            // Phase 10.11 S3: the CANCELLED over-print. It rides ALONGSIDE the statutory title rather than
+            // replacing it — cancelling a document does not change what it was issued as, and a renderer that
+            // read one flag for two questions would eventually print the wrong document name.
+            IsCancelled = voucher.Cancelled,
             TopDeclaration = billOfSupply ? TopDeclarationFor(company, voucher) : string.Empty,
             Seller = SellerBlock(company),
             Buyer = BuyerBlock(company, partyLedger, buyerState),

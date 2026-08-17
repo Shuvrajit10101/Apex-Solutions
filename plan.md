@@ -2288,7 +2288,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     writes the field. **The day W0-2b's screen ships, that stops being true**, so W0-2b must call
     `Company.EnsureValid()` on its save path (or the store must), and it must ship the test that proves a bad PIN
     typed into the screen is refused. Recorded here rather than left to be discovered.
-    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:747-750`).** Country/PIN
+    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:758-761`).** Country/PIN
     are appended **only when a postal `Address` was captured**. Without it every book on disk regresses:
     `companies.country` is `TEXT NOT NULL`, `Company.Country` defaults to `"India"`, and **nothing in
     `src/Apex.Desktop` ever assigns it** — so every historical invoice and every reprint would gain a supplier
@@ -2409,7 +2409,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `mailing_state`"*, because a second stored State could contradict the GST one and **silently produce the
     wrong tax head**. The **company** side **already has exactly that duplication**: postal `companies.state`
     alongside GST `companies.gst_home_state` (both in the `companies` DDL), **with the printer reading ONLY the
-    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:731` is
+    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:742` is
     `StateText = StateText(company.Gst?.HomeStateCode)`.
     **🔴 CORRECTION 2026-08-15 — this gate previously told you the column was DEAD. It is not.** The sentence
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
@@ -2580,7 +2580,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     overseas**; **99** is the real export code. `EInvoiceService.cs:96-98` and `B2cQrService.cs:85` classify 97 as
     Export and `BillOfSupplyRoutingTests.cs:894 PINNED_GAP_…overseas…` pins it. Re-cut the pin. **Schema-clean.**
   - **▶ NOT CLOSED BY THIS ROW (standing carry-forwards, restated so it is not mistaken for closing them):**
-    the **printed-vs-posted money defect** (`VoucherPrintProjector.cs:467` — a party debit understated by the
+    the **printed-vs-posted money defect** (`VoucherPrintProjector.cs:474` — a party debit understated by the
     whole **₹8,513.41**) · the missing **zero-rated / SEZ** concept, the other half of the pin above · the
     **`CostAllocationStrictness`** naming debt.
   - **W0-9 (W0-1 follow-up) ONE bill-of-supply rule — collapse the two predicates that disagree** — **DONE.**
@@ -2635,7 +2635,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 
     There are **TWO `IsBillOfSupply` predicates and they do not agree.** `GstReportSupport.IsBillOfSupply`
     (`src/Apex.Ledger/Reports/GstReportSupport.cs:175` — the **ENGINE** rule) covers the **CGST §10 COMPOSITION limb
-    only**; `VoucherPrintProjector.IsBillOfSupply` (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:340` — the
+    only**; `VoucherPrintProjector.IsBillOfSupply` (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:343` — the
     **DESKTOP** rule) calls the engine one and then **adds the §31(3)(c) EXEMPT limb** on top. The **e-Way Bill
     engine reads the ENGINE rule** (`EWayBillService.cs:441`, `IsBillOfSupply(…) ? "BIL" : "INV"`); the **printed
     title reads the DESKTOP rule**. **Consequence: a wholly-exempt supply by a REGULAR dealer prints BILL OF SUPPLY
@@ -2652,7 +2652,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     POSTED DEBT** — **~1–2 days. A money slice — NOT UI over finished plumbing** (it wrote "the one row here"
     that is; W0-8 and W0-9 before it and W0-11 / F14 after it are engine rows — see the amended Goals sentence).
     `VoucherPrintProjector.ProjectInvoice` takes the **ITEM** path's head totals from a **LIVE
-    `GstService.ComputeInvoiceTax`** (`VoucherPrintProjector.cs:577`), while `ProjectServiceInvoice` reads the
+    `GstService.ComputeInvoiceTax`** (`VoucherPrintProjector.cs:588`), while `ProjectServiceInvoice` reads the
     **POSTED legs** via `ReadPostedRateGroups` (`:718`). **One projector, two sources of truth for money.** Where
     they disagree **the printed Grand Total is not the debt the general ledger recorded** — the document misstates
     the liability it is evidence of.
@@ -2977,7 +2977,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `GstConfig.HomeStateCode` is `string?`: `GstService.cs:332-339` **throws** `InvalidOperationException` when there
     is no home state, while `EWayBillService.cs:145-150` **returns false** (i.e. routes it intra-state) for that
     book. Six `src/` callers reach the throwing form. **Three place-of-supply derivations:**
-    `GstReportSupport.cs:74-79` (party state, else company home), `VoucherPrintProjector.cs:755-760` (home-state
+    `GstReportSupport.cs:74-79` (party state, else company home), `VoucherPrintProjector.cs:766-771` (home-state
     fallback **only** on an intra-state supply — on an inter-state one it deliberately returns **blank**), and
     `EInvoiceJson.cs:267` (`"96"` for export/SEZ, else party, else home). **For a B2C inter-state supply with no
     recorded party state the first two answer differently — home code versus blank.** Deciding these is a
@@ -3733,11 +3733,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     supply. **A figure derived from a fact the book does not have is the definition of a wrong figure.**
     **(e) is filed as THREE place-of-supply derivations, and one of the three is not a derivation at all.**
     `GstReportSupport.cs:74-79` (party State, else company home) **IS** the s.10(1)(ca) ladder and is the one to
-    unify on; `VoucherPrintProjector.cs:755-760` is a **posted-tax RECONCILIATION, not a derivation** — it answers
+    unify on; `VoucherPrintProjector.cs:766-771` is a **posted-tax RECONCILIATION, not a derivation** — it answers
     a different question ("given a posted tax leg and a live master that may since have been edited, what State
     may this document truthfully print?") and should stop being counted as a third copy; `EInvoiceJson.cs:267` is
     a **real** third derivation but a **statutorily mandated** one — see the refusal below. **Callers, re-counted at HEAD `7a35308`:** Form A (throwing) = **6** —
-    `VoucherPrintProjector.cs:272`, `PosBillingViewModel.cs:409`, `VoucherEntryViewModel.cs:3695`, `:3882`,
+    `VoucherPrintProjector.cs:275`, `PosBillingViewModel.cs:409`, `VoucherEntryViewModel.cs:3695`, `:3882`,
     `:4326`, `RcmService.cs:93`; Form B (private) = **1** — `EWayBillService.cs:69`.
     **▶ 🔴 A FOURTH COPY NOBODY COUNTED, AND IT CARRIES A WHITESPACE BUG.**
     `VoucherPrintProjector.ConsistentBuyerStateCode` (`:651-662`) re-derives the routing at `:656-658` using
@@ -3766,7 +3766,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     'no tax leg' collapsing into 'intra-state'. That is a falsehood, not a default."* **No `Unknown`/
     `Indeterminate` enum member exists anywhere in `src/`** — re-verified by grep this session; every `Unknown`
     hit is a string literal inside an exception message or a comment — and a `bool?` composes at
-    `VoucherPrintProjector.cs:597` (`postedRouting ?? livePartyInterState`) with no conversion layer.
+    `VoucherPrintProjector.cs:623` (`postedRouting ?? livePartyInterState`) with no conversion layer.
     **▶ THE DELIVERABLE (12 items; every `file:line` re-verified at HEAD `7a35308` — see the DRIFT note below).**
     **1.** `GstReportSupport`: add `static bool? RoutingOf(Company, string? partyStateCode)` + a `Voucher`
     overload + a private `PartyStateCodeOf`; re-express `PlaceOfSupply` as `PartyStateCodeOf(...) ?? home`
@@ -3834,7 +3834,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     occurrences in `tests/`, none of them null). **Nothing depends on the print path throwing** — the only two
     `Assert.Throws` on `ProjectInvoice` are `BillOfSupplyPosAndPostingGuardTests.cs:513` (test method at `:506`)
     and `OneBillOfSupplyRuleDelegationTests.cs:434`, and **both are the section-10 composition refusal**
-    (`VoucherPrintProjector.cs:264-265`), which this slice does not touch. **Expected to stay green unchanged:**
+    (`VoucherPrintProjector.cs:267-268`), which this slice does not touch. **Expected to stay green unchanged:**
     `GstTests.cs:551-592` (four `IsInterState` facts), `EWayValueTests.cs:244-252` and the threshold suite,
     `ServiceAccountingInvoicePrintFixTests.cs:209`, `GstReportsViewModelTests.cs:335-351`.
     **▶ ONE COMPILE-SURFACE TRAP TO CHECK RATHER THAN ASSUME.** `ServiceAccountingInvoicePrintFixTests.cs:206` is

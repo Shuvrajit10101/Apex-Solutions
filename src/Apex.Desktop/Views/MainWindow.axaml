@@ -40,6 +40,7 @@
         <conv:GstStatementTypeLabelConverter x:Key="GstStatementTypeLabel"/>
         <conv:ExpiryRowToBrushConverter x:Key="ExpiryRowBrush"/>
         <conv:ExpiryWarningToBrushConverter x:Key="ExpiryWarningBrush"/>
+        <conv:CancelledRowToBrushConverter x:Key="CancelledRowBrush"/>
         <conv:CollectionEmptyConverter x:Key="CollectionEmpty"/>
     </Window.Resources>
 
@@ -598,8 +599,20 @@
                                                      Do NOT "simplify" this to an inner Grid "*,Auto": that was tried and
                                                      rendered — the Auto column takes its FULL desired width and starves
                                                      the identity column to zero, silently ERASING the Day Book dates. -->
+                                                <!-- Phase 10.11 S3 — a CANCELLED voucher's Day Book row renders in the
+                                                     muted ink (CancelledRowBrush). The Foreground is set on the whole
+                                                     TextBlock, which the Particulars Run inherits. The Secondary Run
+                                                     KEEPS its own #8A8A8A — deliberately, because that grey is already
+                                                     lighter than the cancelled ink, so the tag reads as muted on a
+                                                     cancelled row and unchanged on a live one; re-pointing it at the
+                                                     converter would have been a no-visible-difference change that
+                                                     re-coloured every TB/BS/P&amp;L secondary tag as a side effect.
+                                                     IsCancelled is false on every row of every other report, so this
+                                                     binding resolves to the SAME #1A1A1A ink those rows already paint
+                                                     and nothing outside the Day Book moves. -->
                                                 <TextBlock Grid.Column="0" FontSize="12.5"
                                                            TextTrimming="CharacterEllipsis"
+                                                           Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            VerticalAlignment="Center" Margin="8,0">
                                                     <Run Text="{Binding Particulars}"
                                                          FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
@@ -611,17 +624,20 @@
                                                 <TextBlock Grid.Column="1" Text="{Binding Debit}"
                                                            Classes="numCell"
                                                            IsVisible="{Binding IsTwoColumn}"
+                                                           Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                                 <TextBlock Grid.Column="2" Text="{Binding Credit}"
                                                            Classes="numCell"
                                                            IsVisible="{Binding IsTwoColumn}"
+                                                           Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                                 <!-- Single-amount mode: Amount occupies column 2 alone -->
                                                 <TextBlock Grid.Column="2" Text="{Binding Amount}"
                                                            Classes="numCell"
                                                            IsVisible="{Binding !IsTwoColumn}"
+                                                           Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
                                             </Grid>
@@ -7500,7 +7516,7 @@
                                          IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                          Foreground="{StaticResource AlertRed}" FontSize="12"
                                          VerticalAlignment="Center" TextWrapping="Wrap"/>
-                              <Button Grid.Column="1" Content="Cancel (Alt+X)" Padding="12,6" Margin="0,0,8,0"
+                              <Button Grid.Column="1" Content="Cancel (Esc)" Padding="12,6" Margin="0,0,8,0"
                                       Click="OnCancelManufacturingJournalClick"/>
                               <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
@@ -7803,7 +7819,7 @@
                                          VerticalAlignment="Center" TextWrapping="Wrap"/>
                               <Button Grid.Column="1" Content="Tax Analysis (Alt+A)" Padding="10,6" Margin="0,0,8,0"
                                       Click="OnShowPosTaxAnalysisClick"/>
-                              <Button Grid.Column="2" Content="Cancel (Alt+X)" Padding="12,6" Margin="0,0,8,0"
+                              <Button Grid.Column="2" Content="Cancel (Esc)" Padding="12,6" Margin="0,0,8,0"
                                       Click="OnCancelPosClick"/>
                               <Button Grid.Column="3" Content="Accept (Ctrl+A)" Padding="14,6"
                                       IsEnabled="{Binding CanAccept}"
@@ -17222,6 +17238,22 @@
                     <Run Text="Current Date: "/><Run Text="{Binding StatusDate}"/>
                 </TextBlock>
             </Grid>
+        </Border>
+
+        <!-- ============ Phase 10.11 S3: the window-level NOTICE line ============
+             Every outcome of Alt+X (voucher cancellation) reports here. It has to be window-level: Alt+X works on
+             exactly ONE screen, the live report page, and that page's DataTemplate is typed to ReportsViewModel,
+             which has no `Message` property at all — so the "already cancelled" refusal, the live-IRN refusal and
+             a FAILED cancel were previously invisible, indistinguishable from a dead key. Slate, NOT amber: amber
+             below is a question awaiting Y/N, this is a statement. Declared BEFORE the confirmation so that if
+             both were ever set the question paints on top; in practice raising the prompt clears the notice, and
+             any change of screen clears it too. -->
+        <Border Grid.Row="3" Background="#3A4A5A" Height="26"
+                IsVisible="{Binding Notice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock VerticalAlignment="Center" Margin="12,0" FontSize="11"
+                       Foreground="White" FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis"
+                       Text="{Binding Notice}"/>
         </Border>
 
         <!-- ============ WI-11: the terminal "Accept? (Y/N)" confirmation ============

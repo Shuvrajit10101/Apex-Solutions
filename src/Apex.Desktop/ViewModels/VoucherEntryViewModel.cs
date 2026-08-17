@@ -2333,9 +2333,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             IsConsolidated = true,
             Display = "◦ Consolidated / unregistered — enter the reference",
         });
+        // 🔴 Phase 10.11 S3 — `!v.Cancelled` IS LOAD-BEARING, and it went in with the slice that made Alt+X
+        // reachable. This picker offers the ORIGINAL SUPPLY a §34 credit/debit note adjusts, and the filter was
+        // base type ALONE. A cancelled invoice has zero effect on the books, so choosing one as the original
+        // would write a GstCreditDebitNoteLink pointing at a supply that never happened — a note adjusting
+        // nothing, carried into GSTR-1 against a document the recipient can never match. The leak was latent only
+        // because nothing in the UI could cancel a voucher; it goes live the moment this slice ships, which is
+        // why it is closed HERE and not deferred.
         foreach (var v in _company.Vouchers
-                     .Where(v => _company.FindVoucherType(v.TypeId)?.BaseType
-                         is VoucherBaseType.Sales or VoucherBaseType.Purchase)
+                     .Where(v => !v.Cancelled
+                         && _company.FindVoucherType(v.TypeId)?.BaseType
+                             is VoucherBaseType.Sales or VoucherBaseType.Purchase)
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault();
@@ -2624,15 +2632,29 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         OutstandingAdvances.Clear();
         OutstandingAdvances.Add(new AdvanceReceiptOption { Display = "◦ (none selected)" });
+        // 🔴 Phase 10.11 S3 — THE THIRD PICKER LEAK, and it is inside the same method as the second. This method
+        // builds TWO lists and only the invoice list below originally got the cancelled filter. `LedgerService.Cancel`
+        // sets the voucher's flag and touches nothing else, so the `GstAdvanceReceipt` survives a cancelled booking
+        // receipt untouched and this list went on offering it — on BOTH routes, adjust (Journal) and refund
+        // (Payment). Harm is the mirror image of the invoice leak: once the receipt is cancelled its
+        // `Cr Output {head}` / `Dr Output Tax on Advances` pair is off the books, so adjusting or refunding against
+        // it releases suspense that was never recognised and marks the advance settled from a voucher with zero
+        // effect. Filtering on the RECEIPT VOUCHER rather than on the record, because the record has no flag.
         foreach (var a in _company.AdvanceReceipts
-                     .Where(a => a.AdjustedAgainstInvoiceVoucherId is null && a.RefundVoucherId is null))
+                     .Where(a => a.AdjustedAgainstInvoiceVoucherId is null && a.RefundVoucherId is null
+                         && _company.FindVoucher(a.ReceiptVoucherId) is { Cancelled: false }))
             OutstandingAdvances.Add(new AdvanceReceiptOption { Receipt = a, Display = AdvanceDisplay(a) });
         SelectedOutstandingAdvance = OutstandingAdvances.FirstOrDefault();
 
         AdvanceInvoices.Clear();
         AdvanceInvoices.Add(new AdvanceInvoiceOption { Display = "◦ (none selected)" });
+        // 🔴 Phase 10.11 S3 — the SECOND of the two picker leaks, closed for the same reason as the §34 one
+        // above: this list offers the invoice an outstanding advance is ADJUSTED AGAINST, and it filtered on base
+        // type alone. Adjusting an advance against a cancelled sale would retire real advance tax against a
+        // supply with no value, and the advance would be marked settled by an invoice that is not on the books.
         foreach (var v in _company.Vouchers
-                     .Where(v => _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
+                     .Where(v => !v.Cancelled
+                         && _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             AdvanceInvoices.Add(new AdvanceInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedAdvanceInvoice = AdvanceInvoices.FirstOrDefault();
@@ -3253,7 +3275,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         IsOptional = !IsOptional;
     }
 
-    /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
+    /// <summary>Esc / the Cancel button: discards the in-progress voucher and returns to the Gateway. (Alt+X
+    /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 
     // =============================================================== item-invoice mode (catalog §10; slice 3.4c)

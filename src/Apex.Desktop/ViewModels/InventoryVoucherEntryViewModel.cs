@@ -680,7 +680,8 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// <summary>Ctrl+T — toggles the post-dated flag for this voucher.</summary>
     public void TogglePostDated() => IsPostDated = !IsPostDated;
 
-    /// <summary>Esc / Alt+X cancel: discards the in-progress voucher and returns to the Gateway.</summary>
+    /// <summary>Esc / the Cancel button: discards the in-progress voucher and returns to the Gateway. (Alt+X
+    /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 }
 

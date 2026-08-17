@@ -1366,8 +1366,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // the row RENDERS as its particulars ("{VoucherTypeName} No. {Number}") — matching a hidden internal
         // string would hide rows whose visible text matches (e.g. "No.") and match text that is never shown. We
         // also fold in the party/particulars so a party-name filter still works. Magnitude = the voucher amount;
-        // cancelled rows carry Money.Zero so a positive range filter naturally excludes them; the default view
-        // leaves the date-ordered list untouched.
+        // the default view leaves the date-ordered list untouched.
+        //
+        // 🔴 A CANCELLED ROW KEEPS ITS FULL MAGNITUDE HERE, DELIBERATELY. This comment used to claim "cancelled
+        // rows carry Money.Zero so a positive range filter naturally excludes them", and that was simply false:
+        // `DayBook.Build` passes `v.TotalDebit` regardless of `v.Cancelled`, and `Voucher.TotalDebit` sums the
+        // debit-line magnitudes with no cancelled test — so a cancelled ₹20,000 receipt survives an amount range of
+        // 15,000–100,000, measured. Nothing zeroes it and nothing should: the Day Book LISTS cancelled vouchers by
+        // design (that is the whole evidence value of Cancel over Delete), and a row that vanishes from a filtered
+        // view but not from the unfiltered one would be the worse behaviour. The claim was untestable before
+        // Phase 10.11 S3, because until then no voucher in the product could be cancelled at all; it is testable
+        // now, so it is stated as it is rather than as it was wished to be.
         var rows = _sortFilter.Apply(
             built,
             r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
@@ -1382,6 +1391,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",
                 Secondary = r.IsCancelled ? "(Cancelled) " + secondary : secondary,
                 Amount = amt,
+                // Phase 10.11 S3: carry the engine row's cancelled flag into presentation so the row renders in
+                // the muted ink (CancelledRowToBrushConverter). The "(Cancelled)" text above stays — colour alone
+                // is never the only carrier of a fact this material.
+                IsCancelled = r.IsCancelled,
                 DrillVoucherId = r.VoucherId,   // RQ-7: Enter opens this voucher's read-only detail
             });
         }

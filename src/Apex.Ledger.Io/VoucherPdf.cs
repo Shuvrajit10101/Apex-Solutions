@@ -58,7 +58,7 @@ public static class VoucherPdf
             {
                 pages.Add(current);
                 current = new List<VoucherPrintLine>();
-                y = page.PageHeight - page.MarginTop - ContinuationBandHeight(page);
+                y = page.PageHeight - page.MarginTop - ContinuationBandHeight(data, page);
             }
             current.Add(line);
             y -= page.RowHeight;
@@ -105,14 +105,29 @@ public static class VoucherPdf
         double h = 0;
         if (!string.IsNullOrWhiteSpace(data.CompanyName)) h += page.TitleFontSize + 6;
         h += page.SubtitleFontSize + 2 + 10;                 // title band
+        // Phase 10.11 S3 — the CANCELLED over-print sits in the title band and therefore costs a band row. This
+        // estimate is what the paginator reserves; leaving it out would let a cancelled voucher's last posting
+        // line fall past the page foot.
+        if (data.IsCancelled) h += page.SubtitleFontSize + 2;
         h += page.BodyFontSize + 4;                          // No/Date row
         if (!string.IsNullOrWhiteSpace(data.PartyName)) h += page.BodyFontSize + 4;
         if (!string.IsNullOrWhiteSpace(data.ReferenceNo)) h += page.BodyFontSize + 4; // v48 numbering §8 ref row
         return h;
     }
 
-    private static double ContinuationBandHeight(PageConfig page) =>
-        page.SubtitleFontSize + 2 + 10 + page.BodyFontSize + 4; // "(continued)" title band + a spacer row
+    private static double ContinuationBandHeight(VoucherPrintData data, PageConfig page) =>
+        page.SubtitleFontSize + 2 + 10 + page.BodyFontSize + 4  // "(continued)" title band + a spacer row
+        + (data.IsCancelled ? page.SubtitleFontSize + 2 : 0);   // + the S3 CANCELLED over-print
+
+    /// <summary>
+    /// The word over-printed across a cancelled voucher's title band (Phase 10.11 S3), on EVERY page — a
+    /// continuation sheet that has been separated from page 1 must still say what it is.
+    ///
+    /// <para><b>🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent.</b> The source corpus describes no printed
+    /// treatment of a cancelled voucher at all; the over-print, its wording and its placement are our
+    /// decision (R7).</para>
+    /// </summary>
+    private const string CancelledBanner = "CANCELLED";
 
     // ---- drawing ----
 
@@ -132,6 +147,14 @@ public static class VoucherPdf
             }
             y -= page.SubtitleFontSize + 2;
             Center(writer, title, left, right, y, page.SubtitleFontSize + 2, bold: true);
+            // Phase 10.11 S3 — over-print CANCELLED under the document title. Nothing is drawn and no space is
+            // consumed when the flag is false, so every voucher PDF the app has ever produced is byte-identical
+            // (ER-13). See HeaderBandHeight, which reserves the matching space for the paginator.
+            if (data.IsCancelled)
+            {
+                y -= page.SubtitleFontSize + 2;
+                Center(writer, CancelledBanner, left, right, y, page.SubtitleFontSize + 2, bold: true);
+            }
             y -= 10;
 
             if (config.CopyMarking != CopyMarking.None)
@@ -168,6 +191,12 @@ public static class VoucherPdf
             // Continuation page: a compact title band for context.
             y -= page.SubtitleFontSize + 2;
             Center(writer, title + " (continued)", left, right, y, page.SubtitleFontSize + 2, bold: true);
+            // S3 — the over-print repeats here: a continuation sheet is a loose page once it leaves the printer.
+            if (data.IsCancelled)
+            {
+                y -= page.SubtitleFontSize + 2;
+                Center(writer, CancelledBanner, left, right, y, page.SubtitleFontSize + 2, bold: true);
+            }
             y -= 10;
             y -= page.BodyFontSize + 4;
         }

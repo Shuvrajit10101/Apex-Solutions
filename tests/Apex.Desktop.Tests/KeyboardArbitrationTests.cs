@@ -942,9 +942,14 @@ public sealed class KeyboardArbitrationTests
         finally { Cleanup(window, dir); }
     }
 
-    /// <summary>Alt+X still cancels the in-progress voucher and returns to the Gateway.</summary>
+    /// <summary>
+    /// 🔴 Phase 10.11 S3 — this arbitration lock INVERTED, and the inversion is the point of the slice. It used
+    /// to read "Alt+X still cancels the in-progress voucher": the key was bound app-wide to the abandon verb, so
+    /// it threw away whatever was on screen. Alt+X is now voucher CANCELLATION scoped to report context, so on a
+    /// voucher-entry screen it must reach NOTHING — the entry survives the keystroke untouched.
+    /// </summary>
     [AvaloniaFact]
-    public void AltX_still_cancels_the_voucher()
+    public void AltX_on_a_voucher_entry_screen_is_inert_and_does_not_abandon_it()
     {
         var (window, vm, dir) = NewWindow("Arb AltX Co");
         try
@@ -952,8 +957,33 @@ public sealed class KeyboardArbitrationTests
             vm.OpenVoucher(VoucherBaseType.Payment);
             Pump(window);
             Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            var entry = vm.VoucherEntry!;
 
             window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            Pump(window);
+
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Same(entry, vm.VoucherEntry);
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// The other half of the same inversion: the ABANDON route survives, it just lives on Escape now (and on the
+    /// on-screen Cancel button, which calls the same <c>AbandonEntry</c>). Without this the slice could have
+    /// removed the only keyboard way out of a voucher-entry screen and the suite would have stayed green.
+    /// </summary>
+    [AvaloniaFact]
+    public void Escape_still_abandons_the_in_progress_voucher()
+    {
+        var (window, vm, dir) = NewWindow("Arb Esc Co");
+        try
+        {
+            vm.OpenVoucher(VoucherBaseType.Payment);
+            Pump(window);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
             Pump(window);
 
             Assert.Null(vm.VoucherEntry);
@@ -1003,7 +1033,7 @@ public sealed class KeyboardArbitrationTests
             Pump(window);
             Assert.Equal(VoucherBaseType.DebitNote, vm.VoucherEntry!.Type.BaseType);
 
-            vm.CancelVoucher();
+            vm.AbandonEntry();
             Pump(window);
             window.KeyPressQwerty(PhysicalKey.F6, RawInputModifiers.Alt);
             Pump(window);

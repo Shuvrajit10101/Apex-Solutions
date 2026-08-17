@@ -217,9 +217,19 @@ public sealed class CreateOnTheFlyTests
         finally { window.Close(); Cleanup(dir); }
     }
 
-    /// <summary>Alt+X out of the create screen behaves like Esc — voucher intact, field unchanged.</summary>
+    /// <summary>
+    /// 🔴 Phase 10.11 S3 — Alt+X out of the create screen is now INERT. It used to behave like Esc (this test
+    /// asserted exactly that), because Alt+X was bound app-wide to the abandon verb. S3 took the key back for
+    /// voucher CANCELLATION and scoped it to report context, so over a create column it must reach nothing at
+    /// all: the column stays, the create screen stays, and — the part that matters — nothing is cancelled.
+    ///
+    /// <para>Kept as the NEGATIVE rather than deleted, because "the key stopped doing the old thing" is the half
+    /// of the change a passing suite would otherwise never notice. Esc still pops the column with the voucher
+    /// intact; that route is asserted by the test immediately above, which is why this one no longer duplicates
+    /// it.</para>
+    /// </summary>
     [AvaloniaFact]
-    public void AltX_out_of_the_create_screen_returns_to_the_intact_voucher()
+    public void AltX_out_of_the_create_screen_is_inert_and_leaves_the_create_column_standing()
     {
         var (window, vm, dir) = NewWindow();
         try
@@ -236,11 +246,19 @@ public sealed class CreateOnTheFlyTests
             var line = entry.Lines[1];
 
             vm.CreateMasterOnTheFly(MasterCreateKind.Ledger, MasterCreateFields.Ledger, line);
+            Assert.Equal(Screen.LedgerMaster, vm.CurrentScreen);
+
             window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
 
-            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
-            Assert.Same(entry, vm.VoucherEntry);
+            Assert.Equal(Screen.LedgerMaster, vm.CurrentScreen);     // the column did NOT pop
+            Assert.True(vm.IsCreateOnTheFlyOpen);
+            Assert.Same(entry, vm.VoucherEntry);                     // the voucher underneath is untouched
             Assert.Null(line.SelectedLedger);
+            Assert.Equal("88", entry.Lines[0].AmountText);
+
+            // …and Esc still is the way out, so the screen is not a trap.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
             Assert.Equal("88", entry.Lines[0].AmountText);
         }
         finally { window.Close(); Cleanup(dir); }

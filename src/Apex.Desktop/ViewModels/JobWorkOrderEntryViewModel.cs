@@ -408,6 +408,7 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
             CultureInfo.InvariantCulture, out var v) ? new Money(v) : null;
     }
 
-    /// <summary>Esc / Alt+X cancel: discards the in-progress order and returns to the Gateway.</summary>
+    /// <summary>Esc / the Cancel button: discards the in-progress order and returns to the Gateway. (Alt+X
+    /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 }

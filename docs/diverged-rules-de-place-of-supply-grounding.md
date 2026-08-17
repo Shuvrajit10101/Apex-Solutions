@@ -124,7 +124,7 @@ e-Way threshold.
 
 **Form A (`GstService.IsInterState`, public, throwing) — 6 call sites across 4 files:**
 
-1. `src/Apex.Desktop/Services/VoucherPrintProjector.cs:272`
+1. `src/Apex.Desktop/Services/VoucherPrintProjector.cs:275`
 2. `src/Apex.Desktop/ViewModels/PosBillingViewModel.cs:387`
 3. `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:3638`
 4. `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:3825`
@@ -134,7 +134,7 @@ e-Way threshold.
 **Form B (`EWayBillService.IsInterState`, private) — 1 call site:** `src/Apex.Ledger/Services/EWayBillService.cs:69`.
 
 *(The other `IsInterState` hits in `src/` are not calls to either form: `InvoicePrintData.cs:140` and
-`PosReceiptData.cs:103` declare a DTO property; `VoucherPrintProjector.cs:400,:519` and
+`PosReceiptData.cs:103` declare a DTO property; `VoucherPrintProjector.cs:407,:519` and
 `PosBillingViewModel.cs:817` assign it; `PrintPreviewViewModel.cs:373,:459`, `InvoicePdf.cs:238,324,391,428,445`
 and `PosReceiptPdf.cs:130,154,167` read it. `GstService.cs:16` is a `<see cref>`.)*
 
@@ -175,7 +175,7 @@ public static string? PlaceOfSupply(Company company, Voucher voucher)
 Party State, else company home. **6 call sites in 2 files:** `Gstr1.cs:259`, `Gstr1.cs:409`,
 `EWayBillService.cs:137`, `:148`, `:197`, `:457`.
 
-**(B) The print rule.** **[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:755-760`:
+**(B) The print rule.** **[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:766-771`:
 
 ```csharp
 private static string PlaceOfSupply(Company company, string? buyerStateCode, bool postedInterState)
@@ -213,7 +213,7 @@ returns **blank**. Confirmed by reading the code, not inferred.
    an *invalid* code — `null` passes. *(Equivalently: an imported document carrying IGST legs against a
    stateless party. `ReadPostedRateGroups`/`PostedForwardRouting` read the posted legs, not the master.)*
 4. **Reprint.** `VoucherPrintProjector` reads `PostedForwardRouting` (**[V]** `GstReportSupport.cs:1202`) →
-   `true`. `ConsistentBuyerStateCode` (**[V]** `VoucherPrintProjector.cs:651-662`) computes
+   `true`. `ConsistentBuyerStateCode` (**[V]** `VoucherPrintProjector.cs:662-673`) computes
    `liveIsInterState == false` (the live code is blank), sees it contradict `postedInterState == true`, and
    returns **`null`** — its documented "inter ⇒ unrecoverable" limb (`:661`). `PlaceOfSupply(company, null, true)`
    then declines the home fallback and prints **blank**.
@@ -320,7 +320,7 @@ Unpacking that, strictly on what §4 establishes:
   the book does not have is the definition of a wrong figure.**
 - **The `throw` is the right *kind* of answer** — refusal — because the only truthful thing to say about this
   book is "I cannot route this." But it is thrown from `IsInterState`, which sits on the **print** path
-  (`VoucherPrintProjector.cs:272`), so its observed effect is that **an already-issued invoice cannot be
+  (`VoucherPrintProjector.cs:275`), so its observed effect is that **an already-issued invoice cannot be
   reprinted** (defect F7, §2.3). A refusal at print time punishes a document that was correct when issued; the
   book became unroutable afterwards. **Where the refusal should fire is a design and user question, not a
   statutory one** — see §11.
@@ -394,7 +394,7 @@ unconditional for inter-State supplies; there is no de-minimis and no "where kno
 carries IGST and no place of supply is not a compliant tax invoice.
 
 **But the rule does not choose between the two bad outputs, and it should not be read as endorsing the
-alternative.** The projector's own comment (`VoucherPrintProjector.cs:642-646`) frames it as *"Blank is a
+alternative.** The projector's own comment (`VoucherPrintProjector.cs:653-657`) frames it as *"Blank is a
 Rule-46 omission; a self-contradicting document is a Rule-46 falsehood"* — that reasoning is sound **as a
 choice between two defective reprints**, and rule 46 supplies no text ranking an omission against a
 falsehood. What rule 46 actually says is something neither branch addresses: the particular must be **on the

@@ -92,7 +92,7 @@ public static class InvoicePdf
             {
                 pages.Add(current);
                 current = new List<(int, InvoiceItemRow)>();
-                y = page.PageHeight - page.MarginTop - ContinuationHeaderHeight(page);
+                y = page.PageHeight - page.MarginTop - ContinuationHeaderHeight(data, page);
             }
             current.Add((sr, item));
             y -= page.RowHeight;
@@ -111,7 +111,7 @@ public static class InvoicePdf
             bool isFirst = p == 0;
             double yy = isFirst
                 ? DrawFirstHeader(writer, data, config, page, title, geo, left, right)
-                : DrawContinuationHeader(writer, page, title, left, right);
+                : DrawContinuationHeader(writer, data, page, title, left, right);
             yy = DrawItemTableHeader(writer, page, geo, left, right, yy);
             foreach (var (rowSr, row) in pages[p])
                 yy = DrawItemRow(writer, page, geo, left, right, rowSr, row, yy);
@@ -126,7 +126,7 @@ public static class InvoicePdf
         if (closingOnNewPage)
         {
             writer.BeginPage(page.PageWidth, page.PageHeight);
-            double yy = DrawContinuationHeader(writer, page, title, left, right);
+            double yy = DrawContinuationHeader(writer, data, page, title, left, right);
             DrawClosingBlock(writer, data, config, page, geo, left, right, closing, yy);
             DrawFooter(writer, page, left, right, total, total);
         }
@@ -173,6 +173,9 @@ public static class InvoicePdf
     private static double FirstHeaderHeight(InvoicePrintData data, PageConfig page)
     {
         double h = page.TitleFontSize + 8 + 4;   // title band + rule
+        // Phase 10.11 S3 — the CANCELLED over-print sits between the title and its rule and therefore costs a
+        // band row. Reserved here so the paginator does not push a cancelled invoice's last item row off the page.
+        if (data.IsCancelled) h += page.TitleFontSize + 2;
         // CGST Rule 5(1)(f): the composition declaration sits "at the top of the bill of supply" — immediately under
         // the title band, above the party blocks. Absent on every other document ⇒ zero height ⇒ byte-identical.
         int declLines = TopDeclarationLines(data, page).Count;
@@ -185,8 +188,18 @@ public static class InvoicePdf
         return h;
     }
 
-    private static double ContinuationHeaderHeight(PageConfig page) =>
-        page.TitleFontSize + 8 + 4 + page.BodyFontSize + 2;
+    private static double ContinuationHeaderHeight(InvoicePrintData data, PageConfig page) =>
+        page.TitleFontSize + 8 + 4 + page.BodyFontSize + 2
+        + (data.IsCancelled ? page.TitleFontSize + 2 : 0);   // + the S3 CANCELLED over-print
+
+    /// <summary>
+    /// The word over-printed under a cancelled document's title (Phase 10.11 S3), on EVERY page — a continuation
+    /// sheet separated from page 1 must still say what it is.
+    ///
+    /// <para><b>UNVERIFIED-BY-DESIGN — ours, corpus silent.</b> The source corpus describes no printed treatment
+    /// of a cancelled document; the over-print, its wording and its placement are our decision (R7).</para>
+    /// </summary>
+    private const string CancelledBanner = "CANCELLED";
 
     private static double PartyBlockHeight(InvoicePartyBlock seller, InvoicePartyBlock buyer, PageConfig page)
     {
@@ -273,6 +286,16 @@ public static class InvoicePdf
             string label = config.CopyMarkingLabel;
             double w = PdfWriter.MeasureHelvetica(label, page.FooterFontSize);
             writer.Text(right - w, y, label, page.FooterFontSize, bold: true);
+        }
+        // Phase 10.11 S3 — over-print CANCELLED directly under the statutory title, ABOVE the rule, so it reads as
+        // part of the document's name and cannot be taken for a line item. The title itself is untouched: a
+        // cancelled tax invoice is still structurally a tax invoice. Nothing draws and no space is consumed when
+        // the flag is false, so every existing invoice PDF is byte-identical (ER-13). FirstHeaderHeight reserves
+        // the matching space for the paginator.
+        if (data.IsCancelled)
+        {
+            y -= page.TitleFontSize + 2;
+            Center(writer, CancelledBanner, left, right, y, page.TitleFontSize, bold: true);
         }
         y -= 8;
         writer.Line(left, y, right, y, 0.8);
@@ -377,11 +400,18 @@ public static class InvoicePdf
     private static bool StatesTaxBreakup(InvoicePrintData data) =>
         !data.IsBillOfSupply && data.TaxRows.Count > 0 && data.IsInterState is not null;
 
-    private static double DrawContinuationHeader(PdfWriter writer, PageConfig page, string title, double left, double right)
+    private static double DrawContinuationHeader(
+        PdfWriter writer, InvoicePrintData data, PageConfig page, string title, double left, double right)
     {
         double y = page.PageHeight - page.MarginTop;
         y -= page.TitleFontSize;
         Center(writer, title + " (continued)", left, right, y, page.TitleFontSize, bold: true);
+        // S3 — the over-print repeats here: a continuation sheet is a loose page once it leaves the printer.
+        if (data.IsCancelled)
+        {
+            y -= page.TitleFontSize + 2;
+            Center(writer, CancelledBanner, left, right, y, page.TitleFontSize, bold: true);
+        }
         y -= 8;
         writer.Line(left, y, right, y, 0.8);
         y -= 4;

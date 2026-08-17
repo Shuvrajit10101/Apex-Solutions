@@ -435,7 +435,7 @@ public sealed class InventoryVoucherEntryViewModelTests : IDisposable
         k.Vm.OpenInventoryVoucher(VoucherBaseType.ReceiptNote);
         Assert.Equal(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);
 
-        k.Vm.CancelVoucher();                       // Alt+X path → BackFromPage
+        k.Vm.AbandonEntry();                        // Esc / Cancel-button path → BackFromPage
         Assert.NotEqual(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);
         Assert.Null(k.Vm.InventoryVoucherEntry);
     }

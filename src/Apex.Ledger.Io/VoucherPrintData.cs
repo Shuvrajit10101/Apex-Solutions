@@ -59,6 +59,21 @@ public sealed class VoucherPrintData
     /// <summary>Free-text narration; printed only when <see cref="PrintConfig.ShowNarration"/> is set.</summary>
     public string Narration { get; init; } = string.Empty;
 
+    /// <summary>
+    /// True when this voucher has been CANCELLED (Phase 10.11 S3). The renderer over-prints the word
+    /// <c>CANCELLED</c> across the header band so a printed copy of a voided entry can never be mistaken for a
+    /// live document once it is off the screen.
+    ///
+    /// <para><b>Default false, and nothing prints when it is false</b> — every already-shipped voucher PDF is
+    /// byte-identical (ER-13). This is presentation ONLY: no figure on the page moves, because a cancelled
+    /// voucher's own lines are unchanged; what a cancelled voucher stops doing is contributing to the BOOKS, and
+    /// that happens in the engine, not here.</para>
+    ///
+    /// <para><b>🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent.</b> The source corpus does not describe any
+    /// printed treatment of a cancelled voucher. The over-print is our decision (R7).</para>
+    /// </summary>
+    public bool IsCancelled { get; init; }
+
     /// <summary>Σ of the debit-line amounts (paisa-exact).</summary>
     public Money TotalDebit
     {

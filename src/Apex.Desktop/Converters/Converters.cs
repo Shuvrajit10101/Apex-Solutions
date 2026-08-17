@@ -517,6 +517,33 @@ public sealed class ExpiryRowToBrushConverter : IValueConverter
 }
 
 /// <summary>
+/// Maps a report row's <c>IsCancelled</c> flag to its foreground (Phase 10.11 S3): a muted grey for a CANCELLED
+/// voucher's row, the neutral ink otherwise — so a cancelled entry reads as present-but-void beside the live
+/// rows it keeps its place among.
+///
+/// <para><b>🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent.</b> The source corpus describes no visual treatment
+/// for a cancelled voucher (it returns no hits for struck or strike-through), so the greying is our decision and
+/// is recorded as such rather than presented as fidelity (R7).</para>
+///
+/// <para>The grey is deliberately <c>#6E6E6E</c> and not lighter: against the white grid it holds a contrast
+/// ratio above 4.5:1, so the row stays READABLE. A cancelled voucher is evidence — the operator must be able to
+/// read what was voided, not merely notice that something was.</para>
+/// </summary>
+public sealed class CancelledRowToBrushConverter : IValueConverter
+{
+    public static readonly CancelledRowToBrushConverter Instance = new();
+
+    private static readonly IBrush Cancelled = new SolidColorBrush(Color.Parse("#6E6E6E"));
+    private static readonly IBrush Ink = new SolidColorBrush(Color.Parse("#1A1A1A"));
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is true ? Cancelled : Ink;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// Maps a batch-allocation line's <c>IsExpired</c> flag to its non-blocking-warning foreground (Phase 6
 /// Cluster 1; RQ-7): alert-red for an already-expired batch, amber for a merely near-expiry one.
 /// </summary>

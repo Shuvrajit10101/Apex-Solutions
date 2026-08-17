@@ -400,13 +400,19 @@ public sealed class MenuHotKeyAndAcceptTests
     }
 
     /// <summary>
-    /// The same lock for the CANCEL exit: Alt+X leaves the master without answering Y/N, so it must clear the
+    /// The same lock for the ABANDON exit, re-aimed at Escape by Phase 10.11 S3 (Alt+X used to drive it and no
+    /// longer reaches this verb at all). Escape leaves the master without answering Y/N, so it must clear the
     /// confirmation too — and a bare Y back on the Gateway must still open Export Data.
+    ///
+    /// <para>It takes TWO presses by the settled keyboard contract, and both are asserted: the FIRST is consumed
+    /// by the confirmation arm as "No" (prompt cleared, master intact, still on the master screen), the SECOND
+    /// reaches <c>Back()</c> and pops the column. The intermediate assertion is what stops this reading as one
+    /// press that happens to do both.</para>
     /// </summary>
     [AvaloniaFact]
-    public void After_AltX_the_prompt_is_cleared_and_a_bare_Y_still_opens_export_data()
+    public void After_Escape_the_prompt_is_cleared_and_a_bare_Y_still_opens_export_data()
     {
-        var (window, vm, dir) = NewWindow("Accept LeakAltX Co");
+        var (window, vm, dir) = NewWindow("Accept LeakEsc Co");
         try
         {
             vm.ShowLedgerMaster();
@@ -416,11 +422,15 @@ public sealed class MenuHotKeyAndAcceptTests
             window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
             Assert.True(vm.IsAcceptPromptOpen);
 
-            window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);   // 1st: answers the prompt "No"
 
             Assert.False(vm.IsAcceptPromptOpen);
             Assert.Equal(string.Empty, vm.AcceptPromptText);
-            Assert.Null(vm.Company!.FindLedgerByName("Nalanda Papers"));   // cancel really did NOT save
+            Assert.Equal(Screen.LedgerMaster, vm.CurrentScreen);                 // still on the master
+
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);   // 2nd: pops the column
+
+            Assert.Null(vm.Company!.FindLedgerByName("Nalanda Papers"));   // abandoning really did NOT save
             Assert.Equal(Screen.Gateway, vm.CurrentScreen);
 
             window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.None);

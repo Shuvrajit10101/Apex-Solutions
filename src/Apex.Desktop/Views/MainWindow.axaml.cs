@@ -346,10 +346,68 @@ public partial class MainWindow : Window
             if (e.Key == Key.V) { vm.ReorderLevels?.ToggleMinQtyAdvanced(); e.Handled = true; return; }
         }
 
-        // Alt+X cancels the in-progress voucher/ledger without saving (cancel shortcut).
-        if (e.Key == Key.X && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Alt+X IS VOUCHER CANCELLATION — it is NOT "abandon the screen I am on". (Phase 10.11 S3 / VL-3.)  │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // WHAT STOOD HERE BEFORE, and why it went. An arm bound Alt+X app-wide to `vm.CancelVoucher()` — the
+        // ABANDON-THE-ENTRY-SCREEN verb (now `vm.AbandonEntry()`), which discards a half-keyed voucher or master
+        // and pops its column. Two things were wrong with it:
+        //   • It squatted the accelerator the reference product spends on CANCELLING A POSTED VOUCHER, so the one
+        //     key an operator would reach for to cancel a posted entry instead threw away whatever was on screen.
+        //   • It was UNDER-GUARDED: it tested only for the Alt modifier — no `!IsPickerOpen`, no `!IsTyping`, no
+        //     Ctrl exclusion and no screen scope — so it fired from inside an open dropdown and from a text field,
+        //     and Ctrl+Alt+X abandoned the screen too.
+        // Nothing is orphaned by its removal: Escape reaches `vm.Back()` at the switch far below (which pops the
+        // page column and tears the entry VM down through `ClearSubScreens`), Left does the same, and the six
+        // on-screen "Cancel" buttons still call `vm.AbandonEntry()` directly.
+        //
+        // THE NEW ARM, and every guard on it:
+        //   • `vm.IsLiveReportPage` — THE REPORT MUST BE THE ACTIVE COLUMN, not merely bound. Cancel acts on a
+        //     POSTED voucher highlighted in a report (the Day Book is the one that carries voucher rows today),
+        //     never on an entry screen and never from a column STACKED OVER the report.
+        //     🔴 THIS GUARD WAS `vm.IsReportContext` AND THAT WAS A HOLE, measured: `IsReportContext` is
+        //     `Reports is not null && CurrentScreen is not (LedgerVouchers or VoucherDetail)`, and its own
+        //     doc-comment says it is built to STAY TRUE while an F12 config panel is open — it was written for
+        //     report-PARAMETER shortcuts that must survive a config column, not for a destructive verb. It stayed
+        //     true, with the Day Book row still highlighted underneath, on FIVE screens the operator is actually
+        //     standing in: `ReportConfig` (F12), `ReportSortFilter` (Alt+F12), `AddVoucherPicker` (Alt+A),
+        //     `SavedViews` (Alt+K) and `PrintPreview` (P) — every one of which leaves `Reports` deliberately bound
+        //     beneath it so Esc returns to the same live report. Alt+X from inside any of them raised the
+        //     confirmation for the voucher BEHIND the column, and one Y killed it. `IsPickerOpen` cannot see that:
+        //     it looks for an open ComboBox popup, not for a Miller column. `IsReportContext` keeps its own job
+        //     (the parameter shortcuts below); this arm asks the narrower question it actually needs.
+        //     Note the SCOPE is OUR decision, not fidelity: the corpus scopes Alt+X to "Vouchers & Reports"
+        //     (Book p.437), and we ship the narrower half deliberately because no alteration/entry-screen cancel
+        //     exists yet (S5).
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — DEFENCE IN DEPTH, and honestly labelled as such. Every text
+        //     field and every picker that today sits over a report lives in one of the five columns the screen
+        //     gate above now refuses, so neither predicate can change the outcome on any surface reachable at
+        //     this commit, and neither is independently pinnable — the report page template itself carries no
+        //     TextBox, and its three ComboBoxes (scenario, payroll month, payroll employee) are invisible on the
+        //     only report kind that has voucher rows. MEASURED, not assumed: dropping BOTH clauses leaves the whole
+        //     Desktop suite green at 2231/2231. They are kept, not deleted, because the report page is one inline
+        //     filter box away from making them load-bearing again and this is the one destructive accelerator in
+        //     the app. Do NOT write a test claiming to pin them: it would be pinning the screen gate. (Same
+        //     category as `RequestCancelHighlightedVoucher`'s null gate — legitimate defence with an honest label,
+        //     as opposed to a guard whose comment claims a mechanism it cannot deliver.)
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`. Ctrl+Alt+X is a different
+        //     chord, and so are Alt+Shift+X and Alt+Win+X: `HasFlag(Alt)` + a Ctrl exclusion admitted both, which
+        //     made the one destructive accelerator in the app the loosest match in this chain. The doctrine is
+        //     already written ~740 lines below for the bare-letter quick-jumps ("It deliberately excludes Shift as
+        //     well … admitting Shift would leave the same class of hole open on the next chord anyone binds") and
+        //     it applies here with more force, not less.
+        // The view model does the REST of the gating (a row must be highlighted, it must carry a voucher, the
+        // voucher must not already be cancelled, no confirmation may already be up, and no live IRN/EWB may be
+        // stranded by it); this arm only decides that the keystroke is ours.
+        // `e.Handled` marks the keystroke CONSUMED so it does not bubble past this window handler to any control
+        // beneath — the `return` on the next line is what stops the later arms in this chain, so the two are not
+        // the same thing and the flag is not redundant. It is set unconditionally once the guards pass, so a
+        // report with no highlighted voucher row is a quiet no-op rather than a live key. Pinned by
+        // `AltX_on_a_report_row_comes_back_Handled`.
+        if (e.Key == Key.X && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsLiveReportPage && !IsTyping(e) && !IsPickerOpen(e))
         {
-            vm.CancelVoucher();
+            vm.RequestCancelHighlightedVoucher();
             e.Handled = true;
             return;
         }
@@ -1116,7 +1174,7 @@ public partial class MainWindow : Window
         => Vm?.VoucherEntry?.Accept();
 
     private void OnCancelVoucherClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddVoucherLine();
@@ -1150,7 +1208,7 @@ public partial class MainWindow : Window
         => Vm?.InventoryVoucherEntry?.Accept();
 
     private void OnCancelInventoryVoucherClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddInventoryLineClick(object? sender, RoutedEventArgs e)
         => Vm?.AddInventoryLine();
@@ -1271,7 +1329,7 @@ public partial class MainWindow : Window
         => Vm?.ManufacturingJournalEntry?.Accept();
 
     private void OnCancelManufacturingJournalClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddManufacturingCostClick(object? sender, RoutedEventArgs e)
         => Vm?.ManufacturingJournalEntry?.AddBlankAdditionalCost();
@@ -1281,7 +1339,7 @@ public partial class MainWindow : Window
         => Vm?.PosBilling?.Accept();
 
     private void OnCancelPosClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddPosItemLineClick(object? sender, RoutedEventArgs e)
         => Vm?.PosBilling?.AddItemLine();
@@ -1297,7 +1355,7 @@ public partial class MainWindow : Window
         => Vm?.JobWorkOrderEntry?.Accept();
 
     private void OnCancelJobWorkOrderClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddJobWorkLineClick(object? sender, RoutedEventArgs e)
         => Vm?.JobWorkOrderEntry?.AddBlankLine();
@@ -1307,7 +1365,7 @@ public partial class MainWindow : Window
         => Vm?.MaterialMovementEntry?.Accept();
 
     private void OnCancelMaterialClick(object? sender, RoutedEventArgs e)
-        => Vm?.CancelVoucher();
+        => Vm?.AbandonEntry();
 
     private void OnAddMaterialSourceLineClick(object? sender, RoutedEventArgs e)
         => Vm?.MaterialMovementEntry?.AddSourceLine();

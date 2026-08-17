@@ -116,6 +116,22 @@ public sealed class InvoicePrintData
     /// <summary>Buyer (recipient) name / address / GSTIN block.</summary>
     public InvoicePartyBlock Buyer { get; init; } = new();
 
+    /// <summary>
+    /// True when the voucher behind this document has been CANCELLED (Phase 10.11 S3). The renderer over-prints
+    /// <c>CANCELLED</c> immediately under the document title, on every page, so a printed copy of a voided
+    /// invoice cannot be passed off as a live one once it is off the screen — the case that matters most here,
+    /// because this document is the one that leaves the building.
+    ///
+    /// <para><b>Default false, and nothing prints when it is false</b> — every already-shipped invoice PDF is
+    /// byte-identical (ER-13). Presentation only: not one figure, particular or total moves, and the statutory
+    /// title (<see cref="DocumentTitle"/>) is untouched — a cancelled tax invoice is still, structurally, the
+    /// document it was issued as.</para>
+    ///
+    /// <para><b>🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent.</b> The source corpus describes no printed
+    /// treatment of a cancelled document. The over-print is our decision (R7).</para>
+    /// </summary>
+    public bool IsCancelled { get; init; }
+
     /// <summary>Invoice serial number (Rule 46 (b)).</summary>
     public string InvoiceNumber { get; init; } = string.Empty;
 

@@ -2363,6 +2363,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
 
     /// <summary>
+    /// True only while the report page is the <b>ACTIVE COLUMN</b> — the operator is standing ON the report, not
+    /// in something stacked over it.
+    ///
+    /// <para>🔴 <b>Why this exists next to <see cref="IsReportContext"/> rather than replacing it.</b> The two
+    /// answer different questions and a destructive verb needs this one. <see cref="IsReportContext"/> is
+    /// deliberately TRUE while an F12 config panel, an Alt+F12 sort/filter panel, an Alt+A add-voucher picker, an
+    /// Alt+K saved-views panel or a Print Preview column is open, because each of those leaves
+    /// <see cref="Reports"/> bound beneath it and the report-PARAMETER shortcuts must keep acting on the report
+    /// underneath. Phase 10.11 S3's Alt+X arm was written on it and inherited exactly that width: with the Day
+    /// Book row still highlighted behind the column, Alt+X raised the cancellation for the voucher BEHIND
+    /// whichever panel the operator was in, and a single Y voided it. <c>IsPickerOpen</c> does not close that hole
+    /// — it sees an open ComboBox popup, not a Miller column.</para>
+    ///
+    /// <para>Deliberately expressed as <see cref="Screen.Report"/> and nothing else, which is the same test
+    /// <see cref="DrillSelectedRow"/> already uses to decide that the report's own Enter belongs to it:
+    /// <see cref="Reports"/> is bound under exactly one screen (<see cref="OpenReport"/> and the column
+    /// re-bind), so this is "the live report page and no other surface".</para>
+    /// </summary>
+    public bool IsLiveReportPage => Reports is not null && CurrentScreen == Screen.Report;
+
+    /// <summary>
     /// True while the LIVE report is the Day Book (WI-12) — the single context the Alt+A "Add Voucher" picker is
     /// offered in. Stays true while its own picker column is open (<see cref="Reports"/> is left bound beneath the
     /// picker), so Esc/Back returns to the same live Day Book.
@@ -4977,8 +4998,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>Ctrl+A on a form page: accept the current voucher / create the current ledger.</summary>
     public void AcceptCurrent() => ActivateSelected();
 
-    /// <summary>Alt+X: cancel the in-progress voucher (no save) and pop its page column.</summary>
-    public void CancelVoucher()
+    /// <summary>
+    /// ABANDONS the in-progress entry screen — discards what is being keyed (no save) and pops its page column.
+    /// This is the <b>Escape</b> verb and the verb behind the six on-screen "Cancel" buttons.
+    ///
+    /// <para><b>🔴 It is NOT voucher cancellation, and it used to be called <c>CancelVoucher</c>.</b> Under that
+    /// name it was bound to Alt+X app-wide, which spent the reference product's voucher-CANCEL accelerator on
+    /// throwing away the screen. Phase 10.11 S3 took Alt+X back for
+    /// <see cref="RequestCancelHighlightedVoucher"/> and renamed this method to what it actually does, so the two
+    /// verbs can never again be confused by their names. Renamed rather than deleted <b>deliberately</b>: the
+    /// plan's wording ("delete it so the compile breaks") would have destroyed a live feature — the rename breaks
+    /// the compile at every stale caller just the same, and the behaviour survives.</para>
+    /// </summary>
+    public void AbandonEntry()
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.Cancel();
@@ -5006,6 +5038,221 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                  or Screen.PayHeadMaster or Screen.SalaryStructureMaster)
             BackFromPage();
     }
+
+    // ====================================================== Phase 10.11 S3: Alt+X — cancel a POSTED voucher
+
+    /// <summary>
+    /// The voucher a raised cancellation confirmation will act on, or <see cref="Guid.Empty"/> when the
+    /// confirmation currently up (if any) is the ordinary master Accept.
+    ///
+    /// <para>This is what makes the WI-11 confirmation ONE channel rather than two. A second flag + a second
+    /// pair of Y/N key arms would have to be inserted somewhere in the window's first-match-wins chain, and the
+    /// Alt+Y hole S1 closed (a stray accelerator answering a confirmation nobody read) is exactly the class of
+    /// defect that duplication produces. Arming this id re-points the SAME prompt at a different action;
+    /// <see cref="ConfirmMasterAccept"/> branches on it and <see cref="ResetMasterAcceptPrompt"/> disarms it.</para>
+    /// </summary>
+    private Guid _pendingCancelVoucherId;
+
+    /// <summary>
+    /// <b>Alt+X — raise the single Y/N confirmation for cancelling the voucher highlighted in the live report.</b>
+    /// Returns <c>true</c> when the prompt was raised; <c>false</c> (a quiet no-op, or a named message) otherwise.
+    ///
+    /// <para><b>🔴 FIDELITY — UNVERIFIED-BY-DESIGN, our choice, corpus silent.</b> The source corpus says only
+    /// that Alt+X cancels a voucher (Book PDF p.437); it nowhere describes what cancelling MEANS. Retaining the
+    /// voucher's number, leaving the books unaffected, greying the row, over-printing "CANCELLED" and <b>this
+    /// prompt's wording</b> are all OURS. The confirmation is deliberately a <b>SINGLE</b> prompt: the corpus's
+    /// published double confirmation ("… Yes or No?" then "Are you sure Yes or No?") is attested for a master and
+    /// for a group company, not for a voucher, and we decline to copy it across by analogy.</para>
+    ///
+    /// <para><b>The four gates, and why each is here rather than in the key handler.</b> The window's Alt+X arm
+    /// decides only that the keystroke is ours (report context, not typing, no open picker, no Ctrl). Everything
+    /// that depends on DATA is decided here so the on-screen route and any future button route cannot diverge
+    /// from the accelerator:
+    /// <list type="bullet">
+    ///   <item>no company open, or no live report — inert;</item>
+    ///   <item>a confirmation is already up — inert, so Alt+X cannot stack a second prompt over the first;</item>
+    ///   <item>the highlighted row resolves to no voucher — a header, a total, an empty-state note, or no
+    ///         selection at all. One lookup answers all of them, including the <see cref="Guid.Empty"/> a
+    ///         non-drillable row carries, because no posted voucher can ever hold that id. A separate
+    ///         <c>id == Guid.Empty</c> clause stood here and was REMOVED after a mutation run showed nothing
+    ///         could distinguish it from the lookup: a guard no test can fail is dead code wearing the costume
+    ///         of safety;</item>
+    ///   <item>the voucher is ALREADY cancelled — refused with a named message rather than silently re-armed.
+    ///         Re-cancelling is harmless to the books, but a prompt that asks a question whose answer changes
+    ///         nothing trains an operator to answer prompts without reading them;</item>
+    ///   <item>🔴 the voucher still holds a LIVE IRN or a LIVE e-Way Bill — refused, naming the portal document,
+    ///         because cancelling it locally is a ONE-WAY DOOR that strands the statutory one. See
+    ///         <see cref="LiveStatutoryDocumentBlocker"/>.</item>
+    /// </list></para>
+    /// </summary>
+    public bool RequestCancelHighlightedVoucher()
+    {
+        if (Company is null || Reports is null) return false;
+        if (IsAcceptPromptOpen) return false;
+
+        // A previous outcome's notice goes before a new question is asked: the two bars share the status-bar row,
+        // so leaving a stale notice up would paint it underneath the confirmation the operator is being asked.
+        Notice = string.Empty;
+
+        if (Reports.SelectedRow is not { DrillVoucherId: var id }) return false;
+        if (Company.FindVoucher(id) is not { } voucher) return false;
+
+        if (voucher.Cancelled)
+        {
+            RaiseCancelNotice($"{VoucherLabel(voucher)} is already cancelled.");
+            return false;
+        }
+
+        if (LiveStatutoryDocumentBlocker(voucher) is { } blocker)
+        {
+            RaiseCancelNotice($"Cannot cancel {VoucherLabel(voucher)}: it carries {blocker}. "
+                              + "Cancel that at the portal first, then cancel the voucher.");
+            return false;
+        }
+
+        _pendingCancelVoucherId = id;
+        // 🔴 UNVERIFIED-BY-DESIGN — ours, corpus silent (the corpus says only "To cancel a voucher", Book p.437).
+        // WHAT THIS SENTENCE MUST NOT SAY, and did: "the books are unaffected". It is the exact opposite of what
+        // cancelling does — every balance the voucher touched MOVES, which is the whole point of the verb and is
+        // what the design's own T-5 requires ("every balance moves by exactly the invoice"). There is no un-cancel
+        // (ORCHESTRATOR RULING 3) and no alteration route yet (S5), so an operator who read the old wording as "my
+        // figures will not move" and pressed Y had no way back. `The_prompt_tells_the_truth_about_the_books` now
+        // asserts the wording AND the balance movement in one case so the two cannot drift apart again.
+        AcceptPromptText = $"Cancel {VoucherLabel(voucher)}? "
+                           + "The number is kept, but the entry stops counting — every balance it touched will "
+                           + "move. This cannot be undone. (Y/N)";
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// The live portal document that makes cancelling <paramref name="voucher"/> a one-way door, or <c>null</c>
+    /// when there is none.
+    ///
+    /// <para>🔴 <b>Why Cancel refuses instead of proceeding.</b> <c>LedgerService.Cancel</c> sets a flag and
+    /// nothing else, so a <c>Generated</c> <c>EInvoiceRecord</c> keeps its IRP-issued IRN, AckNo and AckDate. But
+    /// the ONLY route in the app to cancel that IRN at the IRP is the Generate E-Invoice screen, and its
+    /// <c>Rebuild()</c> lists <c>Vouchers.Where(v =&gt; !v.Cancelled)</c> — so the moment the voucher is cancelled
+    /// locally it LEAVES that screen and the IRN can never be cancelled from here again. The app would be holding
+    /// a live IRN for a document that is void in its own books, with no way back.
+    /// <c>GenerateEWayBillViewModel.Rebuild()</c> carries the identical filter, so the e-Way Bill has the identical
+    /// trap.</para>
+    ///
+    /// <para><b>Refusing is not a dead end — it is an ORDER.</b> The voucher is still live, so it is still listed
+    /// on both portal screens: cancel the IRN / EWB there (24-hour window), which moves the record to
+    /// <c>Cancelled</c>, and this gate lifts. The alternative — admitting locally-cancelled vouchers back into
+    /// those screens — would leave the two states drifting apart in every report meanwhile. This mirrors the
+    /// refusal §6.4 item 3 already specifies for Delete on a voucher carrying an e-invoice/e-Way record.</para>
+    ///
+    /// <para><b>Scope.</b> Only <c>Generated</c> blocks. <c>Pending</c> was never sent to the portal, and
+    /// <c>Cancelled</c> / <c>Failed</c> / <c>NotApplicable</c> hold nothing that can be stranded.</para>
+    /// </summary>
+    private string? LiveStatutoryDocumentBlocker(Voucher voucher)
+    {
+        if (Company is null) return null;
+
+        var irn = Company.EInvoiceRecords.FirstOrDefault(
+            r => r.SourceVoucherId == voucher.Id && r.Status == EInvoiceStatus.Generated);
+        var ewb = Company.EWayBillRecords.FirstOrDefault(
+            r => r.SourceVoucherId == voucher.Id && r.Status == EWayStatus.Generated);
+
+        return (irn, ewb) switch
+        {
+            (not null, not null) => "a live IRN and a live e-Way Bill",
+            (not null, null)     => "a live IRN",
+            (null, not null)     => "a live e-Way Bill",
+            _                    => null,
+        };
+    }
+
+    /// <summary>"Sales No. 3 dated 15-Apr-2024" — the operator-facing identity of a voucher, used in the
+    /// cancellation prompt and its result message so both name the same document the report row shows.</summary>
+    private string VoucherLabel(Voucher voucher)
+    {
+        var typeName = Company?.FindVoucherType(voucher.TypeId)?.Name ?? "Voucher";
+        var number = Company?.FormatVoucherNumber(voucher) ?? string.Empty;
+        var numberPart = string.IsNullOrWhiteSpace(number) ? string.Empty : $" No. {number}";
+        return $"{typeName}{numberPart} dated {voucher.Date:dd-MMM-yyyy}";
+    }
+
+    /// <summary>
+    /// "Y" on the cancellation confirmation: marks the armed voucher cancelled through the engine, persists, and
+    /// rebuilds the live report so the row greys immediately.
+    ///
+    /// <para>The engine call is <c>LedgerService.Cancel</c> and NOTHING else — S3 adds no engine semantics. The
+    /// voucher keeps its number (the engine sets a flag and never touches <c>Number</c>) and drops out of every
+    /// balance because <c>LedgerBalances.CountsAsOf</c> and <c>ItemInvoiceStock.Counts</c> already exclude
+    /// cancelled vouchers. Persisting through <c>_storage.Save</c> is the same route
+    /// <see cref="ConvertMemorandum"/> takes; the store is a snapshot, so a save is how the flag survives.</para>
+    ///
+    /// <para>🔴 <b>A FAILED SAVE ROLLS THE FLAG BACK.</b> The engine mutates the in-memory aggregate and the save
+    /// happens after it, so a save that throws used to leave the books cancelled in memory, nothing on disk, the
+    /// report un-rebuilt and the row still black — the aggregate silently AHEAD of the store, which is the state
+    /// every later save then carries. Two things were wrong and both are fixed here: the flag is restored in the
+    /// catch, and the catch actually catches what <c>_storage.Save</c> throws. <c>CompanyStorage.Save</c> opens
+    /// with <c>company.EnsureValid()</c>, and <c>Company.EnsureValid</c> throws <b>ArgumentException</b> (a bad
+    /// PIN, or books-begin before the year start — its own doc says such a book "loads without complaint … and
+    /// then the next save on any screen throws"). The old <c>catch (InvalidOperationException)</c> never saw it, so
+    /// the one genuinely reachable failure on this path was an unhandled exception out of the window's key handler
+    /// with the voucher already flagged. Restoring <c>Cancelled = false</c> is a ROLLBACK of a transaction that did
+    /// not commit — it is NOT an un-cancel feature (ORCHESTRATOR RULING 3 ships none) and no UI route reaches
+    /// it.</para>
+    /// </summary>
+    private void CancelPendingVoucher(Guid voucherId)
+    {
+        if (Company is null) return;
+
+        var voucher = Company.FindVoucher(voucherId);
+        try
+        {
+            new Apex.Ledger.Services.LedgerService(Company).Cancel(voucherId);
+            _storage.Save(Company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            if (voucher is not null) voucher.Cancelled = false;
+            RaiseCancelNotice($"Cannot cancel: {ex.Message}");
+            return;
+        }
+
+        RaiseCancelNotice(voucher is null
+            ? "Voucher cancelled."
+            : $"{VoucherLabel(voucher)} cancelled — the number is kept and every balance it touched has moved.");
+
+        // Rebuild the live report in place so the cancelled row greys and its amount leaves the running figures
+        // without the operator having to re-open the report.
+        Reports?.Show(Reports.Kind);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The one surface the cancellation verb can actually be SEEN on.</b> Every outcome of Alt+X — the
+    /// refusals, a failed cancel and the success — reports through here.
+    ///
+    /// <para><b>Why not <see cref="Message"/>.</b> Alt+X works on exactly one screen, the live report page, and
+    /// that page CANNOT RENDER <see cref="Message"/>: the report <c>DataTemplate</c> is typed
+    /// <c>x:DataType="vm:ReportsViewModel"</c>, which has no <c>Message</c> property at all, and every
+    /// <c>{Binding Message}</c> in the window sits in a master/entry/action panel. So the "already cancelled"
+    /// refusal, the live-IRN refusal and — worst — a FAILED cancel were all indistinguishable from a dead key:
+    /// no bar, no text, nothing. This bar is declared at window level beside the WI-11 confirmation, so it is
+    /// visible on every screen including the report.</para>
+    ///
+    /// <para><b>Why not the WI-11 amber bar itself.</b> That bar is a QUESTION channel — while it is up the Y/N
+    /// arms are live. Painting a notice there would leave a bare <c>Y</c> answering a statement, which is the Alt+Y
+    /// hole S1 closed. <see cref="Message"/> is still set alongside, so the routes that DO render it keep
+    /// working and nothing that reads it changes.</para>
+    /// </summary>
+    private void RaiseCancelNotice(string text)
+    {
+        Message = text;
+        Notice = text;
+    }
+
+    /// <summary>
+    /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation. Set only by the
+    /// Phase 10.11 S3 cancellation verb (see <see cref="RaiseCancelNotice"/>) and cleared on any change of screen,
+    /// because a notice belongs to the screen it was raised on.
+    /// </summary>
+    [ObservableProperty] private string _notice = string.Empty;
 
     // =============================================================== WI-11: the Accept? (Y/N) confirmation
 
@@ -5070,32 +5317,53 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         return true;
     }
 
-    /// <summary>WI-11 — "Y": dismiss the prompt and perform the SAME save Ctrl+A performs.</summary>
+    /// <summary>
+    /// WI-11 — "Y": dismiss the prompt and perform the SAME save Ctrl+A performs.
+    /// <para>Phase 10.11 S3: when <see cref="_pendingCancelVoucherId"/> is armed the prompt is a voucher
+    /// CANCELLATION, not a master accept, and Y routes there instead. The id is read and disarmed BEFORE the
+    /// action runs, so a cancellation can never leave the channel armed for the next unrelated prompt.</para>
+    /// </summary>
     public bool ConfirmMasterAccept()
     {
         if (!IsAcceptPromptOpen) return false;
 
-        IsAcceptPromptOpen = false;
-        AcceptPromptText = string.Empty;
+        // Read the armed action, then tear the prompt down through the ONE teardown before running it, so the
+        // channel is disarmed no matter what the action does.
+        var pendingCancel = _pendingCancelVoucherId;
+        ResetMasterAcceptPrompt();
+        if (pendingCancel != Guid.Empty)
+        {
+            CancelPendingVoucher(pendingCancel);
+            return true;
+        }
+
         // Deliberately the identical code path as Ctrl+A, so the confirmation can never drift from the
         // accept-as-is shortcut into saving something different.
         ActivateSelected();
         return true;
     }
 
-    /// <summary>WI-11 — "N" / Esc: dismiss the prompt and return to editing WITHOUT saving.</summary>
+    /// <summary>
+    /// WI-11 — "N" / Esc: dismiss the prompt and return to editing WITHOUT saving.
+    /// <para>Phase 10.11 S3: this is also the "No" of a voucher cancellation, so it must disarm the pending
+    /// cancellation — otherwise the next Accept prompt raised anywhere in the app inherits the armed id and a
+    /// plain "Y" on a ledger master cancels a voucher. It clears the prompt through
+    /// <see cref="ResetMasterAcceptPrompt"/> rather than by hand: an inline copy of the three assignments was
+    /// written first, and a mutation run proved NOTHING could distinguish deleting the disarm from keeping it,
+    /// because the teardown already covered every reachable path. Routing here leaves ONE place that clears this
+    /// state, which is one place to get right and one place a test can pin.</para>
+    /// </summary>
     public bool DismissMasterAccept()
     {
         if (!IsAcceptPromptOpen) return false;
 
-        IsAcceptPromptOpen = false;
-        AcceptPromptText = string.Empty;
+        ResetMasterAcceptPrompt();
         return true;
     }
 
     /// <summary>
     /// WI-11 — THE TEARDOWN CHOKE POINT for the Accept confirmation. Answering Y/N is only ONE way to leave a
-    /// master screen; Ctrl+A (accept-as-is, which bypasses the prompt by design), Alt+X (cancel), Esc and any
+    /// master screen; Ctrl+A (accept-as-is, which bypasses the prompt by design), Esc / the Cancel button (abandon),
     /// navigation away all leave it too. Before this existed the flag stayed TRUE after those exits and the
     /// still-live Y/N arm — which sits EARLIER in the window's first-match-wins chain — then swallowed the next
     /// bare <c>Y</c> on the Gateway, drilling the highlighted row instead of opening Export Data (and leaving a
@@ -5103,7 +5371,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// exact invariant WI-11 promised not to break.
     /// <para>
     /// Rather than scatter a reset down every exit, this is called from the three places a master screen can be
-    /// torn down or superseded: <see cref="OnCurrentScreenChanged"/> (navigating away — Alt+X, Esc, Back, any
+    /// torn down or superseded: <see cref="OnCurrentScreenChanged"/> (navigating away — Esc, Back, any
     /// jump), <see cref="ClearSubScreens"/> (the page view models being nulled, the campaign convention for new
     /// screen state) and the top of <see cref="ActivateSelected"/> (Ctrl+A, which SAVES WITHOUT changing the
     /// screen and so is invisible to the other two).
@@ -5111,18 +5379,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void ResetMasterAcceptPrompt()
     {
+        // Phase 10.11 S3 — the early return does NOT test `_pendingCancelVoucherId`, and a clause that did was
+        // removed after a mutation run proved it could never change the outcome. The invariant that makes it
+        // redundant: the ONLY writer that arms the id (`RequestCancelHighlightedVoucher`) sets
+        // `IsAcceptPromptOpen = true` in the same breath, and the only reader disarms it through here — so
+        // "id armed AND prompt closed AND text empty" is unreachable, and on the Ctrl+A teardown path the id can
+        // only be armed if the prompt is open, in which case this return does not fire. Keeping it would have been
+        // a guard no test can fail — the same dead code wearing the costume of safety that the `id == Guid.Empty`
+        // clause in `RequestCancelHighlightedVoucher` was deleted for, twenty lines away in the same slice.
         if (!IsAcceptPromptOpen && AcceptPromptText.Length == 0) return;
 
         IsAcceptPromptOpen = false;
         AcceptPromptText = string.Empty;
+        // The armed cancellation is part of the prompt's state and dies with it.
+        _pendingCancelVoucherId = Guid.Empty;
     }
 
     /// <summary>
     /// Any change of screen tears down whatever master was open, so the Accept confirmation can never survive
     /// into the next screen (see <see cref="ResetMasterAcceptPrompt"/>). Raising the prompt does not change the
     /// screen, so this never cancels a confirmation the operator is looking at.
+    /// <para>Phase 10.11 S3 — the window-level <see cref="Notice"/> goes the same way and is cleared HERE rather
+    /// than inside <see cref="ResetMasterAcceptPrompt"/>: that method early-returns when no prompt is up, which is
+    /// precisely the state a notice is displayed in, so a notice routed through it would never be cleared.</para>
     /// </summary>
-    partial void OnCurrentScreenChanged(Screen value) => ResetMasterAcceptPrompt();
+    partial void OnCurrentScreenChanged(Screen value)
+    {
+        ResetMasterAcceptPrompt();
+        Notice = string.Empty;
+    }
 
     /// <summary>The human noun for the open master screen, used in the prompt text.</summary>
     private string MasterAcceptNoun() => CurrentScreen switch
@@ -5512,7 +5797,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para>Going through <see cref="OpenPageColumn"/> instead would trim back to the last MENU column and null
     /// <see cref="VoucherEntry"/>, SILENTLY DESTROYING the half-typed voucher: the operator who pressed Alt+C to
     /// add one missing ledger would lose every line already keyed. The entry view model instance therefore
-    /// survives beneath this column, and popping the column (Esc / Alt+X / a completed create) re-binds that SAME
+    /// survives beneath this column, and popping the column (Esc / the Cancel button / a completed create) re-binds that SAME
     /// instance through <see cref="RehydratePageFromRightmostColumn"/> with its state intact.</para>
     /// </summary>
     private void OpenCreateMasterColumn(GatewayColumn pageColumn, Screen screen, string title, Action setPage)
@@ -5574,7 +5859,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// WI-1 — drops every armed create-on-the-fly whose column is no longer in the cascade, i.e. one popped
-    /// WITHOUT a create (Esc / Alt+X) or TRIMMED AWAY by a page-replacing navigation. Without this the request
+    /// WITHOUT a create (Esc / the Cancel button) or TRIMMED AWAY by a page-replacing navigation. Without this the request
     /// would stay armed and a later, unrelated master create on the same screen would jump back into a stale
     /// field.
     /// <para><b>DEFECT 2 — the session soft-lock.</b> This used to be called from <see cref="BackFromPage"/>
@@ -6576,7 +6861,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         Columns.RemoveAt(Columns.Count - 1);
         ClearSubScreens();
-        // WI-1: an Alt+C create column that is popped WITHOUT creating (Esc / Alt+X) disarms the round-trip.
+        // WI-1: an Alt+C create column that is popped WITHOUT creating (Esc / the Cancel button) disarms the round-trip.
         AbandonCreateOnTheFlyIfColumnGone();
         ActiveColumnIndex = Columns.Count - 1;
         // If a page column survives (e.g. the report under a just-closed F12 config column), re-bind its

@@ -45,8 +45,13 @@ public sealed class LoadBearingCitationContentTests
     private static readonly Anchor[] Anchors =
     {
         // ---- the R12 user gate's evidence: the printer reads the GST State, never the postal one ----
+        // 🔴 The context phrase used to CONTAIN THE CITED LINE NUMBER, which broke this table's own rule ("never
+        // by a hard-coded line number, which would itself drift"). Phase 10.11 S3 added three lines to
+        // VoucherPrintProjector above this citation; re-pointing the citation — the correct fix — then made the
+        // anchor unfindable, and the guard went dark on the very gate it exists to protect. The phrase is now
+        // number-free, so a future re-point moves the citation and this anchor still follows it.
         new("plan.md",
-            "GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:731` is",
+            "GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector",
             "VoucherPrintProjector.cs",
             "StateText(company.Gst?.HomeStateCode)"),
 

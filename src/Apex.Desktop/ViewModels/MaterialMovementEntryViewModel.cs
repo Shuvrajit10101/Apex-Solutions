@@ -411,6 +411,7 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
     private static Money? RateOf(InventoryVoucherLineViewModel line)
         => line.HasRate && line.ParsedRate is { } r ? new Money(r) : null;
 
-    /// <summary>Esc / Alt+X cancel: discards the in-progress movement and returns to the Gateway.</summary>
+    /// <summary>Esc / the Cancel button: discards the in-progress movement and returns to the Gateway. (Alt+X
+    /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>
     public void Cancel() => _onCancelled();
 }

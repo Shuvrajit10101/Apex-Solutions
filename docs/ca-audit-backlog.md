@@ -1081,9 +1081,9 @@ specific batch" — and the distinct GST-challan "Cpin" — `GstChallan.cs:65`, 
   (each printed on its own line); may be empty").
 - **⚠️ Verifier addition — the sink is not merely declared, it genuinely RENDERS:** `InvoicePdf.cs:398`
   `foreach (var line in party.AddressLines)` and `:135` counts non-blank lines for layout. **So replacing
-  `VoucherPrintProjector.cs:214` flows straight to the PDF.** The "consumer is wired; only the source is
+  `VoucherPrintProjector.cs:217` flows straight to the PDF.** The "consumer is wired; only the source is
   missing" claim is **stronger** than the decoder stated.
-- **The formatter already exists:** `VoucherPrintProjector.cs:236` `SplitAddress(string?)` splits free-text into
+- **The formatter already exists:** `VoucherPrintProjector.cs:239` `SplitAddress(string?)` splits free-text into
   lines; already used for the **seller** at `:205`. Directly reusable for the buyer.
 - **The gate already exists and is already in use:** `src/Apex.Desktop/ViewModels/LedgerMasterViewModel.cs:
   421-433` `IsUnderParty(Group)` walks group ancestry (64-deep guard) to "Sundry Debtors"/"Sundry Creditors";
@@ -1124,7 +1124,7 @@ alteration exists.** A user who mistypes a PIN cannot fix it — **arguably wors
    member ⇒ nothing to save, and nothing for JSON/XML/CSV to round-trip.
 2. **UI:** no Mailing Details block. A user creating "Naresh Traders" under Sundry Debtors **physically cannot
    enter an address or PIN**.
-3. **Consumption:** every printed invoice emits a blank recipient address (`VoucherPrintProjector.cs:214`), and
+3. **Consumption:** every printed invoice emits a blank recipient address (`VoucherPrintProjector.cs:217`), and
    the e-invoice `BuyerDtls` cannot carry Addr/Loc/Pin.
 
 The gap is **shallow for its value**: the sink, the formatter, the gate, and the end-to-end precedent all exist.
@@ -1160,7 +1160,7 @@ which keeps every existing ledger **byte-identical** (the ER-13 discipline this 
 7. `MainWindow.axaml` — a new "Mailing Details" `<Border>` **immediately before `:3616`** (see correction 1),
    copying its `ColumnDefinitions="110,*"` row idiom; Address as a multi-line `TextBox` (`AcceptsReturn`,
    `TextWrapping`).
-8. **The payoff:** `VoucherPrintProjector.cs:211-217` — replace `AddressLines = Array.Empty<string>()` with
+8. **The payoff:** `VoucherPrintProjector.cs:214-220` — replace `AddressLines = Array.Empty<string>()` with
    `SplitAddress(party?.Mailing?.Address)` (reusing `:236`) and **delete the now-false comment at `:213`**.
 9. **Build the block as a reusable unit, not inline XAML** — the corpus citation for the party mailing block is
    *literally an Alt+C inline-creation instruction* (`703679456:754`), so **WI-1's inline form must expose the
@@ -3558,7 +3558,7 @@ waste a slice. Each is evidenced above.
 | **Engine unit conversion + its persistence and Io** | `InventoryAllocation.cs:43`, `Unit.cs:137-142`, **7** normalising call sites, `Schema.cs:1143`, `CanonicalModel.cs:1706` | Live engine code with **no UI entry point**. |
 | **Guarded, TESTED master delete / re-parent for ~15 master types** | `InventoryService` `:44`–`:295`, `PayrollService` `:277`–`:486`, `PayHeadService` `:91`–`:116` (incl. an **identity-preserving rename**), BomService/BatchService/PriceListService/ReorderLevelsService/SalaryStructureService | **Dead code from the UI.** WI-3's engine half is much cheaper than "NOT_IMPLEMENTED" suggests — **only Ledger and Group need new engine work.** |
 | **Custom accounting groups: schema, Io, and report classification all ready** | `Schema.cs:657-668`, `SqliteCompanyStore.cs:1307-1314`, `CanonicalModel.cs:640`/`CanonicalMapper.cs:397`/`CanonicalXml.cs:77`, `ClassificationRules.cs:14-31`, `BalanceSheet.cs:113`/`:125` | **WI-7 needs NO schema and NO Io fold-in.** |
-| **The invoice print address SINK — declared AND rendering** | `InvoicePrintData.cs:14-15`, `InvoicePdf.cs:398`/`:135`, formatter `VoucherPrintProjector.cs:236` | **WI-4's consumer is wired; only the source is missing.** |
+| **The invoice print address SINK — declared AND rendering** | `InvoicePrintData.cs:14-15`, `InvoicePdf.cs:398`/`:135`, formatter `VoucherPrintProjector.cs:239` | **WI-4's consumer is wired; only the source is missing.** |
 | **The party-group ancestry gate + conditional-block pattern** | `LedgerMasterViewModel.cs:421-433`/`:402`/`:236`/`:292` | Exactly the gate WI-4 needs, already written. |
 | **"Salary Payable" under Current Liabilities — Tally-faithful, already replicated** | `PayrollVoucherService.cs:31`/`:48`/`:355`, `PayHeadType.NotApplicable = 9` (`PayHeadType.cs:39-40`); Tally: Book "Process 1: Create Payable (Dues) Pay Heads" | **Not a defect.** Tally ships no "Salary" group either — we match its 28 (`SeedGroups.cs:64`). |
 | **Report-context Alt+C = New Column** | `MainWindow.axaml.cs:144-156` | **Correct Tally — preserve it.** *(But note its narrow gate: comparative reports only.)* |

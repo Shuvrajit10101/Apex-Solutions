@@ -393,18 +393,18 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:723-729` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:734-740` `SellerBlock`:
 
 - `Name` = `CompanyDisplayName` (`:676-677` — MailingName falling back to Name, **matching Tally's convention
   exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:729`) — **changed by W0-2a.**
+  (`VoucherPrintProjector.cs:740`) — **changed by W0-2a.**
   `SupplierPostalAddressText` (`:744-747`) returns `null` unless `company.Address` is non-blank, and otherwise
   defers to the shared `PostalAddressText` (`:822-829`), which appends Country then `"PIN: " + Pin`, each
   skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:731`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:742`) — **unchanged; still never `company.State`.**
 
 Called from `:399` (item pass) and `:520` (service pass). `SplitAddress` (`:855`) returns `Array.Empty` on
 null/whitespace.
@@ -430,7 +430,7 @@ silently collapses.
 (`ApplyJournal.cs:346-347`, `ImportPlan.cs:1198-1199`), which is the fact §7.3(i) had missed.
 
 > **[V] Census drift, for whoever maintains it:** `docs/full-clone-census.md:86` cited
-> `VoucherPrintProjector.cs:734-739` for `SellerBlock` and described it as reading "`company.MailingName` and
+> `VoucherPrintProjector.cs:745-750` for `SellerBlock` and described it as reading "`company.MailingName` and
 > `company.Address`". That was true at the census baseline `468a96e`. **Updated 2026-08-15**: the method is at
 > `:721-727` and now reads `MailingName`, `Address`, `Country` and `Pin`. **T0-8 itself remains OPEN** — the
 > write half (the screen) did not ship.
@@ -630,7 +630,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:731`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:742`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
@@ -887,7 +887,7 @@ Recorded rather than silently fixed, because a claim that **was** true and is no
 
 | Claim | A14 pass said | Correct at `fa651ae` |
 |---|---|---|
-| `BuyerAddressText` (buyer Country + PIN append) | `VoucherPrintProjector.cs:740-748` | **`:739-748`** — the declaration is at `:739`; body `:740-748` |
+| `BuyerAddressText` (buyer Country + PIN append) | `VoucherPrintProjector.cs:751-759` | **`:739-748`** — the declaration is at `:739`; body `:740-748` |
 | `CreateCompany()` | `MainWindowViewModel.cs:826-838` | **`:827-839`** — `:826` is the doc comment |
 | GST screen bindable properties | `GstConfigViewModel.cs:373-382` | **`:377-386`** — `Gstin` `:377`, `HomeState` `:380`, `RegistrationType` `:383`, `Periodicity` `:386` |
 | `companies` table column list | `Schema.cs:167-179` | **`:166-181`** — the table opens at `:166`, and `primary_cost_category` / `main_location`, which the A14 list included, are at `:180-181` |
