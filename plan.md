@@ -317,8 +317,19 @@ section that would be re-specified.
   Attendance, Payroll) — Payroll & Job-Work types appear only when their F11 feature is on (verification §A15).
 - **Voucher** — header (type, number, date, party, narration, optional/post-dated/cancelled flags) + **≥2
   balanced EntryLines**. Invariant: **Σ Dr = Σ Cr** (catalog §1/§4). **Cancel (Alt+X)** keeps the number in
-  sequence (greyed in Day Book); **Delete (Alt+D)** removes it and can gap numbering (verification §A14).
+  sequence (greyed in Day Book); **Delete (Alt+D)** removes it and can gap numbering.
+  **🔴 UNVERIFIED — model-knowledge, and the citation this sentence used to carry did not exist (§5, C-i,
+  2026-08-17).** It read *"(verification §A14)"*; the verification report has **no section A14**. The referent
+  is **item 14** of that report's numbered list (its line 68), which is **self-labelled `[model-knowledge]`**
+  and is listed **again** in the same report's section 5 (line 177) as a claim *"needing a Tally spot-check"*,
+  naming *"Alt+X vs Alt+D numbering behavior"* outright. The **corpus is silent** and corroborates
+  independently: `cancel` returns **2 hits across all nine admissible PDFs** (one an EPF *"cancelled cheque"*),
+  `struck` / `strike through` return **zero**. **Retain-the-number and the greyed Day Book row are therefore
+  OURS — chosen on the merits, kept, and never to be described as "as TallyPrime does".**
   Modes: Item / Accounting / As-Voucher; single-vs-double entry is an F12 mode (verification §A13).
+  **⚠️ That A13 citation, and the A10 / A11 / A15 citations elsewhere in this section, are the FOUR remaining
+  claims the C-iii sweep covers (§5). They are left exactly as they stand until it runs, so the sweep has an
+  unedited surface to measure.**
 - **EntryLine** — ledger, Dr/Cr amount; optional sub-allocations: **inventory allocation** (item, qty, rate,
   godown, batch), **bill references**, **cost-centre allocation**, **GST/TDS/TCS breakup**, **bank allocation**.
 
@@ -560,6 +571,140 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > **▶ WHAT CHANGES AND WHAT DOES NOT.** **Changed:** *"NO PR until the run ends"* is repealed and the PR is cut
 > at W0-2b. **Unchanged:** every git action is **A12's and no other agent's (R4)**; small conventional commits
 > (R10); **A10 review per slice, pre-merge**; and a push after every slice.
+
+> **▶ 🔴 TEN PHASE-10.11 DESIGN DECISIONS (R12, 2026-08-17) — ALL ADOPTED EXACTLY AS THE DESIGN RECOMMENDS.
+> SETTLED; DO NOT RE-LITIGATE.** Source: `docs/design-records/phase-10-11-voucher-lifecycle-design.md` — a
+> COMPLETE 12-section design record whose **R12 Appendix** formally put ten questions (D-1…D-10). Every one is
+> adopted **as recommended**, and each is written into the row it governs. This banner is the **index**, not the
+> only copy — recorded in §5 for the reason the 2026-08-15 set already gives: **a decision recorded only in
+> `memory.md` or in `docs/` gates nothing.** Three further corrections the design owes this file are recorded as
+> **C-i / C-ii / C-iii** below. **The design record is a HISTORICAL SNAPSHOT** — its own header says so, and its
+> `file.ext line NN` pointers are deliberately not live citations; re-derive any of them before relying on it.
+>
+> **D-1 · THE PHASE 10.11 SLICE ROW IS AMENDED: S1 AND S2 ARE ALREADY MERGED ANCESTORS OF HEAD.** `6a28d15`
+> (S1 — the Alt+D modifier hole) and `f2abdbb` (S2 — settlement off Ctrl+B), both **2026-08-07**, both verified
+> **in the code and not merely in the log**. **Reason:** an implementer starting from the un-amended row would
+> re-do two shipped slices. **Two sentences in that row were FALSE at HEAD and are corrected in place:**
+> **(a)** *"`CanQuickJump` never tests `e.KeyModifiers`, so **Alt+D already opens the Day Book today**"* — it
+> now reads `e.KeyModifiers == KeyModifiers.None`; the hole is **shut**, and S1 is what shut it. **(b)** the
+> VL-4 warning that leaving the button-bar row would paint *"a red badge that fires nothing — the IV-31
+> defect"* — that **did not happen**: `OnSettleBillsClick` was **repurposed** to
+> `Vm?.OpenSettlementVoucherFromOutstandings()` and the XAML still binds it, so button and accelerator take the
+> same route by construction.
+>
+> **D-2 · S5 IS SPLIT THREE WAYS — S5a (engine `Replace`) / S5b (`ForAlter` rehydration, simple families) /
+> S5c (carve inversions + the CARRY table).** **Reason:** `plan.md` itself sized S5 *"XL / HIGH — last and
+> largest; the only slice that rebuilds a posted aggregate"*, which is the argument for **not** shipping it as
+> one diff — a single XL slice puts the engine contract, the rehydration inverse and the tax-carve inversion in
+> front of one reviewer at once. **▶ 🔴 THE ARITHMETIC, STATED ONCE SO IT CANNOT BE MIS-BRIEFED: PHASE 10.11 IS
+> THREE VERBS — CANCEL · DELETE · ALTER — DELIVERED AS FIVE DIFFS: S3 · S4 · S5a · S5b · S5c.** "Three" counts
+> the **verbs**; "five" counts the **slices**. The design says "three slices" in three places and then tables
+> five, and never reconciles them in one sentence; this is that sentence.
+>
+> **D-3 · A DELETED VOUCHER'S NUMBER IS PROTECTED BY REFUSING THE DELETE, NOT BY A COUNTER. Delete is REFUSED
+> on a filed statutory document and Cancel is offered instead. NO numbering floor and NO counter table is
+> built.** **Reason:** the project's own shipped numbering doctrine
+> (`VoucherNumberingConfigViewModel.cs` `IsFiledDocument`) already holds that a filed document number is
+> *permanently burned and never reusable*, while `NextNumber` is `max+1` by scan — so today's engine would hand
+> that very number back the moment VL-2 makes `Delete` reachable. Refusing costs **no schema, no new state**,
+> and it is TallyPrime's own two-verb shape (Alt+D delete vs Alt+X cancel). The fallback — teaching `NextNumber`
+> a stored floor — needs a schema version and is **not** to be built in the first pass.
+> **▶ 🔴 THE RESIDUAL, RECORDED AS A KNOWN AND ACCEPTED BEHAVIOUR AND NEVER A SILENT ONE: deleting the
+> highest-numbered voucher that is NOT filed still REUSES its number.** That is defensible — an unfiled document
+> number has no statutory life — and it is what *"may leave a gap"* implies for the mid-sequence case. It is
+> written into census §1.3 item 11 so a reader meets it as a stated behaviour, not as a surprise.
+>
+> **D-4 · THE R7 LINE CLAIMING TALLY RESERVES `Ctrl+Enter` FOR DISPLAY-ONLY DRILL-DOWN IS WRONG AND IS AMENDED.
+> THE USER DECISION IT SUPPORTED STILL STANDS — ONLY ITS STATED REASON WAS WRONG.** The corpus (Book PDF p.436
+> [printed p.432], re-extracted with `-raw`) gives `Ctrl+Enter` as *"To alter a master during voucher entry or
+> from drilldown of a report"* — an **alteration** key, not a display one. **Reason the error happened:**
+> `pdftotext -layout` scrambles that three-column table into three independent streams (see C-iii's method note
+> and census §1.3 item 13). **Consequence, and it favours us:** binding `Ctrl+Enter` to **voucher** alteration is
+> a **smaller** divergence than the plan recorded, not a larger one. **USER DECISION 1 (Ctrl+Enter opens
+> alteration; plain Enter keeps the read-only VoucherDetail column) is UNCHANGED**, with its follow-up to
+> reconsider intact.
+>
+> **D-5 · REPORT-ONLY `Alt+X` IS OUR SCOPE DECISION, NOT FIDELITY.** `plan.md` recorded that TallyPrime *"scopes
+> Alt+X to cancelling from a report"*. The corpus cell says **both** *"To cancel a voucher"* **and** *"To cancel
+> a voucher from a report"*, with the "Where does it work" column reading **"Vouchers & Reports"**. We still ship
+> report-only — **as our choice**, recorded as one.
+>
+> **D-6 · VOUCHER DELETE TAKES **ONE** CONFIRMATION PROMPT.** The **double** prompt (*"Delete Yes or No?"* then
+> *"Are you sure Yes or No?"*) is corpus-attested for **masters** and for a **group company** — Study Guide PDF
+> p.277 — and is **NOT ATTESTED FOR A VOUCHER**. Recorded that way rather than copied across by analogy: the
+> single prompt is ours by decision, and the absence of a voucher attestation is the finding.
+>
+> **D-7 · `SqliteCompanyStore.Remove` IS FENCED, NOT FIXED.** It deletes `bill_allocations` → `cost_allocations`
+> → `bank_allocations` → `entry_lines` → `vouchers` and **misses FIVE child tables**: `tds_lines`, `tcs_lines`,
+> `payroll_lines`, `voucher_inventory_lines` and **`pos_tender_allocations`**. A
+> `// DO NOT USE — incomplete` note goes **on the method**. **▶ WHY FIXING IT IS WORSE:** a working
+> `Remove` **invites routing voucher deletion through it** instead of through whole-company `Save`, which is the
+> only path the whole aggregate round-trips on. The method is off the live path today, which is why the gap has
+> never bitten; making it look safe is what would put it on the live path.
+>
+> **D-8 · THE PHASE 10.11 EXIT-GATE BASELINE IS RE-MEASURED, NOT INHERITED.** The row quoted **Ledger 1294 · Io
+> 368 · Sqlite 214 · Desktop 1836** — four phases stale. The corrected figures in that row are a **measurement
+> taken 2026-08-17 on this branch**, not a copy of the design's own stated baseline (whose §11.3 warns that even
+> *its* 1668 may have gone stale under a modified test file). **▶ TWO GATE RULES TRAVEL WITH IT, AND THEY ARE
+> PART OF THE GATE:** **(a) nothing in `Apex.Ledger.Io` or `Apex.Persistence.Sqlite` should move AT ALL — a
+> moved Io or Sqlite count is a RED FLAG, not a pass** (this phase adds reachability, not state; ER-13 requires
+> a never-altered book to export byte-identically). **(b) the seven existing engine Cancel/Delete tests must be
+> UNCHANGED** — in `CostCentreTests`, `CostAllocationParallelSetTests`, `InterestTests`,
+> `Inventory/ItemInvoiceTests` (two) and `Inventory/InventoryReportsTests` (two). **If any of them moves, the
+> engine semantics changed, and that is a FINDING, not a fix.**
+>
+> **D-9 · `numbering-design-v2 §2.5/§5.4` IS CITED BY SHIPPED CODE AND IS NOT IN THE REPOSITORY.** A plan item
+> to **land it or restate its rule in-repo** is added to Phase 10.11's carry-forwards. **Reason:** the doctrine
+> that D-3 rests on is currently unverifiable by anyone reading this repository. **The document is not to be
+> written from memory** — restating the rule in-repo, with the code that implements it as the citation, is the
+> acceptable alternative.
+>
+> **D-10 · THE PURE-INVENTORY CANCEL DEFERRAL IS **UI-ONLY**, NOT AN ENGINE GAP.**
+> `InventoryPostingService.Cancel` **exists**. What is deferred is the *screen* — the registers carry no
+> cancelled-inclusive view — so the row is re-worded to say so. **Reason:** "engine gap" would send an
+> implementer to write a method that is already there.
+>
+> **▶ THREE CORRECTIONS THE SAME DESIGN OWES THIS FILE — C-i, C-ii, C-iii.**
+>
+> **C-i · 🔴 THE Alt+X / Alt+D NUMBERING SENTENCE IS SOURCED TO A CITATION THAT DOES NOT EXIST, AND THE CLAIM
+> BEHIND IT IS MODEL-KNOWLEDGE.** §4.1's Voucher bullet cited *"(verification §A14)"*.
+> `docs/tally-feature-catalog-verification-report.md` **has no section `A14`**: the referent is **item 14 of a
+> numbered list** (that report, line 68), and it is **self-labelled `[model-knowledge]`**. The same report
+> lists it **again** at line 177 under *"5. Model-knowledge behavioral claims … needing a Tally spot-check"*,
+> naming **"Alt+X vs Alt+D numbering behavior"** explicitly and closing *"verify in-app or against TallyHelp
+> before treating as authoritative."* **The corpus corroborates the silence independently:** `cancel` returns
+> **2 hits across all nine admissible PDFs**, one of them a *"cancelled cheque"* in the EPF chapter; `struck`
+> and `strike through` return **zero**. ⇒ The sentence is relabelled **UNVERIFIED — model-knowledge, flagged
+> for spot-check by the verification report itself; corpus silent.** **▶ WHAT DOES NOT CHANGE:**
+> retain-the-number is a **good design and it stays** — our engine already implements it, for its own reasons —
+> **but it is OURS, and the greyed Day Book row is ours too. Do not write "as TallyPrime does" anywhere near
+> it.**
+>
+> **C-ii · A STALE IN-`plan.md` POINTER.** Phase 10.11's VL-3 bullet cited the greyed-Day-Book specification at
+> **line 267** — which is the **tech-stack comparison** section. The real line is **320** (§4.1's Voucher
+> bullet). Corrected, and — per the standing lesson that a pointer is never fixed in only one place — the
+> **whole repository** was grepped for that pointer rather than the one copy being patched. **▶ AND IT IS NOW
+> WRITTEN IN THE NON-LIVE ` line NN` FORM ON PURPOSE:** a self-citation inside the file this project edits most
+> is a pointer that goes stale on the next edit *and* a live citation the doc-vs-code invariant would keep
+> green while it lied.
+>
+> **C-iii · 🔴 A MODEL-KNOWLEDGE SWEEP IS OWED, AND IT HAS A DENOMINATOR.** The verification report's section 5
+> names **five MORE** claims under the same `[model-knowledge]` flag as C-i's: the **single-entry-mode F12
+> toggle path**, **Payroll/Job-Work-requires-F11 availability**, **Bank Allocation vs Stat-Payment challan
+> split**, **Stock-in-Hand derived balance**, and **rename-in-place semantics**. **Anything in this file citing
+> "verification §Ann" is suspect by the same defect.** **▶ THE DENOMINATOR, MEASURED 2026-08-17 BEFORE THIS
+> BANNER WAS WRITTEN: `plan.md` carried TEN `§A`-style citations in its substantive prose** — A6/A7, A8
+> (twice), A10, A11, A13, A14, A15, A25, A26 — **and FIVE of the ten point at items the verification report
+> itself tags `[model-knowledge]`**: A10 (Stock-in-Hand derived balance), A11 (rename-in-place semantics), A13
+> (single-entry F12 mode), A14 (this one — corrected in §4.1, where the label itself is retired) and A15
+> (Payroll/Job-Work F11). **So the sweep's LIVE surface is NINE citations — A25, A11, A6/A7, A8 (twice), A10,
+> A15, A13, A26 — and FOUR of the nine (A10, A11, A13, A15) are still under the flag.**
+> *(This banner deliberately writes those ids **without** the section sign, so that re-running the grep counts
+> the prose rather than the index of it. Grepping `§A14` after this edit returns **three** hits and none of
+> them is a citation: §4.1's quote-to-correct, C-i's quote of the same, and this sentence describing them. The
+> quote-beside-the-correction shape is this project's standing convention — removing the quote would destroy
+> the evidence of what was corrected.)* **The sweep is NOT performed here** — it is a plan item in Phase 10.11's
+> carry-forwards, with that denominator attached so its completion is checkable.
 
 > **▶ USER DECISION (R12, 2026-08-10) — SETTLED; DO NOT RE-LITIGATE. The 9 OBSOLETE-BY-LAW pre-GST
 > capabilities WILL NOT BE BUILT.** State VAT (enable / dealer type / TIN / registration date); VAT & Tax
@@ -1757,6 +1902,16 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
       documentation slice**; Stream B is fenced out of `src/Apex.Ledger/Reports/**`.
 
 ### Phase 10.11 — Voucher lifecycle: alter, delete, cancel
+- **▶ 🔴 READ FIRST — THE ARITHMETIC OF THIS PHASE, STATED IN ONE SENTENCE SO IT CANNOT BE MIS-BRIEFED (D-2,
+  2026-08-17). PHASE 10.11 IS **THREE VERBS** — **CANCEL · DELETE · ALTER** — DELIVERED AS **FIVE DIFFS**:
+  **S3 · S4 · S5a · S5b · S5c**.** "Three" counts the verbs; "five" counts the slices. **The original five-slice
+  list is NOT that five:** its **S1** and **S2** are **already merged** (D-1) and its **S5** is now **split
+  three ways** (D-2). Anyone who reads "three slices" and "five slices" in the same phase and cannot reconcile
+  them is reading two different nouns.
+- **▶ 🔴 THIS ROW WAS AMENDED 2026-08-17 UNDER TEN ADOPTED DESIGN DECISIONS (D-1…D-10) AND THREE CORRECTIONS
+  (C-i / C-ii / C-iii) — all recorded in the §5 banner `TEN PHASE-10.11 DESIGN DECISIONS`, all sourced to
+  `docs/design-records/phase-10-11-voucher-lifecycle-design.md`.** The decisions are **settled**; this row
+  carries them, it does not re-argue them.
 - **▶ 🔴 PULLED FORWARD 2026-08-16 BY USER RULING 6 (R12 — §5 banner,
   `FOUR FURTHER USER RULINGS (R12, 2026-08-16)`). THIS PHASE LANDS **NEXT**, AHEAD OF THE REST OF WAVE 0.** The
   only row that precedes it is **W0-2b** (Company Create/Alter), which is already designed, gate-resolved and in
@@ -1809,11 +1964,27 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   shape; `VoucherEntryViewModel` (a `ForAlter` factory + the rehydration inverse of its four `To…()` writers);
   `BillSettlementService`; `ReportsViewModel`/`ReportRow`; the two Io print DTOs.
 - **R7 fidelity (A14 per slice):** `[CORPUS-BOOK p.28]` — plain **Enter** on a register row goes **straight to
-  Show/Edit**; TallyPrime has **no read-only voucher screen at all**, scopes **Alt+X** to *cancelling from a
-  report* and reserves **Ctrl+Enter** for *display-only drill-down*. `[CORPUS-SG p.67]` — a ledger with
+  Show/Edit**; TallyPrime has **no read-only voucher screen at all**. `[CORPUS-SG p.67]` — a ledger with
   transactions **cannot be deleted**; Tally **just refuses**. **Alt+A "Add voucher in report"** is TallyPrime's
   own bottom-bar entry `[CORPUS-BOOK p.431]`. **⚠️ Two Tally-side facts could NOT be settled and must NOT be
   fabricated (R7):** the exact cancellation prompt **wording**, and whether **un-cancel** exists.
+  **▶ 🔴 TWO CLAIMS THAT USED TO STAND HERE ARE CORRECTED 2026-08-17 — the quote is kept beside the correction
+  so the evidence is not destroyed:**
+  - **~~"reserves `Ctrl+Enter` for *display-only drill-down*"~~ — WRONG (D-4).** The corpus, re-extracted with
+    `pdftotext -raw` because `-layout` scrambles that three-column table, gives `Ctrl+Enter` as *"To alter a
+    master during voucher entry or from drilldown of a report"* — Book PDF **p.436** [printed p.432]. It is an
+    **alteration** key. **This makes our divergence SMALLER, not larger:** extending an alter chord from masters
+    to vouchers is a narrower departure than re-purposing a display chord. **USER DECISION 1 below is
+    UNCHANGED — only its stated reason was wrong.** `Ctrl+D` on the same page removes a **line** inside voucher
+    entry — a different granularity from `Alt+D`, and not to be conflated with it.
+  - **~~"scopes `Alt+X` to *cancelling from a report*"~~ — NOT FIDELITY (D-5).** The corpus cell reads **both**
+    *"To cancel a voucher"* **and** *"To cancel a voucher from a report"*, and its "Where does it work" column
+    says **"Vouchers & Reports"** (Book PDF p.437 [printed p.433], `-raw`). **We still ship report-only — and
+    that is OUR SCOPE DECISION, recorded as ours, not as a Tally behaviour we are matching.**
+  - **▶ AND SEE C-i (§5): the *"cancelled voucher keeps its number and is greyed"* belief is `[model-knowledge]`
+    by the verification report's own tag, and the corpus is silent.** We keep the behaviour; we stop crediting
+    it to TallyPrime. **`Duplicate` (`Alt+2`) and `Insert` (`Alt+I`/`Alt+A`) ARE corpus-attested (Book PDF
+    p.435) and are NOT BUILT** — a named carry-forward, not a silent omission.
 - **Work items (id — one-line; full design per row in the briefs, not here):**
   - **VL-1 (IV-3)** Voucher alteration — the drill opens the entry screen pre-filled and Accept **REPLACES**
     via `LedgerService.Replace(Guid, Voucher)`, **ordered so a rejected replacement leaves the original
@@ -1827,42 +1998,117 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   - **VL-2 (IV-4)** Delete on **Alt+D** behind a Y/N confirmation and referential guards — one confirmation
     channel with an action slot (keeping `ConfirmMasterAccept`/`DismissMasterAccept` by name, called by tests
     and the dispatcher), a new **pure** `MasterDeletionRules`, and routing from Day Book / register drill /
-    voucher detail / Chart of Accounts / Stock Item list. **Also closes the modifier hole** — `CanQuickJump`
-    never tests `e.KeyModifiers`, so **Alt+D already opens the Day Book today**.
+    voucher detail / Chart of Accounts / Stock Item list.
+    **▶ 🔴 CORRECTED 2026-08-17 (D-1a) — the sentence that stood here is FALSE at HEAD, and the quote stays
+    beside the correction:** ~~*"**Also closes the modifier hole** — `CanQuickJump` never tests
+    `e.KeyModifiers`, so **Alt+D already opens the Day Book today**."*~~ **It DOES test them.** Slice **S1**
+    (`6a28d15`, 2026-08-07, a merged ancestor of HEAD, verified in the code) made `CanQuickJump` read
+    `=> vm.IsMenuScreen && !IsTyping(e) && e.KeyModifiers == KeyModifiers.None;`. **The hole is SHUT, and
+    nothing in this phase needs to shut it again.** What replaced the sentence is its own precondition,
+    discharged: S1 existed precisely so that binding Alt+D to DELETE would not sit on top of a bare-letter
+    quick-jump.
+    **▶ ONE PROMPT, NOT TWO (D-6).** The **double** confirmation (*"Delete Yes or No?"* → *"Are you sure Yes or
+    No?"*, Study Guide PDF p.277) is corpus-attested for **masters** and for a **group company**. It is **NOT
+    ATTESTED FOR A VOUCHER.** We ship **one** prompt for a voucher and record the single prompt as **ours by
+    decision** — the point being that we declined to copy the double prompt across **by analogy**, which is how
+    an unattested behaviour acquires a citation it never had.
+    **▶ A FILED STATUTORY DOCUMENT IS REFUSED, AND CANCEL IS OFFERED INSTEAD (D-3).** The guard is the project's
+    own already-shipped `IsFiledDocument` predicate in `VoucherNumberingConfigViewModel` — e-invoice status
+    `Generated` **or** `Cancelled` (a reported IRN is *permanently burned*), or any e-Way Bill record. **NO
+    numbering floor and NO counter table is built**, so this needs **no schema**. **🔴 THE RESIDUAL IS KNOWN AND
+    ACCEPTED, NEVER SILENT: deleting the highest-numbered voucher that is NOT filed still REUSES its number**,
+    because `NextNumber` is `max+1` by scan with no date scoping. It is stated in census §1.3 item 11 for the
+    same reason it is stated here.
+    **▶ `SqliteCompanyStore.Remove` IS FENCED, NOT FIXED, AND NOT CALLED (D-7).** It deletes `bill_allocations`
+    → `cost_allocations` → `bank_allocations` → `entry_lines` → `vouchers` and **misses FIVE child tables** —
+    `tds_lines`, `tcs_lines`, `payroll_lines`, `voucher_inventory_lines` and **`pos_tender_allocations`**. This
+    slice adds a **`// DO NOT USE — incomplete`** note **on the method** and routes deletion through
+    whole-company `Save`, as everything else does. **▶ WHY FIXING IT IS THE WORSE OPTION:** a `Remove` that
+    looks correct **invites the next implementer to route delete through it**, off the one path the whole
+    aggregate is known to round-trip on. It is off the live path today, which is why the gap has never bitten;
+    repairing it is what would put it on the live path.
   - **VL-3 (IV-16)** **Alt+X = CANCEL a posted voucher**, and cancelled documents **look** cancelled — delete
     the app-wide Alt+X arm outright (Escape already reaches `Back()`; it has no `!IsPickerOpen` guard and blows
     through the WI-11 Accept prompt) and **delete `CancelVoucher()` rather than repurpose it, so the compile
     breaks and every stale caller surfaces**; then a narrowly-gated arm calling `LedgerService.Cancel`, plus
     `IsCancelled` on `ReportRow`, a `CancelledRowToBrushConverter`, and the **greyed Day Book row**
-    `plan.md:267` already specifies. **Two picker leaks go live the moment Cancel is reachable and must close
+    **`plan.md` line 320** specifies (§4.1's Voucher bullet). **▶ 🔴 POINTER CORRECTED 2026-08-17 (C-ii):** this
+    read ~~*"`plan.md`:267 already specifies"*~~ — *(the original wrote that pointer in the live `file.md:NN`
+    form; the quote is neutralised here so that correcting a live citation does not plant another one)* — and
+    **line 267 is the tech-stack comparison section**; it
+    specifies nothing of the kind. It is written in the non-live ` line NN` form on purpose: a self-citation
+    inside the file this project edits most goes stale on the next edit, **and** the doc-vs-code invariant is a
+    reach check that would have kept `:267` green while it pointed at the wrong section for months — which is
+    exactly what it did. **And read `line 320` with C-i in hand: what it "specifies" is `[model-knowledge]`,
+    so the greyed row is OURS.** **Two picker leaks go live the moment Cancel is reachable and must close
     in the same slice** — `BuildSection34Pickers()`/`BuildAdvancePickers()` filter on base type only, so a
     cancelled invoice is offered as the original supply a §34 Credit Note adjusts.
-  - **VL-4 (IV-5)** Settlement comes **off Ctrl+B** and off the report — delete the arm, handler, button-bar
-    row (**leaving it would paint a red badge that fires nothing — the IV-31 defect**) and `SettleBills()`;
-    **keep `BuildSettlementAllocations`** (the only code that validates an AgstRef against a genuinely open
-    bill and caps each knock at the pending amount), **delete `SettleAndPost`**. Replaced by **Alt+A** on the
-    Outstandings screen, opening a **Single Entry** Receipt/Payment **pre-loaded** with the selected bills.
-- **Slices (one sequential stream, all schema-clean; rationale in `memory.md`):**
-  1. **S1 — the Alt+D modifier hole** (VL-2 step 1) — **S / low** — **its own commit, ahead of everything, and
-     it must precede S4:** binding Alt+D to DELETE on top of a hole that already fires it as a bare-letter
-     quick-jump would make a stray Alt+D destructive.
-  2. **S2 — settlement off Ctrl+B** (VL-4) — **M / low** — **second, because it is the only row in the phase
-     that CREATES bad data**: today Ctrl+B posts an irreversible voucher the operator never confirmed and —
-     until S3/S4 — can neither cancel nor delete.
-  3. **S3 — Cancel on Alt+X** (VL-3) — **M / med** — before delete, so the first new verb is the
-     **non-destructive** one and the dispatcher is clean where S4 inserts.
-  4. **S4 — Delete on Alt+D** (VL-2 steps 2-11) — **L / med**.
-  5. **S5 — Voucher alteration** (VL-1) — **XL / HIGH** — last and largest; the only slice that rebuilds a
-     posted aggregate rather than routing to an existing engine method.
+  - **VL-4 (IV-5)** Settlement comes **off Ctrl+B** and off the report — delete the arm, handler and
+    `SettleBills()`; **keep `BuildSettlementAllocations`** (the only code that validates an AgstRef against a
+    genuinely open bill and caps each knock at the pending amount), **delete `SettleAndPost`**. Replaced by
+    **Alt+A** on the Outstandings screen, opening a **Single Entry** Receipt/Payment **pre-loaded** with the
+    selected bills. **✅ SHIPPED — this whole item is slice S2 (`f2abdbb`, 2026-08-07), a merged ancestor of
+    HEAD (D-1).**
+    **▶ 🔴 CORRECTED 2026-08-17 (D-1b) — the warning that stood here described a defect that never occurred,
+    and the quote stays beside the correction:** ~~*"delete the … button-bar row (**leaving it would paint a red
+    badge that fires nothing — the IV-31 defect**)"*~~. **The row was not left dangling and it was not deleted —
+    it was REPURPOSED.** `OnSettleBillsClick` now reads `=> Vm?.OpenSettlementVoucherFromOutstandings();` and
+    the XAML still binds it, so **the button and the accelerator take the same route by construction** and
+    there is no badge that fires nothing. `BillSettlementService` records *"`SettleAndPost` is therefore
+    deleted"* in its own words. **The lesson is the shape, not the miss:** a predicted defect must be
+    re-measured against HEAD before it is quoted as a live hazard, or a phase inherits a warning about
+    something that has already been done correctly.
+- **Slices (one sequential stream, all schema-clean; rationale in `memory.md`) — 🔴 AMENDED 2026-08-17 BY D-1
+  AND D-2. THREE VERBS, FIVE REMAINING DIFFS. TWO SLICES ARE ALREADY SHIPPED AND MUST NOT BE RE-DONE:**
+  1. **~~S1 — the Alt+D modifier hole~~ (VL-2 step 1) — ✅ MERGED `6a28d15`, 2026-08-07.** Verified **in the
+     code**, not in the log: `CanQuickJump` now reads
+     `=> vm.IsMenuScreen && !IsTyping(e) && e.KeyModifiers == KeyModifiers.None;`. Its reason still holds and is
+     why it went first — binding Alt+D to DELETE on top of a hole that fired it as a bare-letter quick-jump
+     would have made a stray Alt+D destructive.
+  2. **~~S2 — settlement off Ctrl+B~~ (VL-4) — ✅ MERGED `f2abdbb`, 2026-08-07.** Verified **in the code**: the
+     Ctrl+B arm is a RESERVED-DO-NOT-BIND comment block, `Alt+A` on Outstandings calls
+     `OpenSettlementVoucherFromOutstandings()`, and `SettleAndPost` is gone. Its reason also still holds — it
+     was the only row in the phase that **created** bad data.
+  3. **S3 — Cancel on Alt+X** (VL-3) — **M / med** — the first new verb, and deliberately the
+     **non-destructive** one, so the dispatcher is clean where S4 inserts. **Proves:** a posted voucher leaves
+     the books **without anything being destroyed**, its number stays in sequence, and every report already
+     agrees.
+  4. **S4 — Delete on Alt+D** (VL-2 steps 2-11) — **L / med**. **Proves:** a voucher/ledger/group is removed
+     **behind a confirmation and a referential guard that names its blockers**, and a **filed** document
+     **cannot** be silently un-numbered (D-3).
+  5. **🔴 S5 IS SPLIT THREE WAYS (D-2) — S5a / S5b / S5c. The reason is `plan.md`'s own sizing of it:** *"XL /
+     HIGH — last and largest; the only slice that rebuilds a posted aggregate."* That is the argument for **not**
+     shipping it as one diff. A single XL slice puts the engine contract, the rehydration inverse and the
+     tax-carve inversion in front of **one reviewer at once**, and this project's recurring failure mode is a
+     defect that passes the full suite because the test that would have caught it was written against the same
+     misunderstanding as the code.
+     - **S5a — `LedgerService.Replace`, ENGINE ONLY, no UI** — **M / HIGH.** **Proves:** the three identities
+       (**Guid · Number · list position**) survive; a **rejected** replacement leaves the original
+       **byte-identical and at its index**; and an altered book equals a directly-posted book on **every**
+       derived figure. **This is the gate that matters most — it is the last point at which the engine contract
+       changes cheaply.**
+     - **S5b — `ForAlter` rehydration, SIMPLE FAMILIES ONLY** — **L / med.** **Proves:** a posted voucher
+       re-opens **pre-filled** and re-accepts unchanged to a byte-identical book, and every family that cannot
+       yet round-trip is **refused with a named message** — never silently.
+     - **S5c — the carve inversions + the CARRY table** — **L / HIGH.** **Proves:** a TDS-carved / GST-stamped /
+       bank-reconciled voucher survives alteration with its tax **re-derived from the restored gross** and its
+       outside-world links **carried, not rebuilt**.
+  - **▶ GATES (R9/R12) after S3, after S4, after S5a, and after S5c.**
 - **Schema: NONE — schema-clean end to end, and that is designed, not coincidental.** `SqliteCompanyStore.Save`
   re-inserts the whole aggregate in one transaction, so persistence is a pure function of the in-memory
   `Company` graph. **Io: none for the canonical model** — asserted, not assumed (a never-altered company must
   still export byte-identically, ER-13).
 - **USER DECISIONS (R12 — settled; do not re-litigate):**
-  1. **(VL-1) Ctrl+Enter opens alteration; plain Enter keeps the read-only VoucherDetail column.** This is
-     **BACKWARDS from TallyPrime on both keys** — Tally's Enter goes straight to Show/Edit and its Ctrl+Enter
-     is display-only. A **deliberate, accepted divergence** to preserve the Miller-column cascade, **with a
-     follow-up to reconsider.**
+  1. **(VL-1) Ctrl+Enter opens alteration; plain Enter keeps the read-only VoucherDetail column.** A
+     **deliberate, accepted divergence** to preserve the Miller-column cascade, **with a follow-up to
+     reconsider.** **▶ 🔴 THE DECISION STANDS; ITS STATED REASON WAS HALF WRONG AND IS CORRECTED 2026-08-17
+     (D-4).** It read ~~*"This is **BACKWARDS from TallyPrime on both keys** — Tally's Enter goes straight to
+     Show/Edit and its Ctrl+Enter is display-only."*~~ **Only the first half is true.** Tally's plain Enter does
+     go straight to Show/Edit, so our read-only column *is* a divergence. But **Tally's `Ctrl+Enter` is not
+     display-only — it is an ALTER key** (*"To alter a master during voucher entry or from drilldown of a
+     report"*, Book PDF p.436 [printed p.432], `-raw`). **So we diverge on ONE key, not two**, and on the
+     second we merely widen an alter chord from masters to vouchers. **Do not overturn the decision on this
+     correction — it makes the decision easier to defend, not harder.**
   2. **(VL-2) COMPANY deletion is SPLIT OUT into its own later slice;** this slice ships Alt+D for **voucher,
      ledger and group only**. **Reason:** `CompanyStorage.Delete` **swallows `IOException`** — a locked `.db`
      leaves the operator believing the company was deleted while the file survives — and `Company = null`
@@ -1879,8 +2125,13 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      `EInvoiceStatus.Generated`, not `Pending`.**
   3. **VL-3 ships NO un-cancel** in this slice — VL-1 ships in the same stream and **alteration is the route**.
      The confirmation string is **ours, recorded as UNVERIFIED-BY-DESIGN** rather than fabricating a Tally
-     quote (R7). The e-invoice interlock is **warn-and-proceed**. The **pure-inventory Cancel analogue is
-     deferred** until the registers carry a cancelled-inclusive view.
+     quote (R7). The e-invoice interlock is **warn-and-proceed**.
+     **▶ 🔴 THE PURE-INVENTORY CANCEL DEFERRAL IS **UI-ONLY** — RE-WORDED 2026-08-17 (D-10).** This row read as
+     though the engine were missing. **It is not: `InventoryPostingService.Cancel` EXISTS**, alongside the
+     accounting `LedgerService.Cancel`. What is deferred is the **screen** — the inventory registers carry no
+     cancelled-inclusive view, so a cancelled inventory voucher would simply vanish from the only report that
+     lists it, with no way back. **Reason for saying so explicitly:** "engine gap" sends an implementer off to
+     write a method that is already there.
   4. **VL-4's replacement gesture is Alt+A** — TallyPrime's own documented *"add voucher in report"*. **Ctrl+B
      is freed and RESERVED**, and **Basis of Values is explicitly NOT built here** — recorded as named debt,
      and it is what Ctrl+B is reserved for.
@@ -1898,20 +2149,71 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   **Alt+X cancelling from the Day Book**, number staying in sequence — **(4)** a **₹1,84,733.45** invoice
   greyed **and** overprinted "CANCELLED"; **Ctrl+B unbound and reserved**, settlement on the **Alt+A pre-loaded
   Single-Entry Receipt/Payment** the operator confirms.
-- **Exit gate:** R9 — tests green and **shown as all four per-project counts, never the total** (§6.2; baseline
-  today **Ledger 1294 · Io 368 · Sqlite 214 · Desktop 1836**), **predicted before each merge, an exact match
-  treated as evidence the merge is semantically clean**; Robert & Bright unmoved; **A10** review per slice
+- **Exit gate:** R9 — tests green and **shown as all four per-project counts, never the total** (§6.2),
+  **predicted before each merge, an exact match treated as evidence the merge is semantically clean**;
+  Robert & Bright unmoved; **A10** review per slice
   pre-merge; **A12** commits & pushes (R4/R10); the **real app run with evidence** (alter a posted invoice and
   see the same number at the same Day-Book position; be refused deleting a ledger that has transactions; cancel
   an invoice and see it greyed and printed CANCELLED; settle two bills through the pre-loaded Receipt);
   `memory.md` updated; **user go/no-go** per R12. **One addition specific to this phase: the NO-AUDIT-TRAIL
   consequence is re-stated at the gate and acknowledged, not assumed** — with alter and delete working in front
   of them, the user confirms that shipping them without any record of who changed what is still the decision.
+- **▶ 🔴 THE GATE BASELINE — RE-MEASURED 2026-08-17, NOT INHERITED (D-8).** The row used to quote
+  ~~*"baseline today **Ledger 1294 · Io 368 · Sqlite 214 · Desktop 1836**"*~~, which was **four phases stale**.
+  **MEASURED 2026-08-17 on branch `claude/apex-wrong-figures-bc45f4` at `bdd3389` + this documentation slice,
+  each project run separately and the number read off its own final tree — never a total, never a piped run:
+  `Apex.Ledger.Tests` **1668** · `Apex.Ledger.Io.Tests` **414** · `Apex.Persistence.Sqlite.Tests` **231** ·
+  `Apex.Desktop.Tests` **2195**.** *(The design record's §11.3 warned that its own stated **Ledger 1668** might
+  already be stale, because it was written against a tree with `DocumentCodeAgreementTests.cs` modified. **It
+  was not stale — the re-measurement confirms it.** Recorded that way deliberately: a warning that turns out to
+  be unnecessary is still the reason the number is now a measurement instead of an inheritance. **Re-measure
+  before each merge; do not quote this line.**)*
+  **▶ TWO GATE RULES TRAVEL WITH THOSE NUMBERS AND ARE PART OF THE GATE, NOT COMMENTARY:**
+  1. **NOTHING IN `Apex.Ledger.Io` OR `Apex.Persistence.Sqlite` SHOULD MOVE AT ALL. A moved Io or Sqlite count
+     is a RED FLAG, not a pass.** This phase adds **reachability, not state**: no schema change, `Cancel` and
+     `Delete` already exist and already persist, `Replace` adds no field, and persistence is a pure function of
+     the in-memory `Company` graph. **ER-13 requires a book that never uses these verbs to export
+     byte-identically** — a moved Io count is the first place that would show.
+  2. **THE SEVEN EXISTING ENGINE `Cancel`/`Delete` TESTS MUST BE UNCHANGED** — in `CostCentreTests`,
+     `CostAllocationParallelSetTests`, `InterestTests`, `Inventory/ItemInvoiceTests` (two) and
+     `Inventory/InventoryReportsTests` (two). **If any of them moves, the engine semantics changed — and that
+     is a FINDING, not a fix.** The two `CancelVoucher` references in `Apex.Desktop.Tests`
+     (`InventoryVoucherEntryViewModelTests`, `KeyboardArbitrationTests`) **do** change by design in S3, as does
+     any dispatch test asserting app-wide Alt+X.
 - **▶ CARRY-FORWARDS:** the **audit trail** itself (deferred to the excluded Phase 10; the gap widens with
   every altered or deleted voucher) · **company deletion**, specified above but not fixed · **alteration for
-  the five deferred voucher families** · **cancellation for pure-inventory vouchers** · **Basis of Values**,
-  which reclaims Ctrl+B from the reserved list this phase creates · the **key-map table** (IV-28) — build the
-  Ctrl+B reserved-unbound row here so IV-28 inherits it.
+  the five deferred voucher families** · **cancellation for pure-inventory vouchers** (**UI-only — the engine
+  method exists**, D-10) · **`Duplicate` (Alt+2) and `Insert` (Alt+I / Alt+A)**, both corpus-attested and not
+  built · **Basis of Values**, which reclaims Ctrl+B from the reserved list this phase creates · the
+  **key-map table** (IV-28) — build the Ctrl+B reserved-unbound row here so IV-28 inherits it.
+- **▶ 🔴 THREE NEW PLAN ITEMS OPENED 2026-08-17 BY THE DESIGN REVIEW. They are `plan.md` items so that R6 is
+  satisfied before Phase 10.11 is built; none of them is performed by that phase's slices.**
+  1. **(D-9) LAND `numbering-design-v2 §2.5/§5.4` IN-REPO, OR RESTATE ITS RULE IN-REPO.** It is **cited by
+     shipped code** — `VoucherNumberingConfigViewModel`'s `IsFiledDocument` doc comment leans on both sections
+     for *"a cancelled doc-no is never reusable"* — and **it is not in the repository**; `docs/` holds
+     `adr/0001-tech-stack.md`, `design/accounting-core.md` and the top-level files, and no numbering design
+     note among them. **D-3 rests on that doctrine**, so a reader of this repo currently cannot check the
+     reasoning behind a shipped refusal. **🔴 DO NOT WRITE THE DOCUMENT FROM MEMORY.** Either land the real one,
+     or restate the *rule* in-repo with the code that implements it as the citation, and say plainly that the
+     originally cited source is unavailable.
+  2. **(C-iii) SWEEP EVERY `verification §Ann` CITATION IN `plan.md`.** The verification report's section 5
+     names **six** `[model-knowledge]` claims needing a Tally spot-check; **C-i closed one of them** (Alt+X vs
+     Alt+D numbering) and **five remain**: the single-entry-mode F12 toggle path, Payroll/Job-Work-requires-F11
+     availability, Bank Allocation vs Stat-Payment challan split, Stock-in-Hand derived balance, and
+     rename-in-place semantics. **DENOMINATOR, measured 2026-08-17:** `plan.md` carried **ten** such citations;
+     after C-i it carries **nine**, and **four of the nine** (A10, A11, A13, A15) point at items the report
+     itself tags `[model-knowledge]`. **Each survivor gets the C-i treatment** — say what the referent actually
+     is, say it is model-knowledge, say whether the corpus corroborates, and keep or drop the behaviour on its
+     own merits. **The defect is structural, not clerical:** `§Ann` reads like a section reference to a
+     *verified* fact, and the report has no such sections.
+  3. **(§11.3 item 3 of the design record) RECORD THE `docs/design-records/` CONVENTION — 🔴 A DECISION IS
+     OWED, AND IT IS NOT TAKEN HERE.** A new top-level documentation directory was introduced during the
+     2026-08-17 run (three design records live in it) and a **counted allow-list entry** in
+     `DocumentCodeAgreementTests` was amended to accommodate it. **That is a repo-convention change nobody has
+     recorded in this file**, which is precisely what R6 forbids. **Open question for the user/orchestrator:**
+     is `docs/design-records/` a standing convention (design records are preserved verbatim as historical
+     snapshots, with `file.ext line NN` pointers deliberately neutralised), or a one-off? **Recorded as an open
+     decision rather than settled by whoever notices it next.**
 
 > **▶ ONE POST-MERGE DOCUMENTATION SLICE, OWNED BY ONE AGENT — applies to BOTH 10.10 and 10.11 (R5/R6).** All
 > documentation edits arising from these two phases — `docs/invented-vs-cloned.md` (row status + the register
@@ -3732,6 +4034,46 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   without its fidelity row. **The rows already banked are NOT retro-fitted** — this is forward-looking, so the
   denominator this phase inherited is the denominator it hands on, minus whatever its own remaining slices
   measure.
+- **▶ 🔴 NEW CARRY-FORWARD, OPENED 2026-08-17 — `W0-13b`: THE NARROW CATCH FILTER IS CLOSED ON THREE SCREENS,
+  NOT APP-WIDE, AND UNTIL NOW THIS FILE DID NOT SAY SO.**
+  **▶ WHAT W0-13 ACTUALLY DID, AND IT DID EXACTLY WHAT IT SAID.** It removed five filters of the shape
+  `catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)` from `GstConfigViewModel`
+  and widened the two payroll master screens. **Measured at HEAD: `GstConfigViewModel.cs`,
+  `PayHeadMasterViewModel.cs` and `SalaryStructureMasterViewModel.cs` each carry ZERO of that shape.** So the
+  row is closed on the screens it named. **🔴 THIS IS A SCOPE BOUNDARY, NOT A REGRESSION — read it that way at
+  every review.** Nothing W0-13 claimed has come undone; the claim was simply narrower than the defect.
+  **▶ THE SURVIVOR COUNT, DERIVED HERE RATHER THAN INHERITED, AND WRITTEN WITH THE COMMAND THAT REPRODUCES IT
+  SO IT CANNOT ROT.** **62 occurrences across 37 files, as of `bdd3389` + this documentation slice**, every one
+  of them under `src/Apex.Desktop/ViewModels/`. Re-derive with a literal, catch-anchored search over `src/`:
+  ```
+  rg -c "catch \(Exception ex\) when \(ex is InvalidOperationException or ArgumentException\)" src/
+  ```
+  **⚠️ ANCHOR ON `catch (Exception ex) when …`, NOT on the filter clause alone.** The looser pattern
+  `when (ex is InvalidOperationException or ArgumentException)` returns **65 across 40 files** — three of those
+  are **prose**, not code: explanatory comments in `PayHeadMasterViewModel` and `SalaryStructureMasterViewModel`
+  (which describe the shape they no longer use) and a doc comment in `StorableAmount`. **A count that includes
+  a document's description of a defect over-states the defect** — the same class of error this file has now
+  caught several times.
+  **▶ WHERE THEY CLUSTER.** `VoucherEntryViewModel.cs` **15** — a quarter of the whole surface on the single
+  screen that posts the most vouchers; `GstRateSetupViewModel.cs` **3**; nine files carry **2**
+  (`BomMasterViewModel`, `JobWorkOrderEntryViewModel`, `ManufacturingJournalEntryViewModel`,
+  `MaterialMovementEntryViewModel`, `PayrollUnitMasterViewModel`, `PayrollVoucherEntryViewModel`,
+  `PosBillingViewModel`, `ProfessionalTaxRegisterViewModel`, `UnitMasterViewModel`); the remaining **26** files
+  carry one each.
+  **▶ THE HARM, STATED IN THE TERMS W0-13 WAS WRITTEN IN.** On every one of those 62 paths a `DbException`
+  **still escapes as a crash instead of being reported** — the exact defect W0-13 exists to close. The screens
+  most exposed are the ones a user spends the day in.
+  **▶ WHY THIS IS ITS OWN SLICE AND NOT A SWEEP.** These are **ordinary-looking `catch` clauses**, and a
+  blanket widening changes **which exceptions reach the user on every screen at once**. That is a
+  behaviour change across the whole desktop surface delivered as a single mechanical diff — precisely the shape
+  that passes a suite and surprises an operator. It wants **its own review**, its own driving tests, and a
+  slice boundary somebody can hold in their head. **`VoucherEntryViewModel`'s fifteen are a defensible first
+  cut on their own.**
+  **▶ HOW TO WRITE ITS FIGURES: COPY `938530a` (W0-13).** That commit stated each of its numbers **beside a
+  re-runnable derivation** rather than as an assertion, which is why this row could be checked against it at
+  all. *(That commit id is recorded as given by the orchestrator; **R4 forbids this agent any git command**, so
+  it is not verified here.)*
+  **▶ NOT PERFORMED HERE. This is the plan item only — no `.cs` file was touched.**
 
 ### Phase 11 — Hardening, packaging & release
 - **Goals:** ship a v1.0.

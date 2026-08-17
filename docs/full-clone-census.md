@@ -145,7 +145,107 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
    - company **RENAME** (the `.db` file is named after the company, so a rename without a file move forks the
      book) and company **DELETE** (destructive; split out by an earlier ruling, `plan.md` VL-2).
 
-**9 of 115 capabilities have now had their behaviour compared to a source — and the ninth is PARTIAL, with its unsourced half enumerated rather than glossed. 106 have not.** Every "PRESENT" in the table above means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **106**.
+> **▶ ITEMS 10-12 ARE GROUNDED AHEAD OF THE SLICES THAT BUILD THEM — READ THAT BEFORE COUNTING THEM.** They
+> were drafted with the **Phase 10.11 voucher-lifecycle design** (2026-08-17) and landed with the R6 plan
+> amendment that adopted its ten decisions, **before** S3 / S4 / S5a-c exist. Their **sourced** columns are
+> real corpus findings and stand on their own; their **ours/unsettled** columns are the design's decisions,
+> which the slices implement. **A row here is a fidelity measurement of a DESIGN until its slice ships, and
+> then of the shipped behaviour.** Each says which it currently is. Pre-landing them is deliberate: it is what
+> stopped the Alt+X/Alt+D provenance defect (item 10) from being written into the code first and questioned
+> afterwards.
+
+10. **Voucher cancellation (Phase 10.11 slice S3).** **GROUNDED, NOT YET BUILT.**
+
+    **What IS sourced:**
+    - `Alt+X` = *"To cancel a voucher"* / *"To cancel a voucher from a report"*, with the "Where does it work"
+      column reading **"Vouchers & Reports"** — corpus BOOK PDF **p.437** [printed p.433], **re-extracted with
+      `pdftotext -raw`** because `-layout` scrambles this table (see the method note at item 13).
+
+    **What is OURS, or unsettled - and this is most of the row:**
+    - **What cancellation MEANS is not in the corpus at all.** `grep -oic cancel` over all nine admissible PDFs
+      returns **2 hits**, one of them an EPF *"cancelled cheque"* (BOOK PDF p.320). `struck`, `strike through`
+      and `strike-through` return **zero**.
+    - **Retaining the number, zero effect on balances, the greyed row and the "CANCELLED" overprint are OURS.**
+      🔴 **And the belief that TallyPrime behaves that way is `[model-knowledge]` by the project's own
+      verification report** — that report's item 14 is self-labelled `[model-knowledge]` and is listed again in
+      its section 5 as *"Alt+X vs Alt+D numbering behavior"*, a claim *"needing a Tally spot-check"*. `plan.md`
+      cited it as *"(verification §A14)"*, **a section identifier that does not exist**. Two independent lines
+      of evidence — the tag and the corpus silence — now agree it is unsourced. **We keep the behaviour on its
+      merits and stop crediting it to TallyPrime.**
+    - The **confirmation wording** is ours, **UNVERIFIED-BY-DESIGN**; the delete wording is published, the
+      cancel wording is not.
+    - **Un-cancel is unsettled** and is not built.
+    - **Our report-only scope for `Alt+X` is OUR decision, not fidelity.** `plan.md` said Tally *"scopes Alt+X
+      to cancelling from a report"*; the corpus cell says **both** forms and scopes it **"Vouchers &
+      Reports"**. Corrected in `plan.md` 2026-08-17.
+
+11. **Voucher and master deletion (Phase 10.11 slice S4).** **GROUNDED, NOT YET BUILT.**
+
+    **What IS sourced:**
+    - `Alt+D` = *"To delete an entry from a report"* — BOOK PDF **p.435** [printed p.431].
+    - The per-family register recipe *"For Delete Entry Press `Alt+D' on Selected Entry"* — BOOK PDF **pp.32,
+      34, 37, 42, 47, 49, 64, 71**, and the inventory families at **pp.74, 77, 81, 83, 87, 92, 94, 99, 101**.
+    - Master deletion is `Alt+D` from the **Alter** screen — BOOK PDF **p.15** (company), **p.21** (ledger),
+      **p.23** (the voucher-type master), each *"Press Two times Enter"*.
+    - The confirmation wording, verbatim, STUDY-GUIDE PDF **p.277**: *"Delete Yes or No?"* then *"Are you sure
+      Yes or No?"*.
+    - The guard, verbatim, STUDY-GUIDE PDF **p.67**: *"You cannot delete any ledger, if any transaction(s) has
+      been already made with that ledger."*
+    - Multi-master screens offer alter but **not** delete — BOOK PDF **pp.104-105**.
+
+    **What is OURS, or unsettled:**
+    - **The SINGLE prompt for a voucher.** The double prompt is attested for a **group company** and for
+      **masters**, **not for a voucher**, and we **decline to copy it across by analogy** — recorded as NOT
+      ATTESTED FOR VOUCHERS rather than inherited.
+    - **What happens to a deleted voucher's NUMBER is not in the corpus.** Our behaviour is ours:
+      `LedgerService.NextNumber` is `max+1` by scan, so **deleting the highest-numbered voucher reuses its
+      number** and deleting a mid-sequence one leaves a permanent gap.
+    - **Our refusal to delete a FILED statutory document, offering Cancel instead, is ours** — taken from the
+      project's own numbering doctrine in `VoucherNumberingConfigViewModel`'s `IsFiledDocument`, whose cited
+      source `numbering-design-v2 §2.5/§5.4` **is not in the repository** (a plan item is open to land it or
+      restate its rule in-repo). **No numbering floor and no counter table is built.**
+    - 🔴 **THE RESIDUAL, STATED AS A KNOWN AND ACCEPTED BEHAVIOUR RATHER THAN A SILENT ONE: deleting the
+      highest-numbered voucher that is NOT filed still REUSES its number.** Defensible — an unfiled document
+      number has no statutory life — and it is what *"may leave a gap"* implies for the mid-sequence case. It
+      is written here so a reader meets it as a decision, not as a surprise.
+    - **Company deletion is out of scope** (split out by an earlier ruling).
+
+12. **Voucher alteration (Phase 10.11 slices S5a / S5b / S5c).** **GROUNDED, NOT YET BUILT.**
+
+    **What IS sourced:**
+    - **The register drill-down IS the alteration screen** — *"How to Show/Edit \<X> Voucher Entry in Tally
+      Prime? … Select Month & **Show/Edit Entry**"*, BOOK PDF **pp.32, 34, 37, 42, 47, 49, 64, 71** and the
+      inventory families; saved with **`Ctrl+A`** (BOOK PDF **pp.51, 53, 56, 58**).
+    - **TallyPrime has no separate read-only voucher screen** — one action is named, not two.
+    - `Ctrl+Enter` = *"To alter a master during voucher entry or from drilldown of a report"* — BOOK PDF
+      **p.436** [printed p.432].
+    - `Ctrl+D` removes a **line** inside voucher entry (same page) — a different granularity from `Alt+D`.
+
+    **What is OURS, or unsettled:**
+    - **Our key bindings are a deliberate divergence:** plain Enter keeps a read-only VoucherDetail column and
+      **`Ctrl+Enter` opens voucher alteration**, to preserve the Miller-column cascade (a settled user
+      decision, with a follow-up to reconsider).
+    - 🔴 **`plan.md`'s R7 line that Tally *"reserves `Ctrl+Enter` for display-only drill-down"* was WRONG and is
+      amended.** The corpus makes `Ctrl+Enter` an **alteration** key for a **master**; our extension of it to
+      **vouchers** is therefore a **smaller** divergence than the plan recorded, not a larger one. The claim
+      appears to have been read off a `-layout` dump — see item 13.
+    - The **five refused families**, the **warn-and-proceed date change**, and the **e-invoice / e-Way
+      interlocks** are ours.
+    - **`Duplicate` (`Alt+2`) and `Insert` (`Alt+I`/`Alt+A`) are corpus-attested (BOOK PDF p.435) and NOT
+      BUILT** — a named carry-forward, not a silent omission.
+
+13. **METHOD NOTE — not a capability row.** 🔴 **`pdftotext -layout` silently scrambles the Book's three-column
+    shortcut tables on pp.436-437.** The Key / Function / "Where does it work" columns come out as three
+    independent top-to-bottom streams, so the reader must re-pair them by counting. On p.435 the counts happen
+    to match (15 keys : 15 functions) and the pairing is recoverable; **on p.436 and p.437 they do not** — 20
+    keys against 21 function-fragments, and 10 against 11 — so **any pairing read off a `-layout` dump of those
+    pages is a guess**. `pdftotext -f <p> -l <p> -raw` emits the table cell by cell in true reading order and
+    resolves all three pages unambiguously. **At least one shipped R7 claim was read off a scrambled dump** (the
+    `Ctrl+Enter` claim corrected in item 12). ⇒ **Any fidelity claim sourced from BOOK pp.435-437 must be
+    re-derived with `-raw`, and a `-layout` key/function pairing is UNVERIFIED unless the key count and the
+    function count match exactly.**
+
+**9 of 115 capabilities have had their SHIPPED behaviour compared to a source — and the ninth is PARTIAL, with its unsourced half enumerated rather than glossed. Items 10-12 raise the GROUNDED count to 12, but they are grounded ahead of the slices that build them, so the shipped-and-compared figure stays at 9 until S3 / S4 / S5c land, and 106 remain uncompared as shipped behaviour. Of those 106, exactly three — cancellation, deletion and alteration — now have their grounding banked in advance, which leaves 103 with no sourced verification of any kind.** Every "PRESENT" in the table above means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **106**.
 
 > **▶ HOW THIS LIST GROWS (R12, 2026-08-16; the standard tightened 2026-08-17).** Fidelity is measured **per slice**: a slice is not done until it adds a row here for the surface it touched, in the shape of the ones above, **or records why the corpus cannot settle the question**. Row 9 is the first row added under that rule and every later slice copies it, so what its first draft got WRONG is part of the template:
 > 1. **An inference is not a source.** It presented the display-versus-stamp shape as attested by Book p.177. The page attests the defaulting; the shape is ours, and its real evidence is an asymmetry in our own store. Cite the store.

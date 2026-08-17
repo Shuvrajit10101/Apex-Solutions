@@ -7,13 +7,24 @@ Rewritten **2026-08-17**, in full.
 > gone stale twice and the pattern is the point.** It said schema **v50** (it is **v51**), gate
 > **1555 / 389 / 215 / 2013** (it is **1668 / 414 / 231 / 2195**), *"nothing pushed, no PR, no upstream"*
 > (**everything is pushed, the branch has an upstream, and PR #34 is OPEN**), and *"64+ commits ahead"*
-> (**83**). It also told the reader to work `plan.md` **Phase 10.12** next — superseded by **ruling 6**, which
+> (**83 as of `3e968b3`; ≥85 as of `bdd3389`** — and that drift is the lesson, not the number: see the
+> commit-count rule below). It also told the reader to work `plan.md` **Phase 10.12** next — superseded by
+> **ruling 6**, which
 > puts **Phase 10.11** next. And one claim was **already false when written**: it said `plan.md` still carried
 > the wrong voucher-type count *"in 9 places"* — `grep -oic` for that phrase over `plan.md` returns **0**;
 > W0-6's count half was paid on 2026-08-15 and every live present-tense count there reads 23. Only the
 > deliberate quote-to-correct sites still carry the old figure, and they are pinned by a **counted** allow-list
 > (see HOW THIS PROJECT WORKS). **⇒ A STATE FILE IS A MEASUREMENT WITH
 > A TIMESTAMP, NOT A DESCRIPTION. Re-measure before you believe any line of it — including this one.**
+>
+> **▶ 🔴 AND ONE FIGURE IS STALE BY CONSTRUCTION, NOT BY NEGLECT — THE COMMIT COUNT (added 2026-08-17).**
+> *"83 commits ahead"* was **correct when written and wrong within the day**, because the count moves with
+> **every push** and with any move of `origin/main`. Correcting it to 85 would be wrong by the same mechanism.
+> ⇒ **A `.md` FILE CAN NEVER NAME ITS OWN COMMIT COUNT.** Every commit- and file-count in this document is now
+> written as an **as-of pinned to a sha**, or as a **floor**, and never as a bare measurement — the sha is what
+> makes the number checkable, and the "≥" is what keeps it true as the branch grows. The same treatment is
+> owed to any figure that changes without anyone editing the document. **The GitHub PR body is exempt and is
+> NOT edited here — that artefact is A12's alone (R4).**
 
 ---
 
@@ -24,8 +35,12 @@ Rewritten **2026-08-17**, in full.
 > then `docs/full-clone-census.md` (the denominator) and this file.
 >
 > **▶ VERIFY STATE, DON'T TRUST IT.** Everything below is a measurement with a timestamp, not a description.
-> Re-measure before you plan on it. Branch `claude/apex-wrong-figures-bc45f4`, HEAD `3e968b3`, schema **v51**,
-> **83 commits ahead of `origin/main` (`c655dc2`)**, pushed and in sync, **PR #34 OPEN and NOT merged**.
+> Re-measure before you plan on it. Branch `claude/apex-wrong-figures-bc45f4`, HEAD **at or after `bdd3389`**
+> (as of 2026-08-17 — a floor, and necessarily one: the commit that carries this very line moves HEAD past
+> `bdd3389` as it lands, so **this file can no more name its own tip than its own commit count**.
+> `git rev-parse HEAD`), schema **v51**,
+> **≥85 commits ahead of `origin/main` (`c655dc2`) as of `bdd3389` — a floor pinned to a sha; verify, do not
+> quote**, pushed and in sync, **PR #34 OPEN and NOT merged**.
 > **THE THING TO RE-MEASURE IS THE FOUR PER-PROJECT COUNTS, NEVER THE TOTAL:**
 > build **0W/0E** · `Apex.Ledger.Tests` **1668** · `Apex.Ledger.Io.Tests` **414** ·
 > `Apex.Persistence.Sqlite.Tests` **231** · `Apex.Desktop.Tests` **2195**. Run each project separately and read
@@ -43,7 +58,8 @@ Rewritten **2026-08-17**, in full.
 > tasks-output file proves nothing. Check transcript mtimes before you relaunch anything.
 >
 > **▶ TRAP 3 — WORKTREES.** **`isolation: 'worktree'` cuts from `main`, NOT from the current branch.** A
-> parallel track created that way starts at `c655dc2` and silently lacks all 83 commits — **schema v51 among
+> parallel track created that way starts at `c655dc2` and silently lacks **every commit on the branch** (≥85
+> as of `bdd3389`) — **schema v51 among
 > them** — so it would build a v50 database and every migration fixture in it would be a lie. **A12, and only
 > A12 (R4), cuts the worktree explicitly from the branch tip, and `Schema.CurrentVersion` is verified INSIDE
 > it before any build** (`src/Apex.Persistence.Sqlite/Schema.cs:159` must read
@@ -95,14 +111,17 @@ Rewritten **2026-08-17**, in full.
 | | |
 |---|---|
 | Branch | `claude/apex-wrong-figures-bc45f4`, **in sync with its upstream** |
-| HEAD | `3e968b3` |
-| Ahead of `origin/main` | **83** (`git rev-list --count origin/main..HEAD`) |
+| HEAD | **at or after `bdd3389`** — a floor pinned to a sha, as of 2026-08-17, and stale by construction the instant it is written: the commit that carries this table moves HEAD past `bdd3389`. `git rev-parse HEAD`. The previous revision of this file asserted `3e968b3` as a bare fact and was two commits wrong by the time anyone read it. |
+| Ahead of `origin/main` | **≥85 as of `bdd3389`** — a floor pinned to a sha, never a live figure. Re-run `git rev-list --count origin/main..HEAD`; this cell goes stale on the next push and on any move of `origin/main`. |
 | `origin/main` | **`c655dc2`** — unmoved for the whole run |
 | Schema | **v51** (`src/Apex.Persistence.Sqlite/Schema.cs:159`) |
 | Gate | build **0W/0E** · Ledger **1668** · Io **414** · Sqlite **231** · Desktop **2195** |
 | PR | **#34 — OPEN, NOT MERGED**, mergeable, not a draft |
 
-**PR #34 carries 83 commits, 354 files, +80,010 / −1,795 — and FIVE schema migrations, not one.**
+**PR #34 carried 83 commits, 354 files, +80,010 / −1,795 AS OF `3e968b3` WHEN IT WAS OPENED — and FIVE schema
+migrations, not one.** *(Commit, file and line counts on an open PR move with every push — the branch is
+already at ≥85 commits as of `bdd3389`. Read those four numbers as a snapshot of the PR at open, and get the
+live figures from the PR itself. **The PR body is A12's artefact and is not edited from here (R4).**)*
 `origin/main` is at `CurrentVersion` **46**; HEAD is at **51**, so the PR spans `MigrateV46ToV47` through
 `MigrateV50ToV51`. The main loop's brief said "one migration"; A12 re-derived it from
 `git show origin/main:…/Schema.cs` and corrected it **before it reached the PR body**. Record that as a save.
@@ -213,7 +232,9 @@ only**; **do not change the godown dimension in the same slice**.
 ## BLOCKED ON THE USER (nobody can substitute for these)
 
 - **PR #34 — OPEN and awaiting review.** <https://github.com/Shuvrajit10101/Apex-Solutions/pull/34>
-  **Nothing merges until the user acts on it.** 83 commits, 354 files, five schema migrations.
+  **Nothing merges until the user acts on it.** 83 commits / 354 files **as of `3e968b3`, when it was opened**
+  (≥85 commits as of `bdd3389`; read the live figures off the PR) — and **five schema migrations**, which is
+  the number that does not drift.
 - **The TallyPrime T3 and T8 measurements** — run in legitimate **Educational Mode**;
   `docs/tallyprime-valuation-test-books.md` has the books.
   - **T3 — falsifies the whole Average Cost design.** Buy 10 @ ₹100 · sell 5 · buy 5 @ ₹200; closing value on
