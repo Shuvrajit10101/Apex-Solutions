@@ -692,6 +692,22 @@ public sealed class DocumentCodeAgreementTests
         ["docs/full-clone-census.md|24 predefined voucher types"] = 2,
         ["docs/full-clone-census.md|24 voucher types"] = 1,
 
+        // Same act of reporting, one layer down: the W0-7 audit quotes a STALE COMMENT IN THE SOURCE —
+        // CompanyFactory carries `// 24 voucher types.` while SeedVoucherTypes.Count is 23 — and the quote IS
+        // the finding (the audit's R-5, assigned to W0-6's open remainder). Deleting the quote deletes the
+        // evidence, and rewording it would stop it being a quote. TWO occurrences: the body sentence that
+        // names the comment, and the R-5 row of the findings table that repeats it verbatim.
+        // 🔴 THIS ENTRY RETIRES WHEN R-5 IS FIXED: correcting that comment in CompanyFactory makes both
+        // occurrences historical, and the slack check will then fail this entry until the count is dropped.
+        ["docs/design-records/w0-7-fixture-audit.md|24 voucher types"] = 2,
+
+        // One level of recursion, and it is genuine rather than cute: the Phase 10.11 design record DISCUSSES
+        // the allow-list entry immediately above, and quotes its key verbatim to do so. The occurrence is the
+        // string `["docs/design-records/w0-7-fixture-audit.md|24 voucher types"] = 2` appearing inside prose
+        // about how counted exemptions work. Rewording it would stop it being a quotation of the code.
+        // ONE occurrence. Retires with the entry above, for the same reason.
+        ["docs/design-records/phase-10-11-voucher-lifecycle-design.md|24 voucher types"] = 1,
+
         // Same shape: the kick-off list, the memory log and plan.md's own §5 warning banner each quote the
         // "24" in the act of reporting that the code says 23. All three give the true figure in the same
         // sentence — plan.md's §5 banner literally reads `*"all 24 voucher types reachable"* — the code seeds **23**`.

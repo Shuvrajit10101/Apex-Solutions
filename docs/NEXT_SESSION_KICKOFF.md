@@ -1,198 +1,240 @@
 # ▶▶ NEXT-SESSION KICKOFF — Apex Solutions
 
 **Paste the COPY-PASTE PROMPT below as your first message in the new session.**
-Written **2026-08-14**. This file was previously dated 2026-07-05 and claimed schema v13 / 570 tests /
-a branch **whose tip had moved** (†) — ~37 schema versions and ~3,500 tests out of date, so anyone following it
-verbatim would have resumed from a state that has not existed since Phase 4. Now rewritten.
+Rewritten **2026-08-17**, in full.
 
-> 🔴 **† CORRECTED 2026-08-15 — this line previously said "a branch that no longer exists". FALSE.**
-> `claude/interesting-mirzakhani-30e51e` exists **locally and on the remote**, and `git cat-file -t 8812d72`
-> returns `commit`. What changed is the branch **tip**, not the branch's existence. Re-measured 2026-08-15.
-> **Three other invented or false citations were removed from this file in the same pass** — see §1 (the census
-> attribution), THE QUEUE heading (census §6), and note that the "64+ commits ahead of `main`" below is a moving
-> figure: it measured 66 on 2026-08-14 and **69 on 2026-08-15**. `git rev-list --count origin/main..HEAD` is the
-> only trustworthy source; do not quote the number from this file.
+> 🔴 **WHAT THE PREVIOUS VERSION OF THIS FILE (2026-08-14/15) GOT WRONG — recorded, because this file has now
+> gone stale twice and the pattern is the point.** It said schema **v50** (it is **v51**), gate
+> **1555 / 389 / 215 / 2013** (it is **1668 / 414 / 231 / 2195**), *"nothing pushed, no PR, no upstream"*
+> (**everything is pushed, the branch has an upstream, and PR #34 is OPEN**), and *"64+ commits ahead"*
+> (**83**). It also told the reader to work `plan.md` **Phase 10.12** next — superseded by **ruling 6**, which
+> puts **Phase 10.11** next. And one claim was **already false when written**: it said `plan.md` still carried
+> the wrong voucher-type count *"in 9 places"* — `grep -oic` for that phrase over `plan.md` returns **0**;
+> W0-6's count half was paid on 2026-08-15 and every live present-tense count there reads 23. Only the
+> deliberate quote-to-correct sites still carry the old figure, and they are pinned by a **counted** allow-list
+> (see HOW THIS PROJECT WORKS). **⇒ A STATE FILE IS A MEASUREMENT WITH
+> A TIMESTAMP, NOT A DESCRIPTION. Re-measure before you believe any line of it — including this one.**
 
 ---
 
 ## COPY-PASTE PROMPT (paste verbatim)
 
-> Continue Apex Solutions. Read `memory.md`, `plan.md`, `CLAUDE.md`, `agents.md`, then
-> `docs/full-clone-census.md` (the denominator) and `docs/NEXT_SESSION_KICKOFF.md` (this file).
+> Continue Apex Solutions. Read `memory.md` (last entry first — it is the session-close record), then
+> `plan.md` **§5** (the eight standing rulings, ahead of every phase block), then `CLAUDE.md`, `agents.md`,
+> then `docs/full-clone-census.md` (the denominator) and this file.
 >
-> **VERIFY STATE, DON'T TRUST IT.** Branch `claude/apex-wrong-figures-bc45f4`, schema **v50**,
-> gate **Ledger 1555 · Io 389 · Sqlite 215 · Desktop 2013**, build 0W/0E,
-> 64+ commits ahead of `main`, **nothing pushed, no PR, no upstream**. Re-run the gate yourself before
-> believing any of it. A gate is the FOUR PER-PROJECT COUNTS, never the total.
+> **▶ VERIFY STATE, DON'T TRUST IT.** Everything below is a measurement with a timestamp, not a description.
+> Re-measure before you plan on it. Branch `claude/apex-wrong-figures-bc45f4`, HEAD `3e968b3`, schema **v51**,
+> **83 commits ahead of `origin/main` (`c655dc2`)**, pushed and in sync, **PR #34 OPEN and NOT merged**.
+> **THE THING TO RE-MEASURE IS THE FOUR PER-PROJECT COUNTS, NEVER THE TOTAL:**
+> build **0W/0E** · `Apex.Ledger.Tests` **1668** · `Apex.Ledger.Io.Tests` **414** ·
+> `Apex.Persistence.Sqlite.Tests` **231** · `Apex.Desktop.Tests` **2195**. Run each project separately and read
+> the number off the final tree. A truncated Desktop run once reported "Passed! 610" against a real 1635 and
+> looked exactly like success.
 >
-> Work the queue in `plan.md` Phase 10.12 with the gated loop: design → build → three **sequential**
-> adversarial lenses → fix agent (pass the COMPLETE finding list, never a summary) → my own four-count
-> gate → A12 commits. Then keep going through the census's ranked list.
+> **▶ TRAP 1 — THE SDK.** Bare `dotnet` on PATH is **runtime-only** and reports *"No .NET SDKs were found"*.
+> That is a PATH artefact, not the machine. **Use `C:\Users\dkpho\.dotnet\dotnet.exe` for every build and
+> test.** **Never pipe a build or test through `tail`/`head`** — that is how a truncated run gets mistaken for
+> a pass. Let it finish and read the summary line.
 >
-> **Clone, never invent.** The corpus is now readable from every worktree.
+> **▶ TRAP 2 — AGENT LIVENESS.** An agent's **real transcript is `…/<session-id>/subagents/agent-<id>.jsonl`**
+> (with an `agent-<id>.meta.json` beside it), **NOT the tasks output path**. Checking the wrong one made the
+> main loop **declare a LIVE agent dead** and nearly put two agents into one worktree. An empty or absent
+> tasks-output file proves nothing. Check transcript mtimes before you relaunch anything.
+>
+> **▶ TRAP 3 — WORKTREES.** **`isolation: 'worktree'` cuts from `main`, NOT from the current branch.** A
+> parallel track created that way starts at `c655dc2` and silently lacks all 83 commits — **schema v51 among
+> them** — so it would build a v50 database and every migration fixture in it would be a lie. **A12, and only
+> A12 (R4), cuts the worktree explicitly from the branch tip, and `Schema.CurrentVersion` is verified INSIDE
+> it before any build** (`src/Apex.Persistence.Sqlite/Schema.cs:159` must read
+> `public const int CurrentVersion = 51;`). **A worktree that comes up at v50 was cut from `main` — re-cut it;
+> do not debug the difference.**
+>
+> **▶ THE EIGHT STANDING USER RULINGS (R12) — all in `plan.md` §5; do not re-litigate:**
+> **1.** Build order = census order: Wave 0 remainder → Wave 1 correctness → Wave 2 structural → Wave 3 breadth.
+> **2.** Schema authority is FULL — one version bump per slice, each with a forward migration, round-trip tests
+> and the migration-equivalence check, every bump recorded in `plan.md`.
+> **3.** Negative-stock valuation is built on the sourced formula **without waiting for T3**; the refuted
+> `AverageCost` goldens are re-derived from the formula, never edited to match the code.
+> **4.** Merge cadence: accumulate on the branch, pushed after every slice *(partly superseded by 8)*.
+> **5.** Fidelity is measured **per slice** — a definition-of-done change: every slice ends with a fidelity row,
+> or with a written record of why the corpus cannot settle the question.
+> **6.** Voucher lifecycle jumps the queue — **Phase 10.11 lands next**; W0-3 and W0-5 slip behind it.
+> **7.** The print engine starts **now**, as a parallel long-pole track (census S5).
+> **8.** Merge now, then keep accumulating — **supersedes 4**: one PR, then a fresh branch.
+>
+> **▶ WHAT IS NEXT.** **(a) Phase 10.11 — voucher lifecycle (alter · delete · cancel).** Ruling 6. **Its W0-7
+> prerequisite is ALREADY DISCHARGED** — `1de940e` (2026-08-10) extended `PopulatedCompanyFixture` to post
+> 23 of 23 seeded base kinds; the ruling that said W0-7 must ship first was built on a census figure ten days
+> stale and is superseded in place. **A PARTIAL design already exists** — `docs/design-records/`. **(b) The
+> print engine, in parallel**, under Trap 3's worktree rule. **(c) Then W0-3** (Restore reachable from Company
+> Select) **and W0-5** (negative-stock warn toggle + e-Way config editor), which were deferred behind the
+> lifecycle slice.
+>
+> **▶ WHAT IS BLOCKED ON ME (the user) — nothing here proceeds without it.** **PR #34 is OPEN and awaiting my
+> review** (<https://github.com/Shuvrajit10101/Apex-Solutions/pull/34>) — nothing merges until I act on it.
+> And the **TallyPrime T3 and T8 measurements** in `docs/tallyprime-valuation-test-books.md`, which nobody can
+> substitute for. **Ask me; do not guess, and do not work around them.**
+>
+> **▶ THE PRESERVED DESIGNS ARE IN `docs/design-records/`** — the W0-2b design, the W0-7 audit, and the
+> **Phase 10.11 design, which is PARTIAL** (its filename says so and so does its own section index — it is not
+> a finished design and must be completed before it is built). All three are **historical snapshots**: their
+> pointers were rewritten to `file.ext line NN` on purpose and are **not maintained**. Re-derive before use.
+>
+> **▶ Clone, never invent.** The corpus is readable from every worktree via a `tally` junction. Use
+> `pdftotext -raw` as the second pass on any tabular page — `-layout` scrambles multi-column tables.
 
 ---
 
-## STATE (verified 2026-08-14 by direct measurement, not relayed)
+## STATE (measured 2026-08-17 on the worktree, by direct command — not relayed)
 
 | | |
 |---|---|
-| Branch | `claude/apex-wrong-figures-bc45f4` |
-| HEAD | the diverged-copies commit (on top of `23e0df1`) |
-| Gate | Ledger **1555** · Io **389** · Sqlite **215** · Desktop **2013** · build 0W/0E |
-| Schema | **v50** (`Schema.cs` `CurrentVersion`) |
-| Pushed | **nothing** — no PR, no upstream; `main` = `origin/main` = `c655dc2` |
+| Branch | `claude/apex-wrong-figures-bc45f4`, **in sync with its upstream** |
+| HEAD | `3e968b3` |
+| Ahead of `origin/main` | **83** (`git rev-list --count origin/main..HEAD`) |
+| `origin/main` | **`c655dc2`** — unmoved for the whole run |
+| Schema | **v51** (`src/Apex.Persistence.Sqlite/Schema.cs:159`) |
+| Gate | build **0W/0E** · Ledger **1668** · Io **414** · Sqlite **231** · Desktop **2195** |
+| PR | **#34 — OPEN, NOT MERGED**, mergeable, not a draft |
 
-⚠️ `origin/main..HEAD` carries ~20 commits of **earlier unpushed Phase 10.7/10.8 work** as well as this
-session's. A PR body must account for both.
-
----
-
-## THE TWO THINGS THAT MATTER MOST
-
-### 1. The corpus is now readable from every worktree — this was the root cause of everything
-
-The git-ignored `tally/` PDFs lived **only in the main checkout**. Every agent ever dispatched into a
-worktree was told to clone TallyPrime and was **physically unable to open it**. That is the mechanical
-cause of this project's entire invent-rather-than-clone pattern — corroborated by **this file's own
-measurement** (†): only **13 of 489 source files cite the corpus**, while 331 cite Indian statute, because
-statute was reachable on the web and the corpus was not. Agents cited what they could read.
-
-> 🔴 **† CORRECTED 2026-08-15 — this line previously said "corroborated by the census", and the census does not
-> contain either figure.** `grep -nE "\b489\b|\b331\b" docs/full-clone-census.md` returns **zero hits**, re-measured
-> 2026-08-15. The measurement itself may well be sound; **only its attribution was invented** — the same
-> register-falsehood class as the `P7` citation `f327abb` removed from this file's own header, committed in the
-> same file one commit later. **Nobody has re-run the count, so cite it as this file's figure and re-derive it
-> before planning on it.** (`memory.md:2173` item (d) and `memory.md:2178` both record this defect; the
-> mis-attribution originates here, which is why it is fixed here.)
-
-**Fixed:** a junction at `<worktree>/tally` → `…/Apex Solutions(end)/tally` in all eight worktrees.
-10 PDFs, `pdftotext -layout` works, **invisible to git** (`.gitignore:73`), so R4 holds.
-**If a new worktree appears, create the junction:**
-`New-Item -ItemType Junction -Path "<worktree>\tally" -Target "…\Apex Solutions(end)\tally"`
-
-### 2. The census gave "fix everything" a denominator
-
-`docs/full-clone-census.md` — **~115 capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined.**
-But the number that governs the product: **only 8 of 115 have ever had their behaviour compared to a
-source. ~104 have not.** A `PRESENT` row means *reachable*, not *correct*.
-
-Open-defect census: **30 functionality · 11 UI rows (~890 sites) · 19 process = 60 OPEN**, all closable by
-ordinary engineering (6–10 weeks) — which would leave the ~104 untouched. **Zero is reachable only by
-measuring first, then fixing.** A green suite here has repeatedly proved self-consistency and nothing more.
+**PR #34 carries 83 commits, 354 files, +80,010 / −1,795 — and FIVE schema migrations, not one.**
+`origin/main` is at `CurrentVersion` **46**; HEAD is at **51**, so the PR spans `MigrateV46ToV47` through
+`MigrateV50ToV51`. The main loop's brief said "one migration"; A12 re-derived it from
+`git show origin/main:…/Schema.cs` and corrected it **before it reached the PR body**. Record that as a save.
 
 ---
 
-## WHAT LANDED THIS SESSION (9 commits, all reviewed)
+## THE METHOD FINDING — the most transferable output of the run
+
+**Three slices shipped GREEN and were then found to contain 17, 34 and 42 defects. Not one was found by the
+suite.** The figures carry their derivation: **W0-13 → `938530a`** (17, three sequential lenses, none
+rejected) · **WF-1's owed review → `31c476b`** (34; per-lens breakdown in `docs/wf1-owed-review-findings.md`)
+· **W0-2b → `f66253c`** (42 — 4 BLOCKER, 18 MAJOR, 20 MINOR).
+
+Three defect classes, **in ascending nastiness**:
+
+1. **OVERSTATED CLOSURE** — a record claiming more than the code shipped. **Caught by READING.** Cheapest.
+2. **DEAD GUARDS** — code that runs, looks defensive, and that **nothing pins**. Invisible to reading *and* to
+   the suite. **Caught only by MUTATION.**
+3. **A DOCTORED TEST** — green, correctly named, **asserting the OPPOSITE of its name.** The worst of the
+   three, because **from any distance it looks HEALTHIER than the other two**: it adds to the count, it reads
+   as coverage, and it certifies the very defect it was written to prevent.
+
+🔴 **The escalation, and it is the figure to remember: on W0-2b, NINE GUARDS WERE DELETABLE *SIMULTANEOUSLY*
+and all 3,828 tests of the two affected projects stayed green** (Ledger + Desktop at that slice's pre-fix
+baseline, 1,665 + 2,163; **the full suite was 4,473**). And the test file's own header claimed the mutations
+had been run — **three named mutations did not redden the test they were named on.**
+⇒ **"THE MUTATION WAS RUN" IS A CLAIM, AND A CLAIM IN A TEST HEADER IS EXACTLY AS CHECKABLE AS ANY OTHER.**
+
+---
+
+## WHAT LANDED THIS SESSION (every sha confirmed an ancestor of HEAD)
 
 | sha | what |
 |---|---|
-| `23e0df1` | INV-01 e-invoice payload files **NIC field names**, not ours (15 invented keys; `GstRt` was outside its declared range) |
-| `439220d` | four omitted W0-9 review findings + the 13-file BOM sweep |
-| `50fa892` | **one bill-of-supply rule** (5 copies → 1) + the printed total = the posted debt (closed a **₹8,513.41** gap) |
-| `4263045` | plan: W0-9 / W0-10 |
-| `4223996` | e-Way Part-A files **NIC master codes**, not descriptions |
-| `7540d84` | plan: W0-8 |
-| `ef8f24a` | the POS twin + the §10(4) posting guard |
-| `b12b8cb` | Bill of Supply routing + `DocumentTitle` |
-| `1de940e` | fixture extended to every voucher family (was 8 of 23 base types) |
-| `82d72cb` | `Schema.cs` class doc said v46 while the constant was v50 |
+| `9dfb317` | the R5/R6 catch-up for a **34-commit unrecorded range** |
+| `fa651ae` | **W0-12** — a sub-paisa figure poisoned the open company, so every LATER save threw |
+| `938530a` | **W0-13** — five catch filters turned a `DbException` into a crash; seven money paths persisted unguarded |
+| `85f82dd` | **W0-15/W0-16** — the GST routing / place-of-supply fix, **and the first doc-vs-code CI check** |
+| `e49b88e` | **WF-1** GST five-level masters (INERT, v51) + **W0-2a** the printed supplier address |
+| `31c476b` | **WF-1's owed review, paid late** — 34 findings, fixed forward |
+| `f66253c` | **W0-2b** — the Company Create/Alter screen |
 
-Earlier in the session, merged from parallel streams: interest running-balance accrual, reorder Nett
-Available (HARD GATE PR-8 retired), order-fulfilment + the party root-cause fix, Ctrl+B no longer posting
-irreversible vouchers, and the Alt+D modifier hole.
+**The four defects closed that were LIVE IN THE PRODUCT:** a sub-paisa figure **poisoned the open company** so
+every later save threw · **database exceptions crashed instead of reporting** · **GSTR-1 filed the SUPPLIER'S
+OWN State against an IGST-bearing voucher** (NIC validation 24 makes that pair self-refuting) and an issued
+invoice **could not be reprinted** once the home State was cleared · the **CGST Rule 46(a) supplier address
+was blank on every invoice, with nowhere in the product to type it**.
+**None of these closures is retroactive** — a book already on disk carries no address until someone opens
+Alter and types one.
 
 ---
 
-## THE QUEUE (ranked — **† this file's own list, NOT the census's**)
+## 🔴 A SOURCING FINDING THAT MAY OVERTURN A STANDING REJECTION
 
-> 🔴 **† CORRECTED 2026-08-15 — this heading previously read "from the census §6".** Census **§6 is
-> "WHAT IS STILL UNMEASURED AFTER THIS CENSUS"** and contains **none** of the seven items below; the nearest
-> real census content is **§5 SEQUENCING PROPOSAL**, whose Wave 0 table overlaps items 3-5 only. The eight
-> diverged rule copies (item 1) appear nowhere in the census at all. Verified by reading
-> `docs/full-clone-census.md:195-287`. Third invented citation found in this file — see the header and §1 above.
+**`pdftotext -layout` emits a multi-column PDF table as INDEPENDENT TOP-TO-BOTTOM STREAMS.** The Book's
+three-column shortcut table therefore arrives as three separate lists and the pairing must be reconstructed by
+counting. On p.435 the counts match. **On pp.436–437 they do NOT** — 20 keys against 21 function-fragments on
+one page, 10 against 11 on the other — **so any pairing read off a `-layout` dump of those pages is a guess.**
+`pdftotext -f <p> -l <p> -raw` emits the table **cell by cell in true reading order** and resolves it.
 
-1. **The 8 already-diverged rule copies** — may be partly done; **7 partial files are parked at**
-   `…\scratchpad\diverged-partial` (5 src + 2 tests). They were written by an agent that never compiled
-   them: **triage them, don't assume they're an asset.** The eight: `Apportion` divide-by-zero in a filed
-   return · Indian vs Western digit grouping **from the same assembly** · sub-paisa throws in 2 places and
-   rounds silently in 6 · `IsInterState` answers two ways · place of supply derived two ways · `ApplyRounding`
-   inverts on negatives · HSN sentinel diverges · basis-points format renders 3 ways.
-2. **Negative-stock valuation** — see the dedicated section below. Highest money-at-risk.
-3. **GSTR return JSON keys are invented** (`GstReturnJson.cs:19-24`) — the *third* instance of the
-   invented-payload class. Currently dead code (no production caller), so no live filing harm. The method
-   is proven twice; reuse it.
-4. **Wave 0's unbuilt items** — W0-2 Company Create/Alter (every invoice carries a **blank seller address**,
-   a Rule 46 breach, unfixable from the UI), W0-3 Restore from Company Select, W0-5 the `WarnOnNegativeStock`
-   and e-Way config surfaces (**live behaviour with zero UI**), W0-6 doc corrections.
-5. **W0-6 + a doc-vs-code test** — `plan.md` still claims "24 predefined voucher types" in 9 places while
-   `SeedVoucherTypes.cs` seeds **23**. No test in the repo reads a `.md` file; add the CI check.
-6. **The 30 `StarvedStarAllowList` waivers** → runtime locks (61 sites, zero measurement).
-7. ~~Register hygiene: IV-9, D7 and IV-20 now read the **opposite** of the code; ~16 drifted line numbers.~~
-   **† DONE 2026-08-15 — and the item understated itself twice over.** All three claims **CONFIRMED**:
-   `invented-vs-cloned.md` **IV-9** and `tally-fidelity-defects.md` **D7** both described a hard block deleted by
-   `a12e651`; **IV-20**'s half (a) described a default inverted by `f277318`. **But the drift was larger than
-   "~16 lines" in two directions.** *Seven* rows had moved, not three: also **FIXED IN CODE** are
-   `invented-vs-cloned.md` **IV-5** (`f2abdbb`), **IV-7** (`c408037`), **IV-10** (`7e0457b`) and
-   `tally-fidelity-defects.md` **D1** (`f277318`) and **D4** (`c8b44cf`); **IV-4**, **IV-8**, **D9** and **D18**
-   are half-fixed. And it is ~**60 drifted citations across both registers**, not ~16 — `VoucherEntryViewModel.cs`
-   alone moved ~+215 lines past `:4200`, and **every `plan.md:NNN` citation in `invented-vs-cloned.md` was stale.**
-   All corrected in place and marked **†**. 🔴 **The most consequential find was not on the list:**
-   `tally-fidelity-defects.md` **D18**'s Fix said *"do not seed the eleven types inactive before the G-4 resolver
-   fallback is removed"* — **the fallback WAS removed** (`7bfc2c6`; `VoucherTypeResolver.cs:58`), so following that
-   instruction today would make eleven voucher types **unreachable**, since `Show Inactive` returns zero hits in
-   `src/`. **A stale register turned a safe instruction into an unsafe one.**
+- **Consequence already measured:** `plan.md` Phase 10.11's R7 line says TallyPrime *"reserves Ctrl+Enter for
+  display-only drill-down."* The corpus read with `-raw` says the opposite — `Ctrl+Enter` →
+  *"To alter a master during voucher entry or from drilldown of a report."* **That R7 line is owed a
+  correction**, and our binding is a *smaller* divergence than the plan records.
+- **🔴 RE-TEST A REJECTED SOURCE.** The corpus PDF `659947760-Tally-Prime-Short-Key.pdf` was rejected earlier in
+  this project because its table was *"misaligned by ~2 rows"*. **That rejection may itself be a `-layout`
+  artefact.** Re-test it with `-raw` before the source stays discarded.
+- **Proposed standing instruction:** `-raw` is the mandatory second pass for any tabular corpus page, and a
+  `-layout` pairing whose column counts disagree is **not evidence**.
+
+---
+
+## THE DENOMINATOR — read it before "fix everything" sounds like a plan
+
+`docs/full-clone-census.md` — **~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined.**
+But the governing number is the one in §1.3: **9 of 115 have had their behaviour compared to a source; 106 have
+not.** A `PRESENT` row means *reachable*, not *correct*. **Ruling 5 exists to close that 106 as a by-product of
+ordinary work** rather than leaving it to a dedicated campaign that never gets funded.
 
 ---
 
 ## NEGATIVE STOCK — read before touching it
 
-**Built:** posting. The old unconditional hard block is gone; `Company.cs:268` carries
-`WarnOnNegativeStock = true` and `InventoryPostingService.cs:185` honours it.
-**Not built:** the control surface (zero `src/Apex.Desktop` hits) and the **valuation**.
+**Built:** posting (the old unconditional hard block is gone). **Not built:** the control surface (that is
+W0-5) and the **valuation**.
 
-🔴 **Valuation has been attempted EIGHT times and reverted every time**, each producing a *different*
-unbounded Balance-Sheet error, each passing a full green suite. See
-`tools/HeadOracle/README.md:84-195` for all eight measured failure modes.
+🔴 **Valuation has been attempted EIGHT times and reverted every time**, each producing a *different* unbounded
+Balance-Sheet error, each passing a full green suite. All eight failure modes are measured in
+`tools/HeadOracle/README.md`.
 
-**A sourcing pass has now found why, and it is decisive.** TallyPrime's Average Cost has **no repayment
-model at all** — official formula: `Average Cost = Total Cost [Inward Value] / Total Qty [Inward qty]
-{Annual}`, `Closing Value = pool rate × closing qty`. Sales **never touch the pool**
-(*"The Average Cost continues to be Rs.122.50 since there is no change in the Inward Cost"*); a
-**Rejection Out / purchase return does** shrink it. All eight attempts invented a repayment/lot-matching
-mechanism **that Tally does not have**. The fix is to **delete** machinery, not write a ninth version.
+**Ruling 3 settles the approach.** TallyPrime's Average Cost has **no repayment model at all**:
+`Average Cost = Total Inward Value ÷ Total Inward Qty`, sales never touch the pool, a purchase return does
+shrink it. All eight attempts invented a repayment/lot-matching mechanism **Tally does not have** — so the fix
+is to **delete** machinery, not write a ninth version. Our `RunAverage`
+(`src/Apex.Ledger/Services/StockValuationService.cs:329`) is a *perpetual moving average*: its Outward arm
+reduces both qty and cost. On T3 the formula predicts **₹1,333.33**; we give **₹1,500**.
 
-Our `RunAverage` (`StockValuationService.cs:329`) is a *perpetual moving average* — its Outward arm reduces
-both `qty` and `cost`. On T3 (buy 10 @ ₹100, sell 5, buy 5 @ ₹200) Tally gives **₹1,333.33**, we give **₹1,500**.
-
-**Do NOT rebuild the oracle harness — `tools/HeadOracle/` already exists** (8,051 lines, 62 scenarios,
-198 goldens, 40 mutation scripts). But its AverageCost oracle is `RunAverageDebtAware`, which
-*implements the refuted repayment model*, so it will **reject a correct stateless engine**. **30 of 36
-AverageCost goldens must be re-derived from the formula, never edited to match code.**
-
-Other binding constraints, all earned: the conservation/band check is a **tautology** against a stateless
-pool (a pool rate is a convex combination of the inward rates, so it is always in band); the divergence is
-**not** a negative-stock phenomenon (T3 never goes negative and HEAD is still wrong), so the harness's
-"HEAD is trusted on never-negative books" premise is false for AverageCost; **never re-rate an existing
-value**; **no floors or clamps** (a positive-qty floor was tried and *hid* a real error, turning a
-diagnosable −₹120 into a plausible ₹0); **Average Cost only** — FIFO under negative quantity is undocumented
-by every source; **do not change the godown dimension in the same slice**.
+**Do NOT rebuild the oracle harness — `tools/HeadOracle/` already exists.** But its AverageCost oracle
+implements the refuted repayment model, so it will **reject a correct stateless engine**: those goldens are
+**re-derived from the formula, never edited to match code**. Other earned constraints: the conservation/band
+check is a **tautology** against a stateless pool; the divergence is **not** a negative-stock phenomenon (T3
+never goes negative and HEAD is still wrong); **never re-rate an existing value**; **no floors or clamps** (a
+positive-qty floor once *hid* a real error, turning a diagnosable −₹120 into a plausible ₹0); **Average Cost
+only**; **do not change the godown dimension in the same slice**.
 
 ---
 
-## BLOCKED ON USER MEASUREMENT (nobody can substitute for these)
+## BLOCKED ON THE USER (nobody can substitute for these)
 
-Run in legitimate **TallyPrime Educational Mode** — `docs/tallyprime-valuation-test-books.md`.
+- **PR #34 — OPEN and awaiting review.** <https://github.com/Shuvrajit10101/Apex-Solutions/pull/34>
+  **Nothing merges until the user acts on it.** 83 commits, 354 files, five schema migrations.
+- **The TallyPrime T3 and T8 measurements** — run in legitimate **Educational Mode**;
+  `docs/tallyprime-valuation-test-books.md` has the books.
+  - **T3 — falsifies the whole Average Cost design.** Buy 10 @ ₹100 · sell 5 · buy 5 @ ₹200; closing value on
+    31-May. **₹1,333.33** ⇒ proceed. **₹1,500.00** ⇒ the premise is dead, stop.
+  - **T8 — unfreezes the interest divisors.** ₹44,000 at 10%, Per = 30-Day Month, 30-day window. **₹4,400** ⇒
+    per period. **~₹366** ⇒ per annum. The `DaysInMonth × 12` defect is live *deliberately*, pending this.
+  - **T1 / T2 / T4** — negative valuation, recovery, per-godown-vs-item. **T4 is the question that stopped the
+    work eight times and no document answers it.** **T7 needs a third option added before it is run.**
 
-- **T3 — falsifies the whole Average Cost design.** Buy 10 @ ₹100 · sell 5 · buy 5 @ ₹200; closing value
-  on 31-May. **₹1,333.33** ⇒ proceed. **₹1,500.00** ⇒ the premise is dead, stop.
-- **T8 — unfreezes the interest divisors.** ₹44,000 at 10%, Per = 30-Day Month, 30-day window.
-  **₹4,400** ⇒ per period. **~₹366** ⇒ per annum. The `DaysInMonth × 12` defect is live in `c408037`
-  *deliberately*, pending this.
-- **T1 / T2 / T4** — negative valuation, recovery, and per-godown-vs-item. T4 is the question that stopped
-  the work eight times and **no document answers it**.
-- **T7 needs a third option added before it is run** — item-level stateless predicts **₹3,504.55**, which is
-  not among its two choices, so as written it cannot discriminate the model.
+---
+
+## PRESERVED DESIGNS — `docs/design-records/`
+
+The session scratchpad does not survive the session, so three records were copied into the repo:
+
+| file | what | state |
+|---|---|---|
+| `w0-2b-company-screen-design.md` | the Company Create/Alter design | shipped as `f66253c` |
+| `w0-7-fixture-audit.md` | the `PopulatedCompanyFixture` audit | its **R-5** is assigned to W0-6's open remainder |
+| `phase-10-11-voucher-lifecycle-design-PARTIAL.md` | the voucher-lifecycle design | 🔴 **PARTIAL — not a finished design** |
+
+**All three are HISTORICAL SNAPSHOTS.** Two mechanics are deliberate and must not be "tidied": every
+`file.ext:NN` pointer was rewritten to `file.ext line NN` so the citation invariant does not read them as live
+pointers (those numbers were accurate when captured and are **NOT maintained**), and each carries a header
+saying so. The live, maintained pointers are in `plan.md` and `memory.md`, which are re-anchored on edit.
 
 ---
 
@@ -200,43 +242,46 @@ Run in legitimate **TallyPrime Educational Mode** — `docs/tallyprime-valuation
 
 - **R1–R14 in `CLAUDE.md`.** Agentic-first: the main loop decides and synthesises; agents do the work.
 - **Only A12 touches git.** **RE-RUN THE FULL GATE YOURSELF every slice; never relay an agent's numbers.**
-- **A gate is the four per-project counts, never the total.** A truncated Desktop run once reported
-  "Passed! 610" against a real 1635 and looked exactly like success.
-- **A GREEN SUITE HIDES BUGS.** Review found a real defect on essentially every slice this session,
-  several of which passed a full green suite. **The reviews are not optional.**
+- **A gate is the four per-project counts, never the total**, and it is read off the **final** tree. When two
+  records disagree, **the one that CANNOT be re-measured is not the tie-breaker.**
+- **A GREEN SUITE HIDES BUGS.** See THE METHOD FINDING above. **The reviews are not optional.**
 - **Run review lenses SEQUENTIALLY.** Parallel lenses die together and lose everything; sequential ones
-  journal as they complete. This directly saved 8 findings this session.
-- **Pass the COMPLETE finding list to the fix agent, never a summary.** Summarising left four findings
-  unaddressed — two of them vacuous-test defects.
-- **Agents die constantly** (13 times this session: session limits, process exits, two 529s) **and always
-  leave files on disk.** Check `git status` after every death. One left the tree non-compiling.
-- **Worktree directories vanish.** `stream-b`'s was deleted outright; its work survived only because it had
-  been **committed**. Commit early.
+  journal as they complete.
+- **Pass the COMPLETE finding list to the fix agent, never a summary.**
+- **Agents die constantly and always leave files on disk.** Check `git status` after every death. Matching test
+  counts do **not** prove a tree is unmutated — a dead reviewer once left a `±₹0.50` mutation in a production
+  file and the re-gate showed identical counts, because nothing covered that line.
+- **Worktree directories vanish.** Commit early; committed work survives, uncommitted work does not.
 - **Odd-paisa fixtures always.** A ±₹0.50 defect survived this project's whole life under six round-number
   assertions.
-- **`isolation:'worktree'` cuts from `main`, not the current branch.** Have A12 create worktrees explicitly
-  and verify `CurrentVersion` in each.
+- **The doc-vs-code CI check reads every `.md` in the repo.** Any `file.ext:NN` you write must resolve, and its
+  **counted allow-lists must stay exact** — an entry left behind after the document was corrected fails the
+  suite just as loudly as a new violation. The phrase "24 predefined voucher types" appears in this file for
+  exactly that reason: this file is one of the pinned quote-to-correct sites, its entry is counted at **one**,
+  and adding or removing an occurrence turns the suite red. (TallyPrime really has 24; we seed 23 — a recorded
+  fidelity gap, decision D24-B, not a typo.)
 - **WebFetch gets 403 from some Tally/NIC hosts and a TLS error from `taxinformation.cbic.gov.in`** — a real
   browser retrieves them, and `curl` fetched the INV-01 schema xlsx directly. State which method you used.
-- **Do NOT open `C:\Users\dkpho\Downloads\Tally7.2`** — cracked, and the wrong product. TallyPrime is the
-  fidelity target; 7.2 is a checklist only. The 9 obsolete-by-law pre-GST capabilities (VAT, CST, Service
-  Tax, Excise) **will not be built** — user ruling, 2026-08-10.
+- **Do NOT open `C:\Users\dkpho\Downloads\Tally7.2`** — cracked, and the wrong product. The 9 obsolete-by-law
+  pre-GST capabilities (VAT, CST, Service Tax, Excise) **will not be built** — user ruling, 2026-08-10.
 
 ---
 
 ## OPEN, NEEDS DECIDING OR SCHEDULING
 
-- **Push / open a PR** — none exists. Body must cover the earlier unpushed Phase 10.7/10.8 commits too.
-- **The R9 real-app run.** The app launches cleanly via
-  `dotnet run --project src/Apex.Desktop -c Release`. `WarnOnNegativeStock` is the first company flag to
-  default **TRUE**, so "column absent" no longer means "default" — only a genuine **pre-v50 company file**
-  tests the read path.
-- **`memory.md` has not been updated this session** (R5) — deferred to the post-merge documentation slice
-  along with `docs/invented-vs-cloned.md`, `docs/tally-fidelity-defects.md` and
-  `docs/phase6-advanced-inventory-requirements.md` (PR-8 retirement).
-- **CGST Rule 138(14) goods-relief lists are unmodelled** — the engine over-generates e-way bill
-  requirements. Pinned by a `PINNED_GAP` test, deliberately shaped so exactly one test fails when the data
-  slice lands. Unscheduled.
-- `IndianState.All` carries state code 97 but not 96 or 99 — adding them is **unsafe** because
+- **The R9 real-app run for the whole campaign is STILL OUTSTANDING.** Nothing in this run has been exercised
+  in the running app. Launch with `dotnet run --project src/Apex.Desktop -c Release` (using the real SDK path).
+  Two things to drive by hand: F11 statutory config → type `7000.50` into the gratuity cap and confirm it is
+  refused with a message naming the field; and Gateway → Masters → **Alter Company** → type a supplier address
+  and confirm it reaches a printed invoice.
+- **`plan.md`'s Phase 10.11 R7 Ctrl+Enter line is owed a correction** — see the sourcing finding above.
+- **W0-6's remainder is NOT started** — the false Phase 1 / 2 / 5 / 9 claims, IV-19's drill-down number, the
+  `Schema.cs` doc comment, and the W0-7 audit's **R-5**. The count half was paid on 2026-08-15.
+- **CGST Rule 138(14) goods-relief lists are unmodelled** — the engine over-generates e-way bill requirements.
+  Pinned by a `PINNED_GAP` test, shaped so exactly one test fails when the data slice lands. Unscheduled.
+- **`IndianState.All` carries state code 97 but not 96 or 99** — adding them is **unsafe** because
   `Gstin.Validate` shares the list and would accept nonexistent GSTIN prefixes. Needs designing.
-- `CostAllocationStrictness` is misnamed for what it now gates (~13 files to rename).
+- **`CostAllocationStrictness` is misnamed** for what it now gates (~13 files to rename).
+- **The 30 `StarvedStarAllowList` waivers** → runtime locks (61 sites, zero measurement).
+- **GSTR return JSON keys are invented** (`GstReturnJson.cs`) — the third instance of the invented-payload
+  class. Currently dead code (no production caller), so no live filing harm; the fix method is proven twice.

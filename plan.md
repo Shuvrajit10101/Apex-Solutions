@@ -2225,9 +2225,16 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     "at that phase" note, per this file's own rule that a closed phase's figures are a record and are not amended.
     The remaining W0-6 items (Phase 1/2/5/9 claims, IV-19's number, the `Schema.cs` comment) are **NOT started**.
   - **W0-7 (S0) `PopulatedCompanyFixture` extension** — **the census calls this the highest-leverage single
-    item in the report.** It covers **8 of 23 base types and zero inventory, order, provisional, job-work, POS
-    or payroll vouchers**, and **no print or export test uses it at all.** **Nothing else in this wave — or in
-    Waves 1–5 — is honestly testable without it.**
+    item in the report.** ⚠️ **CORRECTED 2026-08-17 — THIS ROW IS THE THIRD COPY OF A FIGURE THAT HAS BEEN
+    FALSE SINCE `1de940e` (2026-08-10), AND IT IS THE COPY THAT WAS MISSED.** It read: *"It covers 8 of 23 base
+    types and zero inventory, order, provisional, job-work, POS or payroll vouchers."* **W0-7 SHIPPED**: the
+    fixture is ~1,400 lines and posts **23 of 23 SEEDED base kinds**, with a `PopulatedFixtureCoverageTests`
+    beside it. The census's two copies were corrected the same day; this one was not, and **this is the exact
+    figure that produced a binding sequencing ruling which then had to be superseded** (see the ruling-6 banner
+    in §5). ⇒ **WHEN A FIGURE IS CORRECTED, GREP THE WHOLE REPOSITORY FOR IT — a survivor reproduces the same
+    error, and this one nearly did.** **STILL TRUE, and it is the open half of this row: no print or export
+    test uses the fixture at all**, so it is a posting fixture and not yet a regression instrument. **Nothing
+    else in this wave — or in Waves 1–5 — is honestly testable without it.**
   - **W0-8 (T0-7 follow-up — closes W0-1's own `🔴 UNVERIFIED CARRY-FORWARD`) e-Way Bill Part-A emits
     DESCRIPTIONS where NIC expects CODES** — **~1–1½ days. The FIRST non-UI row in the wave** (it wrote "the
     one" here; W0-9, W0-10, W0-11 and F14 all followed, and the Goals sentence above is amended to say so),
