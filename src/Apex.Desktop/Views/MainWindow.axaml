@@ -3629,7 +3629,7 @@
                                            Foreground="{StaticResource AlertRed}" FontSize="12"
                                            VerticalAlignment="Center" TextWrapping="Wrap"/>
                                 <Button Grid.Column="1" Content="Cancel (Esc)" Margin="0,0,8,0" Padding="12,6"
-                                        Click="OnCancelVoucherClick"/>
+                                        Click="OnAbandonVoucherEntryClick"/>
                                 <Button Grid.Column="2" Content="Accept (Ctrl+A)" Padding="14,6"
                                         IsEnabled="{Binding CanAccept}"
                                         Background="{StaticResource BrandNavy}" Foreground="White"

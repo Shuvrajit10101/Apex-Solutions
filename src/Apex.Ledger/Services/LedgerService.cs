@@ -96,7 +96,17 @@ public sealed class LedgerService
         v.Cancelled = true;
     }
 
-    /// <summary>Alt+D — remove entirely; may leave a gap in numbering.
+    /// <summary>Alt+D — remove entirely.
+    /// <para>🔴 <b>WHAT THIS DOES TO NUMBERING — the doc comment used to say only "may leave a gap in numbering",
+    /// which describes the mid-sequence case and MISSES the one that matters.</b> Deleting voucher #7 of 1…10
+    /// leaves a permanent gap at 7 (<see cref="NextNumber"/> still reads max = 10). Deleting #10 — the
+    /// <b>highest-numbered</b> voucher of its type — drops max to 9, so <b>the next post REUSES 10</b>: two
+    /// different documents carrying the same number, with the first no longer on the books to prove which was
+    /// which. This method does not guard it and deliberately does not: the guard is
+    /// <see cref="MasterDeletionRules.EnsureVoucherDeletable"/>, which every UI delete route calls, and it refuses
+    /// only the FILED statutory documents (plan.md §5, decision D-3). <b>Reuse on a non-filed top number is a
+    /// KNOWN AND ACCEPTED behaviour</b>, pinned by a test so it stays recorded rather than rediscovered. Any new
+    /// caller of this method must call that guard first.</para>
     /// ⚠️ NS-3: deleting an item-invoice voucher reverses its stock effect, and that used to be BLOCKED when it
     /// retro-drove a later movement's on-hand negative. It no longer is — the delete always applies, and the
     /// shortfall is reported by <see cref="InventoryPostingService.DetectNegativeStock"/>.</summary>
@@ -150,7 +160,12 @@ public sealed class LedgerService
         return regular;
     }
 
-    /// <summary>Next automatic number for a voucher type = max existing + 1 (per type, per company).</summary>
+    /// <summary>Next automatic number for a voucher type = max existing + 1 (per type, per company).
+    /// <para><b>Computed by SCANNING the posted vouchers</b> — there is no stored counter and no
+    /// <c>last_used_number</c> column anywhere in the schema, so this is not monotone across a
+    /// <see cref="Delete"/>: removing the highest-numbered voucher of a type lowers <c>max</c> and this method
+    /// hands the same number out again. See <see cref="Delete"/> for the full statement and
+    /// <see cref="MasterDeletionRules"/> for the guard that bounds it.</para></summary>
     public int NextNumber(Guid voucherTypeId)
     {
         var max = 0;

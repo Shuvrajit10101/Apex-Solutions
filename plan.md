@@ -1715,7 +1715,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
      re-INSERT fabricated `LedgerFirst` over the `UPDATE`. Measured: stored `1|1` → one save → `0|0`, triggered
      from ~40 ordinary screens. **The back-fill itself is unchanged and still the migration's own statement** —
      **the back-fill `UPDATE` is `src/Apex.Persistence.Sqlite/Schema.cs:3863`.**
-     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4815`**,
+     **The fix is the writer's three-way fallback — `src/Apex.Persistence.Sqlite/SqliteCompanyStore.cs:4844`**,
      fed by `ReadStoredSourceOrders` called before the DELETE. Collapsing it back to `?? LedgerFirst` turns
      `An_ordinary_save_of_a_migrated_nonGst_book_preserves_the_StockItemFirst_backfill` red.
      **(2) The downgrade silently deleted two indexes.**

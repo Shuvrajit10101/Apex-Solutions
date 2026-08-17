@@ -228,11 +228,19 @@ public sealed class DocumentCodeAgreementTests
     {
         // The register's own correction blocks QUOTE the stale citation in order to condemn it — the document
         // header's rule is "Nothing was silently rewritten — the original claim is always quoted beside the
-        // correction". Removing the quote would destroy the correction's evidence. Both of these sit inside a
+        // correction". Removing the quote would destroy the correction's evidence. The entry below sits inside a
         // block that states, in the same sentence, the true location and the file's real length.
-        "docs/invented-vs-cloned.md|LedgerService.cs:171",           // IV-24 †-block: "the file is only 162
-                                                                     // lines, so :171 never existed at HEAD",
-                                                                     // corrected there to :153-160.
+        //
+        // 🔴 DELETED 2026-08-17 (Phase 10.11 S4): "docs/invented-vs-cloned.md|LedgerService.cs:171".
+        // The exemption existed because the quoted-to-condemn citation was PAST END OF FILE — LedgerService.cs was
+        // 162 lines. S4 amended that file's Delete/NextNumber doc comments (Delete described itself as "may leave a
+        // gap in numbering", which misses the number-REUSE case S4 makes reachable), taking it to 177 lines, so
+        // :171 now RESOLVES and the exemption became STALE — which this test detected and demanded be re-judged.
+        // Re-judged: DELETED, because the list may only shrink and the citation no longer dangles. The register's
+        // quoted claim is untouched; a dated ††-block beside it records that its own line numbers moved and that
+        // the file-length sentence is no longer true of HEAD. If a later edit shortens the file below 171 lines the
+        // citation dangles again and this test fails loudly, which is the correct outcome rather than a silent
+        // re-permit.
         "docs/invented-vs-cloned.md|InterestParameters.cs:225-231",  // IV-…§5.4 🔴-block: "is 117 lines long,
                                                                      // so the range is past EOF" — the claim is
                                                                      // marked UNSUPPORTED, not repaired, because

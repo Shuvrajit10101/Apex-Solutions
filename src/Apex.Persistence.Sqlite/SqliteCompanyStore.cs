@@ -1916,6 +1916,35 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// 🔴 <b>DO NOT USE — INCOMPLETE. Voucher deletion goes through <see cref="Save"/>, not through here.</b>
+    /// (Phase 10.11 S4; plan.md §5, decision D-7 — this method is FENCED, deliberately NOT FIXED.)
+    ///
+    /// <para><b>What it misses.</b> It deletes <c>bill_allocations</c> → <c>cost_allocations</c> →
+    /// <c>bank_allocations</c> → <c>entry_lines</c> → <c>vouchers</c>, and leaves <b>FIVE</b> child tables that
+    /// also hang off a voucher untouched: <c>tds_lines</c>, <c>tcs_lines</c>, <c>payroll_lines</c>,
+    /// <c>voucher_inventory_lines</c> and <c>pos_tender_allocations</c>. Compare
+    /// <see cref="DeleteCompanyRows"/>, which handles all five.</para>
+    ///
+    /// <para><b>What that means in practice.</b> <c>PRAGMA foreign_keys</c> is ON for every connection this class
+    /// opens and each of those five tables declares <c>voucher_id … REFERENCES vouchers(id)</c> with no
+    /// <c>ON DELETE</c> action, so on a voucher that carries any of them this method does not silently orphan
+    /// rows — it <b>throws a FOREIGN KEY constraint failure</b> and rolls its transaction back. A TDS-deducted
+    /// payment, a TCS invoice, a payroll voucher, an item-invoice and a POS bill are therefore all
+    /// undeletable through this path.</para>
+    ///
+    /// <para>🔴 <b>WHY IT IS FENCED RATHER THAN FIXED.</b> It is off the live path today, which is why the gap has
+    /// never bitten — and it is exactly the method a "delete a voucher" feature is tempted to reach for. A
+    /// working-looking <c>Remove</c> would <b>invite routing voucher deletion through it</b> instead of through
+    /// whole-company <see cref="Save"/>, which is the only path the entire aggregate round-trips on (Save is a
+    /// delete-all + full re-insert snapshot inside one transaction). Making this method look safe is what would
+    /// put it on the live path. The Phase 10.11 delete verb removes the voucher from the in-memory aggregate and
+    /// calls <c>Save</c>; it never calls this.</para>
+    ///
+    /// <para>Pinned by <c>VoucherRemoveFenceTests</c> in the Sqlite suite, which asserts the FK failure on an
+    /// item-invoice voucher so that "fixing" this method without removing the fence goes red and lands the reader
+    /// on decision D-7.</para>
+    /// </remarks>
     public void Remove(Guid companyId, Guid voucherId)
     {
         using var tx = _connection.BeginTransaction();

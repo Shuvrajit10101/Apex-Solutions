@@ -10,6 +10,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 // Aliased rather than importing Apex.Ledger.Services wholesale: this file deliberately fully-qualifies engine
 // services (ManufacturingJournalService, …) so that namespace cannot start shadowing Apex.Desktop.Services.
 using VoucherTypeResolver = Apex.Ledger.Services.VoucherTypeResolver;
+// Phase 10.11 S4 — the Delete guards. Aliased for the reason above, not imported.
+using MasterDeletionRules = Apex.Ledger.Services.MasterDeletionRules;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -5099,13 +5101,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         if (voucher.Cancelled)
         {
-            RaiseCancelNotice($"{VoucherLabel(voucher)} is already cancelled.");
+            RaiseLifecycleNotice($"{VoucherLabel(voucher)} is already cancelled.");
             return false;
         }
 
         if (LiveStatutoryDocumentBlocker(voucher) is { } blocker)
         {
-            RaiseCancelNotice($"Cannot cancel {VoucherLabel(voucher)}: it carries {blocker}. "
+            RaiseLifecycleNotice($"Cannot cancel {VoucherLabel(voucher)}: it carries {blocker}. "
                               + "Cancel that at the portal first, then cancel the voucher.");
             return false;
         }
@@ -5211,11 +5213,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             if (voucher is not null) voucher.Cancelled = false;
-            RaiseCancelNotice($"Cannot cancel: {ex.Message}");
+            RaiseLifecycleNotice($"Cannot cancel: {ex.Message}");
             return;
         }
 
-        RaiseCancelNotice(voucher is null
+        RaiseLifecycleNotice(voucher is null
             ? "Voucher cancelled."
             : $"{VoucherLabel(voucher)} cancelled — the number is kept and every balance it touched has moved.");
 
@@ -5225,8 +5227,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// 🔴 <b>The one surface the cancellation verb can actually be SEEN on.</b> Every outcome of Alt+X — the
-    /// refusals, a failed cancel and the success — reports through here.
+    /// 🔴 <b>The one surface the lifecycle verbs can actually be SEEN on.</b> Every outcome of Alt+X (cancel) and
+    /// Alt+D (delete) — the refusals, a failed write and the success — reports through here.
     ///
     /// <para><b>Why not <see cref="Message"/>.</b> Alt+X works on exactly one screen, the live report page, and
     /// that page CANNOT RENDER <see cref="Message"/>: the report <c>DataTemplate</c> is typed
@@ -5241,7 +5243,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// hole S1 closed. <see cref="Message"/> is still set alongside, so the routes that DO render it keep
     /// working and nothing that reads it changes.</para>
     /// </summary>
-    private void RaiseCancelNotice(string text)
+    private void RaiseLifecycleNotice(string text)
     {
         Message = text;
         Notice = text;
@@ -5249,10 +5251,302 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// A window-level notice line, rendered in the status-bar row beside the WI-11 confirmation. Set only by the
-    /// Phase 10.11 S3 cancellation verb (see <see cref="RaiseCancelNotice"/>) and cleared on any change of screen,
-    /// because a notice belongs to the screen it was raised on.
+    /// Phase 10.11 lifecycle verbs — S3 cancel and S4 delete (see <see cref="RaiseLifecycleNotice"/>) — and cleared
+    /// on any change of screen, because a notice belongs to the screen it was raised on.
     /// </summary>
     [ObservableProperty] private string _notice = string.Empty;
+
+    // ====================================================== Phase 10.11 S4: Alt+D — DELETE a posted voucher/master
+
+    /// <summary>What an armed Alt+D confirmation is about to delete. <see cref="None"/> means the confirmation
+    /// currently up (if any) belongs to another verb.</summary>
+    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem }
+
+    /// <summary>
+    /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
+    /// <see cref="_pendingCancelVoucherId"/> is. A second flag plus a second pair of Y/N key arms would have to be
+    /// inserted into the window's first-match-wins chain, and the Alt+Y hole S1 closed (a stray accelerator
+    /// answering a confirmation nobody read) is the class of defect that duplication produces — with a
+    /// DESTRUCTIVE verb behind it this time. <see cref="ConfirmMasterAccept"/> branches on the kind and
+    /// <see cref="ResetMasterAcceptPrompt"/> disarms it.
+    /// </summary>
+    private DeletionTarget _pendingDeleteKind;
+    private Guid _pendingDeleteId;
+
+    /// <summary>
+    /// The five surfaces Alt+D is offered on (design §6.4 item 6): the live report page (the Day Book carries the
+    /// voucher rows), the register drill and the voucher-detail column beneath it, the Chart of Accounts, and the
+    /// Stock Item master's existing-items list.
+    ///
+    /// <para>🔴 <b>Why the report clause is <see cref="IsLiveReportPage"/> and not <see cref="IsReportContext"/>.</b>
+    /// Inherited straight from the S3 review finding: <c>IsReportContext</c> is deliberately TRUE while an F12
+    /// config, an Alt+F12 sort/filter, an Alt+A add-voucher picker, an Alt+K saved-views panel or a Print Preview
+    /// column is stacked over the report, because the report-PARAMETER shortcuts must keep acting on the report
+    /// underneath. A destructive verb written on it fires for the row BEHIND whichever column the operator is
+    /// standing in. <c>IsPickerOpen</c> cannot see that — it looks for an open ComboBox popup, not a Miller
+    /// column.</para>
+    ///
+    /// <para>The two drill columns are named EXPLICITLY rather than covered by a "report is bound" test, for the
+    /// same reason: <see cref="Screen.LedgerVouchers"/> and <see cref="Screen.VoucherDetail"/> are the two screens
+    /// that ARE the active column and DO own a voucher, and nothing stacks over them today.</para>
+    /// </summary>
+    public bool IsDeleteTargetPage =>
+        Company is not null
+        && (IsLiveReportPage
+            || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
+            || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            || IsChartOfAccountsScreen
+            || IsStockItemMasterScreen);
+
+    /// <summary>
+    /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
+    /// Returns <c>true</c> when the prompt was raised; <c>false</c> (a quiet no-op, or a named refusal on the
+    /// notice bar) otherwise.
+    ///
+    /// <para><b>🔴 FIDELITY (R7).</b> The corpus settles that Alt+D is Delete and that a ledger carrying
+    /// transactions cannot be deleted (STUDY-GUIDE PDF p.67). Everything else here is
+    /// <b>UNVERIFIED-BY-DESIGN — ours, corpus silent</b>: the referential guard, the numbering guard, offering
+    /// Cancel as the remedy, the five surfaces, and every string below. <b>The confirmation is deliberately a
+    /// SINGLE prompt.</b> The corpus's published DOUBLE confirmation ("… Yes or No?" then "Are you sure Yes or
+    /// No?") is attested for a MASTER and for a GROUP COMPANY and is <b>not attested for a voucher</b>; the
+    /// absence of that attestation is the finding, and we decline to copy the double prompt across by analogy
+    /// (plan.md §5, decision D-6). This is a decision we own, not fidelity — and it is a
+    /// deliberate DECLINE-TO-EXTEND, which is a different claim from narrowing an attested scope.</para>
+    ///
+    /// <para><b>The gates, and why they live here rather than in the key handler.</b> The window's Alt+D arm
+    /// decides only that the keystroke is ours (a delete-capable surface, not typing, no open picker, exactly
+    /// Alt). Everything that depends on DATA is decided here, so an on-screen route added later cannot diverge
+    /// from the accelerator:
+    /// <list type="bullet">
+    ///   <item>no company open — inert;</item>
+    ///   <item>a confirmation is already up — inert, so Alt+D cannot stack a second prompt over the first, and
+    ///         cannot re-point a live cancel confirmation at a delete;</item>
+    ///   <item>nothing highlighted, or a row that resolves to no master/voucher — a quiet no-op;</item>
+    ///   <item>🔴 the guards in <see cref="MasterDeletionRules"/> — refused with THEIR message, which names the
+    ///         count of blocking documents, or (for a filed statutory document) offers Cancel instead. The
+    ///         guard is asked BEFORE the question is put: a confirmation for something that cannot happen trains
+    ///         an operator to answer prompts without reading them.</item>
+    /// </list></para>
+    /// </summary>
+    public bool RequestDeleteHighlighted()
+    {
+        if (Company is null) return false;
+        if (IsAcceptPromptOpen) return false;
+
+        // A previous outcome's notice goes before a new question is asked — the two share the status-bar row.
+        Notice = string.Empty;
+
+        return CurrentScreen switch
+        {
+            Screen.Report when IsLiveReportPage => RequestDeleteVoucher(Reports!.SelectedRow?.DrillVoucherId),
+            Screen.LedgerVouchers => RequestDeleteVoucher(LedgerVouchers?.SelectedRow?.DrillVoucherId),
+            Screen.VoucherDetail => RequestDeleteVoucher(VoucherDetail?.VoucherId),
+            Screen.ChartOfAccounts => RequestDeleteChartRow(),
+            Screen.StockItemMaster => RequestDeleteStockItemRow(),
+            _ => false,
+        };
+    }
+
+    /// <summary>Arms the confirmation for a posted voucher, after the S4 guards accept it.</summary>
+    private bool RequestDeleteVoucher(Guid? voucherId)
+    {
+        if (voucherId is not { } id) return false;
+        if (Company!.FindVoucher(id) is not { } voucher) return false;
+
+        if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureVoucherDeletable(Company, voucher))) return false;
+
+        return Arm(DeletionTarget.Voucher, id,
+            $"Delete {VoucherLabel(voucher)}? The entry and every line on it are removed from the books "
+            + "permanently, and there is no undo. (Y/N)");
+    }
+
+    /// <summary>Arms the confirmation for the Chart of Accounts' highlighted row — a ledger row or a group row,
+    /// resolved exactly the way <see cref="AlterHighlightedChartRow"/> resolves it, so Alt+D and Enter can never
+    /// disagree about which master the highlight means.</summary>
+    private bool RequestDeleteChartRow()
+    {
+        if (ChartOfAccounts?.HighlightedRow is not { } row) return false;
+
+        if (row.LedgerId is { } ledgerId && Company!.FindLedger(ledgerId) is { } ledger)
+        {
+            if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureLedgerDeletable(Company, ledger))) return false;
+            return Arm(DeletionTarget.Ledger, ledgerId,
+                $"Delete ledger '{ledger.Name}'? This cannot be undone. (Y/N)");
+        }
+
+        if (row.GroupId is { } groupId && Company!.FindGroup(groupId) is { } group)
+        {
+            if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureGroupDeletable(Company, group))) return false;
+            return Arm(DeletionTarget.Group, groupId,
+                $"Delete group '{group.Name}'? This cannot be undone. (Y/N)");
+        }
+
+        return false;
+    }
+
+    /// <summary>Arms the confirmation for the Stock Item master's highlighted existing-item row — the same row
+    /// Ctrl+Enter opens for alteration.</summary>
+    private bool RequestDeleteStockItemRow()
+    {
+        if (StockItemMaster?.HighlightedRow is not { } row) return false;
+        if (Company!.FindStockItem(row.StockItemId) is not { } item) return false;
+
+        if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureStockItemDeletable(Company, item))) return false;
+
+        return Arm(DeletionTarget.StockItem, row.StockItemId,
+            $"Delete stock item '{item.Name}'? This cannot be undone. (Y/N)");
+    }
+
+    /// <summary>
+    /// Runs one <see cref="MasterDeletionRules"/> guard and turns its refusal into a notice. Returns <c>true</c>
+    /// when the guard passed.
+    ///
+    /// <para>The guards are pure and communicate by THROWING (the <see cref="MasterAlterationRules"/> shape they
+    /// are built on), and their messages are written to be read by an operator — they already name the count of
+    /// blocking documents and, for a filed statutory document, the remedy. So the refusal is surfaced verbatim
+    /// rather than re-worded here: one wording, one place to correct it, and no chance of the screen saying
+    /// something the rule does not.</para>
+    /// </summary>
+    private bool GuardsAllowDeletion(Action guard)
+    {
+        try
+        {
+            guard();
+            return true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            RaiseLifecycleNotice(ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>Arms the ONE confirmation channel for a deletion and puts the question up.</summary>
+    private bool Arm(DeletionTarget kind, Guid id, string prompt)
+    {
+        _pendingDeleteKind = kind;
+        _pendingDeleteId = id;
+        AcceptPromptText = prompt;
+        IsAcceptPromptOpen = true;
+        return true;
+    }
+
+    /// <summary>
+    /// "Y" on a deletion confirmation: performs the armed deletion, persists, and refreshes the surface it was
+    /// raised on.
+    ///
+    /// <para>🔴 <b>WHY THE SAVE IS PRE-FLIGHTED INSTEAD OF ROLLED BACK, and this differs from S3 deliberately.</b>
+    /// S3's cancel mutates a flag, so a failed save can be undone by restoring the flag. A DELETE cannot be undone
+    /// that way: the voucher is out of <c>Company.Vouchers</c>, and nothing outside the engine assembly can put it
+    /// back at its ORIGINAL LIST INDEX — and that index is persisted (<c>ORDER BY rowid</c>) and therefore
+    /// user-visible in the Day Book's ordering of same-dated entries. Re-posting it would append it at the end and
+    /// silently re-order the operator's book. So the one genuinely reachable save failure is checked BEFORE
+    /// anything is removed: <c>CompanyStorage.Save</c> opens with <c>Company.EnsureValid()</c>, which throws
+    /// <b>ArgumentException</b> on a bad PIN or a books-begin earlier than the year start — a state a book can be
+    /// loaded in and only discovers on its next save. Calling it here means such a company reports a named refusal
+    /// with the voucher still on the books, instead of losing the voucher to a save that was never going to
+    /// commit.</para>
+    ///
+    /// <para><b>The residue, stated rather than implied.</b> If the write fails AFTER that check — a locked or
+    /// unwritable <c>.db</c> — the store's transaction rolls back but the in-memory aggregate has already lost the
+    /// row, so the book on screen is AHEAD of the file. That is reported as a named failure telling the operator to
+    /// re-open the company; it is not silently swallowed, and it is not claimed to be handled.</para>
+    /// </summary>
+    private void PerformPendingDeletion(DeletionTarget kind, Guid id)
+    {
+        if (Company is null) return;
+
+        // Pre-flight the ONE reachable save failure while nothing has been removed yet (see the summary).
+        try
+        {
+            Company.EnsureValid();
+        }
+        catch (ArgumentException ex)
+        {
+            RaiseLifecycleNotice($"Cannot delete: {ex.Message}");
+            return;
+        }
+
+        string what;
+        try
+        {
+            switch (kind)
+            {
+                case DeletionTarget.Voucher:
+                    if (Company.FindVoucher(id) is not { } voucher) return;
+                    what = VoucherLabel(voucher);
+                    // Re-ask the guards immediately before the irreversible act: the confirmation has been on
+                    // screen for an unbounded time and nothing stops another surface changing the book meanwhile.
+                    MasterDeletionRules.EnsureVoucherDeletable(Company, voucher);
+                    new Apex.Ledger.Services.LedgerService(Company).Delete(id);
+                    break;
+
+                case DeletionTarget.Ledger:
+                    if (Company.FindLedger(id) is not { } ledger) return;
+                    what = $"Ledger '{ledger.Name}'";
+                    MasterDeletionRules.EnsureLedgerDeletable(Company, ledger);
+                    Company.RemoveLedger(ledger);
+                    break;
+
+                case DeletionTarget.Group:
+                    if (Company.FindGroup(id) is not { } group) return;
+                    what = $"Group '{group.Name}'";
+                    MasterDeletionRules.EnsureGroupDeletable(Company, group);
+                    Company.RemoveGroup(group);
+                    break;
+
+                case DeletionTarget.StockItem:
+                    if (Company.FindStockItem(id) is not { } item) return;
+                    what = $"Stock item '{item.Name}'";
+                    MasterDeletionRules.EnsureStockItemDeletable(Company, item);
+                    Company.RemoveStockItem(item);
+                    break;
+
+                default:
+                    return;
+            }
+
+            _storage.Save(Company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // A guard that has become true since the question was asked, or a write that failed after the
+            // pre-flight. The aggregate may now be AHEAD of the store — say so rather than imply a clean undo.
+            RaiseLifecycleNotice($"Cannot delete: {ex.Message} Re-open the company before continuing.");
+            RefreshDeletionSurface(kind);
+            return;
+        }
+
+        RaiseLifecycleNotice($"{what} deleted.");
+        RefreshDeletionSurface(kind);
+    }
+
+    /// <summary>
+    /// Re-renders the surface the deletion was raised on so the removed row leaves the screen immediately, the
+    /// way S3's cancel re-runs the live report. A voucher deletion re-runs the report; a master deletion rebuilds
+    /// the Chart of Accounts tree or the Stock Item master's existing-items list.
+    ///
+    /// <para>A voucher-detail column is deliberately NOT popped: the deletion leaves the operator looking at a
+    /// detail pane for a voucher that is gone, and Esc/Left already returns to the register beneath it. Popping a
+    /// column from inside a confirmation handler would move the cascade underneath the operator, which is the
+    /// work-loss class the Alt+Y hole was closed for.</para>
+    /// </summary>
+    private void RefreshDeletionSurface(DeletionTarget kind)
+    {
+        switch (kind)
+        {
+            case DeletionTarget.Voucher:
+                Reports?.Show(Reports.Kind);
+                break;
+            case DeletionTarget.Ledger:
+            case DeletionTarget.Group:
+                ChartOfAccounts?.Refresh();
+                break;
+            case DeletionTarget.StockItem:
+                StockItemMaster?.ReloadExistingItems();
+                break;
+        }
+    }
 
     // =============================================================== WI-11: the Accept? (Y/N) confirmation
 
@@ -5322,6 +5616,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para>Phase 10.11 S3: when <see cref="_pendingCancelVoucherId"/> is armed the prompt is a voucher
     /// CANCELLATION, not a master accept, and Y routes there instead. The id is read and disarmed BEFORE the
     /// action runs, so a cancellation can never leave the channel armed for the next unrelated prompt.</para>
+    /// <para>Phase 10.11 S4: likewise for <see cref="_pendingDeleteKind"/> — a DELETION. Both armed slots are read
+    /// and torn down together before either action runs, which is what makes "the channel is disarmed no matter
+    /// what the action does" true of the destructive verb as well as the reversible one.</para>
     /// </summary>
     public bool ConfirmMasterAccept()
     {
@@ -5330,10 +5627,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Read the armed action, then tear the prompt down through the ONE teardown before running it, so the
         // channel is disarmed no matter what the action does.
         var pendingCancel = _pendingCancelVoucherId;
+        var pendingDeleteKind = _pendingDeleteKind;
+        var pendingDeleteId = _pendingDeleteId;
         ResetMasterAcceptPrompt();
         if (pendingCancel != Guid.Empty)
         {
             CancelPendingVoucher(pendingCancel);
+            return true;
+        }
+
+        if (pendingDeleteKind != DeletionTarget.None)
+        {
+            PerformPendingDeletion(pendingDeleteKind, pendingDeleteId);
             return true;
         }
 
@@ -5393,6 +5698,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         AcceptPromptText = string.Empty;
         // The armed cancellation is part of the prompt's state and dies with it.
         _pendingCancelVoucherId = Guid.Empty;
+        // Phase 10.11 S4 — and so is the armed DELETION. Missing this line is the defect S3's own comment
+        // describes one verb earlier: an armed action that outlives its prompt lets a plain "Y" on the next
+        // unrelated Accept confirmation, anywhere in the app, execute it. With Delete behind the channel that is
+        // a voucher or a master destroyed by a keystroke aimed at a ledger master.
+        _pendingDeleteKind = DeletionTarget.None;
+        _pendingDeleteId = Guid.Empty;
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
@@ -408,6 +408,52 @@ public partial class MainWindow : Window
             && vm.IsLiveReportPage && !IsTyping(e) && !IsPickerOpen(e))
         {
             vm.RequestCancelHighlightedVoucher();
+            e.Handled = true;
+            return;
+        }
+
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ Alt+D DELETES THE HIGHLIGHTED VOUCHER OR MASTER. (Phase 10.11 S4 / VL-2.)                        │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // This is the arm that makes `LedgerService.Delete` REACHABLE for the first time in the project's life —
+        // it has existed since Phase 1 with no caller — so every consequence of removing a posted voucher arrives
+        // with this eight-line block. Both of them are guarded in `MasterDeletionRules`, which the view model calls
+        // BEFORE it puts the question up: the referential guard (refuse with the COUNT of documents that point at
+        // the voucher by Guid) and the numbering guard (refuse a FILED statutory document and offer Cancel,
+        // because `NextNumber` is `max+1` BY SCAN and deleting the highest number hands it to the next entry).
+        //
+        // ORDER: it sits directly beside the Alt+X arm because the two verbs are siblings and must be read
+        // together, and ABOVE the RQ-4 comparative Alt-letter arm (which claims C and N only) and the bare-letter
+        // quick-jump switch ~600 lines below (`Key.D` → Day Book). The quick-jump cannot collide: slice S1
+        // narrowed `CanQuickJump` to `e.KeyModifiers == KeyModifiers.None`, which is the guard that made Alt+D
+        // available to bind at all. Do not loosen it.
+        //
+        // EVERY GUARD ON THIS ARM, and each one is inherited from the S3 review rather than re-derived:
+        //   • `vm.IsDeleteTargetPage` — the five surfaces §6.4 item 6 names, and it uses `IsLiveReportPage`
+        //     (NOT `IsReportContext`) for the report clause. `IsReportContext` is deliberately TRUE while an F12
+        //     config, an Alt+F12 sort/filter, an Alt+A picker, an Alt+K saved-views panel or a Print Preview
+        //     column is stacked over the report, with the Day Book row still highlighted behind it — a
+        //     destructive verb written on it fires for the row BEHIND the column the operator is standing in.
+        //     That was a measured hole in S3's first cut; it is not re-opened here.
+        //   • `e.KeyModifiers == KeyModifiers.Alt` — an EXACT match, not `HasFlag`. Ctrl+Alt+D, Alt+Shift+D and
+        //     Alt+Win+D are different chords, and admitting them would make the app's SECOND destructive
+        //     accelerator its loosest match. Same doctrine as Alt+X above and the bare-letter jumps below.
+        //   • `!IsTyping(e)` / `!IsPickerOpen(e)` — DEFENCE IN DEPTH, labelled honestly. On the report page and
+        //     the two drill columns nothing focusable takes text today, so on those three surfaces neither clause
+        //     can change the outcome. On the OTHER TWO they are load-bearing and not merely defensive: the Chart
+        //     of Accounts and the Stock Item master are master screens with real TextBoxes and real pickers, and
+        //     the Stock Item master's Name/Alias fields are where an operator's caret sits while they type. A
+        //     bare `Alt+D` from inside a half-typed item name must not delete the item highlighted in the list
+        //     behind the form. `Alt_D_while_typing_in_the_stock_item_name_does_not_delete` pins exactly that, so
+        //     unlike S3's pair these clauses ARE independently falsifiable and are tested as such.
+        // The view model does the rest of the gating (a row must be highlighted, it must resolve to a real
+        // voucher/master, no confirmation may already be up, and the S4 guards must accept it). `e.Handled` is set
+        // unconditionally once the guards pass, so a surface with nothing highlighted is a quiet no-op rather than
+        // a live key that falls through to the Day Book jump.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsDeleteTargetPage && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.RequestDeleteHighlighted();
             e.Handled = true;
             return;
         }
@@ -1173,7 +1219,24 @@ public partial class MainWindow : Window
     private void OnAcceptVoucherClick(object? sender, RoutedEventArgs e)
         => Vm?.VoucherEntry?.Accept();
 
-    private void OnCancelVoucherClick(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// The voucher-entry screen's "Cancel (Esc)" button — it <b>ABANDONS THE ENTRY SCREEN</b> (discards a
+    /// half-keyed voucher and pops its column), which is <see cref="MainWindowViewModel.AbandonEntry"/>.
+    ///
+    /// <para>🔴 <b>It was called <c>OnCancelVoucherClick</c> and that name is now actively wrong.</b> Phase 10.11
+    /// S3 renamed the view-model verb <c>CancelVoucher</c> → <c>AbandonEntry</c> because <b>Alt+X now means
+    /// CANCEL A POSTED VOUCHER</b> — a different, destructive act on a document that is already on the books — and
+    /// S4 adds a real <b>DELETE</b> verb beside it. Leaving a handler named "cancel voucher" that actually abandons
+    /// an entry screen put three different meanings on two names, in the one slice where the difference between
+    /// "throw away what I am typing", "void a posted document" and "remove a posted document" has to be exact.</para>
+    ///
+    /// <para><b>Renaming this is not cosmetic: a XAML <c>Click=</c> binds by NAME at RUNTIME</b>, so renaming the
+    /// method without renaming the binding (or the reverse) compiles clean, ships, and fails only when a user
+    /// clicks the button. Both were changed together, and
+    /// <c>XamlClickHandlerBindingTests</c> now proves every <c>Click=</c> in the window resolves to a declared
+    /// handler, so the next half-rename is caught by a test instead of by an operator.</para>
+    /// </summary>
+    private void OnAbandonVoucherEntryClick(object? sender, RoutedEventArgs e)
         => Vm?.AbandonEntry();
 
     private void OnAddVoucherLineClick(object? sender, RoutedEventArgs e)

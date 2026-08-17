@@ -217,7 +217,7 @@ are no longer open defects — they are kept for the record, with the fixing com
 | **IV-21** | MEDIUM | B | MST | No Alt+H Multi-Masters — one form per ledger | `MainWindowViewModel.cs:1180` |
 | **IV-22** | MEDIUM | A | TAX | Invoice round-off hardcoded to the rupee, and never switched on | `GstService.cs:729` |
 | **IV-23** | MEDIUM | C | RPT | Ageing buckets are ours; no age-by-bill-date | `Outstandings.cs:85` |
-| **IV-24** | MEDIUM | C | ENT | Automatic numbering is `max+1`: gaps, and not date-ordered | **†** `LedgerService.cs:154` *(was `:171`, past EOF — the file is 162 lines)* |
+| **IV-24** | MEDIUM | C | ENT | Automatic numbering is `max+1`: gaps, and not date-ordered | **††** `LedgerService.cs:169` *(was `:154`; before that `:171`, past EOF when the file was 162 lines — see the ††-block)* |
 | **IV-25** | MEDIUM | B | ENT | Three of TallyPrime's five numbering methods | **†** `NumberingMethod.cs:9` *(was `:8`)* |
 | **IV-26** | MEDIUM | C | MST | Predefined groups cannot be renamed | `MasterAlterationRules.cs:211` |
 | **IV-27** | MEDIUM | C | ENT | "Accept? Yes/No" exists on masters only; vouchers save silently | **†** `MainWindowViewModel.cs:4882` *(was `:4873`)* |
@@ -823,15 +823,37 @@ are no longer open defects — they are kept for the record, with the fixing com
 > HEAD* (`public int NextNumber(Guid voucherTypeId)` at `:154`, `return max + 1;` at `:160`) ·
 > `InventoryPostingService.cs:127` → **`:148-155`** · `plan.md:624` → **`plan.md:690-691`**. Both `NextNumber`
 > bodies are still duplicate implementations taking a plain max over `Number` with no date term.
+>
+> **†† 2026-08-17 (Phase 10.11 S4) — THE 2026-08-15 CORRECTION'S OWN LINE NUMBERS HAVE NOW MOVED, and the
+> sentence above about the file's length is no longer true of HEAD.** S4 amended `LedgerService`'s doc comments —
+> `Delete` documented itself as *"may leave a gap in numbering"*, which describes the mid-sequence case and
+> silently missed the number-REUSE case this row is about — so the file grew from **162 to 177 lines**.
+> **Consequences, recorded rather than left to drift:** `NextNumber` is now at `LedgerService.cs` **line 169**
+> (`return max + 1;` at **line 175**), so this row's live citations below were re-pointed from `:153-160` to
+> `:169-175`. And `:171` — quoted above only in order to be condemned as past-EOF — **now resolves**, to
+> `var max = 0;` inside that same method; it is still the wrong citation for what the 2026-08-15 note was
+> correcting, but it is no longer a DANGLING one, so its exemption in
+> `DocumentCodeAgreementTests.HistoricalCitationAllowList` was deleted (that list may only shrink, and the test
+> itself flagged the entry as stale). **The original claim is still quoted verbatim above and nothing was
+> rewritten** — this note is the correction beside it.
+>
+> **The verdict is UNCHANGED and S4 did not close this row.** S4 built the guard that bounds the damage
+> (`MasterDeletionRules` refuses Delete on a filed statutory document and offers Cancel), **not** the fix this row
+> asks for. Both `NextNumber` bodies are still duplicate plain-max implementations with no date term, there is
+> still no Renumber / Retain toggle, and gap-on-delete still stands. **What S4 DID settle, as an explicit user
+> decision (D-3), is that deleting the highest-numbered NON-filed voucher REUSES its number, and that this is
+> accepted behaviour rather than a defect** — pinned by
+> `MasterDeletionRulesTests.Deleting_the_highest_NON_FILED_number_REUSES_it_which_is_accepted_behaviour_under_D3`.
+> Building the numbering floor named in the Fix row is what would change it.
 
 | | |
 |---|---|
 | **What the customer experiences** | The sales register develops **holes the operator cannot close**, and a GST officer or auditor reading a series that jumps 44, 45, 47 asks where invoice 46 went — every time, for the life of the book. Separately, an accountant who keys Friday's invoices on Monday and then a back-dated Thursday one gets **invoice 51 dated before invoice 50**; the sales register sorted by number is not in date order, which is exactly what a serial number is for. |
-| **What we invented** | `LedgerService.NextNumber` (`src/Apex.Ledger/Services/LedgerService.cs:153-160`) — and its twin `InventoryPostingService.NextNumber` (`src/Apex.Ledger/Services/InventoryPostingService.cs:148-155`) — returns the maximum existing `Number` for the type plus one, scanning all vouchers with **no date scoping and no renumbering**. `plan.md:624` records the consequence as settled and unremarkable: "the Renumber / Retain delete-behaviour toggle (today's only behaviour — Cancel keeps the number, Delete leaves a gap — is retained)", **without noting that gap-on-delete is Tally's non-default choice**. **[code]** |
+| **What we invented** | `LedgerService.NextNumber` (`src/Apex.Ledger/Services/LedgerService.cs:169-175`) — and its twin `InventoryPostingService.NextNumber` (`src/Apex.Ledger/Services/InventoryPostingService.cs:148-155`) — returns the maximum existing `Number` for the type plus one, scanning all vouchers with **no date scoping and no renumbering**. `plan.md:624` records the consequence as settled and unremarkable: "the Renumber / Retain delete-behaviour toggle (today's only behaviour — Cancel keeps the number, Delete leaves a gap — is retained)", **without noting that gap-on-delete is Tally's non-default choice**. **[code]** |
 | **What Tally does** | Under Automatic, offers two sub-options and **defaults to Renumber Vouchers**: deleting voucher 2 from the sequence 1,2,3 results in 1,2. "Retain Original Voucher No." — which preserves the gap, leaving 1,3 — is the **opt-in** alternative. The same pair is offered under Multi-User Auto. |
 | **Citation** | **[web]** `help.tallysolutions.com/use-voucher-numbering-methods/` — "Renumber Vouchers (default) … results in 1,2"; "Retain Original Voucher No. (preserves gaps) … leaves 1,3". The **date-ordering half is inferred** from the renumbering semantics, not separately quoted (§6 U-10). |
 | **How it got in** | An orchestrator/plan ruling at `plan.md:624` that framed the existing implementation as a **deferral of a toggle** rather than as a choice between two Tally behaviours. Nobody recorded which side Tally defaults to, so the app's incidental behaviour became the shipped policy by omission. |
-| **Fix** | Add the Renumber / Retain Original toggle to the voucher type with **Renumber as the default**, and make Automatic sequence by (voucher date, entry order) rather than by `max`. **Both engines must change together** — `LedgerService.cs:153-160` and `InventoryPostingService.cs:148-155` are duplicate implementations and have already been a source of drift. Lock it with a test that deletes a middle voucher and asserts contiguity, and one that back-dates an insert and asserts the numbers follow the dates. |
+| **Fix** | Add the Renumber / Retain Original toggle to the voucher type with **Renumber as the default**, and make Automatic sequence by (voucher date, entry order) rather than by `max`. **Both engines must change together** — `LedgerService.cs:169-175` and `InventoryPostingService.cs:148-155` are duplicate implementations and have already been a source of drift. Lock it with a test that deletes a middle voucher and asserts contiguity, and one that back-dates an insert and asserts the numbers follow the dates. |
 
 ---
 

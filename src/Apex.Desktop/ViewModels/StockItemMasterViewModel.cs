@@ -786,6 +786,15 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         OnPropertyChanged(nameof(CanCreate));
     }
 
+    /// <summary>
+    /// Re-reads the existing-items list from the company. Needed by Phase 10.11 S4: an Alt+D deletion removes a
+    /// stock item from the aggregate while this screen is the one displaying it, and without a rebuild the deleted
+    /// row stays on screen — where the next Ctrl+Enter would try to open a master that no longer exists.
+    /// <see cref="RefreshList"/> already restores the highlight by id, so a delete leaves the highlight cleared
+    /// rather than silently sitting on a neighbouring item.
+    /// </summary>
+    public void ReloadExistingItems() => RefreshList();
+
     private void RefreshList()
     {
         // Keep the highlight on the SAME ITEM across a rebuild (a save re-renders the list): re-finding it by id
