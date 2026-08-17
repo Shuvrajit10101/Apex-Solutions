@@ -154,7 +154,7 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
 > stopped the Alt+X/Alt+D provenance defect (item 10) from being written into the code first and questioned
 > afterwards.
 
-10. **Voucher cancellation (Phase 10.11 slice S3).** **GROUNDED, NOT YET BUILT.**
+10. **Voucher cancellation (Phase 10.11 slice S3).** **BUILT** — shipped in slice S3 of Phase 10.11 (Alt+X, the single confirmation, the greyed Day Book row and the CANCELLED overprint are all live).
 
     **What IS sourced:**
     - `Alt+X` = *"To cancel a voucher"* / *"To cancel a voucher from a report"*, with the "Where does it work"
@@ -179,7 +179,7 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
       to cancelling from a report"*; the corpus cell says **both** forms and scopes it **"Vouchers &
       Reports"**. Corrected in `plan.md` 2026-08-17.
 
-11. **Voucher and master deletion (Phase 10.11 slice S4).** **GROUNDED, NOT YET BUILT.**
+11. **Voucher and master deletion (Phase 10.11 slice S4).** **BUILT** — shipped in slice S4 of Phase 10.11 (Alt+D on the five surfaces, the single confirmation, and the numbering / referential / bill-wise / master guards).
 
     **What IS sourced:**
     - `Alt+D` = *"To delete an entry from a report"* — BOOK PDF **p.435** [printed p.431].
@@ -194,9 +194,27 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
     - Multi-master screens offer alter but **not** delete — BOOK PDF **pp.104-105**.
 
     **What is OURS, or unsettled:**
-    - **The SINGLE prompt for a voucher.** The double prompt is attested for a **group company** and for
-      **masters**, **not for a voucher**, and we **decline to copy it across by analogy** — recorded as NOT
-      ATTESTED FOR VOUCHERS rather than inherited.
+    - 🔴 **The SINGLE prompt, on ALL FIVE routes — and this row's earlier reading of it was WRONG.** It said the
+      double prompt is *"attested for a group company and for masters, not for a voucher"* and filed the whole
+      slice under a **decline-to-extend from silence**. Re-extracted first-hand (`pdftotext -raw`, S4 review
+      2026-08-17) that is not supportable in either half:
+      - **A MASTER is attested BOTH ways, in conflict.** BOOK PDF **p.21** gives the ledger recipe as
+        *"… > Alt+D > Press Two times Enter"* (double); STUDY-GUIDE PDF **p.67** gives the same object as
+        *"Press Alt+D supply Yes to confirm Deletion"* (single). The three MASTER routes S4 ships are therefore a
+        **divergence from an attested scope**, not a decline-to-extend.
+      - **A voucher is not silent either.** BOOK PDF **pp.22-23** carries a heading reading *"How to Delete
+        Voucher …?"* over the same *"Alt+D > Press Two times Enter"* recipe, under a path that then reads
+        `Alter > Voucher type` — the source contradicts itself inside one entry. Low-quality attestation is still
+        attestation.
+      - **What ships, and on what basis:** a SINGLE prompt everywhere, under standing decision **D-6**, citing
+        STUDY-GUIDE **p.67** as the supporting attestation — **a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED
+        SOURCE**, which is a third R7 category and is neither "corpus silent" nor "decline to extend". The
+        BEHAVIOUR is unchanged; only the basis is corrected. **D-6's wording, which is voucher-scoped, should be
+        amended to name the three master routes explicitly (open item for the user).**
+    - **The bill-wise blast radius, and it is ours.** A bill reference is a free string with no foreign key, so
+      deleting the invoice that OPENED a bill while a later receipt still settles it produced a wrong FIGURE with
+      a successful save — the party's money on neither Outstandings total. S4 refuses it. The corpus says nothing
+      about bill-wise references and deletion; the guard and its wording are ours.
     - **What happens to a deleted voucher's NUMBER is not in the corpus.** Our behaviour is ours:
       `LedgerService.NextNumber` is `max+1` by scan, so **deleting the highest-numbered voucher reuses its
       number** and deleting a mid-sequence one leaves a permanent gap.

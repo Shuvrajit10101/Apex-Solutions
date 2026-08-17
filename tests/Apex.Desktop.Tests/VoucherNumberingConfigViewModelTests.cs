@@ -131,6 +131,46 @@ public sealed class VoucherNumberingConfigViewModelTests
         Assert.Equal("OLD/1", c.FormatVoucherNumber(sale));
     }
 
+    /// <summary>
+    /// 🔴 <b>A MERELY-STAGED e-WAY BILL IS NOT A FILED DOCUMENT, AND NEITHER IS A PORTAL REJECTION.</b> This screen's
+    /// filed predicate was a second, private copy of the delete guard's, and BOTH read "any e-Way record the finder
+    /// returns" as filed — the finder excluding only <c>Cancelled</c>. <c>EWayBillRecord</c>'s constructor sets
+    /// <c>Pending</c> unconditionally, so EVERY record started there and <c>MarkFailed</c> is how a portal REJECTION
+    /// is recorded. A Pending record has no EWB number at all; there is nothing to burn, and blocking a numbering
+    /// change on it is a refusal with no statutory basis.
+    ///
+    /// <para>The predicate now DELEGATES to <c>MasterDeletionRules.IsFiledStatutoryDocument</c>, so the two screens
+    /// cannot drift and this screen inherits the fix. This test is what makes the delegation falsifiable: restore
+    /// either copy of the old shape and it goes red.</para>
+    /// </summary>
+    [Fact]
+    public void EditCoveringAPendingOrRejectedEWayBill_warnsInsteadOfBlocking()
+    {
+        using var t = new TempStore();
+        var (c, sales, debtor) = BuildGstCo("Num S4 Pending EWB");
+        var type = new VoucherType(Guid.NewGuid(), "Pending EWB Sales", VoucherBaseType.Sales,
+            prefixes: new[] { new VoucherNumberAffix(Guid.NewGuid(), FyStart, "OLD/") });
+        c.AddVoucherType(type);
+        var sale = PostSale(c, type.Id, sales, debtor);
+
+        // The state EVERY e-Way record is constructed in: staged, no EWB number, never sent.
+        var ewb = new EWayBillRecord(Guid.NewGuid(), sale.Id, "OLD/1", "Outward", "Supply", "INV",
+                                     600000L, "19", "19");
+        Assert.Equal(EWayStatus.Pending, ewb.Status);
+        c.AddEWayBillRecord(ewb);
+        t.Storage.Save(c);
+
+        var vm = new VoucherNumberingConfigViewModel(c, t.Storage);
+        vm.SelectByTypeId(type.Id);
+        vm.Prefixes[0].Particulars = "NEW/";
+
+        // Warn-and-confirm, NOT blocked: nothing legally frozen stands in the way.
+        Assert.Equal(NumberingSaveResult.NeedsConfirmation, vm.Save());
+        Assert.DoesNotContain("Change blocked", vm.Message);
+        Assert.Equal(NumberingSaveResult.Saved, vm.ConfirmSave());
+        Assert.Equal("NEW/1", c.FormatVoucherNumber(sale));
+    }
+
     // ================================================================ (5) edit covering an UNFILED voucher → warn+proceed
 
     [Fact]

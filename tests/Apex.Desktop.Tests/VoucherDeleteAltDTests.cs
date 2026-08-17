@@ -42,7 +42,30 @@ namespace Apex.Desktop.Tests;
 /// <para><b>What each group locks.</b> (a) the arm and its keyboard guards; (b) the five routing surfaces;
 /// (c) the refusals, including the numbering refusal that is the whole reason this slice is dangerous; (d) the
 /// confirmation channel and its disarm paths — a pending DELETION that outlived its prompt would let a plain "Y"
-/// on an unrelated master screen destroy a voucher; (e) persistence and the pre-flight.</para>
+/// on an unrelated master screen destroy a voucher; (e) persistence and the pre-flight; (f) the two master routes
+/// that had no refusal test at all; (g) the arm's own flags and clauses; (h) the remedy the refusal names;
+/// (i) ER-13.</para>
+///
+/// <para>🔴 <b>THE MUTATION ACCOUNTING, RECORDED SO "N GUARDS MUTATION-PROVED" IS NEVER READ AS "COVERED".</b> The
+/// slice shipped claiming fourteen guards mutation-proved. Both of those claims re-verified true — and they
+/// described a MINORITY: of 82 distinct guard/clause sites across the three S4 files, 57 reddened under mutation
+/// and <b>25 did not</b>. Worst of them, the GROUP route and the STOCK-ITEM route could each have BOTH of their
+/// guard call sites removed in one build with all 2258 Desktop tests green, while the identical compound on the
+/// LEDGER route reddened two — a clean positive control proving the method worked and that those two routes simply
+/// had no refusal test anywhere in the application.
+/// <br/><b>Closed by groups (f)–(i) and by the engine suite's own new cases:</b> both master routes' refusals;
+/// both routes' pre-act re-asks (plus the ledger's); <c>e.Handled</c> and the <c>IsDeleteTargetPage</c> clause on
+/// the key arm; <c>!IsPickerOpen</c>; the teardown ORDER; the notice clear; the <c>Notice</c>-vs-dead-key
+/// distinction; every stock-item and voucher tally category; the group refusal's singular head; and the voucher
+/// NUMBER in the label.
+/// <br/><b>Deliberately left unproved, each with its reason stated where it lives:</b> the
+/// <c>Company is not null</c> precondition on <c>IsDeleteTargetPage</c> (unreachable — nothing in the application
+/// sets <c>Company</c> back to null, and <c>RequestDeleteHighlighted</c> re-tests it; kept as a labelled
+/// precondition, not deleted for a score), and <c>_pendingDeleteId = Guid.Empty</c> in the teardown (paired-state
+/// hygiene: the id is only ever read when the KIND is armed, which IS pinned, so no behavioural test can separate
+/// them — clearing one and not the other would be the trap). The <c>when IsLiveReportPage</c> clause on the
+/// <c>Screen.Report</c> switch arm was NOT kept: it reduced to a null test inside a switch that had already
+/// established the screen, and is now written as a null-conditional so nothing dead remains.</para>
 /// </summary>
 public sealed class VoucherDeleteAltDTests
 {
@@ -377,11 +400,22 @@ public sealed class VoucherDeleteAltDTests
             vm.LedgerVouchers!.SelectedRow =
                 vm.LedgerVouchers!.Rows.First(r => r.DrillVoucherId == k.Receipt.Id);
 
+            var rowsBefore = vm.LedgerVouchers!.Rows.Count;
+
             AltD(window);
             Assert.True(vm.IsAcceptPromptOpen);
             Answer(window, PhysicalKey.Y);
 
             Assert.Null(c.FindVoucher(k.Receipt.Id));
+
+            // 🔴 THE HALF THIS TEST USED TO OMIT — and the omission is why the drill column was never refreshed.
+            // Asserting only that the voucher left the BOOKS passes against a screen that still shows it: the
+            // deleted row stayed on the drill with its amount still in the running balance, SelectedRow still
+            // pointing at it, and a second Alt+D on the stale row a silent dead key.
+            Assert.DoesNotContain(vm.LedgerVouchers!.Rows, r => r.DrillVoucherId == k.Receipt.Id);
+            Assert.Equal(rowsBefore - 1, vm.LedgerVouchers!.Rows.Count);
+            Assert.Null(vm.LedgerVouchers!.SelectedRow);
+            Assert.StartsWith("0.00", vm.LedgerVouchers!.Rows.Last().Amount);   // the closing line moved with it
         }
         finally { Close(window, dir); }
     }
@@ -895,6 +929,634 @@ public sealed class VoucherDeleteAltDTests
             Assert.NotNull(c.FindVoucher(k.Receipt.Id));         // the voucher survived
             Assert.Contains("Cannot delete", vm.Notice);
             Assert.Contains("PIN", vm.Notice);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>A WRITE THAT FAILS AFTER THE PRE-FLIGHT MUST REPORT, NOT ESCAPE.</b> The summary on
+    /// <c>PerformPendingDeletion</c> promises the residue "is reported as a named failure telling the operator to
+    /// re-open the company; it is not silently swallowed". It was neither: the catch filter was the narrow
+    /// <c>is InvalidOperationException or ArgumentException</c> shape that <c>SaveFailure.IsReportable</c> exists to
+    /// replace, so with the <c>.db</c> made read-only SQLite Error 8 escaped the window's key handler with the row
+    /// already gone from memory and the notice bar EMPTY — on the one destructive verb in the application.
+    ///
+    /// <para>The test makes the company file genuinely read-only and presses Y. It fails without the filter fix by
+    /// throwing out of the key press.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_write_that_fails_after_the_preflight_reports_a_named_failure_instead_of_escaping()
+    {
+        var (window, vm, dir) = NewWindow();
+        var locked = Array.Empty<string>();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete Readonly Co");
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            locked = Directory.GetFiles(dir, "*.db", SearchOption.AllDirectories);
+            Assert.NotEmpty(locked);                      // otherwise this test proves nothing
+            foreach (var f in locked) File.SetAttributes(f, FileAttributes.ReadOnly);
+
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);           // the guards and the pre-flight both passed
+            Answer(window, PhysicalKey.Y);                // must NOT throw out of the handler
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.NotEqual(string.Empty, vm.Notice);
+            Assert.Contains("Cannot delete", vm.Notice);
+            Assert.Contains("Re-open the company", vm.Notice);
+        }
+        finally
+        {
+            foreach (var f in locked)
+            {
+                try { File.SetAttributes(f, FileAttributes.Normal); } catch (IOException) { /* best effort */ }
+            }
+            Close(window, dir);
+        }
+    }
+
+    // =====================================================================================================
+    //  (f) 🔴 THE ROUTES THAT HAD NO REFUSAL TEST AT ALL
+    //
+    //  Measured with a line-exact mutation harness: BOTH guard call sites on the GROUP route, and BOTH on the
+    //  STOCK-ITEM route, could be removed in ONE build with all 2258 Desktop tests green — while the identical
+    //  compound on the LEDGER route reddened two. The two master routes S4 ADDED simply had no refusal test
+    //  anywhere in the application; the only group test was a success case. These are those tests.
+    // =====================================================================================================
+
+    /// <summary>Alt+D on a GROUP that still has children raises NO prompt and shows the count-bearing refusal —
+    /// the group twin of <c>AltD_refuses_a_ledger_with_transactions…</c>, which the route never had.</summary>
+    [AvaloniaFact]
+    public void AltD_refuses_a_group_with_children_and_the_notice_names_the_master_count()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            SeedOneReceipt(window, vm, "Delete Used Group Co");
+            var c = vm.Company!;
+            var parent = new Group(Guid.NewGuid(), "Regional", GroupNature.Asset,
+                                   c.FindGroupByName("Current Assets")!.Id);
+            c.AddGroup(parent);
+            c.AddLedger(new DomainLedger(Guid.NewGuid(), "Regional Debtor", parent.Id, Money.Zero,
+                                         openingIsDebit: true));
+
+            vm.ShowChartOfAccounts();
+            Pump(window);
+            var chart = vm.ChartOfAccounts!;
+            chart.HighlightedIndex = chart.Rows.ToList().FindIndex(r => r.GroupId == parent.Id);
+            Assert.True(chart.HighlightedIndex >= 0);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("1 master is filed under it", vm.Notice);
+            Assert.Contains("1 ledger", vm.Notice);
+            Assert.NotNull(c.FindGroup(parent.Id));
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>Alt+D on a PREDEFINED group refuses — with both guard sites gone this ran
+    /// <c>Company.RemoveGroup</c> unconditionally on a primary Balance-Sheet head, leaving every child pointing at
+    /// a parent that does not exist and the report classification walking up through a missing ancestor.</summary>
+    [AvaloniaFact]
+    public void AltD_refuses_a_predefined_group()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            SeedOneReceipt(window, vm, "Delete Predefined Group Co");
+            var c = vm.Company!;
+            var predefined = c.FindGroupByName("Sundry Debtors")!;
+            Assert.True(predefined.IsPredefined);
+
+            vm.ShowChartOfAccounts();
+            Pump(window);
+            var chart = vm.ChartOfAccounts!;
+            chart.HighlightedIndex = chart.Rows.ToList().FindIndex(r => r.GroupId == predefined.Id);
+            Assert.True(chart.HighlightedIndex >= 0);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("predefined group and cannot be deleted", vm.Notice);
+            Assert.NotNull(c.FindGroup(predefined.Id));
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>Alt+D on a STOCK ITEM that is in use raises NO prompt and shows the count-bearing refusal — the
+    /// stock-item twin the route never had. With both of its guard sites gone this ran
+    /// <c>Company.RemoveStockItem</c> on an item that entries still held by Guid.</summary>
+    [AvaloniaFact]
+    public void AltD_refuses_a_stock_item_in_use_and_the_notice_names_the_entry_count()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var item = SeedStockItem(window, vm, "Delete Used Stock Co", "Widget");
+            var c = vm.Company!;
+            new InventoryService(c).AddOpeningBalance(
+                item.Id, c.MainLocation!.Id, 3m, Money.FromRupees(50m));
+
+            vm.ShowStockItemMaster();
+            Pump(window);
+            var master = vm.StockItemMaster!;
+            master.HighlightedIndex = master.Existing.ToList().FindIndex(r => r.StockItemId == item.Id);
+            Assert.True(master.HighlightedIndex >= 0);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("1 entry references it", vm.Notice);
+            Assert.Contains("1 opening balance", vm.Notice);
+            Assert.NotNull(c.FindStockItem(item.Id));
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 THE PRE-ACT RE-ASK, for each MASTER kind. Only the voucher site was pinned; the ledger, group and
+    /// stock-item calls could each be deleted with the whole Desktop suite green, while the comment they share
+    /// applies by its own wording to all four ("the confirmation has been on screen for an unbounded time and
+    /// nothing stops another surface changing the book meanwhile").
+    ///
+    /// <para>Each case arms the prompt on a deletable master, makes it UNDELETABLE while the question is up, then
+    /// answers Y — and the master must survive with a named refusal.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("ledger")]
+    [InlineData("group")]
+    [InlineData("stockitem")]
+    public void A_master_that_becomes_undeletable_between_the_question_and_the_answer_is_refused(string kind)
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            if (kind == "stockitem")
+            {
+                var item = SeedStockItem(window, vm, "Delete Race Stock Co", "Widget");
+                var c0 = vm.Company!;
+                vm.ShowStockItemMaster();
+                Pump(window);
+                var master = vm.StockItemMaster!;
+                master.HighlightedIndex = master.Existing.ToList().FindIndex(r => r.StockItemId == item.Id);
+                AltD(window);
+                Assert.True(vm.IsAcceptPromptOpen);
+
+                // …and now it is in use.
+                new InventoryService(c0).AddOpeningBalance(item.Id, c0.MainLocation!.Id, 1m, Money.FromRupees(5m));
+                Answer(window, PhysicalKey.Y);
+
+                Assert.NotNull(c0.FindStockItem(item.Id));
+                Assert.Contains("Cannot delete stock item", vm.Notice);
+                return;
+            }
+
+            SeedOneReceipt(window, vm, "Delete Race Master Co");
+            var c = vm.Company!;
+            vm.ShowChartOfAccounts();
+            Pump(window);
+            var chart = vm.ChartOfAccounts!;
+
+            if (kind == "ledger")
+            {
+                var spare = new DomainLedger(Guid.NewGuid(), "Spare Debtor",
+                    c.FindGroupByName("Sundry Debtors")!.Id, Money.Zero, openingIsDebit: true);
+                c.AddLedger(spare);
+                chart.Refresh();
+                chart.HighlightedIndex = chart.Rows.ToList().FindIndex(r => r.LedgerId == spare.Id);
+                Assert.True(chart.HighlightedIndex >= 0);
+
+                AltD(window);
+                Assert.True(vm.IsAcceptPromptOpen);
+
+                // …and now a pay head names it.
+                c.AddPayHead(new PayHead(Guid.NewGuid(), "Basic", PayHeadType.Earnings,
+                    PayHeadCalculationType.OnAttendance) { LedgerId = spare.Id });
+                Answer(window, PhysicalKey.Y);
+
+                Assert.NotNull(c.FindLedger(spare.Id));
+                Assert.Contains("Cannot delete ledger", vm.Notice);
+                return;
+            }
+
+            var group = new Group(Guid.NewGuid(), "Spare Group", GroupNature.Asset,
+                                  c.FindGroupByName("Current Assets")!.Id);
+            c.AddGroup(group);
+            chart.Refresh();
+            chart.HighlightedIndex = chart.Rows.ToList().FindIndex(r => r.GroupId == group.Id);
+            Assert.True(chart.HighlightedIndex >= 0);
+
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+
+            // …and now a ledger is filed under it.
+            c.AddLedger(new DomainLedger(Guid.NewGuid(), "Late Child", group.Id, Money.Zero, openingIsDebit: true));
+            Answer(window, PhysicalKey.Y);
+
+            Assert.NotNull(c.FindGroup(group.Id));
+            Assert.Contains("Cannot delete group", vm.Notice);
+        }
+        finally { Close(window, dir); }
+    }
+
+    // =====================================================================================================
+    //  (g) 🔴 THE ARM'S OWN FLAGS AND CLAUSES
+    // =====================================================================================================
+
+    /// <summary>
+    /// The Alt+D keystroke comes back <c>Handled</c> on a delete-capable surface, and NOT handled where the arm
+    /// declines. This is the analogue of <c>AltX_on_a_report_row_comes_back_Handled</c>, which S3 wrote one slice
+    /// earlier after <c>e.Handled = true</c> survived its own deletion against the whole Desktop suite — and which
+    /// S4 copied the ARM and its justification comment from without copying the test. Measured here first:
+    /// deleting the flag left all 2258 tests green, and so did dropping <c>vm.IsDeleteTargetPage</c> from the arm,
+    /// which is what the negative leg pins.
+    /// </summary>
+    [AvaloniaFact]
+    public void AltD_comes_back_Handled_on_a_delete_surface_and_not_elsewhere()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            // Registered for BOTH phases with handledEventsToo: a Tunnel-only observer does not see the flag the
+            // window's own tunnel handler set, so the bubble leg is what reads the outcome.
+            bool? handled = null;
+            window.AddHandler(
+                InputElement.KeyDownEvent,
+                (object? _, KeyEventArgs e) => { if (e.Key == Key.D) handled = e.Handled; },
+                Avalonia.Interactivity.RoutingStrategies.Tunnel | Avalonia.Interactivity.RoutingStrategies.Bubble,
+                handledEventsToo: true);
+
+            var k = SeedOneReceipt(window, vm, "Delete Handled Co");
+
+            // NEGATIVE — on the Gateway the arm declines, so nothing consumes the key.
+            handled = null;
+            window.KeyPressQwerty(PhysicalKey.D, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.False(handled ?? true, "Alt+D off a delete surface should not be consumed by this arm");
+
+            // POSITIVE — on the Day Book row it is consumed.
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+            handled = null;
+            window.KeyPressQwerty(PhysicalKey.D, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+            Assert.True(handled ?? false, "Alt+D on a highlighted voucher row must come back Handled");
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <c>!IsPickerOpen</c> ON THE ALT+D ARM, PINNED. The arm's comment claims that on the two master surfaces
+    /// both <c>!IsTyping(e)</c> and <c>!IsPickerOpen(e)</c> "ARE independently falsifiable and are tested as such",
+    /// and then names one test for two clauses — dropping <c>!IsPickerOpen</c> left all 2258 tests green. Unlike
+    /// S3's pair the clause really is falsifiable here, because the Stock Item master carries real ComboBoxes over
+    /// a live existing-items list, so it is pinned rather than re-labelled.
+    /// </summary>
+    [AvaloniaFact]
+    public void AltD_with_a_picker_open_on_the_stock_item_master_does_not_delete()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var item = SeedStockItem(window, vm, "Delete Picker Co", "Widget");
+
+            vm.ShowStockItemMaster();
+            Pump(window);
+            var master = vm.StockItemMaster!;
+            master.HighlightedIndex = master.Existing.ToList().FindIndex(r => r.StockItemId == item.Id);
+            Assert.True(master.HighlightedIndex >= 0);
+
+            var picker = window.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault(cb => cb.IsEffectivelyVisible);
+            Assert.NotNull(picker);                       // otherwise this test proves nothing
+            picker!.Focus();
+            Pump(window);
+            picker.IsDropDownOpen = true;
+            Pump(window);
+            Assert.True(picker.IsDropDownOpen);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.NotNull(vm.Company!.FindStockItem(item.Id));
+
+            // POSITIVE CONTROL — the same keystroke with the dropdown shut DOES raise the question, so the test
+            // is pinning the picker clause and not some other refusal.
+            picker.IsDropDownOpen = false;
+            Pump(window);
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 CTRL+A IS INERT OVER AN ARMED DELETE. The Ctrl+A arm sits above the WI-11 confirmation arm in the tunnel
+    /// chain, and <c>ActivateSelected</c> used to call <c>ResetMasterAcceptPrompt</c> at its top — so one Ctrl+A
+    /// over <c>Delete stock item 'Widget'?</c> silently discarded the delete question and CREATED the unrelated
+    /// item typed into the form instead, with nothing on the notice bar. A destructive question replaced by a
+    /// write, which is the S1 Alt+Y hole shape on the destructive channel.
+    /// </summary>
+    [AvaloniaFact]
+    public void CtrlA_over_an_armed_delete_neither_deletes_nor_creates()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var item = SeedStockItem(window, vm, "Delete CtrlA Co", "Widget");
+            var c = vm.Company!;
+
+            vm.ShowStockItemMaster();
+            Pump(window);
+            var master = vm.StockItemMaster!;
+            master.Name = "Gizmo";                        // an unrelated item half-keyed into the form
+            master.HighlightedIndex = master.Existing.ToList().FindIndex(r => r.StockItemId == item.Id);
+            Assert.True(master.HighlightedIndex >= 0);
+
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+            Assert.Contains("Delete stock item 'Widget'?", vm.AcceptPromptText);
+
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+
+            Assert.True(vm.IsAcceptPromptOpen);                       // the question is STILL up
+            Assert.NotNull(c.FindStockItem(item.Id));                 // Widget was not deleted
+            Assert.Null(c.FindStockItemByName("Gizmo"));              // …and Gizmo was not created
+            Assert.Contains("Answer the question on screen first", vm.Notice);
+
+            // …and answering it still works, so nothing is stranded.
+            Answer(window, PhysicalKey.Y);
+            Assert.Null(c.FindStockItem(item.Id));
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 THE TEARDOWN ORDER, pinned by the condition it exists for. <c>ConfirmMasterAccept</c> reads both armed
+    /// slots, tears the prompt down, and only THEN runs the action — and the doc comment calls that ordering the
+    /// thing that makes "the channel is disarmed no matter what the action does" true of the destructive verb.
+    /// Reversing it left all 2258 tests green.
+    ///
+    /// <para>The order is observable without inducing a crash: the observer records
+    /// <see cref="MainWindowViewModel.IsAcceptPromptOpen"/> at the instant the ACTION reports its outcome. Under
+    /// the shipped order the prompt is already down; under the reversed order it is still up.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_confirmation_is_torn_down_BEFORE_the_deletion_runs()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete Teardown Co");
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+
+            bool? promptOpenWhenTheActionSpoke = null;
+            vm.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MainWindowViewModel.Notice)
+                    && vm.Notice.Length > 0
+                    && promptOpenWhenTheActionSpoke is null)
+                    promptOpenWhenTheActionSpoke = vm.IsAcceptPromptOpen;
+            };
+
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+            Answer(window, PhysicalKey.Y);
+
+            Assert.Null(vm.Company!.FindVoucher(k.Receipt.Id));
+            Assert.False(promptOpenWhenTheActionSpoke ?? true,
+                "the deletion ran while its own confirmation was still armed");
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 A PREVIOUS OUTCOME NEVER SHARES THE STATUS-BAR ROW WITH A LIVE QUESTION. Deleting the clear left a
+    /// refusal about one document sitting beside a live confirmation about a different one, on the app's only
+    /// destructive verb, and all 2258 tests stayed green.
+    ///
+    /// <para>The second half is the reason the clear moved out of <c>RequestDeleteHighlighted</c> and into
+    /// <c>Arm</c>: clearing on every Alt+D wiped the refusal the operator was reading whenever the route then
+    /// returned false because nothing was highlighted.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_new_question_clears_the_previous_outcome_but_a_dead_key_does_not()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete Notice Co");
+            var c = vm.Company!;
+            AttachGeneratedIrn(c, k.Receipt.Id);
+
+            // A second, ordinary voucher that IS deletable.
+            var on = c.FinancialYearStart.AddDays(6);
+            new LedgerService(c).Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, on, new[]
+            {
+                new EntryLine(k.Cash.Id, Money.FromRupees(100m), DrCr.Debit),
+                new EntryLine(k.Capital.Id, Money.FromRupees(100m), DrCr.Credit),
+            }));
+            var plain = c.Vouchers.Last();
+
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+            AltD(window);
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("filed statutory document", vm.Notice);   // the refusal is on the bar
+
+            // A DEAD KEY must not wipe it: no row highlighted at all, which is the quiet no-op route.
+            vm.Reports!.SelectedRow = null;
+            AltD(window);
+            Assert.Contains("filed statutory document", vm.Notice);   // still readable
+
+            // A NEW QUESTION does clear it.
+            vm.Reports!.SelectedRow = vm.Reports!.Rows.First(r => r.DrillVoucherId == plain.Id);
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+            Assert.Equal(string.Empty, vm.Notice);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 ALT+D IS INERT WHILE THE STOCK ITEM MASTER IS OPEN FOR ALTERATION. <c>ShowStockItemAlter</c> opens the
+    /// alteration column under the SAME screen id as creation, so the surface predicate could not tell them apart
+    /// and Alt+D deleted the very master the open form was editing — leaving the caption reading "Stock Item
+    /// Alteration", the operator's keyed changes in the form, and the Ctrl+A that would have saved them a
+    /// completely silent no-op afterwards.
+    /// </summary>
+    [AvaloniaFact]
+    public void AltD_on_an_open_stock_item_alteration_does_not_delete_the_item_being_altered()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var item = SeedStockItem(window, vm, "Delete Altering Co", "Widget");
+
+            vm.ShowStockItemMaster();
+            Pump(window);
+            var master = vm.StockItemMaster!;
+            master.HighlightedIndex = master.Existing.ToList().FindIndex(r => r.StockItemId == item.Id);
+            Assert.True(vm.AlterHighlightedStockItemRow());
+            Pump(window);
+            Assert.True(vm.StockItemMaster!.IsAltering);
+            vm.StockItemMaster!.Name = "Widget MK2";
+            vm.StockItemMaster!.HighlightedIndex =
+                vm.StockItemMaster!.Existing.ToList().FindIndex(r => r.StockItemId == item.Id);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.NotNull(vm.Company!.FindStockItem(item.Id));
+            Assert.True(vm.StockItemMaster!.IsAltering);              // the form is untouched
+            Assert.Equal("Widget MK2", vm.StockItemMaster!.Name);
+        }
+        finally { Close(window, dir); }
+    }
+
+    // =====================================================================================================
+    //  (h) 🔴 THE REMEDY THE REFUSAL NAMES MUST BE REACHABLE FROM WHERE THE OPERATOR IS STANDING
+    // =====================================================================================================
+
+    /// <summary>
+    /// Both voucher refusals end in "Cancel it instead (Alt+X)", but the Alt+X arm is gated on
+    /// <c>IsLiveReportPage</c> while Alt+D is offered on the register drill and the voucher-detail column as well.
+    /// Measured on both: the refusal appears, a real Alt+X on the same surface does nothing at all, and the
+    /// destructive verb is then the ONLY lifecycle verb available there. The refusal now says where the key works.
+    /// </summary>
+    [AvaloniaFact]
+    public void On_a_drill_column_the_refusal_says_where_Alt_X_actually_works()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete Routing Co");
+            var c = vm.Company!;
+            // Referential (not filed), so Cancel really is available — just not from here.
+            var challan = new TdsChallan(Guid.NewGuid(), "0001111", "0510308",
+                c.FinancialYearStart.AddDays(5), Money.FromRupees(10m), "194C", "200");
+            c.AddTdsChallan(challan);
+            c.LinkChallanToVoucher(challan.Id, k.Receipt.Id);
+
+            vm.OpenReport(ReportKind.TrialBalance);
+            Pump(window);
+            vm.OpenLedgerVouchers(k.Cash.Id, c.FinancialYearStart, c.FinancialYearStart.AddYears(1));
+            Pump(window);
+            Assert.Equal(Screen.LedgerVouchers, vm.CurrentScreen);
+            Assert.False(vm.IsLiveReportPage);            // …so the Alt+X arm will not fire here
+            vm.LedgerVouchers!.SelectedRow =
+                vm.LedgerVouchers!.Rows.First(r => r.DrillVoucherId == k.Receipt.Id);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("1 document references this voucher", vm.Notice);
+            Assert.Contains("Alt+X works on the Day Book", vm.Notice);
+
+            // And the claim is true: Alt+X here really does nothing.
+            window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.False(c.FindVoucher(k.Receipt.Id)!.Cancelled);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
+    /// The worse half: on the surface where Alt+X DOES work, the commonest filed case is refused by Cancel too —
+    /// a live IRN must be cancelled at the portal first. The refusal used to send the operator to a key that then
+    /// refused them, with no explanation of the order the two steps come in.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_filed_document_refusal_says_the_portal_cancellation_comes_first()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "Delete Portal Order Co");
+            AttachGeneratedIrn(vm.Company!, k.Receipt.Id);
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+
+            AltD(window);
+
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("filed statutory document", vm.Notice);
+            Assert.Contains("Cancel it instead (Alt+X)", vm.Notice);
+            Assert.Contains("cancel that at the portal first", vm.Notice);
+
+            // The claim is true: Alt+X on the same row is refused for exactly that reason.
+            window.KeyPressQwerty(PhysicalKey.X, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("live IRN", vm.Notice);
+        }
+        finally { Close(window, dir); }
+    }
+
+    // =====================================================================================================
+    //  (i) 🔴 ER-13 — A BOOK THAT NEVER USES THESE VERBS IS UNCHANGED
+    //
+    //  The design's §8.3 stated this as "the .db bytes match the pre-change baseline", and shipped no test.
+    //  MEASURED, that assertion is unachievable for ANY book, independent of S4: entry_lines.id is
+    //  `INTEGER PRIMARY KEY AUTOINCREMENT`, SQLite keeps its high-water mark in sqlite_sequence, and Save is a
+    //  delete-all + full re-insert — so a plain load-then-save renumbers those surrogate ids and the file bytes
+    //  change for a book nobody touched. The INSTRUMENT is therefore the canonical export, which carries the
+    //  semantic model and no surrogate ids. The substance of ER-13 does hold, and these are the tests that say so.
+    // =====================================================================================================
+
+    /// <summary>ER-13, part 1: a populated company's canonical export is byte-identical across a load → save round
+    /// trip. This is the assertion §8.3 should have made about the <c>.db</c> and could not.</summary>
+    [AvaloniaFact]
+    public void The_canonical_export_is_byte_identical_across_a_load_and_save()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            SeedOneReceipt(window, vm, "ER13 RoundTrip Co");
+            var storage = new CompanyStorage(dir);
+            var before = Apex.Ledger.Io.CanonicalXml.Export(vm.Company!);
+
+            storage.Save(vm.Company!);
+            var reloaded = storage.Load(storage.ListCompanies().Single(e => e.Name == "ER13 RoundTrip Co"));
+            var after = Apex.Ledger.Io.CanonicalXml.Export(reloaded);
+
+            Assert.Equal(before, after);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>ER-13, part 2: a REFUSED Alt+D and a DECLINED one (answered N) each leave the canonical export
+    /// byte-identical — the delete verb touches nothing until it is both permitted and confirmed.</summary>
+    [AvaloniaFact]
+    public void A_refused_and_a_declined_delete_both_leave_the_book_byte_identical()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = SeedOneReceipt(window, vm, "ER13 Untouched Co");
+            var c = vm.Company!;
+            OpenDayBookOn(window, vm, k.Receipt.Id);
+            var baseline = Apex.Ledger.Io.CanonicalXml.Export(c);
+
+            // DECLINED — the question is put and answered N.
+            AltD(window);
+            Assert.True(vm.IsAcceptPromptOpen);
+            Answer(window, PhysicalKey.N);
+            Assert.NotNull(c.FindVoucher(k.Receipt.Id));
+            Assert.Equal(baseline, Apex.Ledger.Io.CanonicalXml.Export(c));
+
+            // REFUSED — the guards answer before the question is put. (The IRN record is itself book content, so
+            // the baseline is re-taken after attaching it; what is under test is the refusal, not the fixture.)
+            AttachGeneratedIrn(c, k.Receipt.Id);
+            var withIrn = Apex.Ledger.Io.CanonicalXml.Export(c);
+            AltD(window);
+            Assert.False(vm.IsAcceptPromptOpen);
+            Assert.Contains("filed statutory document", vm.Notice);
+            Assert.Equal(withIrn, Apex.Ledger.Io.CanonicalXml.Export(c));
         }
         finally { Close(window, dir); }
     }

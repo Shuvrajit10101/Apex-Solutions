@@ -397,14 +397,13 @@ public sealed partial class VoucherNumberingConfigViewModel : ViewModelBase
     }
 
     // True when a voucher carries a filed statutory document whose number is legally frozen (numbering-design-v2 §5.4).
-    // For e-invoicing the frozen signal is any status that REACHED the IRP: GENERATED (IRN issued) OR CANCELLED (the IRN
-    // was reported and is permanently burned — a cancelled doc-no is never reusable, §2.5). Pending/Failed never reached
-    // the IRP, so they stay on the warn-and-confirm path. An active (non-Cancelled) e-Way bill likewise freezes the
-    // number. (A filed-GSTR-1-period signal is not tracked in the domain model, so it is not consulted here.)
-    private bool IsFiledDocument(Voucher v)
-    {
-        if (_company.FindEInvoiceRecordForVoucher(v.Id) is { Status: EInvoiceStatus.Generated or EInvoiceStatus.Cancelled }) return true;
-        if (_company.FindEWayBillRecordForVoucher(v.Id) is not null) return true; // finder already excludes Cancelled
-        return false;
-    }
+    //
+    // 🔴 THIS USED TO BE A SECOND COPY OF THE RULE, IN A SECOND ASSEMBLY, WITH NOTHING PINNING THEIR AGREEMENT — three
+    // identical statements, and the delete guard's own doc comment asserted the equivalence that no test held. It now
+    // DELEGATES to the canonical home. Two consequences, both wanted: the claim is true by construction rather than
+    // currently true (the same argument SaveFailure makes for its six-type list and StorableAmount for the sub-paisa
+    // predicate), and this screen inherits the e-Way FIX — the old shared shape read ANY non-Cancelled e-Way record as
+    // filed, so a merely-staged EWB-01 and a portal-REJECTED one both froze the number here too.
+    private bool IsFiledDocument(Voucher v) =>
+        Apex.Ledger.Services.MasterDeletionRules.IsFiledStatutoryDocument(_company, v.Id);
 }

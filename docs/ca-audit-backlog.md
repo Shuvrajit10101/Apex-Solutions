@@ -239,7 +239,7 @@ only unrelated rate/discount auto-fill flags). **This is data loss, and it direc
 
 ### ⚠️ Verifier corrections (carry these; do not use the decoders' originals)
 
-1. **A second dispatch site was missed.** `MainWindowViewModel.cs:5265` binds the on-screen button **directly**,
+1. **A second dispatch site was missed.** `MainWindowViewModel.BuildButtonBar` binds the on-screen button **directly**,
    bypassing `CreateLedgerShortcut` entirely:
    `ButtonBar.Add(new ButtonBarItem("Alt+C", "Create Ledger", ShowLedgerMaster, hasCompany));`
    Consequences: **key and button already disagree today** (on ManufacturingJournalEntry/BomMaster the *key*
@@ -304,7 +304,7 @@ a voucher drops the shell to the Gateway with `VoucherEntry` null.
    `switch` to the existing factories (`ShowLedgerMaster` :2642, `ShowStockGroupMaster` :2725,
    `ShowStockCategoryMaster` :2735, `ShowUnitMaster` :2745, `ShowGodownMaster` :2755, `ShowStockItemMaster`
    :2765 — **all four of these line numbers verified exact**). Keep the screen-level fallback for a `null` kind
-   so untagged fields degrade to today's behaviour rather than breaking. **Fix the ButtonBar site at `:5265`
+   so untagged fields degrade to today's behaviour rather than breaking. **Fix the ButtonBar site in `MainWindowViewModel.BuildButtonBar`
    too.**
 5. **Open beside, not over.** Add `OpenOverlayPageColumn(...)` next to `OpenPageColumn` that stacks an extra
    column and does **not** call `ClearSubScreens()`. **Do not loosen `OpenPageColumn` itself** — its
@@ -2274,7 +2274,7 @@ right. It is the **exact colour, activation semantics and collision rule** that 
   (`:839`), `"F4–F9  ▸"` (`:843`), `"F3"` (`:877`). **Never a bare letter.**
 - **Two bare letters ARE live on the Gateway:** `Key.O` → Import (`MainWindow.axaml.cs:381-389`) and `Key.Y` →
   Export Data (`:391-402`), both gated `vm.CurrentScreen == Screen.Gateway`.
-- **The RQ-28 precedent is already recorded in code** — `MainWindowViewModel.cs:5269-5271`: *"\"Outs\" (not
+- **The RQ-28 precedent is already recorded in code** — `MainWindowViewModel.BuildButtonBar` (the "Outs" hint comment): *"\"Outs\" (not
   \"O\") — the bare-O key is bound to Import on the Gateway (**RQ-28: a hint's letter must map to the action that
   key actually triggers**), so the Outstandings quick-button uses a non-key mnemonic badge and is reached by
   click, never by a colliding \"O\" keystroke."* **The project has already ruled that an advertised letter must
@@ -2295,7 +2295,7 @@ right. It is the **exact colour, activation semantics and collision rule** that 
    or keep".** *(The decoder's HEADLINE claim — "dead **on the Gateway**", the load-bearing part for the collision
    analysis — is CORRECT and survives: `ShowGateway()` → `EnterCascade()` (`:814`) sets `IsGatewayCascade = true`
    (`:4219-4223`), and `IsMenuScreen` = `!IsGatewayCascade && …`, so `CanQuickJump` (`:564-565`) is false there.)*
-2. **Wrong line — RQ-28.** The comment is at **`MainWindowViewModel.cs:5269-5271`**, NOT `:1269-1272` (which is
+2. **Wrong line — RQ-28.** The comment is in **`MainWindowViewModel.BuildButtonBar`** (cited by member name after it drifted TWICE; line numbers into this file are not durable), NOT at the line first recorded (which is
    the unrelated `ShowInventoryBatchReportsMenu()` doc-comment). The wrong number appeared **four times** in the
    decode. *(Mitigation: `touches` already included `:5236-5292` (BuildButtonBar), so an implementer would
    stumble on it anyway.)*
@@ -2384,7 +2384,7 @@ see Q1/Q2/Q7.)*
   (`:391-402`) are gated **only** on `vm.CurrentScreen == Screen.Gateway` — and **`CurrentScreen` STAYS
   `Screen.Gateway` inside every submenu column** (`OpenGroupOf` sets it at `:4798`). **So O fires Import even
   while the Vouchers column is active** — colliding head-on with "Order Vouchers" (`:900`) and "Other Vouchers"
-  (`:905`), both natural O candidates. Needs an explicit precedence ruling consistent with RQ-28 (`:5269-5271`).
+  (`:905`), both natural O candidates. Needs an explicit precedence ruling consistent with RQ-28 (`MainWindowViewModel.BuildButtonBar`).
   **One of the two advertised meanings of O must change or be re-lettered.**
 - **🟠 Conditional menu items ⇒ uniqueness is PER-PERMUTATION, not per-column.** "GST Rate Setup" appears only
   when `Company is { GstEnabled: true }` (`:838`), "Payroll Reports" only when PayrollEnabled (`:862`),
@@ -2425,7 +2425,7 @@ see Q1/Q2/Q7.)*
 7. **Authored letters** (stable, hand-picked — **recommended**) **or auto-assigned** (reshuffles when an F11
    feature toggles)?
 8. **Precedence for bare O and Y on the Gateway** (`:381`/`:391`) vs a menu item's O — which wins, and does the
-   loser get re-lettered or re-bound? **Must honour RQ-28 (`:5269-5271`).**
+   loser get re-lettered or re-bound? **Must honour RQ-28 (`MainWindowViewModel.BuildButtonBar`).**
 9. **Fate of B/P/T/D** (`:541-544`) — **note the verifier correction: they are NOT dead code; they fire on
    Company Select once a company has been opened. Re-letter or keep — do not delete.** Decide inside this slice,
    or a future slice that "fixes" the quick letters creates four collisions at once (B=Banking/Balance Sheet,
@@ -3120,7 +3120,7 @@ if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifier
 ```
 *(Every earlier Alt handler was checked for a generic catch — `:129` ReorderLevelsMaster (S/V only), `:148`
 report-context (Key.C/Key.N only), `:347` Alt+K. **None catches A.**)*
-The button bar agrees — `MainWindowViewModel.cs:5260-5262`: `var onPos = CurrentScreen == Screen.PosBilling;` …
+The button bar agrees — `MainWindowViewModel.BuildButtonBar`: `var onPos = CurrentScreen == Screen.PosBilling;` …
 `new ButtonBarItem("Alt+A", "Tax Analysis", ShowPosTaxAnalysis, onPos)`.
 
 **🔑 But voucher entry from the Day Book PARTLY works already — by accident of gating. This is the PARTIAL

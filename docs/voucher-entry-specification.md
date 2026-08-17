@@ -498,7 +498,7 @@ also samples **pre-count** on a Physical-Stock date (`:391-394`) so an intra-day
 a same-day count.
 
 **One UX inconsistency, not a data defect:** `Ctrl+A` bypasses `CanAccept` —
-`MainWindowViewModel.cs:5585/5588` call `Accept()` unconditionally, and `CanAccept` only greys the buttons.
+`MainWindowViewModel.ActivateSelected` calls `Accept()` unconditionally, and `CanAccept` only greys the buttons.
 `Accept()` re-validates, so nothing unsafe posts; the user just gets a different failure surface depending
 on how they saved.
 

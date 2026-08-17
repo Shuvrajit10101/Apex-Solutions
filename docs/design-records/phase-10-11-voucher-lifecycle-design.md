@@ -1133,15 +1133,29 @@ compares against a figure four phases old.
 - **No schema change** (§9). `vouchers.cancelled` already exists (`Schema.cs line 941-961`) and already round-trips.
 - **`Cancel` and `Delete` already exist and are already persisted.** This phase adds *reachability*, not state.
 - **`Replace` adds no field.** It writes an existing `Voucher` shape into an existing list slot.
-- **Persistence is a pure function of the in-memory graph** — `SqliteCompanyStore.Save` (`:1790`) is
-  delete-all + full re-insert. A company whose voucher list is untouched serialises identically.
+- **The persisted SEMANTIC content is a pure function of the in-memory graph** — `SqliteCompanyStore.Save` is
+  delete-all + full re-insert. A company whose voucher list is untouched serialises to the same semantic content.
+
+> 🔴 **CORRECTION (S4 review, 2026-08-17) — this paragraph used to claim "persistence is a pure function of the
+> in-memory graph" full stop, and assertion 1 below used to ask for the `.db` BYTES. Measured, that is unachievable
+> for ANY book and always was, independently of this phase.** `entry_lines.id` is
+> `INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT`; SQLite keeps its high-water mark in `sqlite_sequence`, so a
+> delete-all + full re-insert **renumbers those surrogate ids on every save** and the file bytes change for a book
+> nobody touched. Measured on a real round trip: the `.db` differed, and a schema-driven semantic dump differed too
+> at the first `entry_lines` row (an id that had advanced 1 → 3) while every declared column beside it was equal.
+> **The correct instrument is the canonical export** (`Apex.Ledger.Io.CanonicalXml.Export`), which carries the
+> semantic model and no surrogate ids — measured byte-identical across a load → save round trip, across a REFUSED
+> Alt+D and across a DECLINED one. A raw-`.db` comparison must never be written into an ER-13 test; a schema-driven
+> semantic dump is acceptable **only** if it excludes surrogate autoincrement ids.
 
 **T-8, the test that turns that into evidence — three assertions:**
 
-1. Open the `PopulatedCompanyFixture`, perform **no** lifecycle action, `Save`, and assert the `.db` bytes (or a
-   canonical dump) match the pre-change baseline.
-2. Round-trip the same company through `Apex.Ledger.Io` canonical XML and assert byte-identity — `plan.md` is
-   right that this is **asserted, not assumed**.
+1. Open a populated company, perform **no** lifecycle action, `Save`, reload, and assert the **canonical export**
+   is byte-identical to the pre-save baseline. *(Shipped with S4:
+   `VoucherDeleteAltDTests.The_canonical_export_is_byte_identical_across_a_load_and_save`.)*
+2. Assert the same byte-identity across a **refused** Alt+D and a **declined** one — the delete verb touches
+   nothing until it is both permitted and confirmed. *(Shipped with S4:
+   `VoucherDeleteAltDTests.A_refused_and_a_declined_delete_both_leave_the_book_byte_identical`.)*
 3. `Snapshot(company)` before and after loading the new build is identical.
 
 ---

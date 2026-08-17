@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
@@ -53,7 +54,41 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
         LedgerId = ledgerId;
+        _from = from;
+        _to = to;
+        _movement = movement;
 
+        Build();
+    }
+
+    private readonly DateOnly _from;
+    private readonly DateOnly _to;
+    private readonly bool _movement;
+
+    /// <summary>
+    /// Re-runs the <see cref="LedgerBook"/> projection in place — the drill column's equivalent of
+    /// <c>ReportsViewModel.Show</c>.
+    ///
+    /// <para>🔴 <b>Why this exists (Phase 10.11 S4).</b> Alt+D is offered on this column, and until this method
+    /// existed a deleted voucher's row stayed on screen with its amount still in the running balance and
+    /// <see cref="SelectedRow"/> still pointing at it — so a second Alt+D on the stale row resolved to no voucher
+    /// and was a silent dead key. The rows are rebuilt from the same parameters the column was opened with, and the
+    /// highlight is re-pointed at the same voucher when it survived and dropped when it did not, so the column
+    /// never holds a selection that resolves to nothing.</para>
+    /// </summary>
+    public void Refresh()
+    {
+        var wasOn = SelectedRow?.DrillVoucherId;
+        Rows.Clear();
+        Build();
+        SelectedRow = wasOn is { } id && id != Guid.Empty
+            ? Rows.FirstOrDefault(r => r.DrillVoucherId == id)
+            : null;
+    }
+
+    private void Build()
+    {
+        var (company, ledgerId, from, to, movement) = (_company, LedgerId, _from, _to, _movement);
         var book = LedgerBook.Build(company, ledgerId, from, to, movement);
         Title = book.LedgerName.Length == 0 ? "Ledger Vouchers" : book.LedgerName;
         Subtitle = $"{company.Name}  —  {FormatDate(from)} to {FormatDate(to)}";

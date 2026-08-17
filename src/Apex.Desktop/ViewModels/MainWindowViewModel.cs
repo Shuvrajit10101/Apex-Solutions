@@ -5210,7 +5210,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             new Apex.Ledger.Services.LedgerService(Company).Cancel(voucherId);
             _storage.Save(Company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        // 🔴 W0-13's shared predicate, NOT the narrow `is InvalidOperationException or ArgumentException` filter
+        // this line used to carry. `SaveFailure.IsReportable` exists precisely to replace that shape: it also
+        // admits DbException (SqliteException — BUSY from a second instance, READONLY, FULL), IOException,
+        // UnauthorizedAccessException and OverflowException, none of which the old filter saw. With the narrow
+        // filter a locked or read-only `.db` threw straight out of the window's key handler with the voucher
+        // already flagged in memory and NOTHING on the notice bar. The rollback above runs either way; only the
+        // report-vs-crash decision consults the predicate, which is the separation SaveFailure's own doc requires.
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
         {
             if (voucher is not null) voucher.Cancelled = false;
             RaiseLifecycleNotice($"Cannot cancel: {ex.Message}");
@@ -5289,6 +5296,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <para>The two drill columns are named EXPLICITLY rather than covered by a "report is bound" test, for the
     /// same reason: <see cref="Screen.LedgerVouchers"/> and <see cref="Screen.VoucherDetail"/> are the two screens
     /// that ARE the active column and DO own a voucher, and nothing stacks over them today.</para>
+    ///
+    /// <para>🔴 <b>THE STOCK ITEM CLAUSE EXCLUDES AN OPEN ALTERATION, and that is a fix.</b>
+    /// <c>ShowStockItemAlter</c> opens the alteration column under the SAME <see cref="Screen.StockItemMaster"/>
+    /// value, so <see cref="IsStockItemMasterScreen"/> cannot tell Creation from Alteration — and Alt+D therefore
+    /// deleted the very master the open form was editing. Measured: the item went, the caption still read "Stock
+    /// Item Alteration", the operator's keyed changes were still in the form, and the Ctrl+A that would have saved
+    /// them was afterwards a completely silent no-op. §6.4 item 6 offers Alt+D on "the Stock Item master's
+    /// existing-items LIST", not on an open alteration of a row in it, so the narrower reading is also the one the
+    /// design asked for.</para>
+    ///
+    /// <para><b>The <c>Company is not null</c> clause is a precondition, honestly labelled.</b> It is not
+    /// independently falsifiable — every screen below requires an open company to reach, and nothing in the
+    /// application ever sets <c>Company</c> back to null — and <see cref="RequestDeleteHighlighted"/> re-tests it
+    /// anyway. It is KEPT rather than deleted for a mutation score: this property gates the app's one destructive
+    /// accelerator, and a null-safety precondition is not the same category as a guard whose comment claims a
+    /// mechanism it cannot deliver.</para>
     /// </summary>
     public bool IsDeleteTargetPage =>
         Company is not null
@@ -5296,22 +5319,41 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             || (CurrentScreen == Screen.LedgerVouchers && LedgerVouchers is not null)
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
             || IsChartOfAccountsScreen
-            || IsStockItemMasterScreen);
+            || (IsStockItemMasterScreen && StockItemMaster is { IsAltering: false }));
 
     /// <summary>
     /// <b>Alt+D — raise the single Y/N confirmation for deleting whatever the current surface has highlighted.</b>
     /// Returns <c>true</c> when the prompt was raised; <c>false</c> (a quiet no-op, or a named refusal on the
     /// notice bar) otherwise.
     ///
-    /// <para><b>🔴 FIDELITY (R7).</b> The corpus settles that Alt+D is Delete and that a ledger carrying
-    /// transactions cannot be deleted (STUDY-GUIDE PDF p.67). Everything else here is
-    /// <b>UNVERIFIED-BY-DESIGN — ours, corpus silent</b>: the referential guard, the numbering guard, offering
-    /// Cancel as the remedy, the five surfaces, and every string below. <b>The confirmation is deliberately a
-    /// SINGLE prompt.</b> The corpus's published DOUBLE confirmation ("… Yes or No?" then "Are you sure Yes or
-    /// No?") is attested for a MASTER and for a GROUP COMPANY and is <b>not attested for a voucher</b>; the
-    /// absence of that attestation is the finding, and we decline to copy the double prompt across by analogy
-    /// (plan.md §5, decision D-6). This is a decision we own, not fidelity — and it is a
-    /// deliberate DECLINE-TO-EXTEND, which is a different claim from narrowing an attested scope.</para>
+    /// <para><b>🔴 FIDELITY (R7) — THE PROMPT COUNT IS A CONFLICT, NOT A SILENCE. THIS RECORD WAS WRONG AND IS
+    /// REWRITTEN.</b> The corpus settles that Alt+D is Delete and that a ledger carrying transactions cannot be
+    /// deleted (STUDY-GUIDE PDF p.67). The referential guard, the numbering guard, the bill-wise guard, offering
+    /// Cancel as the remedy, the five surfaces and every string below remain
+    /// <b>UNVERIFIED-BY-DESIGN — ours, corpus silent</b>.
+    /// <br/><b>The number of confirmations is NOT one of them.</b> This comment used to say the published DOUBLE
+    /// confirmation "is attested for a MASTER and for a GROUP COMPANY and is <i>not attested for a voucher</i>",
+    /// and filed the whole slice's SINGLE prompt — including the three MASTER routes below — under a
+    /// decline-to-extend from that silence. Re-extracted first-hand with <c>pdftotext -raw</c>, both halves of that
+    /// sentence are wrong:
+    /// <list type="bullet">
+    ///   <item><b>A MASTER is attested BOTH ways, in conflict.</b> BOOK PDF p.21 gives the ledger recipe as
+    ///     <i>"… &gt; Alt+D &gt; Press Two times Enter"</i> (double); STUDY-GUIDE PDF p.67 gives the same object as
+    ///     <i>"Press Alt+D supply Yes to confirm Deletion"</i> (single). So the three master routes are a DIVERGENCE
+    ///     FROM AN ATTESTED SCOPE, not a decline-to-extend from silence.</item>
+    ///   <item><b>A voucher is NOT silent either.</b> BOOK PDF pp.22-23 carries a heading that reads
+    ///     <i>"How to Delete Voucher …?"</i> over the same <i>"Alt+D &gt; Press Two times Enter"</i> recipe — under
+    ///     a path that then says <c>Alter &gt; Voucher type</c>, so the source contradicts itself within one entry.
+    ///     Low-quality attestation is still attestation; "not attested" was not supportable.</item>
+    ///   <item>The GROUP COMPANY double IS attested, unambiguously and with its wording (STUDY-GUIDE PDF p.277:
+    ///     <i>"Delete Yes or No?"</i> then <i>"Are you sure Yes or No?"</i>). Company deletion is out of S4 by
+    ///     ruling, so nothing here contradicts it.</item>
+    /// </list>
+    /// <b>What ships, and on what basis:</b> a SINGLE prompt on all five routes, under standing decision D-6,
+    /// citing STUDY-GUIDE p.67 as the supporting attestation — a CONFLICT RESOLVED IN FAVOUR OF ONE ATTESTED
+    /// SOURCE. That is a third R7 category and it is neither "corpus silent" nor "decline to extend". The
+    /// BEHAVIOUR is unchanged (D-6 is a standing user ruling and this pass does not reopen it); only the record of
+    /// why is corrected, so the next reader cannot re-derive the wrong category from it.</para>
     ///
     /// <para><b>The gates, and why they live here rather than in the key handler.</b> The window's Alt+D arm
     /// decides only that the keystroke is ours (a delete-capable surface, not typing, no open picker, exactly
@@ -5333,12 +5375,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return false;
         if (IsAcceptPromptOpen) return false;
 
-        // A previous outcome's notice goes before a new question is asked — the two share the status-bar row.
-        Notice = string.Empty;
-
+        // 🔴 The previous outcome's notice is cleared in `Arm`, at the moment a NEW QUESTION actually goes up —
+        // not here. Clearing it here wiped the refusal the operator was reading whenever the route then returned
+        // false because nothing was highlighted: they pressed Alt+D on a header row and their diagnosis vanished
+        // with nothing in its place. The invariant that matters is "a stale outcome never shares the status-bar row
+        // with a live confirmation", and arming is exactly when that becomes possible.
         return CurrentScreen switch
         {
-            Screen.Report when IsLiveReportPage => RequestDeleteVoucher(Reports!.SelectedRow?.DrillVoucherId),
+            // `Reports?` rather than `Reports!` + a `when IsLiveReportPage` clause: on Screen.Report the clause
+            // reduced to a null test (IsLiveReportPage IS `Reports is not null && CurrentScreen == Screen.Report`,
+            // and the switch has already established the second half), so it was an unfalsifiable guard spelled as
+            // a screen predicate. The null-conditional says the same thing, cannot NRE, and leaves nothing dead.
+            Screen.Report => RequestDeleteVoucher(Reports?.SelectedRow?.DrillVoucherId),
             Screen.LedgerVouchers => RequestDeleteVoucher(LedgerVouchers?.SelectedRow?.DrillVoucherId),
             Screen.VoucherDetail => RequestDeleteVoucher(VoucherDetail?.VoucherId),
             Screen.ChartOfAccounts => RequestDeleteChartRow(),
@@ -5353,7 +5401,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (voucherId is not { } id) return false;
         if (Company!.FindVoucher(id) is not { } voucher) return false;
 
-        if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureVoucherDeletable(Company, voucher))) return false;
+        if (!GuardsAllowDeletion(() => MasterDeletionRules.EnsureVoucherDeletable(Company, voucher),
+                                 CancelRoutingFor(voucher))) return false;
 
         return Arm(DeletionTarget.Voucher, id,
             $"Delete {VoucherLabel(voucher)}? The entry and every line on it are removed from the books "
@@ -5407,7 +5456,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// rather than re-worded here: one wording, one place to correct it, and no chance of the screen saying
     /// something the rule does not.</para>
     /// </summary>
-    private bool GuardsAllowDeletion(Action guard)
+    private bool GuardsAllowDeletion(Action guard, string? routing = null)
     {
         try
         {
@@ -5416,14 +5465,49 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
         catch (InvalidOperationException ex)
         {
-            RaiseLifecycleNotice(ex.Message);
+            RaiseLifecycleNotice(routing is null ? ex.Message : $"{ex.Message} {routing}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HALF OF THE REFUSAL ONLY THE VIEW MODEL CAN KNOW: whether the remedy it names is reachable from
+    /// where the operator is standing.</b> Returns the extra sentence to append, or <c>null</c> when the guard's
+    /// own wording is already actionable here.
+    ///
+    /// <para>Both voucher refusals end in <i>"Cancel it instead (Alt+X)"</i>, but the Alt+X arm is gated on
+    /// <see cref="IsLiveReportPage"/> while Alt+D is offered on <see cref="Screen.LedgerVouchers"/> and
+    /// <see cref="Screen.VoucherDetail"/> as well. Measured on both drill columns: the refusal appears, a real Alt+X
+    /// on the same surface does nothing at all, and the destructive verb is then the ONLY lifecycle verb available
+    /// there — the exact inverse of the design's argument that Cancel is the default gesture and Delete the
+    /// exception. And on the surface where the key DOES work, the commonest filed case is refused by Cancel too
+    /// (<see cref="LiveStatutoryDocumentBlocker"/>), so the one-line remedy was unreachable on two of five surfaces
+    /// and refused on the third.</para>
+    ///
+    /// <para><b>Why the routing is added HERE rather than folded into the guard's message.</b> The message is the
+    /// rule's, and it stays in one place — that is the whole reason <see cref="GuardsAllowDeletion"/> surfaces it
+    /// verbatim. WHERE the operator is standing, and whether a portal document blocks Cancel, are facts the pure
+    /// engine rule cannot see. <b>Why not simply extend the Alt+X arm to the two drill columns instead:</b> that
+    /// arm belongs to S3 and <c>AltX_in_a_drill_column_beneath_a_live_report_raises_nothing</c> pins its current
+    /// scope deliberately. Widening a shipped verb's surface is a scope decision for its own slice, not a
+    /// side-effect of a delete fix.</para>
+    /// </summary>
+    private string? CancelRoutingFor(Voucher voucher)
+    {
+        if (LiveStatutoryDocumentBlocker(voucher) is { } blocker)
+            return $"Alt+X is refused too while it carries {blocker} — cancel that at the portal first.";
+
+        return IsLiveReportPage
+            ? null
+            : "Alt+X works on the Day Book — open it there to cancel this voucher.";
     }
 
     /// <summary>Arms the ONE confirmation channel for a deletion and puts the question up.</summary>
     private bool Arm(DeletionTarget kind, Guid id, string prompt)
     {
+        // A previous outcome's notice goes before a new question is asked — the two share the status-bar row, and
+        // this is the one moment at which a stale statement and a live question could appear side by side.
+        Notice = string.Empty;
         _pendingDeleteKind = kind;
         _pendingDeleteId = id;
         AcceptPromptText = prompt;
@@ -5508,7 +5592,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             _storage.Save(Company);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        // 🔴 W0-13's shared predicate. This line used to be the narrow
+        // `when (ex is InvalidOperationException or ArgumentException)` filter — the exact shape
+        // `SaveFailure.IsReportable` was created to replace — on the ONE destructive verb in the application. The
+        // summary above promised the residue "is reported as a named failure telling the operator to re-open the
+        // company"; measured with the `.db` set read-only, it was neither reported NOR swallowed: SQLite Error 8
+        // escaped the window key handler with the row already gone from memory and the notice bar EMPTY. Every
+        // foreign-key failure this slice's guards now prevent escaped the same way. The filter admits DbException,
+        // IOException, UnauthorizedAccessException and OverflowException as well, so the promise the doc comment
+        // makes is now true. (The `ArgumentException` half of the old filter was additionally UNREACHABLE:
+        // `Company.EnsureValid` is the only source, `CompanyStorage.Save` opens with it, and the pre-flight above
+        // already calls and catches it — nothing between the two can change the PIN or the books-begin date.)
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
         {
             // A guard that has become true since the question was asked, or a write that failed after the
             // pre-flight. The aggregate may now be AHEAD of the store — say so rather than imply a clean undo.
@@ -5530,6 +5625,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// detail pane for a voucher that is gone, and Esc/Left already returns to the register beneath it. Popping a
     /// column from inside a confirmation handler would move the cascade underneath the operator, which is the
     /// work-loss class the Alt+Y hole was closed for.</para>
+    ///
+    /// <para>🔴 <b>THE REGISTER DRILL WAS MISSING AND THE COMMENT ABOVE CLAIMED IT WAS NOT.</b> A voucher deleted
+    /// from <see cref="Screen.LedgerVouchers"/> re-ran the REPORT (which is not the active column) and left the
+    /// deleted row on the drill with its amount still in the running balance, <c>SelectedRow</c> still pointing at
+    /// it, and a second Alt+D on that stale row a silent dead key. The shipped register-drill test asserted only
+    /// that the voucher had left the books, which is why it was green with the stale screen behind it. Unlike the
+    /// voucher-detail exception this was an omission, not a decision — so the drill is rebuilt here, in place, the
+    /// same way the report is.</para>
     /// </summary>
     private void RefreshDeletionSurface(DeletionTarget kind)
     {
@@ -5537,6 +5640,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         {
             case DeletionTarget.Voucher:
                 Reports?.Show(Reports.Kind);
+                LedgerVouchers?.Refresh();
                 break;
             case DeletionTarget.Ledger:
             case DeletionTarget.Group:
@@ -5703,6 +5807,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // unrelated Accept confirmation, anywhere in the app, execute it. With Delete behind the channel that is
         // a voucher or a master destroyed by a keystroke aimed at a ledger master.
         _pendingDeleteKind = DeletionTarget.None;
+        // …and its id, which is PAIRED-STATE HYGIENE, honestly labelled. It is not independently falsifiable and a
+        // mutation run confirms that: the id is only ever read when the KIND is armed, and the kind's disarm IS
+        // pinned (`A_dismissed_deletion_cannot_be_executed_by_a_later_unrelated_Y`). It is kept rather than deleted
+        // for a mutation score, because clearing one half of a two-field slot and not the other is exactly the
+        // asymmetry the next reader would trip over. This is a different category from the dead clause the comment
+        // above describes: that one CLAIMED a mechanism it could not deliver.
         _pendingDeleteId = Guid.Empty;
     }
 
@@ -6584,6 +6694,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void ActivateSelected()
     {
+        // 🔴 Phase 10.11 S4 — CTRL+A IS INERT OVER AN ARMED LIFECYCLE QUESTION, AND SAYS SO.
+        // The Ctrl+A arm sits ABOVE the WI-11 confirmation arm in the window's tunnel chain, deliberately, so the
+        // ~40 accept-as-is screens keep working and "Ctrl+A while the prompt happens to be up simply accepts" — and
+        // that reasoning is sound while the prompt asks about the SAME object Ctrl+A would save. It stops being
+        // sound the moment the shared channel carries a second verb about a DIFFERENT object. Measured on the Stock
+        // Item master with "Widget" highlighted, "Gizmo" typed in the form and `Delete stock item 'Widget'?` up: one
+        // Ctrl+A silently discarded the delete question (ResetMasterAcceptPrompt runs at the top of this method) and
+        // CREATED Gizmo instead — a destructive question replaced by an unrelated write, with nothing on the notice
+        // bar. That is the S1 Alt+Y hole shape on the destructive channel, and the arm's own comment claims the
+        // prompt is "MODAL against Alt+letter chords" while leaving this one open.
+        // So: answer the lifecycle question first. Two presses, exactly the doctrine already settled for Alt+Y and
+        // for Escape. Nothing is saved, nothing is discarded, and the question stays on screen.
+        if (IsAcceptPromptOpen
+            && (_pendingDeleteKind != DeletionTarget.None || _pendingCancelVoucherId != Guid.Empty))
+        {
+            RaiseLifecycleNotice("Answer the question on screen first (Y or N) — Ctrl+A does nothing while it is up.");
+            return;
+        }
+
         // WI-11: the accept-as-is path. Ctrl+A saves WITHOUT changing the screen, so it is invisible to the
         // screen-change reset — clear the confirmation here or it leaks and shadows the Gateway's bare Y.
         ResetMasterAcceptPrompt();
