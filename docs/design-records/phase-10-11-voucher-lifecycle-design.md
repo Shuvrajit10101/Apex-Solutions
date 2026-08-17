@@ -1183,8 +1183,12 @@ compares against a figure four phases old.
 
 RULING 5 (R12, 2026-08-16) requires **every slice** to end with a fidelity row in `docs/full-clone-census.md`
 §1.3, or a record of why the corpus cannot settle the question. §1.3 is a numbered list of capabilities with
-*any* sourced behavioural verification; it currently runs to **item 9** (Company creation & alteration, added
-with W0-2b and rewritten 2026-08-17), and item 9 established the two-column shape this design follows:
+*any* sourced behavioural verification; when this design was written it ran to **item 9** (Company creation &
+alteration, added with W0-2b and rewritten 2026-08-17), and item 9 established the two-column shape this design
+follows. ⚠️ **Superseded as a statement of current state, 2026-08-17: the three rows drafted below were
+subsequently landed in §1.3 as items 10-12, so the list is longer than "item 9" now. §1.3 is the single
+derivation for how long it is and for the four fidelity figures; do not re-copy either into this file.** The
+shape:
 **"What IS sourced — each with the page it comes from, and nothing else claimed"** vs **"What is OURS, or
 unsettled — separated deliberately."**
 

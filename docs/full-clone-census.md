@@ -247,6 +247,33 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
 
 **9 of 115 capabilities have had their SHIPPED behaviour compared to a source — and the ninth is PARTIAL, with its unsourced half enumerated rather than glossed. Items 10-12 raise the GROUNDED count to 12, but they are grounded ahead of the slices that build them, so the shipped-and-compared figure stays at 9 until S3 / S4 / S5c land, and 106 remain uncompared as shipped behaviour. Of those 106, exactly three — cancellation, deletion and alteration — now have their grounding banked in advance, which leaves 103 with no sourced verification of any kind.** Every "PRESENT" in the table above means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **106**.
 
+> **▶ 🔴 THESE FOUR FIGURES ARE MAINTAINED HERE AND NOWHERE ELSE. §1.3 IS THE SINGLE DERIVATION.**
+> **As of 2026-08-17, against the 115 denominator: 9 shipped-and-compared · 12 grounded · 106 uncompared as
+> shipped · 103 with no sourced verification of any kind.** The arithmetic, so a later reader can check it
+> rather than trust it: **115 − 9 = 106**; **106 − 3 grounded-ahead rows (items 10-12) = 103**;
+> **9 shipped-and-compared + those same 3 = 12 grounded**. Note that this is a DIFFERENT figure from §1.2's
+> **8 undetermined**, which counts capabilities whose *existence* nobody checked and is unaffected by anything
+> here.
+> **▶ THE RULE, and it exists because it has now been broken three times on this branch.** When these numbers
+> move they move HERE, and every other document — `plan.md`, the registers, the kick-off — restates them by
+> **pointing at §1.3, not by copying the digits**. A corrected figure on this project has three times left
+> live copies behind, once in this very file. The single deliberate exception is the closing **"Bottom line
+> for the user"** paragraph, which earns its digits because it is the sentence a reader quotes; it therefore
+> carries an **as-of date**, so the next drift is visible rather than silent. If any copy anywhere disagrees
+> with this block, **this block wins and the copy is a defect**.
+>
+> **▶ THE SECOND FIGURE THAT PARAGRAPH QUOTES IS DERIVED FROM §2 TIER 0, AND IT DRIFTS EVERY TIME A ROW
+> CLOSES.** It is pinned here for the same reason and in the same shape. **As of 2026-08-17: TIER 0 holds 11
+> rows, of which 10 are OPEN — T0-8 (the blank supplier address block) is the only one CLOSED, on 2026-08-17.**
+> **The open set and the "confirmed wrong money or invalid document" set are NOT the same set, and the
+> difference is worth stating rather than rounding away: 8 of the 10 are confirmed** — T0-1, T0-2, T0-3, T0-4,
+> T0-7, T0-9, T0-10, T0-11 — **and 2 are not. T0-5 (the 4% cess) and T0-6 (TDS rates cited to commercial
+> blogs) are confirmed UNSOURCED, not confirmed WRONG**: the defect in each is that nobody can stand behind
+> the figure the product applies to money, which is why T0-5 is a standing user decision rather than a fix.
+> **Anyone restating either figure re-walks §2 TIER 0; do not carry a number forward from a prose sentence.**
+> *(One caveat inside the 8, recorded so the count is not read as more alarming than it is: T0-3 is reachable
+> only through JSON/XML import, not through the UI.)*
+
 > **▶ HOW THIS LIST GROWS (R12, 2026-08-16; the standard tightened 2026-08-17).** Fidelity is measured **per slice**: a slice is not done until it adds a row here for the surface it touched, in the shape of the ones above, **or records why the corpus cannot settle the question**. Row 9 is the first row added under that rule and every later slice copies it, so what its first draft got WRONG is part of the template:
 > 1. **An inference is not a source.** It presented the display-versus-stamp shape as attested by Book p.177. The page attests the defaulting; the shape is ours, and its real evidence is an asymmetry in our own store. Cite the store.
 > 2. **A worked example only settles the screen it is on.** It resolved State-before-Country on Study Guide p.268 - which is the **Group Company Creation** screen, not Company Creation. One primary source against another is a CHOICE, recorded as one; it is not "resolved on evidence".
@@ -483,7 +510,7 @@ S6  F11 Accounting + Inventory Features groups, then global F12 tree
 
 **The floor is still a floor.** State this plainly to whoever reads next.
 
-1. **Behaviour is unmeasured for 107 of 115 capabilities.** This census measured *existence and reachability*. Only 8 capabilities have any sourced behavioural comparison to Tally (§1.3). A "PRESENT" row means the code is there and a user can reach it — nothing more. Every one of the 42 present rows could still compute the wrong number, and two of them demonstrably do.
+1. **Behaviour is unmeasured for all but a handful of the 115 capabilities — §1.3 holds the count, and holds it in one place.** This census measured *existence and reachability*. Only the capabilities enumerated in §1.3 have any sourced behavioural comparison to Tally; read the four figures there rather than from a copy here, because a copy here is exactly what went stale when §1.3 was last corrected. A "PRESENT" row means the code is there and a user can reach it — nothing more. Every one of the 42 present rows could still compute the wrong number, and two of them demonstrably do.
 
 2. **Report content and column sets are unmeasured across all 77 surfaces.** Nobody has compared a single Apex report's columns, groupings, totals or ordering against the same report in Tally. The 45 `ReportKind` values and 32 dedicated Screens were counted, not read.
 
@@ -505,4 +532,4 @@ S6  F11 Accounting + Inventory Features groups, then global F12 tree
 
 ---
 
-**Bottom line for the user.** A perfect clone needs roughly 115 named capabilities. We have 42 whole, 44 partial, 21 missing — but only 8 have ever been checked against a source for correctness, so the fidelity denominator is still 107 wide open. The most urgent items are not the missing ones: they are eleven confirmed wrong-money-or-invalid-document defects that a business would suffer today, sitting on top of a book that cannot be corrected because no voucher can be altered or deleted.
+**Bottom line for the user** *(every figure below is as of **2026-08-17** and copied from its derivation — the fidelity numbers from §1.3, the TIER 0 count from §2 TIER 0. §1.3's anchor block pins both. If a figure here disagrees with its derivation, the derivation is right and this paragraph is stale)*. A perfect clone needs roughly 115 named capabilities. We have 42 whole, 44 partial, 21 missing — but only **9** have ever been checked against a source for correctness as shipped, so the fidelity denominator is still **106** wide open. Three of those 106 — cancellation, deletion and alteration — have their grounding banked ahead of the slices that build them, which leaves **103** with no sourced verification of any kind. The most urgent items are not the missing ones: they are the **ten open TIER 0 defects** — of which **eight are confirmed wrong-money-or-invalid-document defects a business would suffer today**, and **two (T0-5's 4% cess, T0-6's blog-cited TDS rates) are statutory figures the product applies to money on sourcing nobody can stand behind — confirmed unsourced, not confirmed wrong** — all of it sitting on top of a book that cannot be corrected because no voucher can be altered or deleted.

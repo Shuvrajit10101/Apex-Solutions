@@ -771,4 +771,7 @@ to be built on a wrong premise.
 > **T1/T2/T3/T4** in `docs/tallyprime-valuation-test-books.md`, of which **T4 is the question that stopped the
 > work eight times and no document answers it.**
 > **One number to carry forward instead of this section's own:** the census's headline is harsher than §3's
-> "low hundreds" — **only 8 of 115 capabilities have ever had their behaviour compared to a source.**
+> "low hundreds" — **only the capabilities enumerated in `docs/full-clone-census.md` §1.3 have ever had their
+> behaviour compared to a source.** ⚠️ **2026-08-17 — this line read *"only 8 of 115"* when it was written and
+> that figure has since moved. It is not re-copied here: §1.3 is the single derivation and carries the count
+> with an as-of date. Read it there.**

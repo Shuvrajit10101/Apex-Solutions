@@ -198,8 +198,10 @@ one page, 10 against 11 on the other — **so any pairing read off a `-layout` d
 
 `docs/full-clone-census.md` — **~115 named capabilities: 42 complete, 44 partial, 21 absent, 8 undetermined.**
 But the governing number is the one in §1.3: **9 of 115 have had their behaviour compared to a source; 106 have
-not.** A `PRESENT` row means *reachable*, not *correct*. **Ruling 5 exists to close that 106 as a by-product of
-ordinary work** rather than leaving it to a dedicated campaign that never gets funded.
+not** *(as of **2026-08-17** — §1.3 is the derivation and the only place these are maintained; if this line and
+§1.3 disagree, §1.3 is right and this line is stale)*. A `PRESENT` row means *reachable*, not *correct*.
+**Ruling 5 exists to close that 106 as a by-product of ordinary work** rather than leaving it to a dedicated
+campaign that never gets funded.
 
 ---
 

@@ -177,12 +177,13 @@ per-feature pipeline:
    **▶ 🔴 STEP 5a — FIDELITY MEASUREMENT. ADDED 2026-08-16 BY USER RULING 5 (R12; §5 banner
    `FOUR FURTHER USER RULINGS (R12, 2026-08-16)`). IT RUNS BETWEEN 5 AND 6, AND IT IS A GATE, NOT A COURTESY.**
    Before the slice can be called done, **A14** compares **the surface the slice actually touched** against the
-   corpus / the statute and writes a **fidelity row** in the shape of the eight in `docs/full-clone-census.md`
+   corpus / the statute and writes a **fidelity row** in the shape of the rows in `docs/full-clone-census.md`
    §1.3 — **or records, in the same place, why the corpus cannot settle it** (UNVERIFIED-and-chosen, R7).
    **Why it sits here, in the pipeline, rather than in a banner nobody re-reads:** steps 1–5 all measure *does
    it exist, does it run, is it well written*; **none of them asks whether it behaves the way Tally behaves**,
-   and the census measured what that produces — 8 of 115 capabilities have ever been compared to a source.
-   This step is how the other 107 close as a by-product of ordinary work. **§8's R11 carries the matching
+   and the census measured what that produces — only the capabilities enumerated in `docs/full-clone-census.md`
+   §1.3 have ever been compared to a source, and **§1.3 is where that count is maintained; do not copy the
+   digits into this file.** This step is how the rest close as a by-product of ordinary work. **§8's R11 carries the matching
    Definition-of-Done clause.**
 6. **GitHub Expert** — the **exclusive** owner of all git/GitHub: branch, small conventional commits, PR,
    review-gated merge, tags, releases, CI/CD (R4/R10). No other agent or the main loop touches git.
@@ -392,8 +393,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > count**, not a floor.
 >
 > **▶ EXISTENCE WAS MEASURED. FIDELITY WAS NOT.** The census measured *does the code exist and can a user
-> reach it* — nothing more. **Only 8 of 115 capabilities have ever had their behaviour compared to a source**
-> (§1.3), so **the honest "cannot tell" bucket is 107, not 8.** Every `PRESENT` row could still compute the
+> reach it* — nothing more. **Only the capabilities enumerated in census §1.3 have ever had their behaviour
+> compared to a source**, so **the honest "cannot tell" bucket is far wider than the 8 in the table above —
+> §1.3 carries the figure, with an as-of date, and is the only place it is maintained.** Every `PRESENT` row could still compute the
 > wrong number and two demonstrably do. §6 lists what remains unmeasured after the census.
 >
 > **▶ 🔴 THIS FILE'S OWN "COMPLETE" MARKERS ARE NOT A RELIABLE RECORD OF WHAT SHIPPED.** The census found
@@ -482,18 +484,21 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 >
 > **5 · FIDELITY IS MEASURED PER SLICE, FROM NOW ON — AND THIS IS A DEFINITION-OF-DONE CHANGE, NOT A HABIT.**
 > Every slice from here ends with a **corpus/statute comparison of the surface it touched**, recorded as a
-> **fidelity row in the same shape as the eight that already exist** — `docs/full-clone-census.md` §1.3 lists
-> them (chart of accounts against OFFICIAL help; the Robert/Bright posting fixtures; the voucher shortcut keys;
+> **fidelity row in the same shape as the rows that already exist** — `docs/full-clone-census.md` §1.3 lists
+> them and is the only place their count is maintained; the first eight were (chart of accounts against OFFICIAL help; the Robert/Bright posting fixtures; the voucher shortcut keys;
 > the PO/SO/GRN/DN stock-vs-accounts effect rules from the corpus BOOK; the EPS/EPF split against
 > epfindia.gov.in; Rule-88A set-off with the §49(5)(c)/(d) proviso; the GSTR-1 amendment section-to-table map;
 > the cost category/centre worked example from the corpus SG). **A slice is NOT DONE until its fidelity row
 > exists — or until it records WHY THE CORPUS CANNOT SETTLE the question.** That second outcome is a real
 > result and is written down as one, in the UNVERIFIED-and-chosen shape R7 already uses (Phase 10.11's two
 > unpublished Tally strings are the worked example); it is **not** a licence to skip the comparison.
-> **▶ THE REASON, IN THE CENSUS'S OWN NUMBERS.** 8 of 115 capabilities have had their behaviour compared to a
-> source and **107 have not** (§1.3). So **"complete" in this file currently means REACHABLE, NOT CORRECT** —
-> every `PRESENT` row could still compute the wrong number and two demonstrably do. This ruling makes the
-> 107-wide denominator close **as a by-product of ordinary work**, instead of leaving it to a dedicated campaign
+> **▶ THE REASON, IN THE CENSUS'S OWN NUMBERS — WHICH LIVE IN §1.3 AND ARE NOT COPIED HERE.** Only the
+> capabilities enumerated in census **§1.3** have had their behaviour compared to a source; the rest have not.
+> **§1.3 is the single derivation and carries the figures with an as-of date** — this file deliberately does
+> not restate the digits, because when §1.3 was last corrected the copies elsewhere were left behind. So
+> **"complete" in this file currently means REACHABLE, NOT CORRECT** —
+> every `PRESENT` row could still compute the wrong number and two demonstrably do. This ruling makes that
+> uncompared denominator close **as a by-product of ordinary work**, instead of leaving it to a dedicated campaign
 > later — which is the shape of work that never gets funded, and which every phase in this file has so far
 > deferred as a carry-forward (see Phase 10.12's `▶ CARRY-FORWARDS`, which says in its own words that the wave
 > *"closes none of it"*).
@@ -4020,17 +4025,18 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   real app run with evidence; `memory.md` updated; **user go/no-go** per R12.
   **▶ ONE CLAUSE ADDED 2026-08-16 BY USER RULING 5 (R12), and it applies to every slice from here, in this
   phase and in every phase after it:** each slice also ships its **fidelity row** — a corpus/statute comparison
-  of the surface it touched, in the shape of the eight in `docs/full-clone-census.md` §1.3 — **or a written
+  of the surface it touched, in the shape of the rows in `docs/full-clone-census.md` §1.3 — **or a written
   record of why the corpus cannot settle the question**. **§2.2 step 5a** is the step; **§8's R11** is the
   definition it amends. A slice without one is not done, whatever the four per-project counts say.
-- **▶ CARRY-FORWARDS:** the **107-wide fidelity denominator** — this wave closes none of it · report **content
+- **▶ CARRY-FORWARDS:** the **uncompared fidelity denominator** (its width is in census §1.3, which is the
+  only place that figure is maintained) — this wave closes none of it · report **content
   and column sets** unmeasured across all 77 surfaces · **print layout fidelity** unmeasured and structurally
   capped · **GST return content** correctness · the **~20/90 SECONDARY-sourced 7.2 baseline rows** and the **8
   never-grepped CANNOT-TELL rows** (census §6) · **Data Synchronisation IP mode**, the one architecture-excluded
   item the census flags as buildable if branch-to-HO sync ever matters.
   **▶ 🔴 THE FIRST OF THOSE CARRY-FORWARDS STOPS ACCUMULATING FROM 2026-08-16 (user ruling 5, R12).** *"This
   wave closes none of it"* was true of every wave written so far, and it is the sentence the ruling was made
-  against. From here the **107-wide denominator closes one slice at a time**, because a slice is not done
+  against. From here **that denominator closes one slice at a time** (census §1.3 for its current width), because a slice is not done
   without its fidelity row. **The rows already banked are NOT retro-fitted** — this is forward-looking, so the
   denominator this phase inherited is the denominator it hands on, minus whatever its own remaining slices
   measure.
@@ -4172,12 +4178,13 @@ superpowers:verification-before-completion).
 
 **▶ 🔴 AMENDED 2026-08-16 BY USER RULING 5 (R12 — §5 banner, `FOUR FURTHER USER RULINGS (R12, 2026-08-16)`).
 ONE CLAUSE IS ADDED TO THE DEFINITION ABOVE AND IT IS NOT OPTIONAL: a slice is NOT DONE until its FIDELITY ROW
-EXISTS** — a **corpus/statute comparison of the surface the slice touched**, written in the shape of the eight
+EXISTS** — a **corpus/statute comparison of the surface the slice touched**, written in the shape of the
 rows in `docs/full-clone-census.md` §1.3 — **or until it records why the corpus cannot settle the question**
 (UNVERIFIED-and-chosen, R7). **The reason the old definition needed amending:** every clause above measures
 *reachable, tested, reviewed, running* — **not correct against Tally** — and the census measured exactly what
-that produces: **8 of 115 capabilities have ever been compared to a source, so `PRESENT` has meant
-`reachable`, not `right`.** The step that discharges this clause is **§2.2 step 5a**, and it is **A14's**.
+that produces: **only the capabilities enumerated in census §1.3 have ever been compared to a source, so
+`PRESENT` has meant `reachable`, not `right`.** §1.3 carries that count with an as-of date and is the single
+place it is maintained. The step that discharges this clause is **§2.2 step 5a**, and it is **A14's**.
 
 **Milestones (headline):** M0 scaffold+stack-locked · **M1 ledger engine (Robert+Bright green)** · M2 bill-
 wise/banking/cost · M3 inventory · **M4 GST MVP (GSTR-1/3B)** · M5 reports/print/export · M6 advanced

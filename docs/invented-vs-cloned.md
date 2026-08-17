@@ -1309,8 +1309,12 @@ Recorded so that a future session does not "restore fidelity" by undoing a good 
 > creation and F11/F12, backup/restore, import/export, POS, banking, security.** **Still genuinely unmeasured:
 > GST return *content*, payroll *entry-surface* fidelity, budgets, scenarios, forex, manufacturing, job work,
 > multi-currency.** The census's own headline is the one to carry forward, and it is harsher than §7's:
-> **only 8 of 115 capabilities have ever had their behaviour compared to a source; ~107 have not** — a `PRESENT`
-> row means *reachable*, not *correct*. **Method limit 1 below ("no build and no test was run") still applies to
+> **only the capabilities enumerated in census §1.3 have ever had their behaviour compared to a source; the
+> rest have not** — a `PRESENT`
+> row means *reachable*, not *correct*. **⚠️ 2026-08-17 — this note was written reading *"only 8 of 115 …
+> ~107 have not"*, and those figures have since moved. The digits are removed rather than re-copied: census
+> §1.3 is the single derivation, it carries an as-of date, and this branch has three times corrected that
+> figure and left live copies behind.** **Method limit 1 below ("no build and no test was run") still applies to
 > this register and applied again to the 2026-08-15 re-verification: every claim here is read from source.**
 
 ### What was actually examined
