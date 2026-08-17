@@ -760,7 +760,7 @@ to be built on a wrong premise.
 > records which surfaces it closed. Passes 1 (printing), 2 (reports), 4 (company creation / F11) and 6 (Day Book,
 > import/export, GST returns UI) all now have measured rows — see census **T2-4** (the print engine has no image
 > primitive, so IRN/QR/logo are structurally impossible without replacing `PdfWriter`), **T1-9/T1-10** (71 of 77
-> report surfaces are dead ends; 32 cannot be printed at all), **T1-6** (company creation captures one field) and
+> report surfaces are dead ends; 32 cannot be printed at all), **T1-6** (company creation captured one field — **CLOSED 2026-08-17**; the census row is the current one) and
 > **T1-11/T1-12** (no GSTR-1 or GSTR-3B JSON; 7 GSTR-1 and 5 GSTR-3B tables missing).
 > **Passes 3 (the remaining master screens) and 5 (payroll / TDS-TCS entry surfaces) are the two that remain
 > genuinely unswept** — census §6 lists payroll *entry-surface* fidelity among what is still unmeasured.

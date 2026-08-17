@@ -85,12 +85,23 @@ balanced entries, opening balances Dr/Cr). All reports are projections over this
 - **Navigation:** `GOT → Alt+K (Company) → Create / Alter / Select / Shut / Delete`; also `Alt+F3`
   (select), `Ctrl+F3` (shut), `F3` (change company).
 - **Create fields:** Data Directory (storage path), Name, Mailing Name (auto, editable), Address,
-  Country (India), State, Pin; Contact (Telephone, Mobile, Fax, Email, Website); **Financial year
+  **State, Country (India)**, Pin Code; Contact (Telephone, Mobile, Fax, Email, Website); **Financial year
   begins from** (default 1-Apr), **Books beginning from** (mid-year start supported); Security Control
   (TallyVault password, Control User Access); **Base Currency** (Symbol default ₹, Formal Name INR,
   suffix symbol?, space between amount & symbol?, show amount in millions?, decimal places = 2,
   word after decimal = "Paisa", decimal places for amount in words).
 - **After save** → Company Features (`F11`) screen appears; "Show more / all features" reveal toggles.
+  > 🔴 **2026-08-17 — TWO CORRECTIONS ON THIS ENTRY, both from the W0-2b corpus pass
+  > (`docs/w0-2-company-screen-grounding.md` §2, §9 item 21).**
+  > **(a) The Create-field ORDER above said `Country … State`; it now reads `State … Country`.** The two
+  > primary sources invert that pair — Book PDF p.13 lists Address → **State** → **Country** → Pin Code,
+  > the Study Guide pp.58-59 lists Address → **"Statutory Compliance for"** (the country) → **State** →
+  > Pin Code — and **the corpus does not resolve it**. The shipped screen follows the Book, so this entry
+  > follows the Book, and the choice is recorded as a choice in `docs/full-clone-census.md` §1.3 row 9.
+  > **(b) The post-save hand-off is a KNOWN DEPARTURE, not a description of our build.** This line and
+  > Study Guide p.60 agree with each other and disagree with the product: `MainWindowViewModel.OpenCompany`
+  > goes to the **Gateway**, and there is no `ShowCompanyFeatures` anywhere in `src/`. The line stays as
+  > the TallyPrime behaviour it describes — this note is what stops it being read as shipped.
 - **Group Company** (multi-company consolidation): `Alt+K → Create → Alt+R`; select **Member Companies**;
   produces **Consolidated Balance Sheet / P&L**; compare members via `Alt+N` (Auto Column) or `Alt+C`
   (New Column). Requires matching base currency & master names across members. Deleting group keeps members.

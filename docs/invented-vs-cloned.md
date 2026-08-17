@@ -222,7 +222,7 @@ are no longer open defects — they are kept for the record, with the fixing com
 | **IV-26** | MEDIUM | C | MST | Predefined groups cannot be renamed | `MasterAlterationRules.cs:211` |
 | **IV-27** | MEDIUM | C | ENT | "Accept? Yes/No" exists on masters only; vouchers save silently | **†** `MainWindowViewModel.cs:4882` *(was `:4873`)* |
 | **IV-28** | MEDIUM | C | ENT | Three TallyPrime report keys squatted app-wide | **†** `MainWindow.axaml.cs:331` *(was `:290`)* |
-| **IV-29** | MEDIUM | C | ENT | Gateway sections and vocabulary are ours; no "Alter" row | `MainWindowViewModel.cs:912` |
+| **IV-29** | MEDIUM | C | ENT | Gateway sections and vocabulary are ours; **"Alter Company" landed under Masters 2026-08-17 — partially fixed** | **†** `MainWindowViewModel.cs:1047` *(was `:912`)* |
 | **IV-30** | MEDIUM | C | ENT | Bare-letter menu hotkeys auto-assigned by row position | `GatewayColumn.cs:381` |
 | **IV-31** | MEDIUM | C | ENT | The button bar paints seven non-keys in the accelerator colour | **†** `MainWindowViewModel.cs:6742` *(was `:6756`)* |
 | **IV-32** | LOW | C | ENT | Report-line gestures absent: Alt+2, Ctrl+U, Alt+U, Ctrl+N | **†** `MainWindow.axaml.cs:182` — a pointer into the dispatcher, not a positive citation *(was `:875`)* |
@@ -922,21 +922,42 @@ are no longer open defects — they are kept for the record, with the fixing com
 ### IV-29 · The Gateway's sections and vocabulary are ours, not Tally's — and "Alter" is not on it
 **MEDIUM** · Class **C** · Area **ENT**
 
-> **† 2026-08-15 — verdict STANDS; one count loose, two citations drifted.** `BuildRootColumn`
-> (`MainWindowViewModel.cs:912-978`) is unchanged and contains **no "Alter" row**; F11 is still a menu row at
-> `:926`; "Statements" (`:1468`) and "Statements of Accounts" (`:1264`) still sit adjacent at `:943-944`.
-> **Corrected:** *"Reports (ten sub-groups)"* → the Reports section carries **11 rows** — 3 direct pages
-> (`:939-941`) plus **8** `▸` groups (`:942-947`, `:953`, `:964`, the last two conditional) · the "deliberate
-> promotion" comment `:6806-6812` → **`:966-970`** · the `IsAltering` machinery `:5804-5842` → **`:5846-5881`**.
+> **†† 2026-08-17 — THE PRESCRIBED FIX WAS PARTLY APPLIED, AND EVERY CITATION IN THIS ENTRY WAS RE-ANCHORED.**
+> W0-2b (the company profile screen) first added a **new "Company" section ABOVE Masters** carrying an "Alter
+> Company" row — i.e. it grew one more section per phase, put it ahead of Masters, and put a company verb on a
+> Gateway row: three moves in the direction this entry says is wrong, and it moved the Gateway's default
+> keyboard highlight off Masters → Create for every entry into the screen. **That was corrected to this
+> entry's own prescribed fix:** `BuildRootColumn` now reads Masters (Create, **Alter Company**, Chart of
+> Accounts), the section list is back to five, and the opening highlight is back on Create.
+> **What that does NOT close, and the row stays open for it:** the shipped row alters the **company**, whereas
+> TallyPrime's Masters → **Alter** is a *master*-alteration submenu (SG p.67/69/73 — Alter → Ledger / Group /
+> Voucher Type). The door to the alteration FORMS is still only "press Enter on a Chart of Accounts row". The
+> rest of the Fix below — collapse the report groups behind "Display More Reports", move Banking to Utilities,
+> reach F11 by the key — is untouched.
+>
+> **Citations re-anchored 2026-08-17** (the slice moved this method by ~135 lines and every line-number in this
+> entry, including the 2026-08-15 block below, had drifted): `BuildRootColumn` **`:1047-1126`** *(was
+> `:912-978`)* · F11 as a menu row **`:1074`** *(was `:926`)* · "Statements" / "Statements of Accounts"
+> adjacent at **`:1091-1092`** *(was `:943-944`)* · the Reports section's 3 direct pages **`:1087-1089`** *(was
+> `:939-941`)* and its 8 `▸` groups **`:1090-1095`**, **`:1101`**, **`:1112`** *(was `:942-947`, `:953`,
+> `:964`)* · the "deliberate promotion" comment **`:1114-1118`** *(was `:966-970`)* · the `IsAltering`
+> machinery **`:6013-6046`** *(was `:5846-5881`)*.
+>
+> **† 2026-08-15 — verdict STANDS; one count loose, two citations drifted.** *(Kept as the dated record it is;
+> the line numbers in it are superseded by the block above.)* `BuildRootColumn` was unchanged and contained
+> **no "Alter" row**; F11 was a menu row; "Statements" and "Statements of Accounts" sat adjacent.
+> **Corrected:** *"Reports (ten sub-groups)"* → the Reports section carries **11 rows** — 3 direct pages plus
+> **8** `▸` groups (the last two conditional) · the "deliberate promotion" comment `:6806-6812` → its
+> 2026-08-15 value `:966-970` · the `IsAltering` machinery `:5804-5842` → its 2026-08-15 value `:5846-5881`.
 
 | | |
 |---|---|
 | **What the customer experiences** | The first screen the operator ever sees is **not the one screen they know by heart**, so every printed instruction they own fails at the first step: "Gateway of Tally → Alter → Ledger" and "GOT → Display More Reports → Account Books → Sale Register" both dead-end because neither entry exists. Alteration in particular is only reachable by knowing to press Enter on a Chart of Accounts row — a route the corpus never teaches. |
-| **What we invented** | `BuildRootColumn` (`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:912-978`) ships: Masters (Create, Chart of Accounts) · **Statutory** (GST & Taxation F11, GST Rate Setup) · Transactions (Vouchers, Banking, Day Book) · Reports (ten sub-groups) · **Data** (Backup/Restore) · "Quit — Change Company". There is **no "Alter" item**; "Statements" (`:1468-1476`) and "Statements of Accounts" (`:1264-1270`) sit side by side as two different things; F11 Company Features is a Gateway **row** rather than a key. **[code]** |
+| **What we invented** | `BuildRootColumn` (`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:1047-1126`) ships: Masters (Create, **Alter Company** — added 2026-08-17, see the †† block — Chart of Accounts) · **Statutory** (GST & Taxation F11, GST Rate Setup) · Transactions (Vouchers, Banking, Day Book) · Reports (11 rows) · **Data** (Backup/Restore) · "Quit — Change Company". The only "Alter" item is the **company** one; there is still no door to the MASTER alteration forms, which are reachable only by pressing Enter on a Chart of Accounts row. "Statements" and "Statements of Accounts" sit side by side as two different things; F11 Company Features is a Gateway **row** rather than a key. **[code]** |
 | **What Tally does** | Gateway of Tally is Masters (Create, **Alter**, Chart of Accounts) · Transactions (Vouchers, Day Book) · Utilities (Banking) · Reports, where everything beyond the headline statements sits behind **one door, "Display More Reports"**. F11 opens Company Features from the top menu, not from a Gateway row. |
 | **Citation** | **[corpus]** SG p.73 — "One can also go to Gateway of Tally → **Alter** → Voucher Type"; SG pp.67/69 — "Gateway of Tally → Alter → Ledger" / "→ Alter → Group". BOOK pp.28-33 route every register through "GOT > **Display More Reports** > Account Books > …" (extracted lines 1162, 1236, 1309, 1499, 1676, 1735). **[web]** "F11 — To open Company Features screen — Top menu". **Scope note:** the corpus proves "Display More Reports" is the single door; it does **not** prove the exact contents of TallyPrime's "Statements of Accounts" submenu (§6 U-16). |
-| **How it got in** | The menu **grew a section per phase** rather than being laid out once from the reference product: Statutory arrived with Phase 4 GST, Data as the R-7 backup carve-out (the comment at `:6806-6812` explains the deliberate promotion), Statements with RQ-5. |
-| **Fix** | Restore the reference shape: add **"Alter"** to Masters as the door to the alteration forms (the `IsAltering` machinery at `:5804-5842` already exists and only needs a picker in front of it), collapse the report groups behind a single **"Display More Reports"**, move Banking to a Utilities section, and reach F11 by the key rather than by a Gateway row. |
+| **How it got in** | The menu **grew a section per phase** rather than being laid out once from the reference product: Statutory arrived with Phase 4 GST, Data as the R-7 backup carve-out (the comment at `:1114-1118` explains the deliberate promotion), Statements with RQ-5. **W0-2b nearly added a seventh the same way** — a "Company" section above Masters — which is why this entry is now cited from the code that places the row (`MainWindowViewModel.cs:1047-1067`) and not only from the register. |
+| **Fix** | Restore the reference shape: add **"Alter"** to Masters as the door to the alteration forms (the `IsAltering` machinery at `:6013-6046` already exists and only needs a picker in front of it) — **partly done 2026-08-17: a Masters row exists, but it alters the COMPANY, not a master, so the master-alteration door is still owed** — collapse the report groups behind a single **"Display More Reports"**, move Banking to a Utilities section, and reach F11 by the key rather than by a Gateway row. |
 
 ---
 
@@ -1312,7 +1333,7 @@ Treat every one of these as **unmeasured**, not as clean:
 | **Report layouts generally** | Only Outstandings, Reorder Status and Interest were read for *arithmetic*. Column sets, ordering, totals rows, condensed/detailed behaviour and F12 report options across ~50 report screens: **unexamined**. IV-19 was found by reading the *drill dispatcher*, not the reports. |
 | **GST returns** | GSTR-1/3B/4/9/9C, CMP-08, QRMP, ITC set-off, GSTR-2B reconciliation, e-Way bill: **content correctness never examined.** Only their *absence from the drill contract* (IV-19) is recorded. IV-1 and IV-14 reach these returns, so the returns are known to be affected — but not audited. |
 | **Payroll** | Pay-head taxonomy, PF/ESI/PT/gratuity/bonus computation, attendance, payslips: **essentially untouched.** One uncited comment (U-20) is the entire payroll finding. Note the standing open user decision on the **unverified 4% cess** for TY2026-27 — a live payroll deduction — which is outside this register and still unresolved. |
-| **Company creation, F11/F12 company features** | **Not examined.** F11 appears here only as a Gateway-row placement question (IV-29). |
+| **Company creation, F11/F12 company features** | **Company creation and alteration WERE examined against the corpus on 2026-08-16/17** — see `docs/full-clone-census.md` §1.3 row 9, which is PARTIAL and enumerates its unsourced half, and `docs/w0-2-company-screen-grounding.md` §9 items 12-23. **F11/F12 company features remain not examined**, and F11 still appears here only as a Gateway-row placement question (IV-29) — plus one recorded departure: the corpus and the feature catalog both say a save hands off to the Company Features screen, and we go to the Gateway (grounding §9 item 21). |
 | **Backup / restore, import / export, data migration** | **Not examined.** |
 | **POS, budgets, scenarios, banking/BRS, forex, manufacturing journal, job work** | Read only far enough to record U-7, U-8 and U-15 as open questions. **No fidelity comparison was made.** |
 | **Security, users, audit trail, multi-user** | **Not examined at all.** |

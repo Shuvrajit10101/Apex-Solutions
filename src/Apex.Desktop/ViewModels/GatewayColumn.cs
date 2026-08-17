@@ -162,6 +162,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted POS Billing voucher-entry screen (non-null only for that column; Phase 6 slice 7; RQ-38..RQ-44).</summary>
     public PosBillingViewModel? PosBilling => Page as PosBillingViewModel;
 
+    /// <summary>The hosted Company Alteration profile page (non-null only for that column).</summary>
+    public CompanyProfileViewModel? AlterCompany => Page as CompanyProfileViewModel;
+
     /// <summary>The hosted company GST-configuration page (non-null only for the GST/Statutory column).</summary>
     public GstConfigViewModel? GstConfig => Page as GstConfigViewModel;
 

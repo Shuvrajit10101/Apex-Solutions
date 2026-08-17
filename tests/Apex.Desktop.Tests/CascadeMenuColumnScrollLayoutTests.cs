@@ -328,8 +328,19 @@ public sealed class CascadeMenuColumnScrollLayoutTests
             Assert.True(vm.Columns.Count >= 3,
                 $"The cascade collapsed to {vm.Columns.Count} column(s); prior panes must persist.");
 
+            // DataContext ALONE does not identify a cascade column: it INHERITS into control templates, so a
+            // ScrollBar's own template parts carry the GatewayColumn too. The moment a menu column grew tall
+            // enough to need its scrollbar at 1280x720, this scan started picking up that bar's 16px
+            // `VerticalRoot` Border and reporting it as a collapsed column — a false alarm about a control that
+            // is not a column and is SUPPOSED to be 16px wide. `TemplatedParent is null` keeps only the Borders
+            // this file's own .axaml authors, which is what "a cascade column" means here.
+            // 🔴 IT IS A REDUCTION IN WHAT IS MEASURED, NOT ONLY IN WHAT IS REPORTED, and that is recorded
+            // rather than left for the next reader to discover: the same `columns` list feeds the per-column
+            // WIDTH assertions below, so those now cover a strictly smaller population. Correct — a ScrollBar
+            // template part has no business in a column-width check — but the narrowing is real. The weaker
+            // term here remains the pre-existing `Bounds.Width > 0`, which is unchanged by this slice.
             var columns = Descendants(window).OfType<Border>()
-                .Where(b => b.DataContext is GatewayColumn && b.Bounds.Width > 0)
+                .Where(b => b.DataContext is GatewayColumn && b.TemplatedParent is null && b.Bounds.Width > 0)
                 .ToList();
             Assert.True(columns.Count >= 3,
                 $"Only {columns.Count} cascade column(s) rendered; earlier panes vanished.");

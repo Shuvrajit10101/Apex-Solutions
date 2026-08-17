@@ -401,6 +401,104 @@ public sealed class BackupRestoreViewModelTests : IDisposable
         Assert.Equal(digest, FileDigest(_storage.PathForName("Junk Co")));
     }
 
+    // ---------------------------------------------------------------- the restore carve-out (W0-2b review)
+
+    /// <summary>
+    /// Writes <paramref name="damage"/> onto a company and persists it BY-PASSING
+    /// <c>CompanyStorage.Save</c>'s validation floor, then archives the resulting file. That is the only way
+    /// to obtain an archive of a company the floor refuses — which is exactly the archive a build older than
+    /// the floor could have produced, and the case these two tests exist for.
+    /// </summary>
+    private string ArchiveOfADamagedCompany(string name, Action<Company> damage)
+    {
+        var company = OddPaisaCompany(name);
+        _storage.Save(company);
+
+        damage(company);
+        using (var store = new SqliteCompanyStore(_storage.PathForName(name)))
+            store.Save(company);
+        SqliteConnection.ClearAllPools();
+
+        var archive = Path.Combine(_outDir, name.Replace(' ', '-') + ".apexbak");
+        CompanyBackup.Create(_storage.PathForName(name), archive, new DateTimeOffset(Now));
+        SqliteConnection.ClearAllPools();
+        return archive;
+    }
+
+    /// <summary>
+    /// 🔴 A FILE-LEVEL RESTORE IS THE ONE DESKTOP WRITE THAT DOES NOT PASS THROUGH THE VALIDATION FLOOR, and
+    /// an archive holding a company this build cannot OPEN used to land on disk regardless: the swap happened,
+    /// the reopen threw, and the user was left with an unopenable book AND no way back, because the file it
+    /// replaced was gone. <c>CompanyBackup</c> validates the ARCHIVE (checksum, integrity, data-format stamp)
+    /// and nothing about the company row inside it, so nothing else was ever going to catch this.
+    /// <para>The damage used is <c>BooksBeginFrom</c> before <c>FinancialYearStart</c> — the invariant
+    /// <c>Company</c>'s constructor enforces, so the aggregate cannot be rebuilt on load.</para>
+    /// <para><i>Mutation that reddens it:</i> delete the pre-restore copy, or the rollback, from
+    /// <c>RestoreCompanyViewModel.Apply</c>.</para>
+    /// </summary>
+    [Fact]
+    public void A_restore_of_an_archive_this_build_cannot_open_is_rolled_back()
+    {
+        var archive = ArchiveOfADamagedCompany("Unopenable Source Co",
+            c => c.BooksBeginFrom = c.FinancialYearStart.AddDays(-1));
+
+        var vm = ShellWith(OddPaisaCompany("Rollback Target Co"));
+        SqliteConnection.ClearAllPools();
+        var before = FileDigest(_storage.PathForName("Rollback Target Co"));
+
+        var restore = new RestoreCompanyViewModel(vm.Company!, _storage, onRestored: null)
+        {
+            FilePath = archive,
+        };
+        Assert.True(restore.Examine(), restore.Status);
+        restore.Confirmed = true;
+
+        Assert.False(restore.Apply());
+        Assert.False(restore.Succeeded);
+        Assert.Contains("cannot open", restore.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("put back", restore.Status, StringComparison.OrdinalIgnoreCase);
+
+        SqliteConnection.ClearAllPools();
+        Assert.Equal(before, FileDigest(_storage.PathForName("Rollback Target Co")));
+        // …and the target still opens, which is the whole promise.
+        Assert.Equal("Rollback Target Co",
+            _storage.Load(_storage.ListCompanies().Single(e => e.Name == "Rollback Target Co")).Name);
+    }
+
+    /// <summary>
+    /// The OTHER half of the same carve-out, and it goes the other way deliberately. An archive holding a
+    /// company that OPENS but carries a header value the save floor refuses (a bad PIN, from a build older
+    /// than the floor) is KEPT — refusing to restore it would deny disaster recovery to the exact book that
+    /// needs it — and REPORTED, so the operator learns of it here instead of meeting it as an exception on an
+    /// unrelated screen the next time anything is saved.
+    /// <para><i>Mutation that reddens it:</i> delete the <c>EnsureValid</c> check from
+    /// <c>RestoreCompanyViewModel.Apply</c>, or turn it into a refusal.</para>
+    /// </summary>
+    [Fact]
+    public void A_restore_of_an_archive_the_save_floor_would_refuse_is_kept_and_reported()
+    {
+        var archive = ArchiveOfADamagedCompany("Bad Pin Source Co", c => c.Pin = "70003");
+
+        var vm = ShellWith(OddPaisaCompany("Warned Target Co"));
+        SqliteConnection.ClearAllPools();
+
+        var restore = new RestoreCompanyViewModel(vm.Company!, _storage, onRestored: null)
+        {
+            FilePath = archive,
+        };
+        Assert.True(restore.Examine(), restore.Status);
+        restore.Confirmed = true;
+
+        Assert.True(restore.Apply(), restore.Status);      // recovery wins
+        Assert.True(restore.Succeeded);
+        Assert.Contains("Company PIN code", restore.Status, StringComparison.Ordinal);
+        Assert.Contains("Company Alteration", restore.Status, StringComparison.Ordinal);
+
+        SqliteConnection.ClearAllPools();
+        Assert.Equal("70003",
+            _storage.Load(_storage.ListCompanies().Single(e => e.Name == "Warned Target Co")).Pin);
+    }
+
     [Fact]
     public void Backup_reports_the_failure_rather_than_claiming_success()
     {

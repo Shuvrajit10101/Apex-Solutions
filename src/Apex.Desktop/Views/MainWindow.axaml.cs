@@ -1109,6 +1109,9 @@ public partial class MainWindow : Window
     private void OnCreateCompanyClick(object? sender, RoutedEventArgs e)
         => Vm?.CreateCompany();
 
+    private void OnAcceptCompanyProfileClick(object? sender, RoutedEventArgs e)
+        => Vm?.AlterCompany?.Accept();
+
     private void OnAcceptVoucherClick(object? sender, RoutedEventArgs e)
         => Vm?.VoucherEntry?.Accept();
 

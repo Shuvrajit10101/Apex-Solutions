@@ -225,22 +225,122 @@
                             </ItemsControl>
                         </Border>
 
-                        <!-- Create-company inline form -->
+                        <!-- Create-company inline form. The postal block here is the supplier name and address
+                             every tax invoice must carry (CGST Rule 46(a)) — before it existed, creation
+                             captured only the Name and the address half could not be typed anywhere.
+                             Field order follows the reference product: Name, then Primary Mailing Details
+                             (Mailing Name, Address, State, Country, Pin Code), then the book dates, then
+                             Base Currency Information. Everything except the Name is optional; blank leaves
+                             the seeded default in place. -->
                         <Border Grid.Row="1"
                                 IsVisible="{Binding CurrentScreen, Converter={StaticResource ScreenEquals}, ConverterParameter=CreateCompany}"
                                 Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                 HorizontalAlignment="Center" VerticalAlignment="Top"
-                                Margin="0,10" Width="460" Padding="18">
-                            <StackPanel Spacing="10">
-                                <TextBlock Text="Name" FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
-                                <TextBox x:Name="CompanyNameBox" Text="{Binding NewCompanyName, Mode=TwoWay}"
-                                         PlaceholderText="e.g. Acme Traders" FontSize="14"/>
-                                <TextBlock Text="Financial year begins 1-Apr; base currency ₹ INR."
-                                           FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                Margin="0,10" Width="500" Padding="18">
+                          <ScrollViewer MaxHeight="470" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="8">
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" x:Name="CompanyNameBox"
+                                           Text="{Binding NewCompanyName, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Acme Traders" FontSize="14"/>
+                                </Grid>
+
+                                <TextBlock Text="PRIMARY MAILING DETAILS" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5" Margin="0,6,0,0"/>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Mailing Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.MailingName, Mode=TwoWay}"
+                                           PlaceholderText="the name printed on invoices"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Address" FontWeight="SemiBold"
+                                             VerticalAlignment="Top" Margin="0,6,0,0"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.Address, Mode=TwoWay}"
+                                           AcceptsReturn="True" TextWrapping="Wrap" MinHeight="58"
+                                           PlaceholderText="street, area, town — one line each"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="State" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding CreateCompanyProfile.StateOptions}"
+                                            SelectedItem="{Binding CreateCompanyProfile.SelectedState, Mode=TwoWay}"
+                                            PlaceholderText="pick a State/UT…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:PostalStateOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Country" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.Country, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Pin Code" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.Pin, Mode=TwoWay}"
+                                           PlaceholderText="6 digits, e.g. 700039"/>
+                                </Grid>
+
+                                <TextBlock Text="BOOKS AND FINANCIAL YEAR DETAILS" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5" Margin="0,6,0,0"/>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Financial year begins from" FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.FinancialYearStartText, Mode=TwoWay}"
+                                           PlaceholderText="blank = 1-Apr of this year"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Books beginning from" FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.BooksBeginFromText, Mode=TwoWay}"
+                                           PlaceholderText="blank = same as year start"/>
+                                </Grid>
+
+                                <TextBlock Text="BASE CURRENCY INFORMATION" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5" Margin="0,6,0,0"/>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Base Currency symbol" FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.BaseCurrencySymbol, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Formal Name" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.BaseCurrencyName, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Number of decimal places" FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.DecimalPlacesText, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="170,*">
+                                  <TextBlock Grid.Column="0" Text="Word representing amount after decimal" FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CreateCompanyProfile.DecimalUnitName, Mode=TwoWay}"/>
+                                </Grid>
+
+                                <!-- Two blocks, not one with a converted brush: a refusal is red, a
+                                     confirmation is not. Rendering both in AlertRed printed "Company details
+                                     saved." as though the save had failed. -->
+                                <TextBlock Text="{Binding CreateCompanyProfile.ErrorMessage}"
+                                           IsVisible="{Binding CreateCompanyProfile.ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding CreateCompanyProfile.ConfirmationMessage}"
+                                           IsVisible="{Binding CreateCompanyProfile.ConfirmationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource BrandNavy}" FontSize="12" TextWrapping="Wrap"/>
                                 <Button Content="Create (Ctrl+A)" HorizontalAlignment="Right"
                                         Click="OnCreateCompanyClick"
                                         Background="{StaticResource BrandNavy}" Foreground="White" Padding="14,6"/>
                             </StackPanel>
+                          </ScrollViewer>
                         </Border>
 
                         <!-- Message / hint line -->
@@ -6160,6 +6260,141 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Company Alteration (the open company's own profile).
+                         The Name is shown read-only: the company's database file is named after it, so saving
+                         a renamed company would write a second file and leave the book forked in two with no
+                         error. The name that PRINTS on an invoice is the Mailing Name, which is editable. -->
+                    <ContentControl IsVisible="{Binding AlterCompany, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AlterCompany}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:CompanyProfileViewModel">
+                          <ScrollViewer Margin="6" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="8">
+                              <TextBlock Text="{Binding Caption}"
+                                         FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                         HorizontalAlignment="Center" Margin="0,8,0,8"/>
+
+                              <Border Background="White" BorderBrush="{StaticResource GridLine}"
+                                      BorderThickness="1" Padding="16">
+                                <StackPanel Spacing="8">
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Name" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="14"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                  </Grid>
+                                  <TextBlock Text="The company name is fixed once the book exists — its data file is named after it."
+                                             FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+
+                                  <TextBlock Text="PRIMARY MAILING DETAILS" FontSize="11" FontWeight="Bold"
+                                             Foreground="#9098A8" LetterSpacing="1.5" Margin="0,6,0,0"/>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Mailing Name" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding MailingName, Mode=TwoWay}"
+                                             PlaceholderText="the name printed on invoices"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Address" FontWeight="SemiBold"
+                                               VerticalAlignment="Top" Margin="0,6,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Address, Mode=TwoWay}"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="58"
+                                             PlaceholderText="street, area, town — one line each"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="State" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding StateOptions}"
+                                              SelectedItem="{Binding SelectedState, Mode=TwoWay}"
+                                              PlaceholderText="pick a State/UT…">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:PostalStateOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                  </Grid>
+                                  <TextBlock Text="{Binding StateAdvisory}"
+                                             IsVisible="{Binding StateAdvisory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             FontSize="11.5" Foreground="{StaticResource AlertRed}" TextWrapping="Wrap"/>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Country" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Country, Mode=TwoWay}"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Pin Code" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Pin, Mode=TwoWay}"
+                                             PlaceholderText="6 digits, e.g. 700039"/>
+                                  </Grid>
+
+                                  <TextBlock Text="BOOKS AND FINANCIAL YEAR DETAILS" FontSize="11" FontWeight="Bold"
+                                             Foreground="#9098A8" LetterSpacing="1.5" Margin="0,6,0,0"/>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Financial year begins from" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding FinancialYearStartText, Mode=TwoWay}"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Books beginning from" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding BooksBeginFromText, Mode=TwoWay}"/>
+                                  </Grid>
+                                  <TextBlock Text="{Binding BookDatesAdvisory}"
+                                             IsVisible="{Binding BookDatesAdvisory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             FontSize="11.5" Foreground="{StaticResource AlertRed}" TextWrapping="Wrap"/>
+
+                                  <TextBlock Text="BASE CURRENCY INFORMATION" FontSize="11" FontWeight="Bold"
+                                             Foreground="#9098A8" LetterSpacing="1.5" Margin="0,6,0,0"/>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Base Currency symbol" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding BaseCurrencySymbol, Mode=TwoWay}"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Formal Name" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding BaseCurrencyName, Mode=TwoWay}"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Number of decimal places" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding DecimalPlacesText, Mode=TwoWay}"/>
+                                  </Grid>
+                                  <Grid ColumnDefinitions="180,*">
+                                    <TextBlock Grid.Column="0" Text="Word representing amount after decimal" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding DecimalUnitName, Mode=TwoWay}"/>
+                                  </Grid>
+
+                                  <!-- A refusal is red; a confirmation is not. One block rendering both in
+                                       AlertRed printed "Company details saved." as though it had failed. -->
+                                  <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                      <TextBlock Text="{Binding ErrorMessage}"
+                                                 IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                 Foreground="{StaticResource AlertRed}" FontSize="12"
+                                                 TextWrapping="Wrap"/>
+                                      <TextBlock Text="{Binding ConfirmationMessage}"
+                                                 IsVisible="{Binding ConfirmationMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                 Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                                 TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Accept (Ctrl+A)" Padding="14,6"
+                                            Background="{StaticResource BrandNavy}" Foreground="White"
+                                            Click="OnAcceptCompanyProfileClick"/>
+                                  </Grid>
+                                </StackPanel>
+                              </Border>
+                            </StackPanel>
+                          </ScrollViewer>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Godown master (create + list) -->
                     <ContentControl IsVisible="{Binding GodownMaster, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding GodownMaster}">
@@ -9541,6 +9776,16 @@
                                       </ComboBox.ItemTemplate>
                                     </ComboBox>
                                   </Grid>
+                                  <!-- The postal-State / GST-registration-State divergence advisory. The SAME
+                                       computation the Company Alteration screen shows, from the same shared
+                                       helper — because either screen can create the divergence and the one
+                                       that matters most is THIS one, which decides the tax head. Rendering it
+                                       on only one of the two screens is the silence the helper exists to
+                                       prevent. -->
+                                  <TextBlock Text="{Binding PostalStateAdvisory}"
+                                             IsVisible="{Binding PostalStateAdvisory, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             FontSize="11.5" Foreground="{StaticResource AlertRed}"
+                                             TextWrapping="Wrap"/>
                                   <Grid ColumnDefinitions="130,*,130,*">
                                     <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>

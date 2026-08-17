@@ -58,8 +58,102 @@ The 8 in the table are capabilities whose **existence** nobody has checked. That
 6. Rule-88A ITC set-off with the §49(5)(c)/(d) proviso
 7. GSTR-1 amendment section-to-table map (A14-confirmed in-file)
 8. Cost category/centre worked example (corpus SG pp.101-102)
+9. **Company creation & alteration - the profile screen (added 2026-08-16 with W0-2b; row rewritten
+   2026-08-17 after review).** **PARTIAL, and the partial is the point.**
 
-**8 of 115 capabilities have had their behaviour compared to a source. 107 have not.** Every "PRESENT" in the table above means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **107**.
+   **What IS sourced - each with the page it comes from, and nothing else claimed:**
+   - **The field set and its three section headings**, reproduced verbatim: *Primary Mailing Details* ->
+     *Books and Financial Year Details* -> *Base Currency Information* (Study Guide PDF pp.58-60).
+   - **The field labels**, now matched to the corpus word-for-word rather than shortened: *Financial year
+     begins from*, *Books beginning from*, *Base Currency symbol*, *Formal Name*, *Number of decimal places*,
+     *Word representing amount after decimal* (Book PDF pp.13-14; Study Guide pp.59-60). They shipped as
+     "Year begins from" / "Books begin from" / "Symbol" / "Decimal places" / "Decimal unit", which matched
+     neither source - the fifth being the one a Tally operator would genuinely fail to recognise, since the
+     value in it is "Paisa".
+   - **`Alter`'s stated purpose** - Book p.15, verbatim: companies *"will alter or edit their information when
+     they have changed company **address** or **contact number** or **email** and other any information."*
+     **One of those three ships**: the address. Contact number and e-mail are out of scope (grounding section 9
+     item 9), so this sentence supports the *existence* of Alter and one of its three named uses, not all of it.
+   - **The `Alt+K` route to Alter** - Book p.15 (*"Gateway of Tally > Alt+K > Alter"*) and Study Guide p.61
+     (*"press Alt+K and open the company menu -> Click ALTER option in it"*), corroborated by SG p.267 step 2
+     (*"press Alt+K (Company) Create"*). **We did not ship it** - see the "ours" list below for the real
+     reason, which is not the one first recorded.
+
+   **What is OURS, or unsettled - separated from the sourced column deliberately**, each logged in
+   `docs/w0-2-company-screen-grounding.md` section 9 items 12-22:
+   - **The State-before-Country order is ONE PRIMARY SOURCE AGAINST ANOTHER, not a resolved conflict.**
+     Book p.13 lists Company Creation as Address -> **State** -> **Country** -> Pin Code; Study Guide pp.58-59
+     lists it as Address -> **Statutory Compliance for** (the country) -> **State** -> Pin Code. We follow the
+     Book. WARNING - **CORRECTION 2026-08-17:** this row previously said the Study Guide's *"own worked example
+     (p.268) sides with the Book against its own prose"*. **It does not.** Re-read this session
+     (`pdftotext -layout -f 267 -l 268`): p.267 step 3 presses **Alt+R**, and step 4 reads *"In **Group
+     Company Creation** screen, provide required informations as follows:"* - the State/Country/Pincode list
+     under it belongs to the **Group Company Creation** screen, which the grounding doc itself treats as a
+     different screen (section 3, section 5.1). There is no proven self-contradiction inside the Study Guide,
+     and the same correction applies to grounding section 2.1's two "one source disagreeing with itself"
+     claims. The shipped order is **defensible on the Book alone**; it is not "resolved on evidence".
+   - **The GST-home-State inheritance being a DISPLAY default is OUR inference, not the corpus's.** The corpus
+     sentence - Book p.177, *"by default **shows** the State name as selected in the Company Creation
+     screen"* - attests **that the GST State defaults from the postal State** and nothing more; "shows" in a
+     user manual carries no display-versus-store semantics. The real reason the seed is a display default is
+     **internal to our store**: it binds `gst_home_state` whenever a `GstConfig` object exists but rebuilds
+     that config only when `gst_enabled = 1`, so a code stamped onto a GST-off company is discarded by the
+     very next load and nulled by the save after it. That reasoning is at `GstConfigViewModel.cs:565-583` and
+     is pinned by `A_GST_home_State_is_never_written_onto_a_GST_off_company`. Sourced: the defaulting. Ours:
+     the display-not-stamp shape.
+   - **The divergence warning** and its wording (item 12) - no corpus source describes any such advisory.
+   - **The postal State list being the GST state-code list**, which means a **non-Indian postal State cannot
+     be recorded** (item 13).
+   - **The book-date advisory** on a book that already carries vouchers (item 14).
+   - **The read-only company Name on Alter** - a storage constraint of ours (the `.db` is named after the
+     company), not a fidelity finding (item 15).
+   - **The `Accept Company? (Y/N)` prompt** (item 16) - and with it a **behaviour change on Creation**: Enter
+     used to create the company outright, and now raises that confirmation first. Ctrl+A is unchanged.
+   - **No `Alt+K` accelerator, and the first reason recorded for it was wrong** (item 17). It said the chord
+     "is already bound in this application". Measured: `MainWindow.axaml.cs:653` binds it as
+     `Key.K && Alt && vm.IsReportContext` - **report context only**, and unbound on the Gateway root column
+     where this row lives. The honest reason is that the attested route is Alt+K -> a **company menu** ->
+     Alter, and we have no company menu; binding the chord straight to one page would be an invented shortcut
+     wearing an attested chord. The company menu is owed, not refused.
+   - **The Gateway placement** (item 17). The row shipped as a NEW "Company" section placed **above** Masters,
+     which is three moves in the direction `docs/invented-vs-cloned.md` **IV-29** already catalogues as wrong
+     for this menu - and it silently moved the Gateway's default keyboard highlight off Masters -> Create.
+     **Corrected 2026-08-17 to IV-29's own prescribed fix: "Alter Company" now sits under MASTERS.** The
+     divergence that remains is recorded in IV-29: the reference product's Masters -> Alter is a *master*
+     alteration submenu, whereas our row alters the *company*.
+   - **Capture order versus print order now differ** (item 18): the screen captures Address -> State ->
+     Country -> Pin, the printed supplier block renders Address -> Country -> PIN -> State (W0-2a, grounding
+     section 9 item 11).
+   - **The post-save hand-off departs from both the catalog and the corpus** (item 21). Study Guide p.60 [V]:
+     *"After saving the company, takes you to the **Company Features** screen"*, and
+     `docs/tally-feature-catalog.md` says the same. We go to the Gateway - `MainWindowViewModel.OpenCompany`
+     calls `ShowGateway()`; there is no F11 hand-off anywhere. Recorded as a departure, not fixed here.
+
+   **Deliberately NOT built - the complete list, with the reason for each:**
+   - the five **contact fields** (Telephone, Mobile, Fax, E-Mail, Website): their order is contested between
+     the two primary sources and they are fidelity fields, not compliance ones;
+   - the three **base-currency formatting toggles** (*Suffix Symbol to Amount*, *Add space between amount and
+     symbol*, *Show amount in Millions*): their defaults are undocumented in both sources;
+   - **"No of decimal places for amount in words"** - a FOURTH base-currency field, not one of those three
+     toggles, and its default IS documented (Book p.14 *"type '2'"*, Study Guide p.60). It is unbuilt because
+     the domain has no such property, which is a schema change and out of this slice;
+   - the whole **Security Control** heading - *Tally Vault Password* and *User Access Control* (Study Guide
+     p.59, Book p.13). Two security features, unbuilt and un-designed;
+   - **Directory** (the data-storage location, Study Guide p.58): a deliberate architectural difference -
+     companies live in one managed folder (grounding section 7.4) - not an omission;
+   - **Group Company / `Alt+R`** (Study Guide pp.267-268, Book p.14): a whole separate screen;
+   - company **RENAME** (the `.db` file is named after the company, so a rename without a file move forks the
+     book) and company **DELETE** (destructive; split out by an earlier ruling, `plan.md` VL-2).
+
+**9 of 115 capabilities have now had their behaviour compared to a source — and the ninth is PARTIAL, with its unsourced half enumerated rather than glossed. 106 have not.** Every "PRESENT" in the table above means *present and reachable*, not *correct*. A previous sweep on this project reported CANNOT TELL 256 and the 256 was the honest part; the equivalent honest number here is **106**.
+
+> **▶ HOW THIS LIST GROWS (R12, 2026-08-16; the standard tightened 2026-08-17).** Fidelity is measured **per slice**: a slice is not done until it adds a row here for the surface it touched, in the shape of the ones above, **or records why the corpus cannot settle the question**. Row 9 is the first row added under that rule and every later slice copies it, so what its first draft got WRONG is part of the template:
+> 1. **An inference is not a source.** It presented the display-versus-stamp shape as attested by Book p.177. The page attests the defaulting; the shape is ours, and its real evidence is an asymmetry in our own store. Cite the store.
+> 2. **A worked example only settles the screen it is on.** It resolved State-before-Country on Study Guide p.268 - which is the **Group Company Creation** screen, not Company Creation. One primary source against another is a CHOICE, recorded as one; it is not "resolved on evidence".
+> 3. **Labels are part of the field set.** It claimed the field set and screen order as sourced and said nothing about labels, six of which matched neither source.
+> 4. **"Deliberately not built" means ALL of it.** Its first list named eight fields; the corpus lists seven more omissions, including two security features and a documented base-currency field.
+> 5. **Name every surface the slice TOUCHED, not only the one it was about.** The first draft was silent on a new Gateway section and on a keyboard behaviour change to Company Creation.
+> A row that separates *sourced* from *ours*, enumerates its unsourced half, and lands on PARTIAL is the right SHAPE. These five are what make it true as well.
 
 Two further caveats on the denominator itself:
 
@@ -83,7 +177,7 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T0-5** | **4% Health & Education Cess applied to live payroll deductions on a rate the code itself says it could not verify.** | `src/Apex.Ledger/Services/SalaryIncomeTax.cs:50-54` — the comment states the rate must be verified before the FY 2026-27 tables are relied on. | Real money deducted from real salaries on an unsourced statutory figure. **Standing user decision, highest priority.** |
 | **T0-6** | **Shipped TDS rates and thresholds cited to commercial blogs** (cleartax, disytax). | `src/Apex.Ledger/Seed/SeedTdsTcsRates.cs:7-8`. | R7 violation on figures the product applies to money. |
 | **T0-7** | **A composition dealer's every printed document is an illegal tax invoice.** The app *knows* the answer on screen — `IsBillOfSupply` and the s10/Rule-5(f) declaration render in the UI — but neither reaches the PDF, and `InvoicePdf` hard-codes the title. | **[V]** `GstReportSupport.cs:110-123`, `VoucherDetailViewModel.cs:36-43`, `MainWindow.axaml:1990` — and **zero** `BillOfSupply` hits in `Apex.Ledger.Io` or `VoucherPrintProjector.cs`. | Non-compliant document issued to customers. **~1 day to fix; the data is already computed.** |
-| **T0-8** | **Every printed invoice carries a blank seller address block.** **STILL OPEN — only the PRINT half shipped (W0-2a, 2026-08-15).** `SellerBlock` now reads `MailingName`, `Address`, `Country` and `Pin`, so a captured address prints in full and matches the WI-4 recipient block. But the **write half did not ship**: there are still **zero assignment sites for `Company.Address` anywhere in `src/Apex.Desktop`**, so on every book that exists the block still carries no Rule 46(a) address. The screen is **W0-2b**, blocked on an R12 user gate. | **[V] Re-anchored 2026-08-15:** `VoucherPrintProjector.cs:721-727` (`SellerBlock`), `:742-745` (`SupplierPostalAddressText` — the guard that keeps an uncaptured company byte-identical), `Company.cs:67-89`; grep for assignments to those members across all of `src/Apex.Desktop` still returns nothing. Only `ApplyJournal.cs:343-347` and `ImportPlan.cs:1195-1199` write them. *(Previously cited `VoucherPrintProjector.cs:734-739` at census baseline `468a96e`.)* | CGST Rule 46 requires the supplier's address on a tax invoice. **Still unfixable from inside the UI** — the field cannot be typed anywhere. |
+| **T0-8** | **Every printed invoice carried a blank seller address block.** **CLOSED 2026-08-17 - both halves have shipped and the creation path's crash is fixed.** The PRINT half (W0-2a, 2026-08-15) made `SellerBlock` read `MailingName`, `Address`, `Country` and `Pin`, so a captured address prints in full and matches the recipient block. The **WRITE half (W0-2b)** is the company profile screen: the Rule 46(a) address is typeable on creation and on alteration. **What is NOT retroactive, and must not be read as closed:** books already on disk carry no address until someone opens Company Alteration and types one - the fix makes the field reachable, it does not populate history. | **[V] 2026-08-17:** `VoucherPrintProjector.cs:726-732` (`SellerBlock`), `:747-751` (`SupplierPostalAddressText` - the guard that keeps an uncaptured company byte-identical), `Company.cs:67-97`; the capture side is `CompanyProfileViewModel.cs` and `MainWindowViewModel.cs`. Pinned end-to-end by `A_company_created_through_the_screen_prints_a_Rule_46a_compliant_supplier_block`. **The structural pin is `CompanyCaptureReachTests`, and its own claim was corrected 2026-08-17:** the reach test that merely counts assignment sites had THREE independent satisfiers (creation, alteration, and the alter screen's private rollback helper), so deleting either real capture left it green. It is now two tests - a floor that says the block is typeable at all, and `Both_company_capture_methods_still_assign_every_postal_member`, which names the two capture methods and fails if either stops assigning any of the four members. **The floor that made the write half safe - `CompanyStorage.cs:128`** is `company.EnsureValid()`, the desktop layer's single validation choke point; it now also holds the books-begin invariant, so a company Save accepts is a company Load can reopen. Its one carve-out - a file-level backup RESTORE, which cannot pass through it - is checked in `RestoreCompanyViewModel.Apply` and stated in the `Save` doc. **And the inheritance is a DISPLAY default, not a stamp - `GstConfigViewModel.cs:583`** seeds the GST home State from the postal one only when nothing is stored and no GSTIN was typed, because a code written onto a GST-off company is discarded by the very next load. *(Previously cited `VoucherPrintProjector.cs:734-739` at census baseline `468a96e`.)* | CGST Rule 46 requires the supplier address on a tax invoice. **Fixable from inside the UI at last** - and still absent on every historical book until it is typed. |
 | **T0-9** | **IRN and signed QR are never printed on an e-invoiced supply** — and structurally cannot be. `PdfWriter` exposes only `Text` and `Line`; there is no image primitive. | `PdfWriter.cs:30-70`; zero `Irn`/`QrCode` hits in `InvoicePdf.cs`/`InvoicePrintData.cs`/`VoucherPrintProjector.cs`. | A printed e-invoiced supply is non-compliant. Blocked behind a print-engine rewrite. |
 | **T0-10** | **Credit and Debit Notes move no stock.** `ItemInvoiceStock.Counts()` returns true only for Purchase and Sales. | `src/Apex.Ledger/Services/ItemInvoiceStock.cs:53`. plan.md 10.9 NEXT-1, decision D3 approved behind an oracle. | Every goods return leaves inventory permanently overstated. |
 | **T0-11** | **Purchase item-invoices, Credit Notes and Debit Notes never print in invoice format** — they silently fall back to a Dr/Cr voucher print. | `VoucherPrintProjector.IsTaxInvoice` requires `BaseType == Sales` (`:48`). Contradicts `docs/phase5-reports-io-requirements.md:217` RQ-11. | Supplier and return documents are unusable as documents. |
@@ -97,7 +191,7 @@ Ranked by what a business suffers. Wrong money first, then invalid documents, th
 | **T1-3** | **No Voucher Type master.** No ViewModel, no `Screen` enum member, no Create-menu row. Consequently: no custom voucher types, no numbering-method selection, no way to activate an inactive type. | No `VoucherTypeMasterViewModel` among 120 ViewModel files; zero `"Voucher Type"` hits in the label dispatch. Corpus BOOK pp.17-18 has all four verbs. | Blocks a whole configuration layer, and directly causes T1-4. |
 | **T1-4** | **Payroll cannot post.** The Payroll voucher type ships `IsActive = false` and `PayrollService.EnablePayroll` never flips it — the only writer of that property in the entire tree is `JobWorkService.cs:51`. `VoucherTypeResolver.ResolveForEntry` returns null with a message telling the operator to activate a type there is no UI to activate. | `SeedVoucherTypes.cs:67`; `PayrollService.cs:36-40`; `VoucherTypeResolver.cs:58`. Also excluded from the Day-Book Alt+A picker (`MainWindowViewModel.cs:3007`) and the Scenario picker. | An entire declared-complete phase (Phase 8) has an unreachable posting path. |
 | **T1-5** | **Voucher numbering Manual and None are unreachable.** `MethodDisplay` is a read-only string with no setter; the Voucher No. on the entry screen is a `<Run>` inside a `TextBlock`, not a TextBox. | `VoucherNumberingConfigViewModel.cs:115`; `MainWindow.axaml:2056, 3544, 3879, 4104`; seed hard-codes Automatic for all 23 types. Confirms IV-13. | Cannot match a pre-printed book, cannot continue an existing numbering series. |
-| **T1-6** | **Company creation captures one field: Name.** FY is hard-coded to 1-Apr of the current year; currency hard-coded to INR. No Alter Company, no Delete Company. | `MainWindow.axaml:228-244` (the entire form); `MainWindowViewModel.cs:815-838`. | **Cannot create a company for a prior financial year** — so no historical book can be entered. Root cause of T0-8. |
+| **T1-6** | ~~**Company creation captures one field: Name.**~~ **CLOSED 2026-08-17 (W0-2b).** Creation now captures the eleven profile fields - mailing name, the postal block, both book dates and the four base-currency fields - and an **Alter Company** screen (Gateway -> Masters) edits them on an open book. **The prior-FY path named in the impact column crashed when this row was first marked closed:** typing only a books date earlier than 1-Apr of the current year - the input the field's own placeholder invites - threw an unhandled `ArgumentException` at the Avalonia dispatcher, because the screen guard could not see the default the factory was about to substitute. Fixed by exposing `CompanyFactory.DefaultFinancialYearStart` and reading the guard's fallback from it, and by making `CreateCompany` report a domain refusal instead of throwing. | `MainWindow.axaml` (the creation form and the alteration page); `CompanyProfileViewModel.cs`; `MainWindowViewModel.cs`. Pinned by `CompanyProfileScreenTests` - in particular `Creating_with_only_a_books_date_before_the_default_year_start_is_refused_not_crashed` and `Every_one_of_the_eleven_fields_altered_on_the_screen_survives_a_save_and_a_reload` (the alteration leg, without which eight of the alter screen's eleven writes had no test at all). | **A company can now be created for a prior financial year**, so a historical book can be entered - and the FY is no longer hard-coded to 1-Apr of the current year. **Still absent, each for a stated reason - the full list is in 1.3 row 9**, and it is longer than this row first claimed: the five contact fields, the three base-currency formatting toggles, "No of decimal places for amount in words", the whole Security Control heading (Tally Vault Password, User Access Control), Directory, Group Company / Alt+R, company RENAME and company DELETE. |
 | **T1-7** | **Restore is unreachable on a fresh install.** The engine supports restoring a company this machine never had; the screen is gated on an open company. | `MainWindowViewModel.cs:2826-2842`, `:6776`; engine capability at `CompanyBackup.cs:268-270`. | The exact disaster-recovery case backup exists for is the one case it cannot serve. **~half a day.** |
 | **T1-8** | **No Tracking Numbers.** Receipt Note↔Purchase and Delivery Note↔Sales cannot be linked. | Zero `TrackingNumber` hits in `src/`. | Order fulfilment cannot be tracked correctly — a named prerequisite for WF-8. |
 | **T1-9** | **71 of 77 report surfaces are dead ends.** 6 of 45 `ReportKind` values drill; 0 of 32 dedicated report Screens drill. | `ReportsViewModel.cs:1093-1120`; `MainWindowViewModel.cs:2083-2100`. **This corrects IV-19, which says "~50" and counts only the separate Screens — it understates its own defect by ~40%.** | Drill-down is the single most-used gesture in Tally. It is absent from 92% of our report surface. |
@@ -165,7 +259,7 @@ These harm the project rather than the business, but they are the reason nobody 
 | `docs/invented-vs-cloned.md` IV-19: "~50 reports are dead ends" | 71 of 77. Understates itself by ~40%. |
 | plan.md 10.8: negative stock "STOPPED AND BANKED" | **A false claim of absence — the rarer and more dangerous kind.** `Company.WarnOnNegativeStock` shipped, persists and is honoured, with zero UI toggle. Behaviour changed and the register says nothing shipped. |
 | gap-audit §4.6: "CN/DN have no menu row", "Ctrl+F7 unbound" | Both STALE/FIXED. Menu rows at `MainWindowViewModel.cs:1002-1003`; Ctrl+F7 bound at **†** `MainWindow.axaml.cs:765` *(was cited `:681`; corrected 2026-08-15 — `:681` is now the bare-E Export arm, and the Ctrl+F7 arm with its grounding comment is `:758-765`)*. |
-| `PopulatedCompanyFixture` described as "51 vouchers of every type" | 51 is right; "every type" is not — 8 of 23 base types, zero inventory/order/job-work/POS/payroll vouchers. |
+| `PopulatedCompanyFixture` described as "51 vouchers of every type" | 51 is right; "every type" is not — 8 of 23 base types, zero inventory/order/job-work/POS/payroll vouchers. ⚠️ **CORRECTED 2026-08-17: this was true when the census was written and has been FALSE since `1de940e` (2026-08-10), which extended the fixture to post 23 of 23 SEEDED base kinds** — 8 accounting, 12 stock/order, 2 provisional, Payroll, plus a POS-flagged second Sales type and `AttendanceEntry` rows, with a `PopulatedFixtureCoverageTests` beside it. Re-derive from that test, never from this row. |
 
 ---
 
@@ -228,7 +322,10 @@ Separately excluded from the denominator as out-of-scope-by-architecture, not by
 ```
 S0  PopulatedCompanyFixture extension (posts 15 more base types)
       -> prerequisite for HONESTLY REGRESSION-TESTING everything below.
-         Currently 8 of 23 base types; no print/export test uses it at all.
+         ⚠️ CORRECTED 2026-08-17: "currently 8 of 23 base types" was true when written and has been FALSE
+         since 1de940e (2026-08-10) — the fixture posts 23 of 23 seeded base kinds. S0 IS THEREFORE ALREADY
+         DISCHARGED and no longer gates S1. The second half STILL HOLDS: no print/export test uses it at all,
+         which is the part of this row that is still open.
 
 S1  Voucher lifecycle (Phase 10.11: alter / delete / cancel / duplicate / insert)
       -> unblocks: recovery from every Tier 0 defect

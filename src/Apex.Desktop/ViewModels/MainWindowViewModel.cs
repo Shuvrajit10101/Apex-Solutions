@@ -18,6 +18,13 @@ public enum Screen
 {
     CompanySelect,
     CreateCompany,
+
+    // Company Alteration — the profile fields of the OPEN company (mailing name, postal block, book dates,
+    // base currency), reached from the Gateway's Company section. Its own screen id rather than a mode flag on
+    // CreateCompany because the two are reached from different places: creation must work with no company open,
+    // alteration needs one.
+    AlterCompany,
+
     Gateway,
     Report,
 
@@ -356,6 +363,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private MaterialMovementEntryViewModel? _materialMovementEntry;
 
     [ObservableProperty] private PosBillingViewModel? _posBilling;
+
+    /// <summary>The Company Alteration profile page, non-null only while that page is open.</summary>
+    [ObservableProperty] private CompanyProfileViewModel? _alterCompany;
 
     /// <summary>The company GST-configuration (F11 Features → GST) view model, non-null only while that page is open.</summary>
     [ObservableProperty] private GstConfigViewModel? _gstConfig;
@@ -766,6 +776,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
 
+        // Built HERE and not in ShowCreateCompany, so it is never null. The company-creation screen is driven
+        // directly by ~150 test fixtures that set NewCompanyName and call CreateCompany() without ever opening
+        // the screen; a lazily-built form would make CreateCompany read a null and need a second code path.
+        CreateCompanyProfile = new CompanyProfileViewModel(_storage, () => { });
+
         // WI-9: the SHARED choke point for bare-letter hotkeys. Columns are pushed from ~125 call sites, so
         // assigning here — as a column enters the cascade — is what makes the accelerators reach EVERY menu
         // column (root, submenu, picker) instead of only the ones a builder remembered to call. Page columns
@@ -812,18 +827,70 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    /// <summary>
+    /// The company-creation form's profile fields (mailing name, postal block, book dates, base currency).
+    ///
+    /// <para><b>The NAME is deliberately NOT read from here.</b> It stays on <see cref="NewCompanyName"/>,
+    /// which ~150 test fixtures set directly before calling <see cref="CreateCompany"/>, and which the
+    /// creation form has always bound. Routing it through this form as well would give the same value two
+    /// homes and one of them would eventually go stale.</para>
+    /// </summary>
+    public CompanyProfileViewModel CreateCompanyProfile { get; }
+
     private void ShowCreateCompany()
     {
         CurrentScreen = Screen.CreateCompany;
         ScreenTitle = "Company Creation";
         NewCompanyName = string.Empty;
-        Message = "Enter the company name, then press Enter (Ctrl+A) to create.";
+        ResetCreateCompanyProfile();
+        Message = "Enter the company details, then press Ctrl+A (or Enter) to create.";
         LeaveCascade();
         Menu.Clear();
         BuildButtonBar();
     }
 
-    /// <summary>Creates a fresh seeded company, saves it, and opens it. No-op on a blank name.</summary>
+    /// <summary>Clears the creation form back to its seeded defaults, so a second create starts blank.</summary>
+    private void ResetCreateCompanyProfile()
+    {
+        CreateCompanyProfile.MailingName = string.Empty;
+        CreateCompanyProfile.Address = string.Empty;
+        CreateCompanyProfile.SelectedState = null;
+        CreateCompanyProfile.Country = "India";
+        CreateCompanyProfile.Pin = string.Empty;
+        CreateCompanyProfile.FinancialYearStartText = string.Empty;
+        CreateCompanyProfile.BooksBeginFromText = string.Empty;
+        CreateCompanyProfile.BaseCurrencySymbol = "₹";
+        CreateCompanyProfile.BaseCurrencyName = "INR";
+        CreateCompanyProfile.DecimalPlacesText = "2";
+        CreateCompanyProfile.DecimalUnitName = "Paisa";
+        CreateCompanyProfile.ClearMessage();
+    }
+
+    /// <summary>
+    /// Creates a fresh seeded company from the creation form, saves it, and opens it. No-op on a blank name.
+    ///
+    /// <para><b>A creation where nothing but the name was typed must stay byte-identical to what this method
+    /// produced before the form existed.</b> Every profile field is applied only when it was actually typed —
+    /// blank leaves the seeded default in place — and the two dates are passed through as <c>null</c> so
+    /// <c>CompanyFactory.CreateSeeded</c>'s own defaulting still governs. That is what keeps ~150 existing
+    /// fixtures, and every book already on disk, exactly where they were.</para>
+    ///
+    /// <para><b>🔴 THE NAME COLLISION IS REFUSED HERE, and it is a book-eater, not a nicety.</b> The company's
+    /// <c>.db</c> path is derived from its name with the invalid filename characters replaced
+    /// (<c>CompanyStorage.PathForName</c>), and <c>CompanyStorage.Load</c> takes the FIRST company row in the
+    /// file. So creating "Acme:Traders" on a machine that already has "Acme_Traders" used to write a SECOND
+    /// company row into the FIRST company's file, with no exception and no message — and everything typed into
+    /// the second one then became unreachable forever, because the loader never returns it. Alteration already
+    /// refuses to rename for exactly this reason (<c>CompanyProfileViewModel.IsNameEditable</c>); refusing a
+    /// rename while leaving the identical hole open on create is not a coherent position, so the check is here
+    /// too. <c>Exists</c> tests the SANITISED path, which is what makes it catch the colliding pair rather than
+    /// only the identical name.</para>
+    ///
+    /// <para><b>And the domain's own refusals are reported, not thrown.</b> <c>CreateSeeded</c> runs
+    /// <c>new Company(...)</c>, whose constructor throws on an impossible pair of book dates; nothing between
+    /// here and the Avalonia dispatcher catches, so an escaped exception is a crash with no message on the
+    /// form. The screen pre-validates, and this is the backstop behind it.</para>
+    /// </summary>
     public void CreateCompany()
     {
         var name = (NewCompanyName ?? string.Empty).Trim();
@@ -833,9 +900,77 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var company = Apex.Ledger.Services.CompanyFactory.CreateSeeded(name);
-        _storage.Save(company);
+        if (_storage.Exists(name))
+        {
+            Message = $"A company file already exists for '{name}'. "
+                    + "Company names must differ by more than the characters a filename cannot hold.";
+            return;
+        }
+
+        // Pre-validate the typed profile BEFORE anything is created, so a bad PIN or an impossible pair of
+        // book dates is a message on the form rather than a half-created company.
+        if (!CreateCompanyProfile.TryReadForCreate(out var profile))
+        {
+            Message = CreateCompanyProfile.Message;
+            return;
+        }
+
+        Company company;
+        try
+        {
+            company = Apex.Ledger.Services.CompanyFactory.CreateSeeded(
+                name, profile.FinancialYearStart, profile.BooksBeginFrom);
+
+            if (profile.MailingName is { } mailing) company.MailingName = mailing;
+            if (profile.Address is { } address) company.Address = address;
+            if (profile.State is { } state) company.State = state;
+            if (profile.Country is { } country) company.Country = country;
+            if (profile.Pin is { } pin) company.Pin = pin;
+            if (profile.BaseCurrencySymbol is { } symbol) company.BaseCurrencySymbol = symbol;
+            if (profile.BaseCurrencyName is { } currency) company.BaseCurrencyName = currency;
+            if (profile.DecimalPlaces is { } places) company.DecimalPlaces = places;
+            if (profile.DecimalUnitName is { } unit) company.DecimalUnitName = unit;
+
+            _storage.Save(company);
+        }
+        catch (Exception ex) when (SaveFailure.IsReportable(ex))
+        {
+            // Nothing has been opened, so there is nothing to roll back — the half-built aggregate is local and
+            // is dropped with the frame. The form keeps everything the operator typed.
+            CreateCompanyProfile.Refuse(ex.Message);
+            Message = ex.Message;
+            return;
+        }
+
         OpenCompany(company);
+    }
+
+    /// <summary>
+    /// Opens <b>Company Alteration</b> for the OPEN company as a cascade page column: the same profile fields
+    /// the creation screen captures, pre-filled, with the name shown read-only (renaming would fork the book —
+    /// see <see cref="CompanyProfileViewModel.IsNameEditable"/>).
+    ///
+    /// <para><b>No accelerator — and the honest reason is scope, not a chord collision.</b> The reference
+    /// product reaches company alteration through a COMPANY MENU on <c>Alt+K</c> (Book PDF p.15, Study Guide
+    /// pp.61/267 — both [V]). This row shipped saying that chord "is already bound in this application", which
+    /// overstates it: measured at <c>Views/MainWindow.axaml.cs:653</c>, the saved-views binding is
+    /// <c>Key.K &amp;&amp; Alt &amp;&amp; vm.IsReportContext</c> — it is bound in REPORT context only, and on
+    /// the Gateway root column, where this row lives, <c>Alt+K</c> is unbound. The dispatcher already scopes
+    /// that chord by context, so a Gateway-scoped one would follow the existing pattern rather than create an
+    /// arbitration hazard.
+    /// <b>What is actually missing is the menu the chord opens.</b> The attested route is Alt+K → a company
+    /// menu → Alter, and this application has no company menu; binding Alt+K straight to this one page would
+    /// be an invented shortcut wearing an attested chord, which is worse than none. The row is therefore
+    /// reached by arrow and Enter, like Chart of Accounts, and the company menu is logged as owed —
+    /// <c>docs/w0-2-company-screen-grounding.md</c> §9 item 17.</para>
+    /// </summary>
+    public void ShowAlterCompany()
+    {
+        if (Company is null) return;
+
+        var page = new CompanyProfileViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Company Alteration", page), Screen.AlterCompany,
+            "Company Alteration", () => AlterCompany = page);
     }
 
     /// <summary>Builds, saves and opens the embedded Robert demo (creating a populated company).</summary>
@@ -908,14 +1043,27 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
-    /// <summary>Builds the root Gateway menu column (the three sections and their items).</summary>
+    /// <summary>Builds the root Gateway menu column (its section headers and their items).</summary>
     private GatewayColumn BuildRootColumn()
     {
         var col = new GatewayColumn("Gateway of Apex Solutions");
 
         // ---- MASTERS ----
+        // "Alter Company" sits HERE, between Create and Chart of Accounts, and the placement is a correction,
+        // not a preference. `docs/invented-vs-cloned.md` IV-29 records this exact menu as invented — "The
+        // Gateway's sections and vocabulary are ours, not Tally's — and 'Alter' is not on it" — diagnoses the
+        // cause as "the menu GREW A SECTION PER PHASE rather than being laid out once from the reference
+        // product", and prescribes: add "Alter" to MASTERS. This row first shipped as a NEW "Company" section
+        // placed AHEAD of Masters, i.e. all three moves IV-29 names as wrong, and it moved the Gateway's
+        // default keyboard highlight off Masters → Create for every entry into the screen — a product-wide
+        // navigation change riding in on an address-capture slice. Under Masters the highlight is back where
+        // it was and the section list is the one the register already catalogues.
+        // The DIVERGENCE that remains is recorded rather than hidden: the reference product's Masters → Alter
+        // is a master-alteration submenu, whereas this row alters the COMPANY. See IV-29 and
+        // docs/w0-2-company-screen-grounding.md §9 item 17.
         col.Add(MenuItemViewModel.Header("Masters"));
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        col.Add(new MenuItemViewModel("Alter Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
         // ---- STATUTORY (F11 Company Features → Statutory Configuration) ----
@@ -4736,6 +4884,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         JobWorkOrderEntry = null;
         MaterialMovementEntry = null;
         PosBilling = null;
+        AlterCompany = null;
         GstConfig = null;
         VoucherNumberingConfig = null;
         GstRateSetup = null;
@@ -4878,9 +5027,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The prompt text shown while <see cref="IsAcceptPromptOpen"/> — e.g. "Accept Ledger? (Y/N)".</summary>
     [ObservableProperty] private string _acceptPromptText = string.Empty;
 
-    /// <summary>True on the master screens that carry an Accept confirmation (the WI-11 scope).</summary>
+    /// <summary>
+    /// True on the master screens that carry an Accept confirmation (the WI-11 scope).
+    ///
+    /// <para><b>The two company screens joined this list when the company profile form shipped</b>, so the
+    /// company is accepted exactly the way every other master is: Ctrl+A saves outright, Enter asks first.
+    /// This is a real behaviour change on creation — Enter used to create immediately — and it is made
+    /// deliberately rather than left as an inconsistency, because the confirmation and the shortcut route
+    /// through the same <see cref="ActivateSelected"/> and so cannot drift apart. Creation had NO test
+    /// coverage of its navigation or keyboard behaviour at all before this (only its side effect, a company
+    /// object, was exercised), which is why the change ships with that coverage rather than unobserved.</para>
+    /// </summary>
     public bool IsMasterAcceptScreen =>
-        CurrentScreen is Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
+        CurrentScreen is Screen.CreateCompany or Screen.AlterCompany
+            or Screen.LedgerMaster or Screen.AccountGroupMaster or Screen.CostCategoryMaster
             or Screen.CostCentreMaster or Screen.BudgetMaster or Screen.ScenarioMaster
             or Screen.CurrencyMaster or Screen.StockGroupMaster or Screen.StockCategoryMaster
             or Screen.UnitMaster or Screen.GodownMaster or Screen.StockItemMaster
@@ -4967,6 +5127,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The human noun for the open master screen, used in the prompt text.</summary>
     private string MasterAcceptNoun() => CurrentScreen switch
     {
+        Screen.CreateCompany or Screen.AlterCompany => "Company",
         Screen.LedgerMaster => "Ledger",
         Screen.AccountGroupMaster => "Group",
         Screen.CostCategoryMaster => "Cost Category",
@@ -5836,6 +5997,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.CreateCompany:
                 CreateCompany();
                 return;
+            case Screen.AlterCompany:
+                AlterCompany?.Accept();
+                return;
             case Screen.VoucherEntry:
                 VoucherEntry?.Accept();
                 return;
@@ -6193,6 +6357,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         switch (item.Label)
         {
+            // Company → Alter Company (the open company's own profile).
+            case "Alter Company": ShowAlterCompany(); break;
             // Data → Backup / Restore (the R-7 carve-out).
             case "Backup Company": OpenBackupCompany(); break;
             case "Restore Company": OpenRestoreCompany(); break;

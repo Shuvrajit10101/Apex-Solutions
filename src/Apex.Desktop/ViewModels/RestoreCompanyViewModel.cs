@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Apex.Desktop.Services;
 using Apex.Ledger.Domain;
 using Apex.Persistence.Sqlite;
@@ -23,6 +24,14 @@ namespace Apex.Desktop.ViewModels;
 ///
 /// <para>Thin layer only (ER-12): it picks the archive + the target company and calls
 /// <see cref="CompanyBackup.ReadManifest"/> / <see cref="CompanyBackup.Restore"/>. It holds no restore logic.</para>
+///
+/// <para><b>With ONE addition it does own: the restored company is checked before the panel calls it a
+/// success.</b> <see cref="CompanyBackup"/> validates the ARCHIVE (checksum, integrity, data-format stamp)
+/// and nothing about the company row inside it, and a file-level swap is the one desktop write that does not
+/// pass through <c>CompanyStorage.Save</c>'s validation floor. So <see cref="Apply"/> takes a pre-restore
+/// copy of the target, and afterwards either rolls it back (the archive holds a company this build cannot
+/// open) or reports (the archive holds one it can open but could not save). The reasoning for treating those
+/// two cases differently is written at the call site.</para>
 /// </summary>
 public sealed partial class RestoreCompanyViewModel : ViewModelBase
 {
@@ -165,16 +174,74 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
             return false;
         }
 
+        // 🔴 THE ONE DESKTOP WRITE THAT DOES NOT PASS THROUGH CompanyStorage.Save — so its guard does not
+        // apply here, and this is where that gap is closed. CompanyBackup.Restore is a FILE-LEVEL swap of the
+        // .db: it verifies the archive's checksum, integrity and data-format stamp, but nothing looks at the
+        // company row INSIDE it. An archive holding a company the save floor would refuse therefore used to
+        // land on disk unchecked, and the two failures are not the same shape:
+        //   • a company that cannot be LOADED at all (books-begin before the year start — the aggregate is
+        //     rebuilt through Company's constructor) leaves the user with an unopenable book AND no way back,
+        //     because the file it replaced is gone. That is rolled back, from the safety copy taken below.
+        //   • a company that loads but carries a value Save refuses (a bad PIN from a build that predates the
+        //     floor) is KEPT — refusing to restore it would deny disaster recovery to the exact book that
+        //     needs it — and reported, so the operator learns it must be corrected before the next save
+        //     rather than meeting it as an exception on an unrelated screen.
+        var safety = TargetPath + ".apex-prerestore";
+        SafeDelete(safety);
+        var haveSafety = false;
+        try
+        {
+            if (File.Exists(TargetPath))
+            {
+                File.Copy(TargetPath, safety, overwrite: true);
+                haveSafety = true;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // No safety copy is a reason to say so, not a reason to refuse: CompanyBackup.Restore's own
+            // staging means a refusal still leaves the target untouched. Only the post-swap rollback is lost.
+            haveSafety = false;
+        }
+
         try
         {
             var manifest = CompanyBackup.Restore(FilePath, TargetPath);
 
             // Reopen the restored file so the shell is showing the restored figures, not the replaced ones.
-            var reloaded = _storage.Load(new CompanyEntry(TargetCompanyName, TargetPath));
+            Company reloaded;
+            try
+            {
+                reloaded = _storage.Load(new CompanyEntry(TargetCompanyName, TargetPath));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                var rolledBack = RollBack(safety, haveSafety);
+                Status = $"'{System.IO.Path.GetFileName(FilePath)}' holds a company this build cannot open "
+                       + $"({ex.Message}) "
+                       + (rolledBack
+                            ? $"'{TargetCompanyName}' has been put back exactly as it was."
+                            : $"⚠ '{TargetCompanyName}' could NOT be put back — its database is now the "
+                              + "archive's, and it cannot be opened.");
+                return false;
+            }
 
             Succeeded = true;
             Status = $"Restored '{manifest.CompanyName}' (taken {BackupTakenAt}, data format " +
                      $"v{manifest.SchemaVersion}) over '{TargetCompanyName}'.";
+
+            // The company opened, but it may still carry a header value CompanyStorage.Save refuses. Say so
+            // here rather than letting the next save on any screen throw.
+            try
+            {
+                reloaded.EnsureValid();
+            }
+            catch (ArgumentException ex)
+            {
+                Status += " ⚠ The restored company carries a header value this build refuses to save: "
+                        + ex.Message
+                        + " Correct it in Company Alteration before saving anything on this book.";
+            }
 
             _onRestored?.Invoke(reloaded);
             return true;
@@ -189,5 +256,36 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
             Status = "Could not restore: " + ex.Message;
             return false;
         }
+        finally
+        {
+            SafeDelete(safety);
+        }
+    }
+
+    /// <summary>
+    /// Puts the pre-restore copy of the target database back over the file the restore just wrote. Returns
+    /// true only when the target really is the original again — the caller words its refusal on the answer,
+    /// because "nothing has been changed" is a promise and must not be made when it cannot be kept.
+    /// </summary>
+    private bool RollBack(string safety, bool haveSafety)
+    {
+        if (!haveSafety || !File.Exists(safety)) return false;
+        try
+        {
+            // The failed Load left a pooled handle on the target; Windows will not replace an open file.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            File.Move(safety, TargetPath, overwrite: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static void SafeDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (IOException) { /* best effort — a locked temp file is cleaned up on the next run */ }
     }
 }

@@ -1197,12 +1197,16 @@ internal sealed class ImportPlan
         if (c.Country is not null) t.Country = c.Country;
         t.State = c.State;
         t.Pin = c.Pin;
+        t.FinancialYearStart = CompanyImportService.ParseDate(c.FinancialYearStart);
+        t.BooksBeginFrom = CompanyImportService.ParseDate(c.BooksBeginFrom);
         // The supplier PIN reaches a printed tax invoice (W0-2a), so it gets the same six-digit floor the
         // recipient PIN has had since v45. Without this a canonical document carrying pin="abcdef" would
         // print "PIN: abcdef" on a statutory document.
+        // 🔴 IT RUNS AFTER THE TWO DATES, NOT BEFORE THEM. EnsureValid also holds the books-begin ≥ year-start
+        // invariant now, and calling it above the assignments checked the TARGET's dates instead of the
+        // document's — so a canonical document carrying an impossible pair was applied unchecked and produced a
+        // book that could be saved and never reopened.
         t.EnsureValid();
-        t.FinancialYearStart = CompanyImportService.ParseDate(c.FinancialYearStart);
-        t.BooksBeginFrom = CompanyImportService.ParseDate(c.BooksBeginFrom);
         if (c.BaseCurrencySymbol is not null) t.BaseCurrencySymbol = c.BaseCurrencySymbol;
         if (c.BaseCurrencyName is not null) t.BaseCurrencyName = c.BaseCurrencyName;
         t.DecimalPlaces = c.DecimalPlaces;

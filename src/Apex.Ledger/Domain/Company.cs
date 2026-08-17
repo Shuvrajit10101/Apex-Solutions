@@ -76,11 +76,19 @@ public sealed class Company
     public string Country { get; set; } = "India";
 
     /// <summary>
-    /// The company's <b>postal</b> State. <b>No print path reads this</b> — the printed supplier State is the GST
-    /// home State (<c>VoucherPrintProjector.SellerBlock</c>). It is <b>not</b> a dead column: the canonical
+    /// The company's <b>postal</b> State, and the <b>source of truth</b> for the company's State. <b>No print
+    /// path reads this</b> — the printed supplier State is the GST home State
+    /// (<c>VoucherPrintProjector.SellerBlock</c>). It is <b>not</b> a dead column: the canonical
     /// XML export/import round-trip carries it (<c>CanonicalMapper</c> → <c>CanonicalXml</c> → <c>ImportPlan</c>),
-    /// so books imported from canonical XML hold real values here. Its relationship to
-    /// <see cref="GstConfig.HomeStateCode"/> is an open R12 user gate — see <c>plan.md</c> W0-2b.
+    /// so books imported from canonical XML hold real values here.
+    /// <para><b>Its relationship to <see cref="GstConfig.HomeStateCode"/> is SETTLED (INHERIT).</b> The GST home
+    /// State takes its initial value from this one — as a DISPLAY default seeded when the statutory screen is
+    /// populated, never as a stamp written at creation — and then stays editable, because a registration in a
+    /// State other than the postal one is legal. When the two differ the operator is warned and nothing is
+    /// rewritten; both columns are kept. <b>Nothing here defaults or copies anything</b>: the seeding lives in
+    /// the desktop layer's statutory screen, and the advisory in <c>CompanyStateConsistency</c>. A creation-time
+    /// stamp would be silently discarded — the store persists <c>gst_home_state</c> whenever a config object
+    /// exists but rebuilds the config only when GST is enabled.</para>
     /// </summary>
     public string? State { get; set; }
 
@@ -89,15 +97,29 @@ public sealed class Company
     public string? Pin { get; set; }
 
     /// <summary>
-    /// Validates the company's postal block: a non-blank <see cref="Pin"/> must be a six-digit Indian PIN.
+    /// Validates the company header: a non-blank <see cref="Pin"/> must be a six-digit Indian PIN, and
+    /// <see cref="BooksBeginFrom"/> must not precede <see cref="FinancialYearStart"/>.
     /// Throws <see cref="ArgumentException"/> on a bad value (fail-fast, ER-6). Everything else is free text.
-    /// <para>The message names the <b>company</b> explicitly so it cannot be confused with the party-side
+    /// <para>The PIN message names the <b>company</b> explicitly so it cannot be confused with the party-side
     /// message from <see cref="PartyMailingDetails.EnsureValid"/>, which is worded differently on purpose.</para>
+    ///
+    /// <para><b>🔴 THE DATE RULE IS HERE BECAUSE THE CONSTRUCTOR ALONE COULD NOT HOLD IT.</b> Both dates are
+    /// plain settable properties, so any caller can assign a pair the constructor would have refused — and
+    /// <c>SqliteCompanyStore.Load</c> rebuilds the aggregate through <c>new Company(...)</c>. A company saved
+    /// with <see cref="BooksBeginFrom"/> before <see cref="FinancialYearStart"/> therefore threw on the way
+    /// back IN: the write succeeded and the book was permanently unopenable, with no UI recovery.
+    /// <b>Save and Load now refuse the same states</b>, which is the only arrangement under which a successful
+    /// save is a promise that the book can be reopened.</para>
     /// </summary>
     public void EnsureValid()
     {
         if (!IndianPinCode.IsValidOrBlank(Pin))
             throw new ArgumentException($"Company PIN code '{Pin}' is not a valid 6-digit Indian PIN code.");
+
+        if (BooksBeginFrom < FinancialYearStart)
+            throw new ArgumentException(
+                $"Company books-begin date {BooksBeginFrom:dd-MMM-yyyy} is earlier than the financial-year "
+                + $"start {FinancialYearStart:dd-MMM-yyyy}; a company in that state cannot be reopened.");
     }
 
     /// <summary>Default 1-Apr of the working year.</summary>

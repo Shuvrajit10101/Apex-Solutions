@@ -578,9 +578,28 @@ public sealed class KeyboardArbitrationTests
     }
 
     /// <summary>
+    /// The index the highlight lands on after one arrow press from <paramref name="from"/> — i.e. the next
+    /// SELECTABLE row in <paramref name="direction"/>, skipping section headers, wrapping like the shell does.
+    /// Returns <paramref name="from"/> when the column has no other selectable row.
+    /// </summary>
+    private static int NextSelectableIndex(GatewayColumn column, int from, int direction)
+    {
+        var index = from;
+        for (var i = 0; i < column.Items.Count; i++)
+        {
+            index = (index + direction + column.Items.Count) % column.Items.Count;
+            if (column.Items[index].IsSelectable) return index;
+        }
+        return from;
+    }
+
+    /// <summary>
     /// 🔴 THE REGRESSION LOCK for the arrow guard — the one that matters most, because Up/Down ARE the
     /// Miller-column navigation. With NO dropdown open, Up/Down must still move the cascade highlight exactly as
-    /// they always did. Measured on the Gateway: <c>selIdx 1 → 2</c> on Down, back to <c>1</c> on Up.
+    /// they always did. Re-measured on the Gateway 2026-08-17: <c>selIdx 1 → 2</c> on Down, back to <c>1</c>
+    /// on Up — column <c>[H:Masters | Create | Alter Company | Chart of Accounts | …]</c>. The figure is stated
+    /// as a measurement, so it is re-taken whenever the Gateway's layout moves; the assertion itself does not
+    /// depend on it (see the derived index below).
     /// <para>If the guard is ever written wider than "a picker is OPEN" — on focus, or by widening
     /// <c>IsTyping</c> — this test is what fails, and it fails on the single most-used key pair in the app.</para>
     /// </summary>
@@ -594,9 +613,17 @@ public sealed class KeyboardArbitrationTests
             Assert.True(column.Items.Count > 2, "a one-row column cannot demonstrate movement");
             var start = column.SelectedIndex;
 
+            // The expected landing index is DERIVED, not `start + 1`: arrows skip non-selectable section
+            // headers, so the next row down is only start+1 when no header sits between them. Hard-coding the
+            // arithmetic made this test a hostage of the Gateway's section layout — adding a section anywhere
+            // above the highlight reddened it while the behaviour it guards (Up/Down move the cascade
+            // highlight) was untouched.
+            var nextDown = NextSelectableIndex(column, start, +1);
+            Assert.True(nextDown != start, "the column has only one selectable row");
+
             window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
             Pump(window);
-            Assert.Equal(start + 1, column.SelectedIndex);        // Down moved the cascade highlight
+            Assert.Equal(nextDown, column.SelectedIndex);         // Down moved the cascade highlight
 
             window.KeyPressQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None);
             Pump(window);

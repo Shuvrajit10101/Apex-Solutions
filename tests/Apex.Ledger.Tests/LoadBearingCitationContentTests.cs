@@ -46,7 +46,7 @@ public sealed class LoadBearingCitationContentTests
     {
         // ---- the R12 user gate's evidence: the printer reads the GST State, never the postal one ----
         new("plan.md",
-            "GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:726` is",
+            "GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:731` is",
             "VoucherPrintProjector.cs",
             "StateText(company.Gst?.HomeStateCode)"),
 
@@ -110,6 +110,26 @@ public sealed class LoadBearingCitationContentTests
             "SCHEMA v50 → 51, AND NOTHING READS IT",
             "Schema.cs",
             "CurrentVersion = 51"),
+
+        // ---- W0-2b (the company profile screen): the two claims its register row rests on ----
+        // Added 2026-08-16, following this file's own lesson: point the tool at the code nobody has read yet.
+        // Both of these are statements the census makes about behaviour, and both are one edit away from
+        // becoming false without any other test noticing.
+
+        // The desktop layer's single validation floor. The census row claims the write half is "safe" BECAUSE
+        // this call exists; delete it and the claim is false while the reach check stays green.
+        new("docs/full-clone-census.md",
+            "**The floor that made the write half safe - `CompanyStorage.cs:128`**",
+            "CompanyStorage.cs",
+            "company.EnsureValid()"),
+
+        // The inheritance is a DISPLAY default, and the `??=` is what makes it one. Turning it into `=` would
+        // let a postal field silently overwrite a GST registration — the wrong-tax-head class — and the census
+        // sentence describing it would quietly become a lie.
+        new("docs/full-clone-census.md",
+            "not a stamp - `GstConfigViewModel.cs:583`",
+            "GstConfigViewModel.cs",
+            "HomeState ??="),
     };
 
     private static string RepoRoot()

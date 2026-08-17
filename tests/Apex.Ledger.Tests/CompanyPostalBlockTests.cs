@@ -87,4 +87,39 @@ public sealed class CompanyPostalBlockTests
             party.EnsureValid();
         }
     }
+    // ===================================================================== the second header invariant (W0-2b)
+
+    /// <summary>
+    /// 🔴 <c>EnsureValid</c> ALSO holds <c>BooksBeginFrom &gt;= FinancialYearStart</c>, and it had to, because the
+    /// CONSTRUCTOR could not. Both dates are plain settable properties, so any caller can assign a pair
+    /// <c>new Company(...)</c> would have refused — and <c>SqliteCompanyStore.Load</c> rebuilds the aggregate
+    /// through that very constructor. The measured consequence: a company saved in that state wrote to disk
+    /// without complaint and then threw on the way back IN, leaving the book permanently unopenable with no UI
+    /// recovery. <b>Save and Load now refuse the same states.</b>
+    /// <para><i>Mutation that reddens it:</i> delete the date clause from <c>Company.EnsureValid</c>.</para>
+    /// </summary>
+    [Fact]
+    public void Books_beginning_before_the_financial_year_start_is_refused_by_EnsureValid()
+    {
+        var c = Fresh();
+        c.BooksBeginFrom = FyStart.AddDays(-1);
+
+        var ex = Assert.Throws<ArgumentException>(() => c.EnsureValid());
+        Assert.Contains("earlier than the financial-year start", ex.Message, StringComparison.Ordinal);
+
+        // The constructor's own refusal is unchanged, and worded differently on purpose.
+        Assert.Throws<ArgumentException>(() =>
+            new Company(Guid.NewGuid(), "Impossible Co", FyStart, FyStart.AddDays(-1)));
+    }
+
+    /// <summary>The accepted end of the same rule, so it cannot be satisfied by refusing every pair.</summary>
+    [Theory]
+    [InlineData(0)]      // same day — the ordinary case
+    [InlineData(91)]     // a mid-year books start, which the corpus names explicitly (Book p.13)
+    public void A_books_date_on_or_after_the_financial_year_start_is_accepted(int daysAfter)
+    {
+        var c = Fresh();
+        c.BooksBeginFrom = FyStart.AddDays(daysAfter);
+        c.EnsureValid();          // does not throw
+    }
 }

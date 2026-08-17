@@ -10,16 +10,30 @@ namespace Apex.Ledger.Services;
 /// </summary>
 public static class CompanyFactory
 {
+    /// <summary>
+    /// The financial-year start a creation with NO typed date gets: 1-Apr of the current calendar year.
+    ///
+    /// <para><b>Exposed because a screen has to be able to predict it.</b> The company profile screen refuses
+    /// <c>BooksBeginFrom &lt; FinancialYearStart</c> before anything is created — but on the CREATION path
+    /// there is no aggregate to read the year start from, so the screen has to compare the typed books date
+    /// against the value <see cref="CreateSeeded"/> is about to substitute. Reading it from here rather than
+    /// re-deriving it means the guard and the factory cannot drift apart; when they did, typing only a books
+    /// date earlier than 1-Apr of this year sailed past the screen guard and threw
+    /// <see cref="ArgumentException"/> out of <see cref="Company"/>'s constructor, unhandled, to the UI
+    /// dispatcher.</para>
+    /// </summary>
+    public static DateOnly DefaultFinancialYearStart => new(DateTime.Today.Year, 4, 1);
+
     /// <summary>Creates a fully seeded company.</summary>
     /// <param name="name">Company name (required).</param>
-    /// <param name="financialYearStart">Defaults to 1-Apr of the current working year.</param>
+    /// <param name="financialYearStart">Defaults to <see cref="DefaultFinancialYearStart"/>.</param>
     /// <param name="booksBeginFrom">Defaults to <paramref name="financialYearStart"/>.</param>
     public static Company CreateSeeded(
         string name,
         DateOnly? financialYearStart = null,
         DateOnly? booksBeginFrom = null)
     {
-        var fyStart = financialYearStart ?? new DateOnly(DateTime.Today.Year, 4, 1);
+        var fyStart = financialYearStart ?? DefaultFinancialYearStart;
         var books = booksBeginFrom ?? fyStart;
 
         var company = new Company(Guid.NewGuid(), name, fyStart, books);

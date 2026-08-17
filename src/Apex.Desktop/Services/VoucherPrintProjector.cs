@@ -683,9 +683,12 @@ public static class VoucherPrintProjector
     /// uses, so the two blocks cannot drift apart again.
     /// <para><b>What is and is not a compliance claim here.</b> CGST Rule 46(a) requires "name, address and GSTIN
     /// of the supplier". The <b>GSTIN</b> half is already typeable through the GST — Statutory screen, and the
-    /// <b>address</b> half is <b>still unfixed</b>: no UI anywhere in <c>src/Apex.Desktop</c> writes
-    /// <c>Company.Address</c>, so on every book that exists today this block still carries no Rule 46(a) address.
-    /// That is W0-2b, and it has not shipped. <b>Country and PIN — the two components this method adds — are
+    /// <b>address</b> half became typeable with <b>W0-2b</b> — the Company Creation / Company Alteration
+    /// profile screen (<c>CompanyProfileViewModel</c>) — which
+    /// <c>A_company_created_through_the_screen_prints_a_Rule_46a_compliant_supplier_block</c> proves end to end.
+    /// <b>The fix is not retroactive:</b> a book already on disk carries no address until someone opens Company
+    /// Alteration and types one, so this block still prints empty on every historical company.
+    /// <b>Country and PIN — the two components this method adds — are
     /// TallyPrime-fidelity fields and CA-audit parity with the WI-4 recipient block, NOT compliance fields</b>
     /// (<c>docs/w0-2-company-screen-grounding.md</c> §5.5: "Pin Code, Telephone, Mobile, Fax, E-Mail and Website
     /// are Tally-fidelity fields, not compliance fields").</para>
@@ -703,9 +706,11 @@ public static class VoucherPrintProjector
     /// divergent one "could contradict it and silently produce the wrong tax head". Reading the postal
     /// <c>Company.State</c> here would CREATE that asymmetry, not close one, and
     /// <c>A_company_whose_postal_State_disagrees_with_its_GST_State_prints_the_GST_one</c> pins that. The
-    /// <i>capture</i> question — expose both / suppress the postal one / wire one to the other — remains an open
-    /// R12 user gate (<c>plan.md</c>, W0-2b); this method is deliberately independent of how it is answered,
-    /// because it never reads <c>Company.State</c> under any shape.</para>
+    /// <i>capture</i> question — expose both / suppress the postal one / wire one to the other — is now
+    /// SETTLED as <b>wire one to the other</b>: the postal State is the source of truth, the GST home State
+    /// takes its initial value from it and stays editable, a warning marks any divergence and both columns are
+    /// kept. This method is unchanged by that answer and was always independent of it, because it never reads
+    /// <c>Company.State</c> under any shape.</para>
     /// <para><b>🔴 Recorded departure from the corpus — print ORDER.</b> The rendered block is Address → Country
     /// → PIN → State → GSTIN, because <c>InvoicePdf.DrawPartyBlock</c> draws every address line before the State
     /// line. <b>The corpus orders these Address → State → Country → Pin Code</b>

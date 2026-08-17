@@ -142,12 +142,23 @@ places for amount in words (2).
 
 1. **Contact block.** Study Guide p.59 prose gives Telephone → **E-Mail** → **Mobile** → Fax → Website. The Book
    p.13 gives Telephone → **Mobile** → Fax → **Email** → Website. Both documents are "TallyPrime".
-   🔴 **New, not in the original A14 pass:** the **Study Guide's own worked example at p.268 uses the BOOK's
-   order** — Telephone, Mobile, Fax, E-Mail, Website. So this is not two sources disagreeing; it is one source
-   disagreeing with itself, with its example siding against its prose. The corpus cannot settle it.
+   ⚠️ **CORRECTED 2026-08-17 (W0-2b review, lens 3).** This entry said the **Study Guide's own worked example
+   at p.268 uses the BOOK's order**, and concluded "one source disagreeing with itself". **The example is
+   on the WRONG SCREEN.** Re-extracted this session (`pdftotext -layout -f 267 -l 268
+   696054070-TALLY-PRIME-STUDY-GUIDE.pdf`): p.267 step 3 reads *"In Company Creation screen, press
+   **Alt+R(Group Company)**"* and step 4 reads *"In **Group Company Creation** screen, provide required
+   informations as follows:"* — everything under it, contact fields included, belongs to **Group Company
+   Creation**, which §3 and §5.1 of this document treat as a different screen. **The accurate statement is
+   two primary sources disagreeing** (SG p.59 prose versus Book p.13), which the corpus still cannot settle —
+   so the conclusion (do not ship the contact block on a guessed order) is unchanged, but the evidence for it
+   is one source weaker than this entry claimed.
 2. **Country vs State.** 🔴 **New, not in the original A14 pass:** the Book p.13 lists **Address → State →
    Country → Pin Code**; the Study Guide p.58-59 lists **Address → Statutory Compliance for (Country) → State →
    Pin Code**. The two primaries invert the middle pair.
+   ⚠️ **2026-08-17:** the shipped screen follows the **Book** (State → Country). That is **one primary source
+   chosen over another**, not a conflict the corpus resolved — see the correction on point 1, which removes
+   the p.268 tie-break from this pair too. `docs/full-clone-census.md` row 9 carried the same overstatement
+   and has been corrected with it.
 
 ### 2.2 🔴 Mandatory fields: the corpus never marks any company field mandatory
 
@@ -161,6 +172,11 @@ The absence is **meaningful, not an omission**: the same Study Guide *does* expl
 
 **[V]** SG p.60: "After saving the company, takes you to the Company Features screen, which displays that the
 company is created successfully." **F11 opens automatically after a save.**
+
+🔴 **WE DEPART FROM THIS, and it is recorded rather than quietly dropped (§9 item 21).**
+`MainWindowViewModel.OpenCompany` calls `ShowGateway()`; there is no F11 hand-off anywhere in `src/`, and
+`docs/tally-feature-catalog.md` §2 states the same behaviour this page does. Two sources agree against the
+shipped screen — this is the strongest-evidenced open departure on the company surface.
 
 ---
 
@@ -377,18 +393,18 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:721-727` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:723-729` `SellerBlock`:
 
 - `Name` = `CompanyDisplayName` (`:676-677` — MailingName falling back to Name, **matching Tally's convention
   exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:724`) — **changed by W0-2a.**
-  `SupplierPostalAddressText` (`:742-745`) returns `null` unless `company.Address` is non-blank, and otherwise
+  (`VoucherPrintProjector.cs:729`) — **changed by W0-2a.**
+  `SupplierPostalAddressText` (`:744-747`) returns `null` unless `company.Address` is non-blank, and otherwise
   defers to the shared `PostalAddressText` (`:822-829`), which appends Country then `"PIN: " + Pin`, each
   skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:726`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:731`) — **unchanged; still never `company.State`.**
 
 Called from `:399` (item pass) and `:520` (service pass). `SplitAddress` (`:855`) returns `Array.Empty` on
 null/whitespace.
@@ -614,7 +630,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:726`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:731`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
@@ -724,6 +740,142 @@ session inventing.*
     block's printed order too — a second statutory-document change that belongs in its own slice with its own
     grounding. **Deferred to W0-2b as an explicit follow-up**; recorded here and in `SellerBlock`'s doc comment
     so it is not silently inherited.
+
+### New entries — 12 to 23, added 2026-08-16 when the Create/Alter screen was built
+### (items 21-23 and four corrections added 2026-08-17 after the three-lens review)
+
+*Numbering continues from 11 so the two lists concatenate without collision. Items 1–9 and 11 remain **open**
+and the screen closes none of them; item 10 is closed. Three of the existing entries became **load-bearing**
+while this screen was designed, and that is recorded first, because an unsourced entry that is being LEANT ON
+is more dangerous than one merely still open:*
+
+- **Item 9 (the contact-block field order) is now load-bearing.** It is the reason the five contact fields
+  (Telephone No · E-Mail · Mobile No · Fax No · Website) are **out of scope** and the screen simply does not
+  show them. The two primary sources give different orders **and one of them contradicts its own worked
+  example**, so shipping five fields would force an order the corpus does not support into a screen whose
+  whole justification is corpus fidelity. **Do not ship them by picking an order.** They are also fidelity
+  rather than compliance — Rule 46(a) is *name, address and GSTIN* — so nothing statutory waits on them.
+- **Item 2 (which fields become non-editable after creation) is why the two book-date fields are editable
+  with a warning** rather than locked. No source says any company field locks after creation, so a lock would
+  be inventing a restriction; letting them move silently on a book that already has vouchers is a
+  wrong-figures hazard, because every period report is keyed off them. The middle course is a project
+  decision — **and the warning itself is unattested; see item 14.**
+- **Item 6 (undocumented Base-Currency defaults) is why the three currency-formatting toggles are out**
+  (Suffix Symbol to Amount · Add space between amount and symbol · Show amount in Millions), even though they
+  would be cheap: shipping them means inventing their defaults.
+
+**12. Whether TallyPrime warns when the postal State and the GST State disagree, and what it says.**
+The corpus attests the **default** — the GST Details State *"by default shows the State name as selected in the
+Company Creation screen"* (`664311548-Tally-Prime-Book.pdf` PDF p.177) — and a standing exhortation on the same
+page, *"In company creation time State must be selected right."* **It says nothing about what happens when the
+two diverge.** The consistency guard, its two-screen placement and its exact wording are **entirely a project
+decision made under the R12 ruling**, not fidelity. Nothing in this build may be cited as evidence that
+TallyPrime warns.
+
+**13. Whether TallyPrime's Company Creation State list is the same list as its GST state-code list.**
+The corpus says only *"State (from a list)"* (§2 field 6) and never enumerates the Company Creation list. The
+postal picker is bound to the GST state-code master — codes 01–38 plus 97, and deliberately neither 96 nor 99.
+**Whether TallyPrime's postal list is that same set, a superset (a foreign postal address), or free text with a
+lookup is UNVERIFIED.** The consequence is concrete: under this build a company **cannot record a non-Indian
+postal State**, and that restriction is ours.
+
+**14. Whether TallyPrime warns before changing "Financial year begins from" / "Books beginning from" on a book
+that already has vouchers.** Item 2 records that no source says the fields lock. **No source says anything about
+a warning either.** The advisory shown on alteration is a project decision.
+
+**15. Whether TallyPrime's Company Alter screen permits changing the company NAME, and what it does to the data
+folder if it does.** The Book states Alter's purpose as editing *"company address or contact number or email and
+other any information"* (p.15) — it neither includes nor excludes the Name. The Name is display-only on
+alteration here for a **storage** reason of ours: the `.db` filename **is** the company name, and the
+company-select list takes each display name back from the filename, so a rename without a file move would fork
+the book into two files with no error. **If a later session finds that TallyPrime does support rename, this is a
+gap to close, not a decision to defend.**
+
+**16. The accept confirmation's shape on the Company screen.** The corpus gives **both** `Ctrl+A` (Book p.14;
+SG p.268) and **Enter-then-Enter** (SG p.60) and, per §6, does not reconcile them. This application's shipped
+convention is `Ctrl+A` **or** Enter → **`Accept …? (Y/N)`** → `Y`. **The second key is `Y`, not `Enter`, and that
+divergence is ours across all the existing master screens**; the company screens joined the same list for
+consistency. **UNVERIFIED whether TallyPrime's company screen has a Y/N prompt at all.**
+
+**17. The route to Company Alter, and where the row sits.** The corpus route is `Alt+K` → the **company menu** →
+Alter (Book p.15 [V]; SG p.61 [V] *"press Alt+K and open the company menu → Click ALTER option in it"*;
+SG p.267 step 2 [V] *"press Alt+K (Company) Create"*). We ship **no accelerator**.
+
+⚠️ **CORRECTED 2026-08-17 — the reason first recorded here was wrong.** It said `Alt+K` *"is already bound in
+this application to the saved-views list"*. Measured: `src/Apex.Desktop/Views/MainWindow.axaml.cs:653` binds it
+as `e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext` — **report context only**,
+and on the Gateway root column, where this row lives, `Alt+K` is **unbound**. The dispatcher already scopes that
+chord by context, so a Gateway-scoped one would follow the existing pattern rather than create the arbitration
+hazard the old wording cited.
+
+**The honest reason is scope: the attested route is a chord that opens a COMPANY MENU, and we have no company
+menu.** Binding `Alt+K` straight to this one page would be an invented shortcut wearing an attested chord —
+worse than none, because it would read as fidelity. **The company menu (Create / Select / Alter / Shut, SG
+p.61) is OWED, not refused.**
+
+**Placement — also corrected 2026-08-17.** The row shipped under a NEW **Company** section placed **above**
+Masters. `docs/invented-vs-cloned.md` **IV-29** already catalogues this Gateway as invented, names *"the menu
+GREW A SECTION PER PHASE"* as the cause, and prescribes *"add 'Alter' to MASTERS"* — so the first shipped
+shape was three moves in the direction the register says is wrong, and it silently moved the Gateway's default
+keyboard highlight off Masters → Create for every entry into the screen. **"Alter Company" now sits under
+MASTERS.** The remaining divergence is recorded in IV-29: TallyPrime's Masters → Alter is a *master*
+alteration submenu, whereas our row alters the *company*.
+
+**18. Whether TallyPrime's printed supplier block follows its capture order.** Item 11 already records that the
+corpus contains **no supplier-block print specimen**, so the capture orders are indicative only. **A new fact
+belongs on that entry:** the capture screen puts **State before Country**, following the **Book p.13** (and
+against the Study Guide's prose — see the 2026-08-17 correction at §2.1, which withdraws the p.268 example as a
+tie-break because it is the Group Company Creation screen), while the printer emits **Country before State**.
+**Capture order and print order now differ deliberately, and the corpus cannot say whether that is right.**
+Recorded so a later reader does not read the mismatch as an accident. Aligning them still means moving the State
+into the shared address builder and therefore changing the shipped **recipient** block too — the reason item 11
+deferred it in the first place.
+
+**19. What "Mailing Name" does on ALTER when it was never separately set.** The corpus says it auto-fills from
+Name **at creation** and is editable (§2 field 3), and the constructor does the same. **It is silent on whether
+TallyPrime re-syncs Mailing Name when the Name changes on Alter.** Moot while the Name is display-only — **it
+stops being moot the day rename ships**, which is why it is recorded now.
+
+**20. Whether TallyPrime persists a company-level State independently of the GST one at all.** The ruling keeps
+both columns and makes the postal one the source of truth. **The corpus shows one State field on Company
+Creation and one on GST Details, and describes the second as defaulting from the first — it never says whether
+the second is STORED separately or merely displayed.** Both are stored and round-tripped here. **The ruling
+settles what WE do; it does not settle what TallyPrime does**, and this build must not be read as evidence of
+the latter.
+
+🔴 **2026-08-17 — THIS ENTRY WAS BEING CONTRADICTED BY THE CENSUS.** `docs/full-clone-census.md` row 9 listed
+the display-versus-stamp shape under *"What IS sourced"*, citing this same Book p.177 sentence — while this
+entry, written by the same slice, said the corpus *"never says whether the second is STORED separately or
+merely displayed"*. **This entry is the correct one.** The corpus attests the DEFAULTING; the display-not-stamp
+shape is ours, and its actual evidence is internal — the store binds `gst_home_state` whenever a `GstConfig`
+object exists but rebuilds it only when `gst_enabled = 1` (`GstConfigViewModel.cs:565-583`). The census row has
+been corrected to cite the store asymmetry instead.
+
+**21. Whether the post-save hand-off to F11 Company Features is required, and what happens if it is skipped.**
+This one is **not** unverified — it is a **recorded DEPARTURE**, filed here because §9 is where a later session
+looks. SG p.60 [V] says saving takes you to the Company Features screen, and `docs/tally-feature-catalog.md` §2
+says the same; `MainWindowViewModel.OpenCompany` goes to the Gateway and there is no `ShowCompanyFeatures`
+anywhere in `src/`. Two sources agree against us. **Not fixed in W0-2b** — routing creation into the F11
+statutory page changes the first-run flow of every fixture and every existing book, which is its own slice —
+but it must not be read as unnoticed.
+
+**22. The field LABELS — closed 2026-08-17, and the two that remain ours.** Six of the twelve shipped labels
+originally matched neither primary source ("Year begins from", "Books begin from", "Symbol", "Decimal
+places", "Decimal unit"), and the census claimed the field set and screen order as sourced while saying
+nothing about labels. The screen now uses the corpus wording verbatim: **Financial year begins from** ·
+**Books beginning from** · **Base Currency symbol** · **Formal Name** · **Number of decimal places** ·
+**Word representing amount after decimal** (Book pp.13-14; SG pp.59-60). **Two remain a CHOICE between the two
+primaries, not a departure:** we ship **"Name"** (SG p.58) where the Book p.13 says *"Company Name"*, and
+**"Country"** (Book p.13) where the SG p.59 says *"Statutory Compliance for"* — the latter chosen for the
+same reason as the State/Country order, i.e. the Book, and it is a choice rather than evidence.
+
+**23. What `Esc` does on a half-typed Company Creation screen.** Item 5 records that the corpus does not
+describe Escape's behaviour on this screen. **The cost of ours changed with this slice and was not revisited:**
+`Esc` on Company Creation returns to Company Select (`MainWindowViewModel`, `case Screen.CreateCompany`), and
+re-entering calls `ResetCreateCompanyProfile()`, so eleven typed fields are discarded with no confirmation
+where one field used to be. **Unchanged by W0-2b deliberately** — a confirm-on-discard prompt is a
+keyboard-contract decision that belongs with the keyboard slice, not with an address-capture one — but the
+cost is now eleven fields, and that is recorded rather than inherited silently.
 
 ---
 

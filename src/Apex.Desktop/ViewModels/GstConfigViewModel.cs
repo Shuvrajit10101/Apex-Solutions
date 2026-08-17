@@ -561,6 +561,26 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         LoadBonusFromCompany();
         Gstin = cfg?.Gstin ?? string.Empty;
         HomeState = HomeStates.FirstOrDefault(o => o.Code == cfg?.HomeStateCode);
+        // INHERIT — with no GST State recorded yet, DISPLAY the company's postal State as the default, which is
+        // what the reference product does ("by default SHOWS the State name as selected in the Company Creation
+        // screen"). Shows, not stores: nothing is persisted until the operator applies this screen.
+        //
+        // 🔴 THE SEED MUST NOT BE A CREATION-TIME STAMP, and the reason is a silent data loss in the store. The
+        // write binds gst_home_state whenever a GstConfig object exists, regardless of Enabled; the READ
+        // reconstructs GstConfig only when gst_enabled = 1. So a HomeStateCode stamped onto a GST-off company
+        // is discarded by the very next load, and then overwritten with NULL by the following save — the same
+        // shape as the migration back-fill that the ordinary save path was erasing, one column across. Seeding
+        // HERE, as a display default, means this slice adds NO new writer of gst_home_state: the single writer
+        // is still Apply, behind the GSTIN validation and the null-State refusal.
+        //
+        // `??=` and the placement after the two lines above are the precedence ladder, highest first:
+        //   1. a STORED HomeStateCode  — the company's recorded registration;
+        //   2. the GSTIN just typed    — its leading two digits ARE the registration State (OnGstinChanged
+        //                                fires from the Gstin assignment above, so it has already run);
+        //   3. the postal State        — this line, reached only when 1 and 2 left it null.
+        // Turning `??=` into `=` would make a postal field silently overwrite a statutory one, which flips
+        // intra- vs inter-state supply on every subsequent invoice.
+        HomeState ??= HomeStates.FirstOrDefault(o => o.Code == IndianState.FromName(_company.State)?.Code);
         RegistrationType = RegistrationTypes.FirstOrDefault(o => o.Value == (cfg?.RegistrationType ?? GstRegistrationType.Regular))
                            ?? RegistrationTypes.First();
         Periodicity = Periodicities.FirstOrDefault(o => o.Value == (cfg?.Periodicity ?? GstReturnPeriodicity.Monthly))
@@ -628,8 +648,33 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The composition sub-type changed — refresh the advisory rate/threshold display.</summary>
     partial void OnSelectedCompositionSubTypeChanged(CompositionSubTypeOption? value) => RefreshCompositionAdvisory();
 
-    /// <summary>The home state changed — refresh the advisory threshold (the special-category states carry ₹75 L).</summary>
-    partial void OnHomeStateChanged(IndianStateOption? value) => RefreshCompositionAdvisory();
+    /// <summary>The home state changed — refresh the advisory threshold (the special-category states carry ₹75 L)
+    /// and the postal-State divergence advisory below.</summary>
+    partial void OnHomeStateChanged(IndianStateOption? value)
+    {
+        RefreshCompositionAdvisory();
+        OnPropertyChanged(nameof(PostalStateAdvisory));
+    }
+
+    /// <summary>
+    /// The postal-State / GST-registration-State advisory, or empty when there is nothing to say —
+    /// <b>the same computation the company profile screen shows, from the same shared helper</b>.
+    ///
+    /// <para><b>Why this half exists.</b> Either screen can create the divergence: the profile screen by moving
+    /// the postal State, this one by moving the Home State away from it. Warning on only one of them would
+    /// announce the divergence when it is created from the advisory side and stay silent when it is created
+    /// from the STATUTORY side — which is the side that decides the tax head. It is computed against the
+    /// picker's current value, not the stored config, so it appears while the operator is still choosing.</para>
+    ///
+    /// <para>Silent while the GST toggle is off, for the same reason the profile screen is silent on a GST-off
+    /// company: with no registration there is no second State to disagree with, and a warning on every book
+    /// that does not use GST would be noise on most of them.</para>
+    /// </summary>
+    public string PostalStateAdvisory =>
+        GstEnabled ? CompanyStateConsistency.Advisory(_company.State, HomeState?.Code) : string.Empty;
+
+    /// <summary>The GST toggle moved — the divergence advisory is scoped to GST being on.</summary>
+    partial void OnGstEnabledChanged(bool value) => OnPropertyChanged(nameof(PostalStateAdvisory));
 
     /// <summary>Raises change notifications for the advisory composition rate + threshold text.</summary>
     private void RefreshCompositionAdvisory()

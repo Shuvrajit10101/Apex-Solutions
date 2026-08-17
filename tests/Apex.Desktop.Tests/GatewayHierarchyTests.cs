@@ -48,14 +48,17 @@ public sealed class GatewayHierarchyTests : IDisposable
     {
         var vm = NewSeededCompany("Sections Co");
 
-        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there. "Data" is
-        // the backup/restore carve-out — a first-class section, because a safety net nobody can find is not a
-        // safety net).
+        // Exactly the section headers, in order (Statutory sits under Masters; GST config lives there. "Data"
+        // is the backup/restore carve-out — a first-class section, because a safety net nobody can find is not
+        // a safety net). NO section was added for the company profile: `docs/invented-vs-cloned.md` IV-29
+        // records that this menu's fault is having GROWN A SECTION PER PHASE, and prescribes putting "Alter"
+        // under MASTERS — which is where "Alter Company" sits.
         Assert.Equal(new[] { "Masters", "Statutory", "Transactions", "Reports", "Data" }, HeaderLabels(vm));
 
         // Each section's items are present and reachable as selectable rows.
         var items = ItemLabels(vm);
         Assert.Contains("Create", items);              // Masters
+        Assert.Contains("Alter Company", items);       // Masters — the company profile (W0-2b)
         Assert.Contains("Chart of Accounts", items);   // Masters
         Assert.Contains("GST & Taxation", items);      // Statutory (F11 config — GST + TDS/TCS + Payroll/§192 salary-TDS)
         Assert.Contains("Vouchers", items);            // Transactions
@@ -71,7 +74,7 @@ public sealed class GatewayHierarchyTests : IDisposable
     {
         var vm = NewSeededCompany("Header Co");
 
-        // The first row is the MASTERS header — non-selectable — so selection lands below it.
+        // The first row is a section header — non-selectable — so selection lands below it.
         Assert.True(vm.Menu[0].IsHeader);
         Assert.False(vm.Menu[0].IsSelectable);
         Assert.True(vm.Menu[vm.SelectedIndex].IsSelectable);

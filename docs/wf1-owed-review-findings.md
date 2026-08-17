@@ -4,10 +4,19 @@
 lenses, fixed forward on top of `e49b88e`, landed as `31c476b`). Its finding count was then quoted three
 times and **counted zero times**. ⚠️ The first draft of this sentence said "quoted three times" and then
 enumerated two — an uncounted number, in the one file whose whole thesis is that figures must carry the count
-that produced them. A12 caught it on review. **Enumerated, the wrong split reached FOUR sites**: the fix-agent
-brief (which said "15 MAJOR"), `plan.md`, `memory.md`, and — permanently, because the branch is pushed and no
-amend is permitted — the commit body of `31c476b`, which will always read "14 MAJOR, 19 MINOR" with no marker
-on it. The true split is **18 MAJOR, 14 MINOR**. The correction landed in `4cf5501` — but A12 observed
+that produced them. A12 caught it on review. **Enumerated: FOUR sites carried an uncounted MAJOR/MINOR split, and THREE of them
+carried the same wrong one.** `plan.md`, `memory.md` and — permanently, because the branch is pushed and no
+amend is permitted — the commit body of `31c476b` all read "14 MAJOR, 19 MINOR"; the fix-agent brief carried a
+*different* uncounted figure, "15 MAJOR". The true split is **18 MAJOR, 14 MINOR**.
+
+⚠️ **AND THE CHAIN RAN ONE ROUND FURTHER, WHICH IS THE POINT OF THIS PARAGRAPH.** The commit that added the
+pointers asserted a `grep` result — that it "now returns `plan.md`, `memory.md` and the file itself" — without
+running it. It returns **two** files: a content grep lists files whose CONTENT matches, and this file does not
+contain its own name. The pointer defect was real and is closed (0 → 2 pointers); only the arithmetic
+describing it was assumed. That claim survives, uncorrectable, in the body of `750d27a`.
+**⇒ Six times in one session a plausible figure propagated because it LOOKED measured, and the last two
+occurred inside the remedy for the first four. The defence is not care — it is putting the figure next to a
+derivation something can re-run. That is what this file is for; it is not a claim that the habit is cured.** The correction landed in `4cf5501` — but A12 observed
 that the corrected figure was *still* only a quoted number, because the lens records lived in agent output
 and no tracked file in this repository could re-derive it. **That is the same failure mode one level out.**
 This table is the derivation. Re-count it rather than quoting the header.
