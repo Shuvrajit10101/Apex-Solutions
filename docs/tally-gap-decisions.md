@@ -30,7 +30,7 @@
 >   `a12e651` (schema v50): the hard block is deleted, `Company.cs:268 WarnOnNegativeStock = true`,
 >   `InventoryPostingService.cs:176` detects without throwing. **But the warning has no consumer and the flag has
 >   no UI** (zero `src/Apex.Desktop` hits for either) — so "warn-only" warns nobody. **And "three attempts" is out
->   of date: `docs/NEXT_SESSION_KICKOFF.md:113-146` records EIGHT**, plus a sourcing finding that changes the
+>   of date: `docs/NEXT_SESSION_KICKOFF.md:192-205` records EIGHT**, plus a sourcing finding that changes the
 >   answer — TallyPrime's Average Cost has **no repayment model at all**, so the fix is to *delete* the invented
 >   machinery, and the project's own oracle (`RunAverageDebtAware`) implements the refuted model and will reject a
 >   correct engine. **Do not act on D14's option table without reading that section first.**

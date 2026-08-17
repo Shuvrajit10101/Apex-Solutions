@@ -66,7 +66,8 @@ Rewritten **2026-08-17**, in full.
 > **▶ WHAT IS NEXT.** **(a) Phase 10.11 — voucher lifecycle (alter · delete · cancel).** Ruling 6. **Its W0-7
 > prerequisite is ALREADY DISCHARGED** — `1de940e` (2026-08-10) extended `PopulatedCompanyFixture` to post
 > 23 of 23 seeded base kinds; the ruling that said W0-7 must ship first was built on a census figure ten days
-> stale and is superseded in place. **A PARTIAL design already exists** — `docs/design-records/`. **(b) The
+> stale and is superseded in place. **A COMPLETE design already exists — BUILD FROM IT, DO NOT REDO IT:**
+> `docs/design-records/phase-10-11-voucher-lifecycle-design.md`, **1,377 lines, all 12 sections**. **(b) The
 > print engine, in parallel**, under Trap 3's worktree rule. **(c) Then W0-3** (Restore reachable from Company
 > Select) **and W0-5** (negative-stock warn toggle + e-Way config editor), which were deferred behind the
 > lifecycle slice.
@@ -77,9 +78,12 @@ Rewritten **2026-08-17**, in full.
 > substitute for. **Ask me; do not guess, and do not work around them.**
 >
 > **▶ THE PRESERVED DESIGNS ARE IN `docs/design-records/`** — the W0-2b design, the W0-7 audit, and the
-> **Phase 10.11 design, which is PARTIAL** (its filename says so and so does its own section index — it is not
-> a finished design and must be completed before it is built). All three are **historical snapshots**: their
-> pointers were rewritten to `file.ext line NN` on purpose and are **not maintained**. Re-derive before use.
+> **Phase 10.11 design, which is COMPLETE** — `phase-10-11-voucher-lifecycle-design.md`, **1,377 lines, all
+> 12 sections** (§0–§11 plus the R12 appendix), as its own opening line declares. **Build from it; do not redo
+> it.** *(An earlier `…-design-PARTIAL.md` was the main loop snapshotting that same agent's part-written output
+> mid-run; the finished file REPLACED it, and no `PARTIAL` token survives in the committed filename.)* All
+> three are **historical snapshots**: their pointers were rewritten to `file.ext line NN` on purpose and are
+> **not maintained**. Re-derive before use.
 >
 > **▶ Clone, never invent.** The corpus is readable from every worktree via a `tally` junction. Use
 > `pdftotext -raw` as the second pass on any tabular page — `-layout` scrambles multi-column tables.
@@ -229,7 +233,7 @@ The session scratchpad does not survive the session, so three records were copie
 |---|---|---|
 | `w0-2b-company-screen-design.md` | the Company Create/Alter design | shipped as `f66253c` |
 | `w0-7-fixture-audit.md` | the `PopulatedCompanyFixture` audit | its **R-5** is assigned to W0-6's open remainder |
-| `phase-10-11-voucher-lifecycle-design-PARTIAL.md` | the voucher-lifecycle design | 🔴 **PARTIAL — not a finished design** |
+| `phase-10-11-voucher-lifecycle-design.md` | the voucher-lifecycle design | **COMPLETE — 1,377 lines, all 12 sections; Phase 10.11 is built FROM it** |
 
 **All three are HISTORICAL SNAPSHOTS.** Two mechanics are deliberate and must not be "tidied": every
 `file.ext:NN` pointer was rewritten to `file.ext line NN` so the citation invariant does not read them as live
@@ -264,6 +268,39 @@ saying so. The live, maintained pointers are in `plan.md` and `memory.md`, which
   browser retrieves them, and `curl` fetched the INV-01 schema xlsx directly. State which method you used.
 - **Do NOT open `C:\Users\dkpho\Downloads\Tally7.2`** — cracked, and the wrong product. The 9 obsolete-by-law
   pre-GST capabilities (VAT, CST, Service Tax, Excise) **will not be built** — user ruling, 2026-08-10.
+
+---
+
+## THE EIGHT DIVERGED RULES — the register this file deleted on 2026-08-17
+
+🔴 **The 2026-08-17 rewrite of this file DROPPED the eight-row list, and both `memory.md` and `plan.md` recorded
+that the list lived *only* here — so the rewrite destroyed the sole register of eight known divergences.** It is
+restored below from **`plan.md`'s W0-11 entry, which is the authoritative record** (its own words: *"this entry
+… is now their only surviving register"*). **Read W0-11 before acting on any row** — every row there carries the
+file:line evidence this table deliberately does not repeat.
+
+**Never cite a bare D-number.** Three registers in this repo number rows D1…D8 and they collide —
+`docs/tally-fidelity-defects.md` and `docs/tally-gap-decisions.md` are the other two — and `plan.md` also
+numbers the **drift locks** D1…D8, which is a fourth use. The letters below are the stable key; the D-numbers
+are only those `plan.md` itself attaches.
+
+| row | the rule | verdict, as `plan.md` W0-11 states it |
+|---|---|---|
+| **(a)** *D1* | pro-rata apportionment | **CLOSED.** One home, `src/Apex.Ledger/ProRata.cs`; the three private copies are one-line delegations. The premise it opened on — a live divide-by-zero in a filed return — is **REFUTED**: the caller-side guards `continue` first, so D1 changed no answer and is a pure de-duplication. |
+| **(b)** *D2* | Indian digit grouping (3;2;2) vs Western | **CLOSED, with one surviving site.** `src/Apex.Ledger/IndianMoneyFormat.cs`, its culture frozen read-only so the rule cannot be rewritten from anywhere. **Carry-forward (d):** one money site in `ForexReportViewModel` still prints Western-grouped and escapes all four locks — and whether a FOREIGN-currency balance should be Indian-grouped at all was never asked. |
+| **(c)** *D3* | rupees → integer paisa | **CLOSED.** `src/Apex.Ledger/PaisaConversion.cs`, deliberately **one rule with two named answers**: `ToPaisaExact` REFUSES a sub-paisa amount at a persist/export boundary, `ToPaisaRounded` quantises a derived report or set-off figure. Truncation is banned outright. |
+| **(d)** | `IsInterState` | **UNTOUCHED by W0-11, and one of the two rows where the copies genuinely disagree today** — two live implementations differing on the null-home case, no drift lock over either. It is **carry-forward (b)**, whose R12 ruling is **(B) refuse at the routing call**, and `plan.md` assigns the discharge to **W0-15**. |
+| **(e)** | place of supply | **UNTOUCHED by W0-11** — three derivations, so a B2C inter-state supply with no recorded party State gets the home code from one and a blank from another. Deciding it is **statutory, not de-duplication**. Same carry-forward (b), same W0-15 discharge. |
+| **(f)** *D6* | `ApplyRounding` | **REFUSED WITH REASONS, and the refusal is only partly complete.** The two implementations genuinely differ on negatives — interest rounds the MAGNITUDE, payroll is SIGNED — across different enums and different statutory domains, so unifying them would have silently changed one domain's arithmetic. **Carry-forward (e):** only the INTEREST half is pinned, so converting the payroll side would still pass green. |
+| **(g)** *D7* | HSN/SAC sentinel | **CLOSED BY DESIGN.** The resolution ORDER is single-homed in `GstReportSupport`; the **sentinel is kept different per consumer on purpose** — the GSTR-1 bucket label, the INV-01/EWB-01 payloads and the printed invoice each need a different absence — and each is now pinned by its own test. |
+| **(h)** *D8* | basis-point rate format | **REFUSED WITH REASONS, two-thirds discharged.** The reported defect is a **FALSE POSITIVE** — every `RateBasisPoints` is an `int`, so the un-representable rate it was raised on cannot occur. **Carry-forward (c):** ten host-culture-bound `$"{x:0.##}"` rate renderings survive, and one half-rate site genuinely CAN carry a third decimal, which the exhaustive proof never covered. |
+
+**W0-11's own tally: 3 CLOSED · 1 CLOSED BY DESIGN · 2 REFUSED (both refusals partial) · 2 UNTOUCHED** — its
+summary sentence is *"3 of 8 closed, and the two most consequential rows are still open."*
+⚠️ **That sentence pre-dates W0-15.** `plan.md` is internally inconsistent on rows (d)/(e): carry-forward (b) is
+marked **IN PROGRESS** while W0-15's own row reads **✅ DONE 2026-08-15**. **Re-derive from W0-15 before you rely
+on either**, and note W0-15 explicitly did NOT unify the INV-01 limb, left the printed blank blank, and took no
+schema version — the party-State snapshot it spawned is a separate, still-open slice.
 
 ---
 

@@ -446,7 +446,7 @@ are no longer open defects — they are kept for the record, with the fixing com
 > two possible answers prescribe **different** replacements and there is no safe interim (hedging toward per-annum
 > would move a live figure *further* from the corpus answer, and `DaysInYear` would collapse Calendar Month into
 > Calendar Year). **T8 is the blocking user measurement** — ₹44,000 at 10%, Per = 30-Day Month, 30-day window
-> (`docs/NEXT_SESSION_KICKOFF.md:154-156`; §6 U-2 below). **(3) One sub-claim is now FALSE:** *"the code contradicts
+> (`docs/NEXT_SESSION_KICKOFF.md:221-222`; §6 U-2 below). **(3) One sub-claim is now FALSE:** *"the code contradicts
 > its own domain doc"*. `InterestPer.cs` was rewritten — `CalendarMonth` is now at `:48` and its doc at `:39-47`
 > states the real behaviour: *"⚠ Resolves to that month's length × 12 today — 336, 348, 360 or 372 — which is not a
 > real period length and is the defect IV-8b records."* The paraphrase formerly at `:56-58` no longer exists.
@@ -486,7 +486,7 @@ are no longer open defects — they are kept for the record, with the fixing com
 > **(b) There is no control surface for the flag** — zero `WarnOnNegativeStock` hits in `src/Apex.Desktop`, so a
 > company that wants the block back cannot ask for it. Both are tracked as `docs/NEXT_SESSION_KICKOFF.md` queue
 > item 4 (W0-5). **The valuation half (NS-8) is untouched and still blocked** — see
-> `docs/NEXT_SESSION_KICKOFF.md:113-146`: eight reverted attempts, and the fix is now believed to be *deleting*
+> `docs/NEXT_SESSION_KICKOFF.md:192-199`: eight reverted attempts, and the fix is now believed to be *deleting*
 > the invented repayment model rather than writing a ninth.
 
 | | |
@@ -1263,7 +1263,7 @@ Recorded so that a future session does not "restore fidelity" by undoing a good 
 
 > **† 2026-08-15 — four of these now have a formal home, and one is being acted on.** The blocking measurements
 > are scheduled as named test books in `docs/tallyprime-valuation-test-books.md` and listed under
-> **"BLOCKED ON USER MEASUREMENT"** in `docs/NEXT_SESSION_KICKOFF.md:148-161`:
+> **"BLOCKED ON THE USER"** in `docs/NEXT_SESSION_KICKOFF.md:213-224`:
 > **U-2 ⇒ T8** (₹44,000 at 10%, Per = 30-Day Month, 30-day window — ₹4,400 ⇒ per period, ~₹366 ⇒ per annum).
 > **The `DaysInMonth × 12` arm is live in `c408037` DELIBERATELY, pending T8** — see the gate at
 > `InterestCalculation.cs:157-183` and the † note on IV-8. **U-3 / rateless-inward and the valuation questions

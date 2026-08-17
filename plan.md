@@ -2538,8 +2538,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     another exception to it.
   - **▶ THE FOUR RULES, AND WHERE EACH NOW LIVES — 46 files, +2000/−113, 11 new files, 0 deleted, schema-clean.**
     `Schema.cs` is not in the diff and `Schema.CurrentVersion` is still **50**
-    (`src/Apex.Persistence.Sqlite/Schema.cs:146`). **⚠️ THE D-NUMBERS IN THIS ENTRY ARE THE DIVERGED-RULE ids from
-    `docs/NEXT_SESSION_KICKOFF.md:93-98` AND THEY COLLIDE WITH TWO OTHER REGISTERS** — `docs/tally-fidelity-defects.md`
+    (`src/Apex.Persistence.Sqlite/Schema.cs:146`). **⚠️ THE D-NUMBERS IN THIS ENTRY ARE THE DIVERGED-RULE ids** (their eight-row list lived in
+    `docs/NEXT_SESSION_KICKOFF.md` until that file was rewritten in full on 2026-08-17, which dropped it; the rows
+    enumerated below are now the register) **AND THEY COLLIDE WITH TWO OTHER REGISTERS** — `docs/tally-fidelity-defects.md`
     (its D1 = Single Entry, D3 = bill reference, D4 = opening balance, D7 = negative stock) and
     `docs/tally-gap-decisions.md` (its D3 = goods-return stock parity, D12/D13 = the backup carve-out). **Never cite a
     bare D-number.** **D1 pro-rata apportionment ⇒ `src/Apex.Ledger/ProRata.cs`** (`Rupees` :44 decimal, `Paisa` :52
@@ -2589,9 +2590,10 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `ProRata.cs` anywhere under `src/` is silently exempt; the locks are **line-oriented regexes** and, as the file
     admits at `:26-28`, a restructured copy walks past; and **the scan does not cover `tests/`**.
   - **▶ WHAT THE SLICE DID NOT CLOSE — stated because overstating closure is the failure this project keeps making.**
-    The census list of eight diverged rules lives at `docs/NEXT_SESSION_KICKOFF.md:93-98` (**it is NOT in
-    `docs/full-clone-census.md` — grepped, zero hits for "diverged"**, so the eight rows are not census rows and this
-    entry is their only plan-side record). Verdicts, each re-checked against current source: **CLOSED 3** — (a)
+    The list of eight diverged rules lived in `docs/NEXT_SESSION_KICKOFF.md` until the **2026-08-17 full rewrite of
+    that file dropped it** (**it was never in `docs/full-clone-census.md` either — grepped, zero hits for
+    "diverged"**, so the eight rows are not census rows and this entry, no longer merely their only plan-side record,
+    is now their **only surviving register**). Verdicts, each re-checked against current source: **CLOSED 3** — (a)
     apportionment, (b) Indian-vs-Western grouping *with one surviving site, see (d) below*, (c) rupees→paisa.
     **CLOSED BY DESIGN 1** — (g) the HSN sentinel: the resolution ORDER is single-homed, the **sentinel is
     deliberately kept different per consumer** (`"(none)"` for the GSTR-1 bucket label · `""` for the INV-01 and
@@ -3540,8 +3542,9 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **`:513`**; `GstReportsViewModelTests.cs:336-350` is the method body, the test including its `[Fact]` is
     **`:335-351`**; and `OneRuleDriftLockTests.cs`'s "honest limits" paragraph is **`:26-28`**, not `:25-28`.
     **Every other `file:line` in this row was re-opened at `7a35308` and holds.**
-  - **W0-16 (opened by W0-14's findings; `docs/NEXT_SESSION_KICKOFF.md:128-129` asked for it and nothing in
-    `plan.md` carried it, so it gated nothing) A DOC-VS-CODE CI CHECK — UNTIL 2026-08-15 NO TEST IN THIS
+  - **W0-16 (opened by W0-14's findings; the kickoff asked for it and nothing in
+    `plan.md` carried it, so it gated nothing — that ask is gone, and the 2026-08-17 rewrite records the check as
+    shipped instead, at `docs/NEXT_SESSION_KICKOFF.md:143`) A DOC-VS-CODE CI CHECK — UNTIL 2026-08-15 NO TEST IN THIS
     REPOSITORY READ A `.md` FILE** — **✅ DONE, PARTIAL SCOPE. Two of the row's three invariants shipped; the
     third did not, and is named below rather than left to be discovered.**
     **▶ WHAT SHIPPED, AND WHERE IT IS.** `tests/Apex.Ledger.Tests/DocumentCodeAgreementTests.cs` — **8 tests**,
@@ -3608,7 +3611,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **▶ SCOPE — the CHECK, not a doc rewrite.** Start with the claims that are mechanically checkable against the
     tree and nothing more: **(i)** a documented **count** that must match what the code actually seeds — the
     **23-vs-24 voucher-type count** is the worked example, and **establishing that number is W0-6's job, not this
-    row's** (`NEXT_SESSION_KICKOFF.md:128-129`); **(ii)** a documented **`file.cs:NNN` citation** that must
+    row's** (`NEXT_SESSION_KICKOFF.md:11-14`, which records W0-6's count half as paid on 2026-08-15); **(ii)** a documented **`file.cs:NNN` citation** that must
     resolve to a line that still exists; **(iii)** a **register row marked OPEN whose named fix commit is already
     an ancestor of HEAD** — the exact shape that produced IV-9, D7 and IV-20(a), and the one a machine can decide
     outright. **The machinery already exists and has simply never been pointed at `docs/`:** `RepoRoot()` is
